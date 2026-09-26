@@ -7,10 +7,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
-import com.amaury.pointage.v2.engine.CelestialGlobeModeV2
-import com.amaury.pointage.v2.engine.CelestialGlobeSceneResolverV2
 import com.amaury.pointage.v2.engine.CelestialSnapshotV2
-import com.amaury.pointage.v2.engine.EarthGlobeProjectionV2
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
@@ -31,27 +28,18 @@ import kotlin.math.sqrt
  * de l'utilisateur devient le point au centre de la sphère. Ainsi, en France la
  * France est face à l'utilisateur ; au Japon, le Japon l'est automatiquement.
  *
- * Les pixels sont calculés Nord en haut, indépendamment du cap. L'horloge applique
- * ensuite une contre-rotation de présentation autour du centre fixe du globe.
- * Le cap ne modifie ni la géographie ni le cache de projection/éclairage.
+ * Le globe ne dépend volontairement pas du cap du téléphone. Le ciel tourne avec
+ * la boussole, mais la Terre centrale reste une référence géographique stable.
  *
  * La projection par pixel est calculée hors du thread UI. Le dernier bitmap valide
  * reste affiché pendant la reconstruction puis est remplacé atomiquement sur main.
  */
 internal fun earthSunBrightnessV2(sunDot: Double, depth: Double): Double {
-    val normalized = sunDot.coerceIn(-1.0, 1.0)
-    val direct = normalized.coerceAtLeast(0.0)
-
-    // Bande crépusculaire douce autour du terminateur réel. Elle ne déplace jamais
-    // la frontière physique : elle évite seulement un passage visuel trop brutal
-    // entre nuit et jour sur un globe de quelques dizaines de pixels.
-    val twilightT = ((normalized + 0.12) / 0.22).coerceIn(0.0, 1.0)
-    val twilight = twilightT * twilightT * (3.0 - 2.0 * twilightT)
-    val illumination = max(direct.pow(0.62), twilight * 0.28)
-
-    // La face éclairée peut dépasser légèrement la texture native pour rester
-    // lisible ; la face nocturne conserve assez de détail pour reconnaître le globe.
-    val daylight = 0.16 + 0.96 * illumination
+    val direct = sunDot.coerceIn(-1.0, 1.0).coerceAtLeast(0.0)
+    // Renforce volontairement le contraste sur le petit globe : la zone directement
+    // éclairée gagne jusqu'à 12 %, tandis que la face nocturne reste lisible mais
+    // nettement plus sombre. La direction et le terminateur restent 100 % physiques.
+    val daylight = 0.18 + 0.94 * direct.pow(0.62)
     val limb = 0.68 + 0.32 * depth.coerceIn(0.0, 1.0)
     return (daylight * limb).coerceIn(0.14, 1.12)
 }
@@ -61,10 +49,10 @@ class EarthGlobeRendererV2(
 ) {
     private data class RenderRequest(
         val diameter: Int,
-        val viewLatitudeDeg: Double,
-        val viewLongitudeDeg: Double,
-        val sunLatitudeDeg: Double,
-        val sunLongitudeDeg: Double
+        val observerLatitudeDeg: Double,
+        val observerLongitudeDeg: Double,
+        val sunAzimuthDeg: Double,
+        val sunAltitudeDeg: Double
     )
 
     private data class CachedGlobe(
@@ -89,6 +77,11 @@ class EarthGlobeRendererV2(
         strokeWidth = 1.4f
         color = Color.argb(225, 255, 255, 255)
     }
+    private val limbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.1f
+        color = Color.argb(150, 220, 236, 255)
+    }
     private val destination = RectF()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val generation = AtomicLong(0L)
@@ -104,8 +97,7 @@ class EarthGlobeRendererV2(
         cx: Float,
         cy: Float,
         radius: Float,
-        snapshot: CelestialSnapshotV2?,
-        mode: CelestialGlobeModeV2 = CelestialGlobeModeV2.LOCAL
+        snapshot: CelestialSnapshotV2?
     ): Boolean {
         if (radius <= 1f) return false
 
@@ -114,61 +106,45 @@ class EarthGlobeRendererV2(
         // conserver le dernier globe V2 valide au lieu de retomber sur le PNG
         // historique clair. Aucune nouvelle acquisition n'est déclenchée ici.
         if (snapshot == null) {
-            return drawCachedGlobe(canvas, cx, cy, radius, null)
+            return drawCachedGlobe(canvas, cx, cy, radius)
         }
-
-        val scene = CelestialGlobeSceneResolverV2.resolve(snapshot, mode)
 
         // Le globe est calculé à 2x sa taille affichée puis réduit par Canvas.
         // C'est du supersampling uniquement : taille, forme et couleurs restent identiques.
         val displayDiameter = max(24, (radius * 2f).roundToInt())
         val request = RenderRequest(
             diameter = displayDiameter * GLOBE_SUPERSAMPLE,
-            viewLatitudeDeg = scene.viewLatitudeDeg,
-            viewLongitudeDeg = scene.viewLongitudeDeg,
-            sunLatitudeDeg = scene.sunLatitudeDeg,
-            sunLongitudeDeg = scene.sunLongitudeDeg
+            observerLatitudeDeg = snapshot.latitudeDeg,
+            observerLongitudeDeg = snapshot.longitudeDeg,
+            sunAzimuthDeg = snapshot.sun.azimuthDeg,
+            sunAltitudeDeg = snapshot.sun.altitudeDeg
         )
         requestRenderIfNeeded(request)
 
         // Une reconstruction ne retire jamais le dernier résultat valide.
-        return drawCachedGlobe(canvas, cx, cy, radius, scene)
+        return drawCachedGlobe(canvas, cx, cy, radius)
     }
 
     private fun drawCachedGlobe(
         canvas: Canvas,
         cx: Float,
         cy: Float,
-        radius: Float,
-        scene: com.amaury.pointage.v2.engine.EarthGlobeSceneV2?
+        radius: Float
     ): Boolean {
-        val cached = cachedGlobe ?: return false
-        val bitmap = cached.bitmap.takeUnless { it.isRecycled } ?: return false
+        val bitmap = cachedGlobe?.bitmap?.takeUnless { it.isRecycled } ?: return false
         destination.set(cx - radius, cy - radius, cx + radius, cy + radius)
         bitmapPaint.alpha = 255
         canvas.drawBitmap(bitmap, null, destination, bitmapPaint)
 
-        // En mode Local le marqueur reste exactement au centre. En mode Monde il
-        // suit sa vraie position projetée et disparaît naturellement derrière la Terre.
-        if (scene != null) {
-            val marker = EarthGlobeProjectionV2.project(
-                latitudeDeg = scene.userLatitudeDeg,
-                longitudeDeg = scene.userLongitudeDeg,
-                observerLatitudeDeg = cached.request.viewLatitudeDeg,
-                observerLongitudeDeg = cached.request.viewLongitudeDeg
-            )
-            if (marker.visible) {
-                val markerX = cx + (marker.x * radius).toFloat()
-                val markerY = cy + (marker.y * radius).toFloat()
-                val markerRadius = max(1.6f, radius * 0.065f)
-                canvas.drawCircle(markerX, markerY, markerRadius * 2.05f, markerHaloPaint)
-                canvas.drawCircle(markerX, markerY, markerRadius, markerPaint)
-                markerRingPaint.strokeWidth = max(1f, radius * 0.025f)
-                canvas.drawCircle(markerX, markerY, markerRadius * 2.25f, markerRingPaint)
-            }
-        }
+        // Le point GPS projeté est mathématiquement au centre du globe.
+        val markerRadius = max(1.6f, radius * 0.065f)
+        canvas.drawCircle(cx, cy, markerRadius * 2.05f, markerHaloPaint)
+        canvas.drawCircle(cx, cy, markerRadius, markerPaint)
+        markerRingPaint.strokeWidth = max(1f, radius * 0.025f)
+        canvas.drawCircle(cx, cy, markerRadius * 2.25f, markerRingPaint)
 
-        // The lit texture already defines the limb; no white outline around Earth.
+        limbPaint.strokeWidth = max(1f, radius * 0.022f)
+        canvas.drawCircle(cx, cy, radius - limbPaint.strokeWidth * 0.5f, limbPaint)
         return true
     }
 
@@ -264,8 +240,8 @@ class EarthGlobeRendererV2(
         val radius = diameter / 2.0
         val center = (diameter - 1) / 2.0
 
-        val observerLat = Math.toRadians(request.viewLatitudeDeg)
-        val observerLon = Math.toRadians(request.viewLongitudeDeg)
+        val observerLat = Math.toRadians(request.observerLatitudeDeg)
+        val observerLon = Math.toRadians(request.observerLongitudeDeg)
         val sinObserverLat = sin(observerLat)
         val cosObserverLat = cos(observerLat)
         val sinObserverLon = sin(observerLon)
@@ -281,12 +257,12 @@ class EarthGlobeRendererV2(
         val upY = cosObserverLat * sinObserverLon
         val upZ = sinObserverLat
 
-        val sunLat = Math.toRadians(request.sunLatitudeDeg)
-        val sunLon = Math.toRadians(request.sunLongitudeDeg)
-        val cosSunLat = cos(sunLat)
-        val sunWorldX = cosSunLat * cos(sunLon)
-        val sunWorldY = cosSunLat * sin(sunLon)
-        val sunWorldZ = sin(sunLat)
+        val sunAz = Math.toRadians(request.sunAzimuthDeg)
+        val sunAlt = Math.toRadians(request.sunAltitudeDeg)
+        val cosSunAlt = cos(sunAlt)
+        val sunEast = cosSunAlt * sin(sunAz)
+        val sunNorth = cosSunAlt * cos(sunAz)
+        val sunUp = sin(sunAlt)
 
         for (py in 0 until diameter) {
             if (!isCurrent()) return null
@@ -315,7 +291,7 @@ class EarthGlobeRendererV2(
                 // Lambert simplifié avec le vrai Soleil local. Le contraste est
                 // volontairement renforcé pour que l'éclairage reste visible sur le
                 // petit globe, sans déplacer ni élargir artificiellement la zone jour.
-                val sunDot = worldX * sunWorldX + worldY * sunWorldY + worldZ * sunWorldZ
+                val sunDot = xEast * sunEast + yNorth * sunNorth + depth * sunUp
                 val brightness = earthSunBrightnessV2(sunDot, depth)
 
                 val edgePixels = (1.0 - sqrt(rho2)) * radius
@@ -333,10 +309,10 @@ class EarthGlobeRendererV2(
 
     private fun equivalent(a: RenderRequest, b: RenderRequest): Boolean =
         a.diameter == b.diameter &&
-            angularDifference(a.viewLatitudeDeg, b.viewLatitudeDeg) <= LOCATION_CACHE_EPSILON_DEG &&
-            angularDifferenceLongitude(a.viewLongitudeDeg, b.viewLongitudeDeg) <= LOCATION_CACHE_EPSILON_DEG &&
-            angularDifference(a.sunLatitudeDeg, b.sunLatitudeDeg) <= SUN_CACHE_EPSILON_DEG &&
-            angularDifferenceLongitude(a.sunLongitudeDeg, b.sunLongitudeDeg) <= SUN_CACHE_EPSILON_DEG
+            angularDifference(a.observerLatitudeDeg, b.observerLatitudeDeg) <= LOCATION_CACHE_EPSILON_DEG &&
+            angularDifferenceLongitude(a.observerLongitudeDeg, b.observerLongitudeDeg) <= LOCATION_CACHE_EPSILON_DEG &&
+            angularDifference(a.sunAzimuthDeg, b.sunAzimuthDeg) <= SUN_CACHE_EPSILON_DEG &&
+            angularDifference(a.sunAltitudeDeg, b.sunAltitudeDeg) <= SUN_CACHE_EPSILON_DEG
 
     private fun angularDifference(a: Double, b: Double): Double {
         if (!a.isFinite() || !b.isFinite()) return Double.POSITIVE_INFINITY

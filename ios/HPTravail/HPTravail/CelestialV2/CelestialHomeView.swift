@@ -3,98 +3,33 @@ import SwiftUI
 import UIKit
 
 struct CelestialHomeView: View {
-    @Binding private var tabBarVisible: Bool
     @EnvironmentObject private var locationManager: LocationManager
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
-    @AppStorage(CelestialGlobeModeV2.preferenceKey) private var globeModeRaw = CelestialGlobeModeV2.local.rawValue
     @State private var isVisible = false
-    @State private var tabBarHideTask: Task<Void, Never>?
-    @StateObject private var weather = CelestialWeatherClientV2()
-
-    init(tabBarVisible: Binding<Bool> = .constant(true)) {
-        _tabBarVisible = tabBarVisible
-    }
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                homeSkyBase
-                    .ignoresSafeArea()
+            ScrollView {
+                VStack(spacing: 18) {
+                    Text(Date.now.formatted(date: .complete, time: .shortened))
+                        .font(.headline)
+                        .multilineTextAlignment(.center)
 
-                // Clouds modulate the base before stars; canonical visibility is applied only once.
-                CelestialCloudLayerV2(
-                    renderState: celestialRenderState
-                )
-                .ignoresSafeArea()
-
-                CelestialStarFieldViewV2(
-                    state: locationManager.celestialState,
-                    presentation: .fullScreen,
-                    renderState: celestialRenderState
-                )
-                .ignoresSafeArea()
-
-                GeometryReader { viewport in
-                    ScrollView {
-                        VStack(spacing: 18) {
-                            ZStack {
-                                skyPanel
-                                    .frame(maxWidth: 470)
-                                    .position(
-                                        x: viewport.size.width / 2,
-                                        y: viewport.size.height / 2
-                                    )
-
-                                Text(Date.now.formatted(date: .complete, time: .shortened))
-                                    .font(.headline)
-                                    .foregroundStyle(homeForegroundColor)
-                                    .shadow(
-                                        color: homeUsesDarkText
-                                            ? .white.opacity(0.55)
-                                            : .black.opacity(0.65),
-                                        radius: 2,
-                                        y: 1
-                                    )
-                                    .multilineTextAlignment(.center)
-                                    .frame(maxWidth: .infinity, alignment: .top)
-                                    .padding(.top, 8)
-                            }
-                            .frame(
-                                width: viewport.size.width,
-                                height: max(520, viewport.size.height)
-                            )
-
-                            detailsPanel
-                                .frame(maxWidth: 600)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                    }
+                    dashboard
                 }
+                .frame(maxWidth: .infinity)
+                .padding()
             }
             .navigationTitle("Accueil")
-            // Preserve the system bar's safe-area slot; only its opacity changes.
-            .toolbar(.visible, for: .tabBar)
-            .background(HomeTabBarFadeV2(isVisible: tabBarVisible))
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        revealTabBarAndScheduleHide()
-                    }
-            )
             .onAppear {
                 isVisible = true
-                revealTabBarAndScheduleHide()
                 if scenePhase == .active {
                     locationManager.startCelestialTracking()
                 }
             }
             .onDisappear {
                 isVisible = false
-                tabBarHideTask?.cancel()
-                tabBarHideTask = nil
-                tabBarVisible = true
                 locationManager.stopCelestialTracking()
             }
             .onChange(of: scenePhase) { phase in
@@ -104,131 +39,42 @@ struct CelestialHomeView: View {
                     locationManager.stopCelestialTracking()
                 }
             }
-            .task(id: weatherRequestKey) {
-                guard isVisible,
-                      let snapshot = locationManager.celestialState.snapshot else {
-                    return
-                }
-                await weather.refreshIfNeeded(snapshot: snapshot)
+        }
+    }
+
+    private var dashboard: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 20) {
+                skyPanel
+                    .frame(minWidth: 300, maxWidth: 470)
+                detailsPanel
+                    .frame(minWidth: 280, maxWidth: 410)
+            }
+            .frame(maxWidth: 900)
+
+            VStack(spacing: 18) {
+                skyPanel
+                    .frame(maxWidth: 470)
+                detailsPanel
+                    .frame(maxWidth: 600)
             }
         }
-    }
-
-    private var celestialRenderState: CelestialRenderStateV2? {
-        let state = locationManager.celestialState
-        guard state.locationQuality == .valid,
-              let snapshot = state.snapshot else {
-            return nil
-        }
-        return CelestialRenderStateFactoryV2.build(
-            snapshot: snapshot,
-            weather: weather.state,
-            ambient: CelestialAmbientLightV2.currentState,
-            orientationQuality: state.headingQuality,
-            locationQuality: state.locationQuality,
-            locationAge: state.locationAge,
-            locationSource: state.locationQuality == .valid ? "CoreLocation" : nil,
-            headingAge: state.headingAge
-        )
-    }
-
-    private var homeUsesDarkText: Bool {
-        guard let render = celestialRenderState else { return false }
-        return render.solarLightLevel >= 0.58 && render.nightLevel < 0.20
-    }
-
-    private var homeForegroundColor: Color {
-        guard celestialRenderState != nil else { return .primary }
-        return homeUsesDarkText ? Color.black.opacity(0.84) : .white
-    }
-
-    private var weatherRequestKey: String {
-        guard let snapshot = locationManager.celestialState.snapshot else { return "none" }
-        let bucket = Int(snapshot.date.timeIntervalSince1970 / (15 * 60))
-        return String(
-            format: "%.2f:%.2f:%d",
-            snapshot.latitudeDegrees,
-            snapshot.longitudeDegrees,
-            bucket
-        )
-    }
-
-    @ViewBuilder
-    private var homeSkyBase: some View {
-        if let render = celestialRenderState {
-            ZStack {
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.004, green: 0.02, blue: 0.055),
-                        Color(red: 0.0, green: 0.004, blue: 0.025)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .opacity(render.nightLevel)
-
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.20, green: 0.25, blue: 0.45),
-                        Color(red: 0.92, green: 0.54, blue: 0.36)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .opacity(render.twilightLevel)
-
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.21, green: 0.55, blue: 0.88),
-                        Color(red: 0.69, green: 0.87, blue: 0.97)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .opacity(render.solarLightLevel)
-            }
-        } else {
-            // Fail-closed : sans position/éphéméride qualifiée, ne pas afficher
-            // un faux ciel de jour ou de nuit.
-            Color(uiColor: .systemBackground)
-        }
-    }
-
-    private func revealTabBarAndScheduleHide() {
-        tabBarHideTask?.cancel()
-        tabBarVisible = true
-        tabBarHideTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: HomeTabBarVisibilityPolicyV2.inactivityTimeoutNanoseconds)
-            guard !Task.isCancelled, isVisible else { return }
-            tabBarVisible = false
-        }
+        .frame(maxWidth: .infinity)
     }
 
     private var skyPanel: some View {
-        CelestialSkyDialV2(
-            state: locationManager.celestialState,
-            globeMode: CelestialGlobeModeV2(rawValue: globeModeRaw) ?? .local,
-            renderState: celestialRenderState
-        )
+        CelestialSkyDialV2(state: locationManager.celestialState)
             .aspectRatio(1, contentMode: .fit)
             .frame(maxWidth: 470)
     }
 
     private var detailsPanel: some View {
         VStack(spacing: 18) {
-            if shouldShowReliabilityCard {
-                reliabilityCard
-            }
+            reliabilityCard
             if let snapshot = locationManager.celestialState.snapshot {
                 ephemerisCard(snapshot)
             }
         }
-    }
-
-    private var shouldShowReliabilityCard: Bool {
-        let state = locationManager.celestialState
-        guard state.locationQuality == .valid, state.snapshot != nil else { return true }
-        return !CelestialHeadingPolicyV2.isUsable(state.headingQuality)
     }
 
     private var reliabilityCard: some View {
@@ -311,11 +157,7 @@ struct CelestialHomeView: View {
                     }
                 }
             }
-            Text(
-                celestialRenderState?.clouds == nil
-                    ? "La météo locale est indisponible : Céleste conserve uniquement le ciel astronomique."
-                    : "La météo locale module les nuages et la visibilité sans modifier les positions astronomiques."
-            )
+            Text("Les angles affichés restent géométriques. La projection du cadran applique une réfraction atmosphérique moyenne ; la météo locale n’est pas incluse.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -365,15 +207,15 @@ struct CelestialHomeView: View {
         case .valid:
             return "Position GPS et cap vrai sont suffisamment récents pour orienter le cadran."
         case .unknownAccuracy:
-            return "Le cap ne fournit pas d’incertitude numérique ; Céleste utilise un mode Nord stable."
+            return "Le cap ne fournit pas d’incertitude numérique ; les astres directionnels restent masqués."
         case .inaccurate:
-            return "Le cap dépasse le seuil de qualité de 15° ; Céleste utilise un mode Nord stable."
+            return "Le cap dépasse le seuil de qualité de 15° ; les astres directionnels restent masqués."
         case .unreliable:
-            return "Le capteur signale un cap non fiable ; Céleste utilise un mode Nord stable."
+            return "Le capteur signale un cap non fiable ; les astres directionnels restent masqués."
         case .stale:
-            return "Le cap est trop ancien ; Céleste utilise un mode Nord stable."
+            return "Le cap n’a pas été rafraîchi depuis plus de cinq secondes."
         case .unavailable:
-            return "Le cap vrai ou Core Motion sont indisponibles ; Céleste utilise un mode Nord stable."
+            return "Le cap vrai ou l’attitude Core Motion ne sont pas disponibles sur cet appareil."
         }
     }
 
@@ -467,8 +309,6 @@ struct CelestialHomeView: View {
 
 private struct CelestialSkyDialV2: View {
     let state: CelestialTrackingStateV2
-    let globeMode: CelestialGlobeModeV2
-    let renderState: CelestialRenderStateV2?
 
     var body: some View {
         GeometryReader { geometry in
@@ -478,13 +318,7 @@ private struct CelestialSkyDialV2: View {
 
             ZStack {
                 Circle()
-                    .fill(Color.clear)
-                    .overlay {
-                        dialAtmosphereBackground
-                            .clipShape(Circle())
-                    }
-                    .background(Color.black, in: Circle())
-                CelestialStarFieldViewV2(state: state, presentation: .dial, renderState: renderState)
+                    .fill(backgroundGradient)
                 Circle()
                     .stroke(.white.opacity(0.55), lineWidth: 2)
                     .padding(size * 0.08)
@@ -495,85 +329,26 @@ private struct CelestialSkyDialV2: View {
                 cardinal("O", x: center.x - horizonRadius - 15, y: center.y)
 
                 if let snapshot = state.snapshot {
-                    CelestialGlobeViewV2(
-                        snapshot: snapshot,
-                        mode: globeMode,
-                        renderingHeadingDegrees: CelestialHeadingPolicyV2.renderingHeadingDegrees(
-                            headingDegrees: state.trueHeadingDegrees,
-                            quality: state.headingQuality
-                        )
-                    )
+                    CelestialGlobeViewV2(snapshot: snapshot)
                         .frame(width: size * 0.29, height: size * 0.29)
                         .position(center)
                 } else {
                     Circle()
                         .fill(.blue.opacity(0.42))
+                        .overlay(Circle().stroke(.white.opacity(0.7), lineWidth: 1))
                         .frame(width: size * 0.22, height: size * 0.22)
                         .position(center)
                 }
 
-                if state.locationQuality == .valid,
-                   let snapshot = state.snapshot {
-                    let heading = CelestialHeadingPolicyV2.renderingHeadingDegrees(
-                        headingDegrees: state.trueHeadingDegrees,
-                        quality: state.headingQuality
-                    )
+                if state.hasRealDirectionalSky,
+                   let snapshot = state.snapshot,
+                   let heading = state.trueHeadingDegrees {
                     let solarEclipse = try? SolarEclipseGeometryV2.evaluate(
                         sun: snapshot.sun,
                         moon: snapshot.moon
                     )
-                    let baseSunOpacity = CelestialHorizonTransitionV2.diskOpacity(
-                        altitudeDegrees: snapshot.sun.altitudeDegrees
-                    )
-                    let sunOpacity = renderState?.sunVisibility ?? baseSunOpacity
-                    let moonOpacity = renderState?.moonVisibility ??
-                        CelestialHorizonTransitionV2.diskOpacity(
-                            altitudeDegrees: snapshot.moon.altitudeDegrees
-                        )
-                    let environmentFactor: Double = {
-                        if baseSunOpacity > 0.001, let renderState {
-                            return min(
-                                1,
-                                max(0, renderState.sunVisibility / baseSunOpacity)
-                            )
-                        }
-                        return min(
-                            1,
-                            max(0, 1 - (renderState?.atmosphereOpacity ?? 0))
-                        )
-                    }()
-                    let sunGlowOpacity = CelestialHorizonTransitionV2.sunGlowOpacity(
-                        altitudeDegrees: snapshot.sun.altitudeDegrees
-                    ) * (0.45 + 0.55 * environmentFactor)
-
-                    if sunGlowOpacity > 0 {
-                        Circle()
-                            .fill(
-                                RadialGradient(
-                                    colors: [
-                                        .orange.opacity(0.52 * sunGlowOpacity),
-                                        .yellow.opacity(0.24 * sunGlowOpacity),
-                                        .clear
-                                    ],
-                                    center: .center,
-                                    startRadius: 0,
-                                    endRadius: size * 0.12
-                                )
-                            )
-                            .frame(width: size * 0.24, height: size * 0.24)
-                            .position(
-                                horizonPoint(
-                                    for: snapshot.sun,
-                                    heading: heading,
-                                    center: center,
-                                    radius: horizonRadius
-                                )
-                            )
-                    }
-
                     if let solarEclipse, solarEclipse.isEclipse,
-                       sunOpacity > 0,
-                       moonOpacity > 0 {
+                       snapshot.sun.altitudeDegrees >= AtmosphericRefractionV2.standardSolarDiskHorizonDegrees {
                         let sunPoint = point(
                             for: snapshot.sun,
                             heading: heading,
@@ -595,47 +370,15 @@ private struct CelestialSkyDialV2: View {
                             moonDirectionRadians: moonDirection
                         )
                             .frame(width: size * 0.15, height: size * 0.15)
-                            .scaleEffect(CGFloat(0.82 + 0.18 * min(sunOpacity, moonOpacity)))
-                            .opacity(min(sunOpacity, moonOpacity))
                             .position(sunPoint)
                     } else {
-                        if sunOpacity > 0 {
+                        if snapshot.sun.altitudeDegrees >= AtmosphericRefractionV2.standardSolarDiskHorizonDegrees {
                             marker(symbol: "sun.max.fill", color: .yellow, size: size * 0.10)
-                                .scaleEffect(
-                                    CGFloat(
-                                        CelestialHorizonTransitionV2.diskScale(
-                                            altitudeDegrees: snapshot.sun.altitudeDegrees
-                                        )
-                                    )
-                                )
-                                .opacity(sunOpacity)
-                                .position(
-                                    point(
-                                        for: snapshot.sun,
-                                        heading: heading,
-                                        center: center,
-                                        radius: horizonRadius
-                                    )
-                                )
+                                .position(point(for: snapshot.sun, heading: heading, center: center, radius: horizonRadius))
                         }
-                        if moonOpacity > 0 {
+                        if snapshot.moon.altitudeDegrees >= AtmosphericRefractionV2.standardSolarDiskHorizonDegrees {
                             marker(symbol: "moon.fill", color: .white, size: size * 0.085)
-                                .scaleEffect(
-                                    CGFloat(
-                                        CelestialHorizonTransitionV2.diskScale(
-                                            altitudeDegrees: snapshot.moon.altitudeDegrees
-                                        )
-                                    )
-                                )
-                                .opacity(moonOpacity)
-                                .position(
-                                    point(
-                                        for: snapshot.moon,
-                                        heading: heading,
-                                        center: center,
-                                        radius: horizonRadius
-                                    )
-                                )
+                                .position(point(for: snapshot.moon, heading: heading, center: center, radius: horizonRadius))
                         }
                     }
                 }
@@ -646,37 +389,13 @@ private struct CelestialSkyDialV2: View {
         .accessibilityLabel(accessibilityDescription)
     }
 
-    @ViewBuilder
-    private var dialAtmosphereBackground: some View {
-        if let renderState {
-            ZStack {
-                LinearGradient(
-                    colors: [.black, .indigo],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .opacity(renderState.nightLevel)
-
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.20, green: 0.25, blue: 0.45),
-                        Color(red: 0.92, green: 0.54, blue: 0.36)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .opacity(renderState.twilightLevel)
-
-                LinearGradient(
-                    colors: [.blue.opacity(0.85), .cyan.opacity(0.5)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .opacity(renderState.solarLightLevel)
-            }
-        } else {
-            Color.clear
-        }
+    private var backgroundGradient: LinearGradient {
+        let night = state.locationQuality == .valid && (state.snapshot?.isNight ?? false)
+        return LinearGradient(
+            colors: night ? [.black, .indigo] : [.blue.opacity(0.85), .cyan.opacity(0.5)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 
     private func cardinal(_ value: String, x: CGFloat, y: CGFloat) -> some View {
@@ -699,7 +418,7 @@ private struct CelestialSkyDialV2: View {
         center: CGPoint,
         radius: CGFloat
     ) -> CGPoint {
-        guard let projected = CelestialDialProjectionV2.projectSpherical(
+        guard let projected = CelestialDialProjectionV2.project(
             azimuthDegrees: body.azimuthDegrees,
             altitudeDegrees: body.altitudeDegrees,
             trueHeadingDegrees: heading
@@ -712,39 +431,11 @@ private struct CelestialSkyDialV2: View {
         )
     }
 
-    private func horizonPoint(
-        for body: CelestialBodyV2,
-        heading: Double,
-        center: CGPoint,
-        radius: CGFloat
-    ) -> CGPoint {
-        let projectedAltitude = CelestialHorizonTransitionV2.altitudeForHorizonGlow(
-            body.altitudeDegrees
-        )
-        guard let projected = CelestialDialProjectionV2.projectSpherical(
-            azimuthDegrees: body.azimuthDegrees,
-            altitudeDegrees: projectedAltitude,
-            trueHeadingDegrees: heading
-        ) else {
-            return center
-        }
-        return CGPoint(
-            x: center.x + CGFloat(projected.x) * radius,
-            y: center.y + CGFloat(projected.y) * radius
-        )
-    }
-
     private var accessibilityDescription: String {
-        guard state.locationQuality == .valid, let snapshot = state.snapshot else {
-            return "Cadran céleste. Le ciel local précis nécessite une localisation qualifiée."
+        guard state.hasRealDirectionalSky, let snapshot = state.snapshot else {
+            return "Cadran céleste. Globe local indisponible ou direction masquée car les capteurs ne sont pas assez fiables."
         }
         let daylight = snapshot.isNight ? "nuit locale" : "jour local"
-        let globeDescription = globeMode == .local
-            ? "globe centré sur la position GPS"
-            : "globe monde montrant le terminateur jour nuit"
-        let orientationDescription = CelestialHeadingPolicyV2.isUsable(state.headingQuality)
-            ? "point de vue orienté au cap vrai"
-            : "point de vue Nord stable"
-        return "Cadran céleste avec \(globeDescription), \(daylight), \(orientationDescription). Soleil azimut \(Int(snapshot.sun.azimuthDegrees.rounded())) degrés, altitude \(Int(snapshot.sun.altitudeDegrees.rounded())) degrés. Lune azimut \(Int(snapshot.moon.azimuthDegrees.rounded())) degrés, altitude \(Int(snapshot.moon.altitudeDegrees.rounded())) degrés."
+        return "Cadran céleste avec globe centré sur la position GPS, \(daylight). Soleil azimut \(Int(snapshot.sun.azimuthDegrees.rounded())) degrés, altitude \(Int(snapshot.sun.altitudeDegrees.rounded())) degrés. Lune azimut \(Int(snapshot.moon.azimuthDegrees.rounded())) degrés, altitude \(Int(snapshot.moon.altitudeDegrees.rounded())) degrés."
     }
 }

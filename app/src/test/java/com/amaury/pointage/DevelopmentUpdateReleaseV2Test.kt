@@ -10,8 +10,6 @@ class DevelopmentUpdateReleaseV2Test {
     @Test
     fun `reconnait uniquement une version de developpement HoraTrack`() {
         assertTrue(DevelopmentUpdateReleaseV2.isDevelopmentVersion("1.1440-dev-1788696000"))
-        assertTrue(DevelopmentUpdateReleaseV2.isDevelopmentVersion("1.1452-celeste-dev-1790233474"))
-        assertEquals("1790233474", DevelopmentUpdateReleaseV2.revision("1.1452-celeste-dev-1790233474"))
         assertFalse(DevelopmentUpdateReleaseV2.isDevelopmentVersion("1.1440"))
         assertFalse(DevelopmentUpdateReleaseV2.isDevelopmentVersion("dev-latest"))
         assertEquals("1788696000", DevelopmentUpdateReleaseV2.revision("1.1440-dev-1788696000"))

@@ -19,7 +19,8 @@ final class PayrollEngineV2Tests: XCTestCase {
         let result = try PayrollEngineV2.calculate(
             contract: hourlyContract(),
             weeks: [PayrollWeekV2(paidMinutes: 40 * 60)],
-            rules: PayrollRulesV2()
+            rules: PayrollRulesV2(),
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.regularGross, 350, accuracy: 0.001)
@@ -36,7 +37,8 @@ final class PayrollEngineV2Tests: XCTestCase {
                 overtimeTiers: [
                     OvertimeTierV2(fromMinutes: 35 * 60, toMinutes: nil, multiplier: 1.25)
                 ]
-            )
+            ),
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.regularGross, 350, accuracy: 0.001)
@@ -57,7 +59,8 @@ final class PayrollEngineV2Tests: XCTestCase {
             rules: PayrollRulesV2(
                 nightMultiplier: 1.25,
                 sundayMultiplier: 2.0
-            )
+            ),
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.premiumsGross, 22.5, accuracy: 0.001)
@@ -77,7 +80,8 @@ final class PayrollEngineV2Tests: XCTestCase {
             rules: PayrollRulesV2(
                 nightMultiplier: 1.25,
                 sundayMultiplier: 2.0
-            )
+            ),
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.premiumsGross, 12.5, accuracy: 0.001)
@@ -88,7 +92,8 @@ final class PayrollEngineV2Tests: XCTestCase {
             try PayrollEngineV2.calculate(
                 contract: hourlyContract(),
                 weeks: [PayrollWeekV2(paidMinutes: -1)],
-                rules: PayrollRulesV2()
+                rules: PayrollRulesV2(),
+                evidence: .fullyConfirmed
             )
         ) { error in
             XCTAssertEqual(error as? PayrollEngineErrorV2, .invalidPaidMinutes)
@@ -100,7 +105,8 @@ final class PayrollEngineV2Tests: XCTestCase {
             try PayrollEngineV2.calculate(
                 contract: hourlyContract(),
                 weeks: [PayrollWeekV2(paidMinutes: 60, nightMinutes: -1)],
-                rules: PayrollRulesV2(nightMultiplier: 1.25)
+                rules: PayrollRulesV2(nightMultiplier: 1.25),
+                evidence: .fullyConfirmed
             )
         ) { error in
             XCTAssertEqual(error as? PayrollEngineErrorV2, .invalidPaidMinutes)
@@ -112,7 +118,8 @@ final class PayrollEngineV2Tests: XCTestCase {
             try PayrollEngineV2.calculate(
                 contract: hourlyContract(),
                 weeks: [PayrollWeekV2(paidMinutes: 60, publicHolidayMinutes: 61)],
-                rules: PayrollRulesV2(publicHolidayMultiplier: 1.5)
+                rules: PayrollRulesV2(publicHolidayMultiplier: 1.5),
+                evidence: .fullyConfirmed
             )
         ) { error in
             XCTAssertEqual(error as? PayrollEngineErrorV2, .invalidPaidMinutes)
@@ -124,7 +131,8 @@ final class PayrollEngineV2Tests: XCTestCase {
             contract: hourlyContract(),
             weeks: [PayrollWeekV2(paidMinutes: 35 * 60)],
             rules: PayrollRulesV2(),
-            baskets: [BasketV2(id: "meal", label: "Panier", amount: 6)]
+            baskets: [BasketV2(id: "meal", label: "Panier", amount: 6)],
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.grossEstimate, 350, accuracy: 0.001)
@@ -137,7 +145,8 @@ final class PayrollEngineV2Tests: XCTestCase {
             contract: hourlyContract(),
             weeks: [PayrollWeekV2(paidMinutes: 35 * 60)],
             rules: PayrollRulesV2(),
-            deductions: [DeductionV2(id: "known", label: "Retenue connue", amount: 50, recurring: true)]
+            deductions: [DeductionV2(id: "known", label: "Retenue connue", amount: 50, recurring: true)],
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.grossEstimate, 350, accuracy: 0.001)
@@ -164,7 +173,8 @@ final class PayrollEngineV2Tests: XCTestCase {
             rules: PayrollRulesV2(),
             premiums: [PremiumV2(id: "fixed", label: "Prime", amount: 100, periodicity: .monthly)],
             baskets: [BasketV2(id: "meal", label: "Panier", amount: 20)],
-            deductions: [DeductionV2(id: "known", label: "Retenue", amount: 50, recurring: true)]
+            deductions: [DeductionV2(id: "known", label: "Retenue", amount: 50, recurring: true)],
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.regularGross, 2_500, accuracy: 0.001)
@@ -189,7 +199,8 @@ final class PayrollEngineV2Tests: XCTestCase {
         let result = try PayrollEngineV2.calculate(
             contract: contract,
             weeks: [],
-            rules: PayrollRulesV2()
+            rules: PayrollRulesV2(),
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.regularGross, 3_000, accuracy: 0.001)
@@ -205,7 +216,8 @@ final class PayrollEngineV2Tests: XCTestCase {
                 overtimeTiers: [
                     OvertimeTierV2(fromMinutes: 35 * 60, toMinutes: nil, multiplier: 0.5)
                 ]
-            )
+            ),
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.regularGross, 350, accuracy: 0.001)
@@ -215,4 +227,26 @@ final class PayrollEngineV2Tests: XCTestCase {
         XCTAssertTrue(result.traces.contains { $0.contains("ambigus ou invalides") })
         XCTAssertTrue(result.traces.contains { $0.contains("brut reste à confirmer") })
     }
+
+    func testMissingUpstreamEvidenceKeepsKnownGrossButMarksItUnreliable() throws {
+        let confirmed = try PayrollEngineV2.calculate(
+            contract: hourlyContract(),
+            weeks: [PayrollWeekV2(paidMinutes: 35 * 60)],
+            rules: PayrollRulesV2(),
+            evidence: .fullyConfirmed
+        )
+        let unknown = try PayrollEngineV2.calculate(
+            contract: hourlyContract(),
+            weeks: [PayrollWeekV2(paidMinutes: 35 * 60)],
+            rules: PayrollRulesV2()
+        )
+
+        XCTAssertEqual(unknown.grossEstimate, confirmed.grossEstimate, accuracy: 0.001)
+        XCTAssertTrue(confirmed.grossReliable)
+        XCTAssertFalse(unknown.grossReliable)
+        XCTAssertTrue(unknown.traces.contains { $0.contains("temps payé amont non fiable") })
+        XCTAssertTrue(unknown.traces.contains { $0.contains("ventilation nuit") })
+        XCTAssertTrue(unknown.traces.contains { $0.contains("règles de majoration") })
+    }
+
 }
