@@ -35,22 +35,24 @@ class SecurityUiInitProvider : ContentProvider() {
     private fun install(activity: Activity) {
         if (activity !is MainActivity) return
         activity.window.decorView.post {
-            val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return@post
-            val existing = panel.findViewWithTag<View>(TAG_SECURITY_BLOCK)
+            SettingsV2SectionOrganizer.organize(activity)
+            val panel = SettingsV2Host.panel(activity) ?: return@post
+            val destination = SettingsV2Host.section(activity, SettingsV2Host.TAG_ACCOUNT_SECURITY) ?: panel
+            val existing = destination.findViewWithTag<View>(TAG_SECURITY_BLOCK)
             val user = FirebaseAuth.getInstance().currentUser
 
             if (user == null) {
-                if (existing != null) panel.removeView(existing)
+                if (existing != null) (existing.parent as? ViewGroup)?.removeView(existing)
                 return@post
             }
 
             FirebaseFirestore.getInstance().collection("users").document(user.uid).get()
                 .addOnSuccessListener { profile ->
                     val isOwner = profile.getBoolean("owner") == true
-                    val current = panel.findViewWithTag<View>(TAG_SECURITY_BLOCK)
+                    val current = destination.findViewWithTag<View>(TAG_SECURITY_BLOCK)
 
                     if (!isOwner) {
-                        if (current != null) panel.removeView(current)
+                        if (current != null) (current.parent as? ViewGroup)?.removeView(current)
                         return@addOnSuccessListener
                     }
 
@@ -77,12 +79,12 @@ class SecurityUiInitProvider : ContentProvider() {
                         setBackgroundResource(R.drawable.hp_panel)
                         setOnClickListener { activity.startActivity(Intent(activity, SecurityInfoActivity::class.java)) }
                     }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-                    panel.addView(block)
+                    destination.addView(block)
                     AppearanceManager.apply(activity)
                 }
                 .addOnFailureListener {
-                    val current = panel.findViewWithTag<View>(TAG_SECURITY_BLOCK)
-                    if (current != null) panel.removeView(current)
+                    val current = destination.findViewWithTag<View>(TAG_SECURITY_BLOCK)
+                    if (current != null) (current.parent as? ViewGroup)?.removeView(current)
                 }
         }
     }

@@ -55,6 +55,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         }
         activity.window.decorView.post {
             PrimaryButtonIsolation.install(activity)
+            SettingsV2SectionOrganizer.organize(activity)
             installEmployerSelector(activity)
             V2ManualEntryInstaller.install(activity)
             installOwnerShortcut(activity)
@@ -135,24 +136,30 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     }
 
     private fun installGpsZoneTypeSelector(activity: MainActivity) {
-        val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
-        if (panel.findViewWithTag<View>(GpsZoneTypeView.TAG) == null) {
-            panel.addView(GpsZoneTypeView(activity), ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val destination = SettingsV2Host.section(activity, SettingsV2Host.TAG_POINTAGE)
+            ?: SettingsV2Host.panel(activity)
+            ?: return
+        if (destination.findViewWithTag<View>(GpsZoneTypeView.TAG) == null) {
+            destination.addView(GpsZoneTypeView(activity), ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
     }
 
     private fun installBackupRestore(activity: MainActivity) {
-        val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
-        if (panel.findViewWithTag<View>(V2BackupRestoreView.TAG) == null) {
-            panel.addView(V2BackupRestoreView(activity), ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val destination = SettingsV2Host.section(activity, SettingsV2Host.TAG_DRIVE)
+            ?: SettingsV2Host.panel(activity)
+            ?: return
+        if (destination.findViewWithTag<View>(V2BackupRestoreView.TAG) == null) {
+            destination.addView(V2BackupRestoreView(activity), ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
     }
 
     private fun installSecuritySettings(activity: MainActivity) {
-        val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
-        val existing = panel.findViewWithTag<V2SecuritySettingsView>(V2SecuritySettingsView.TAG)
+        val destination = SettingsV2Host.section(activity, SettingsV2Host.TAG_ACCOUNT_SECURITY)
+            ?: SettingsV2Host.panel(activity)
+            ?: return
+        val existing = destination.findViewWithTag<V2SecuritySettingsView>(V2SecuritySettingsView.TAG)
         if (existing == null) {
-            panel.addView(V2SecuritySettingsView(activity), ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            destination.addView(V2SecuritySettingsView(activity), ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         } else existing.refresh()
     }
 
@@ -164,8 +171,10 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     }
 
     private fun installReplayButton(activity: MainActivity) {
-        val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
-        if (panel.findViewWithTag<View>("first_steps_replay") != null) return
+        val destination = SettingsV2Host.section(activity, SettingsV2Host.TAG_EXTRAS)
+            ?: SettingsV2Host.panel(activity)
+            ?: return
+        if (destination.findViewWithTag<View>("first_steps_replay") != null) return
         val button = Button(activity).apply {
             tag = "first_steps_replay"
             text = "🎓 REVOIR LE TUTORIEL PREMIERS PAS"
@@ -174,7 +183,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             setOnClickListener { FirstStepsTutorial.restart(activity) }
             setOnLongClickListener(null)
         }
-        panel.addView(button, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        destination.addView(button, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
     private fun removeLegacyGpsTestButton(activity: MainActivity) {
