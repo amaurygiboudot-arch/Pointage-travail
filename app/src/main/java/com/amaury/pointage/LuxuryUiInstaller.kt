@@ -134,8 +134,7 @@ object LuxuryUiInstaller {
     }
 
     private fun installTransparencyControl(activity: MainActivity) {
-        val gpsPanel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
-        val settingsSection = gpsPanel.findViewWithTag<View>("settings_personalization_installed") as? LinearLayout ?: return
+        val settingsSection = SettingsV2Host.personalization(activity) ?: return
         if (settingsSection.findViewWithTag<View>(TAG_TRANSPARENCY) != null) return
 
         val prefs = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
@@ -173,8 +172,7 @@ object LuxuryUiInstaller {
     }
 
     private fun installFontSizeControl(activity: MainActivity) {
-        val gpsPanel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
-        val settingsSection = gpsPanel.findViewWithTag<View>("settings_personalization_installed") as? LinearLayout ?: return
+        val settingsSection = SettingsV2Host.personalization(activity) ?: return
         if (settingsSection.findViewWithTag<View>(TAG_FONT_CONTROL) != null) return
 
         val prefs = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)

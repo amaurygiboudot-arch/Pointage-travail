@@ -230,7 +230,7 @@ object ButtonReliefInstaller {
 
     private fun installThemeSelectorIfPossible(activity: Activity) {
         if (activity !is MainActivity) return
-        val section = activity.window.decorView.findViewWithTag<LinearLayout>("settings_personalization_installed") ?: return
+        val section = SettingsV2Host.personalization(activity) ?: return
         if (section.findViewWithTag<View>(TAG_THEME_BUTTON) != null) return
         val current = AppThemeCatalog.current(activity)
         val button = Button(activity).apply {
@@ -287,7 +287,7 @@ object ButtonReliefInstaller {
 
     private fun installDiamondLabIfPossible(activity: Activity) {
         if (activity !is MainActivity || AppThemeCatalog.current(activity).id != "diamond_crystal") return
-        val section = activity.window.decorView.findViewWithTag<LinearLayout>("settings_personalization_installed") ?: return
+        val section = SettingsV2Host.personalization(activity) ?: return
         if (section.findViewWithTag<View>(TAG_DIAMOND_LAB) != null) return
         val button = Button(activity).apply {
             tag = TAG_DIAMOND_LAB
@@ -311,7 +311,7 @@ object ButtonReliefInstaller {
 
     private fun installSolarToggleIfPossible(activity: Activity) {
         if (activity !is MainActivity) return
-        val section = activity.window.decorView.findViewWithTag<LinearLayout>("settings_personalization_installed") ?: return
+        val section = SettingsV2Host.personalization(activity) ?: return
         if (section.findViewWithTag<View>(TAG_SOLAR_SWITCH) != null) return
         val toggle = Switch(activity).apply {
             tag = TAG_SOLAR_SWITCH

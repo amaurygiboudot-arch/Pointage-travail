@@ -91,7 +91,7 @@ object ThemeFrameStyler {
         if (id == "contentPanel" || id == "gpsSettingsPanel" || id == "analyticsPdfPanel") return true
         if (id.contains("panel", ignoreCase = true) || id.contains("card", ignoreCase = true)) return true
         val tag = view.tag?.toString().orEmpty()
-        return tag == "settings_personalization_installed" ||
+        return tag == SettingsV2Host.TAG_PERSONALIZATION ||
             tag.contains("panel", ignoreCase = true) || tag.contains("card", ignoreCase = true)
     }
 

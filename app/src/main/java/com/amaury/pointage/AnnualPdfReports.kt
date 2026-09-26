@@ -197,7 +197,7 @@ object AnnualPdfReports {
         val pdf = PdfDocument()
         val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
         val canvas = page.canvas
-        PdfVisualStyle.header(canvas, 595, "BILAN ANNUEL DU TEMPS DE TRAVAIL — $year", "HoraTrack • Synthèse annuelle")
+        PdfVisualStyle.header(canvas, 595, "BILAN ANNUEL DU TEMPS DE TRAVAIL — $year", "AGKGMG • Synthèse annuelle")
 
         val header = PdfVisualStyle.boldPaint(9.2f)
         val normal = PdfVisualStyle.bodyPaint(8.8f)
@@ -358,7 +358,7 @@ object AnnualPdfReports {
         val pdf = PdfDocument()
         val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
         val canvas = page.canvas
-        PdfVisualStyle.header(canvas, 595, "ESTIMATION ANNUELLE DE RÉMUNÉRATION — $year", "Document indicatif • HoraTrack")
+        PdfVisualStyle.header(canvas, 595, "ESTIMATION ANNUELLE DE RÉMUNÉRATION — $year", "Document indicatif • AGKGMG")
         val header = PdfVisualStyle.boldPaint(9.2f)
         val normal = PdfVisualStyle.bodyPaint(8.7f)
         val small = PdfVisualStyle.bodyPaint(7.9f)
@@ -542,9 +542,9 @@ object AnnualPdfReports {
         )
         y += 80f
         if (ruleWarnings > 0) {
-            canvas.drawText("$ruleWarnings mois comportent une règle manquante ou à confirmer : HoraTrack n'a appliqué aucune valeur par défaut.", 30f, y, small)
+            canvas.drawText("$ruleWarnings mois comportent une règle manquante ou à confirmer : AGKGMG n'a appliqué aucune valeur par défaut.", 30f, y, small)
         } else {
-            canvas.drawText("Calcul basé uniquement sur le contrat, la convention confirmée et les sessions HoraTrack de l'employeur sélectionné.", 30f, y, small)
+            canvas.drawText("Calcul basé uniquement sur le contrat, la convention confirmée et les sessions AGKGMG de l'employeur sélectionné.", 30f, y, small)
         }
         PdfVisualStyle.footer(canvas, 595, 842, 1)
         pdf.finishPage(page)
@@ -558,7 +558,7 @@ object AnnualPdfReports {
         val pdf = PdfDocument()
         val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
         val canvas = page.canvas
-        PdfVisualStyle.header(canvas, 595, "BILAN ANNUEL DU TEMPS DE TRAVAIL — $year", "HoraTrack • mode rollback")
+        PdfVisualStyle.header(canvas, 595, "BILAN ANNUEL DU TEMPS DE TRAVAIL — $year", "AGKGMG • mode rollback")
         val header = PdfVisualStyle.boldPaint(9.2f)
         val normal = PdfVisualStyle.bodyPaint(8.8f)
         var y = 82f
@@ -588,7 +588,7 @@ object AnnualPdfReports {
         val pdf = PdfDocument()
         val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
         val canvas = page.canvas
-        PdfVisualStyle.header(canvas, 595, "ESTIMATION ANNUELLE DE RÉMUNÉRATION — $year", "HoraTrack • mode rollback")
+        PdfVisualStyle.header(canvas, 595, "ESTIMATION ANNUELLE DE RÉMUNÉRATION — $year", "AGKGMG • mode rollback")
         val normal = PdfVisualStyle.bodyPaint(8.8f)
         var y = 82f
         var gross = 0.0

@@ -26,7 +26,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Avertit l'utilisateur lorsqu'un nouveau backend Firebase HoraTrack a été déployé.
+ * Avertit l'utilisateur lorsqu'un nouveau backend Firebase AGKGMG a été déployé.
  *
  * Deux chemins complémentaires sont utilisés :
  *  - FCM pour l'alerte rapide ;
@@ -75,7 +75,7 @@ object FirebaseBackendUpdateNotice : Application.ActivityLifecycleCallbacks {
         val revision = data["revision"].orEmpty().trim()
         if (revision.isBlank()) return
         val title = data["title"].orEmpty().ifBlank { "Mise à jour Firebase terminée" }
-        val body = data["body"].orEmpty().ifBlank { "Le backend Firebase HoraTrack vient d'être mis à jour avec succès." }
+        val body = data["body"].orEmpty().ifBlank { "Le backend Firebase AGKGMG vient d'être mis à jour avec succès." }
         val deployedAtMs = data["deployedAtMs"]?.toLongOrNull() ?: System.currentTimeMillis()
         recordNewRevision(context.applicationContext, revision, title, body, deployedAtMs)
     }
@@ -109,7 +109,7 @@ object FirebaseBackendUpdateNotice : Application.ActivityLifecycleCallbacks {
                 val revision = snapshot.getString("revision").orEmpty().trim()
                 if (revision.isBlank()) return@addOnSuccessListener
                 val title = snapshot.getString("title").orEmpty().ifBlank { "Mise à jour Firebase terminée" }
-                val body = snapshot.getString("body").orEmpty().ifBlank { "Le backend Firebase HoraTrack a été mis à jour avec succès." }
+                val body = snapshot.getString("body").orEmpty().ifBlank { "Le backend Firebase AGKGMG a été mis à jour avec succès." }
                 val deployedAtMs = snapshot.getLong("deployedAtMs") ?: 0L
                 val current = prefs.getString(KEY_KNOWN_REVISION, "").orEmpty()
                 val pending = prefs.getString(KEY_PENDING_REVISION, "").orEmpty()
@@ -186,7 +186,7 @@ object FirebaseBackendUpdateNotice : Application.ActivityLifecycleCallbacks {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val text = body?.takeIf { it.isNotBlank() }
-            ?: "Le backend Firebase HoraTrack a été mis à jour avec succès."
+            ?: "Le backend Firebase AGKGMG a été mis à jour avec succès."
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.hp_logo_vector)
             .setContentTitle(title?.takeIf { it.isNotBlank() } ?: "Mise à jour Firebase terminée")
@@ -212,7 +212,7 @@ object FirebaseBackendUpdateNotice : Application.ActivityLifecycleCallbacks {
         val title = prefs.getString(KEY_PENDING_TITLE, null)?.takeIf { it.isNotBlank() }
             ?: "Mise à jour Firebase terminée"
         val body = prefs.getString(KEY_PENDING_BODY, null)?.takeIf { it.isNotBlank() }
-            ?: "Le backend Firebase HoraTrack a été mis à jour avec succès."
+            ?: "Le backend Firebase AGKGMG a été mis à jour avec succès."
         val deployedAtMs = prefs.getLong(KEY_PENDING_DEPLOYED_AT, 0L)
         val whenText = if (deployedAtMs > 0L) {
             SimpleDateFormat("dd/MM/yyyy à HH:mm", Locale.FRANCE).format(Date(deployedAtMs))
@@ -271,10 +271,10 @@ object FirebaseBackendUpdateNotice : Application.ActivityLifecycleCallbacks {
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
-                "Mises à jour Firebase HoraTrack",
+                "Mises à jour Firebase AGKGMG",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Avertit lorsqu'un nouveau backend Firebase HoraTrack est déployé"
+                description = "Avertit lorsqu'un nouveau backend Firebase AGKGMG est déployé"
             }
         )
     }
