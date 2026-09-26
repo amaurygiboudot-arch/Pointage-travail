@@ -11,6 +11,12 @@ import org.json.JSONObject
  * corrompue. Une configuration corrompue n'est jamais transformée en liste vide ou
  * partiellement acceptée : les événements automatiques doivent alors rester fermés.
  */
+internal data class StoredGpsArrivalContact(
+    val contactName: String?,
+    val phone: String?,
+    val enabled: Boolean
+)
+
 internal data class StoredGpsZone(
     val id: String,
     val latitude: Double,
@@ -23,7 +29,8 @@ internal data class StoredGpsZone(
     val companySlot: Int?,
     val pointTypeToken: String?,
     val label: String?,
-    val sourceJson: String
+    val sourceJson: String,
+    val arrivalContact: StoredGpsArrivalContact? = null
 ) {
     fun asWorkZone(): WorkZone = WorkZone(id, latitude, longitude, radius)
 }
@@ -136,6 +143,22 @@ internal fun parsePersistedGpsZones(raw: String?): GpsZonesReadResult {
             .map { key -> item.optString(key).trim() }
             .firstOrNull { it.isNotBlank() }
 
+        val arrivalContact = if (item.has("arrivalContact") && !item.isNull("arrivalContact")) {
+            val contact = item.optJSONObject("arrivalContact")
+                ?: return GpsZonesReadResult.Corrupt("Contact d'arrivée invalide pour la zone GPS $id")
+            val rawEnabled = if (contact.has("enabled")) contact.opt("enabled") else false
+            val enabled = when (rawEnabled) {
+                is Boolean -> rawEnabled
+                null, JSONObject.NULL -> false
+                else -> return GpsZonesReadResult.Corrupt("Activation du contact d'arrivée invalide pour la zone GPS $id")
+            }
+            StoredGpsArrivalContact(
+                contactName = contact.optString("contactName").trim().takeIf { it.isNotBlank() },
+                phone = contact.optString("phone").trim().takeIf { it.isNotBlank() },
+                enabled = enabled
+            )
+        } else null
+
         zones += StoredGpsZone(
             id = id,
             latitude = latitude,
@@ -146,7 +169,8 @@ internal fun parsePersistedGpsZones(raw: String?): GpsZonesReadResult {
             companySlot = companySlot,
             pointTypeToken = pointTypeToken,
             label = label,
-            sourceJson = item.toString()
+            sourceJson = item.toString(),
+            arrivalContact = arrivalContact
         )
     }
 
@@ -245,6 +269,56 @@ internal fun resolveGpsZoneLabel(
     }
     if (matches.size != 1) return null
     return matches.single().label?.trim()?.takeIf { it.isNotBlank() }
+}
+
+internal fun updateGpsZoneArrivalContactById(
+    zones: JSONArray,
+    zoneId: String,
+    contact: StoredGpsArrivalContact?
+): Boolean {
+    val targetId = zoneId.trim()
+    if (targetId.isBlank()) return false
+
+    for (index in 0 until zones.length()) {
+        val zone = zones.optJSONObject(index) ?: continue
+        if (zone.optString("id").trim() != targetId) continue
+
+        if (contact == null ||
+            (contact.contactName.isNullOrBlank() && contact.phone.isNullOrBlank() && !contact.enabled)
+        ) {
+            zone.remove("arrivalContact")
+        } else {
+            zone.put(
+                "arrivalContact",
+                JSONObject()
+                    .put("contactName", contact.contactName.orEmpty())
+                    .put("phone", contact.phone.orEmpty())
+                    .put("enabled", contact.enabled)
+            )
+        }
+        return true
+    }
+    return false
+}
+
+internal fun resolveGpsZoneArrivalContact(
+    zonesResult: GpsZonesReadResult,
+    zoneId: String?,
+    address: String?
+): StoredGpsArrivalContact? {
+    val valid = zonesResult as? GpsZonesReadResult.Valid ?: return null
+    val normalizedId = zoneId?.trim().orEmpty()
+    if (normalizedId.isNotBlank()) {
+        return valid.zones.firstOrNull { it.id == normalizedId }?.arrivalContact
+    }
+
+    val normalizedAddress = address?.trim().orEmpty()
+    if (normalizedAddress.isBlank()) return null
+    val matches = valid.zones.filter {
+        it.address?.trim()?.equals(normalizedAddress, ignoreCase = true) == true
+    }
+    if (matches.size != 1) return null
+    return matches.single().arrivalContact
 }
 
 internal fun resolveGpsRadiusForRefresh(existing: JSONObject?, fallbackRadius: Int): Int {
