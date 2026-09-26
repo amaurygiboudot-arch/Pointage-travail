@@ -54,7 +54,8 @@ class SegmentedSalaryCanonicalOutputV2Test {
 
         val result = SegmentedSalaryCanonicalOutputAssemblerV2.assemble(worked, cash, net)
 
-        assertFalse(result.workedGrossReliable)
+        assertTrue(result.workedGrossReliable)
+        assertEquals(1_000.0, result.workedGross!!, 0.0001)
         assertFalse(result.cashGrossReliable)
         assertFalse(result.netBeforeIncomeTaxComplete)
         assertNull(result.cashGross)
