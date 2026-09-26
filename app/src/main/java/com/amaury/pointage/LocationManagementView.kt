@@ -332,6 +332,81 @@ class LocationManagementView @JvmOverloads constructor(
         Toast.makeText(context, "Zone supprimée. Historique conservé.", Toast.LENGTH_LONG).show()
     }
 
+    private fun findZoneById(zones: JSONArray, zoneId: String): JSONObject? {
+        val target = zoneId.trim()
+        if (target.isBlank()) return null
+        for (index in 0 until zones.length()) {
+            val zone = zones.optJSONObject(index) ?: continue
+            if (zone.optString("id").trim() == target) return zone
+        }
+        return null
+    }
+
+    private fun zonesAtAddressCount(address: String): Int {
+        val read = readPersistedGpsZones(prefs) as? GpsZonesReadResult.Valid ?: return 0
+        return read.zones.count {
+            it.address?.trim()?.equals(address.trim(), ignoreCase = true) == true
+        }
+    }
+
+    private fun zoneRadiusText(entry: GpsLocationEntry): String {
+        val read = readPersistedGpsZones(prefs)
+        val zoneId = entry.zoneId?.trim().orEmpty()
+        if (zoneId.isNotBlank()) {
+            val valid = read as? GpsZonesReadResult.Valid ?: return "À vérifier"
+            val zone = valid.zones.firstOrNull { it.id == zoneId } ?: return "À vérifier"
+            return formatRadius(zone.radius)
+        }
+        return zoneRadiusText(entry.address)
+    }
+
+    private fun formatRadius(meters: Float): String =
+        if (meters % 1f == 0f) "${meters.toInt()} m"
+        else String.format(Locale.FRANCE, "%.1f m", meters)
+
+    private fun jsonZonesUseAddress(zones: JSONArray, address: String): Boolean {
+        for (index in 0 until zones.length()) {
+            val zone = zones.optJSONObject(index) ?: continue
+            if (zone.optString("address").trim().equals(address.trim(), ignoreCase = true)) return true
+        }
+        return false
+    }
+
+    private fun rebuiltAddressList(
+        zones: JSONArray,
+        previous: List<String>,
+        oldAddress: String,
+        newAddress: String
+    ): List<String> {
+        val canonicalAddresses = (0 until zones.length()).mapNotNull { index ->
+            zones.optJSONObject(index)?.optString("address")?.trim()?.takeIf { it.isNotBlank() }
+        }
+        val oldStillUsed = canonicalAddresses.any { it.equals(oldAddress, ignoreCase = true) }
+        val legacy = previous
+            .filterNot { !oldStillUsed && it.equals(oldAddress, ignoreCase = true) }
+            .toMutableList()
+        if (legacy.none { it.equals(newAddress, ignoreCase = true) }) legacy += newAddress
+        canonicalAddresses.forEach { address ->
+            if (legacy.none { it.equals(address, ignoreCase = true) }) legacy += address
+        }
+        return legacy.distinctBy { it.lowercase(Locale.FRANCE) }.take(10)
+    }
+
+    private fun rebuiltAddressListAfterDelete(
+        zones: JSONArray,
+        previous: List<String>,
+        deletedAddress: String,
+        addressStillUsed: Boolean
+    ): List<String> {
+        val result = previous
+            .filterNot { !addressStillUsed && it.equals(deletedAddress, ignoreCase = true) }
+            .toMutableList()
+        for (index in 0 until zones.length()) {
+            val address = zones.optJSONObject(index)?.optString("address")?.trim().orEmpty()
+            if (address.isNotBlank() && result.none { it.equals(address, ignoreCase = true) }) result += address
+        }
+        return result.distinctBy { it.lowercase(Locale.FRANCE) }.take(10)
+    }
     private fun registerZones() {
         GeofenceManager.reconfigureStoredZones(context)
     }
