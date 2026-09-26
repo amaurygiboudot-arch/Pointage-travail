@@ -309,6 +309,11 @@ class MainActivity : Activity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         when (requestCode) {
+            ForegroundLocationInitProvider.REQUEST_FOREGROUND_LOCATION -> {
+                ForegroundLocationInitProvider.markOnboardingResolved(this)
+                updateGpsStatus()
+                tryRestoreGeofence()
+            }
             REQUEST_FINE_LOCATION -> {
                 if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) requestLocationAccess()
                 else disableAutomaticGps("La localisation précise est nécessaire pour le pointage automatique")
