@@ -11,6 +11,7 @@ import android.widget.LinearLayout
  * dispersés entre les installateurs historiques.
  */
 object SettingsV2Host {
+    const val MIN_INTERACTIVE_HEIGHT_DP = 48
     const val TAG_ACCOUNT_SECURITY = "settings_account_security_v2"
     const val TAG_POINTAGE = "settings_pointage_v2"
     const val TAG_UPDATES = "settings_updates_v2"
