@@ -337,4 +337,50 @@ class GpsZoneConfigStoreTest {
     }
 
 
+    @Test
+    fun `un objet de zone est lu par id avant le fallback adresse`() {
+        val zones = parsePersistedGpsZones(
+            """[
+                {"id":"atelier","latitude":46.7,"longitude":-1.4,"radius":150,"address":"1 rue A"}
+            ]""".trimIndent()
+        )
+        val values = org.json.JSONObject()
+            .put("atelier", org.json.JSONObject().put("phone", "111"))
+            .put("1 rue A", org.json.JSONObject().put("phone", "222"))
+
+        assertEquals("111", resolveGpsZoneScopedObject(values, zones, "atelier", "1 rue A")?.getString("phone"))
+    }
+
+    @Test
+    fun `le fallback adresse est refuse si plusieurs zones partagent l adresse`() {
+        val zones = parsePersistedGpsZones(
+            """[
+                {"id":"atelier","latitude":46.7,"longitude":-1.4,"radius":150,"address":"1 rue A"},
+                {"id":"parking","latitude":46.7005,"longitude":-1.4005,"radius":180,"address":"1 rue A"}
+            ]""".trimIndent()
+        )
+        val values = org.json.JSONObject()
+            .put("1 rue A", org.json.JSONObject().put("phone", "222"))
+
+        assertNull(resolveGpsZoneScopedObject(values, zones, "atelier", "1 rue A"))
+    }
+
+    @Test
+    fun `ecrire un objet de zone migre la cle adresse vers l id canonique`() {
+        val values = org.json.JSONObject()
+            .put("1 rue A", org.json.JSONObject().put("phone", "ancien"))
+
+        assertTrue(
+            putGpsZoneScopedObject(
+                values,
+                "atelier",
+                "1 rue A",
+                org.json.JSONObject().put("phone", "nouveau")
+            )
+        )
+        assertNull(values.optJSONObject("1 rue A"))
+        assertEquals("nouveau", values.getJSONObject("atelier").getString("phone"))
+    }
+
+
 }

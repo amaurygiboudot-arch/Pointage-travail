@@ -44,11 +44,18 @@ class LocationManagementView @JvmOverloads constructor(
         else addresses.forEach { addView(createPlaceCard(it)) }
     }
 
+    private fun arrivalContact(zoneId: String?, address: String): JSONObject? =
+        resolveGpsZoneScopedObject(
+            jsonObjectPreference("arrival_contacts"),
+            readPersistedGpsZones(prefs),
+            zoneId,
+            address
+        )
+
     private fun createPlaceCard(address: String): LinearLayout {
         val zoneId = resolveUniqueGpsZoneIdForAddress(readPersistedGpsZones(prefs), address)
         val name = PlaceNames.get(context, zoneId, address)?.takeIf { it.isNotBlank() } ?: "Lieu sans nom"
-        val contacts = jsonObjectPreference("arrival_contacts")
-        val contact = contacts.optJSONObject(address)
+        val contact = arrivalContact(zoneId, address)
         val contactName = contact?.optString("contactName")?.takeIf { it.isNotBlank() }
         val radius = zoneRadiusText(address)
         val total = totalWorkedAtText(address)
@@ -71,7 +78,7 @@ class LocationManagementView @JvmOverloads constructor(
 
     private fun showDetails(address: String) {
         val zoneId = resolveUniqueGpsZoneIdForAddress(readPersistedGpsZones(prefs), address)
-        val contacts = jsonObjectPreference("arrival_contacts"); val contact = contacts.optJSONObject(address); val name = PlaceNames.get(context, zoneId, address) ?: "Lieu sans nom"
+        val contact = arrivalContact(zoneId, address); val name = PlaceNames.get(context, zoneId, address) ?: "Lieu sans nom"
         val contactName = contact?.optString("contactName")?.takeIf { it.isNotBlank() } ?: "Non renseigné"; val phone = contact?.optString("phone")?.takeIf { it.isNotBlank() } ?: "Non renseigné"; val notify = if (contact?.optBoolean("enabled", false) == true) "Oui" else "Non"; val radius = zoneRadiusText(address)
         val content = LinearLayout(context).apply { orientation = VERTICAL; setPadding(dp(20), dp(6), dp(20), 0); setBackgroundColor(panelColor()) }
         fun line(label: String, value: String): TextView = TextView(context).apply { text = "$label\n$value"; textSize = 14f; setTextColor(primaryText()); setPadding(0, dp(7), 0, dp(7)); content.addView(this) }
@@ -88,7 +95,7 @@ class LocationManagementView @JvmOverloads constructor(
             return
         }
         val zoneId = resolveUniqueGpsZoneIdForAddress(readPersistedGpsZones(prefs), oldAddress)
-        val contacts = jsonObjectPreference("arrival_contacts"); val contact = contacts.optJSONObject(oldAddress); val nameInput = dialogInput("Nom du lieu", PlaceNames.get(context, zoneId, oldAddress).orEmpty()); val addressInput = dialogInput("Adresse", oldAddress); val contactInput = dialogInput("Nom du contact", contact?.optString("contactName").orEmpty()); val phoneInput = dialogInput("Téléphone", contact?.optString("phone").orEmpty()).apply { inputType = android.text.InputType.TYPE_CLASS_PHONE }
+        val contacts = jsonObjectPreference("arrival_contacts"); val contact = arrivalContact(zoneId, oldAddress); val nameInput = dialogInput("Nom du lieu", PlaceNames.get(context, zoneId, oldAddress).orEmpty()); val addressInput = dialogInput("Adresse", oldAddress); val contactInput = dialogInput("Nom du contact", contact?.optString("contactName").orEmpty()); val phoneInput = dialogInput("Téléphone", contact?.optString("phone").orEmpty()).apply { inputType = android.text.InputType.TYPE_CLASS_PHONE }
         val box = LinearLayout(context).apply { orientation = VERTICAL; setPadding(dp(20), dp(6), dp(20), 0); setBackgroundColor(panelColor()); addView(nameInput); addView(addressInput); addView(contactInput); addView(phoneInput) }
         val dialog = AlertDialog.Builder(context).setTitle("Modifier le lieu").setView(box).setPositiveButton("Enregistrer") { _, _ ->
             val newAddress = addressInput.text.toString().trim(); val newName = nameInput.text.toString().trim(); if (newAddress.isBlank()) return@setPositiveButton; val addressChanged = !newAddress.equals(oldAddress, ignoreCase = true)
@@ -111,7 +118,15 @@ class LocationManagementView @JvmOverloads constructor(
                     ?.takeIf { it.isNotBlank() }
             }
             val targetZoneId = targetZoneIds.singleOrNull()
-            val enabled = contact?.optBoolean("enabled", false) ?: false; contacts.remove(oldAddress); contacts.put(newAddress, JSONObject().put("contactName", contactInput.text.toString().trim()).put("phone", phoneInput.text.toString().trim()).put("enabled", enabled))
+            val enabled = contact?.optBoolean("enabled", false) ?: false
+            val contactValue = JSONObject()
+                .put("contactName", contactInput.text.toString().trim())
+                .put("phone", phoneInput.text.toString().trim())
+                .put("enabled", enabled)
+            if (!putGpsZoneScopedObject(contacts, targetZoneId, newAddress, contactValue)) {
+                contacts.remove(oldAddress)
+                contacts.put(newAddress, contactValue)
+            }
             val companyMap = jsonObjectPreference("address_company_slots"); val oldCompanySlot = companyMap.optInt(oldAddress, 0); companyMap.remove(oldAddress); if (oldCompanySlot > 0) companyMap.put(newAddress, oldCompanySlot)
             val overrides = jsonObjectPreference("zone_point_overrides"); val confirmed = jsonObjectPreference("zone_point_confirmed"); if (addressChanged) { val oldPoint = overrides.optJSONObject(oldAddress); overrides.remove(oldAddress); if (oldPoint != null) overrides.put(newAddress, JSONObject(oldPoint.toString())); confirmed.remove(oldAddress); confirmed.remove(newAddress) }
             if (addressChanged) for (i in 0 until oldZones.length()) { val zone = oldZones.optJSONObject(i) ?: continue; if (zone.optString("address").trim().equals(oldAddress, ignoreCase = true)) { zone.put("address", newAddress); break } }
@@ -137,7 +152,7 @@ class LocationManagementView @JvmOverloads constructor(
                 ?.trim()
                 ?.takeIf { it.isNotBlank() }
         }
-        val addresses = savedAddresses().filterNot { it.equals(address, true) }; rootView.findViewById<EditText>(R.id.workplaceAddress)?.setText(addresses.joinToString("\n")); val names = jsonObjectPreference("address_names").apply { remove(address) }; val contacts = jsonObjectPreference("arrival_contacts").apply { remove(address) }; val companyMap = jsonObjectPreference("address_company_slots").apply { remove(address) }; val overrides = jsonObjectPreference("zone_point_overrides").apply { remove(address); deletedZoneIds.forEach(::remove) }; val confirmed = jsonObjectPreference("zone_point_confirmed").apply { remove(address); deletedZoneIds.forEach(::remove) }
+        val addresses = savedAddresses().filterNot { it.equals(address, true) }; rootView.findViewById<EditText>(R.id.workplaceAddress)?.setText(addresses.joinToString("\n")); val names = jsonObjectPreference("address_names").apply { remove(address) }; val contacts = jsonObjectPreference("arrival_contacts").apply { remove(address); deletedZoneIds.forEach(::remove) }; val companyMap = jsonObjectPreference("address_company_slots").apply { remove(address) }; val overrides = jsonObjectPreference("zone_point_overrides").apply { remove(address); deletedZoneIds.forEach(::remove) }; val confirmed = jsonObjectPreference("zone_point_confirmed").apply { remove(address); deletedZoneIds.forEach(::remove) }
         val newZones = JSONArray(); for (i in 0 until oldZones.length()) { val zone = oldZones.optJSONObject(i) ?: continue; if (!zone.optString("address").equals(address, true)) newZones.put(zone) }
         val pending = prefs.getString("pending_point_address", "").orEmpty(); val editor = prefs.edit().putString("address", addresses.joinToString("\n")).putString("address_names", names.toString()).putString("arrival_contacts", contacts.toString()).putString("address_company_slots", companyMap.toString()).putString("zone_point_overrides", overrides.toString()).putString("zone_point_confirmed", confirmed.toString()).putString("zones", newZones.toString()).remove("active_zones").remove("entry_resolution_pending").remove("entry_resolution_token").remove("pending_exit_zones"); if (pending.equals(address, ignoreCase = true)) editor.remove("pending_point_address"); editor.apply()
         registerZones(); refresh(); PointageWidgetProvider.updateAll(context); QuickActionsWidgetProvider.updateAll(context); Toast.makeText(context, "Lieu supprimé. Historique conservé.", Toast.LENGTH_LONG).show()
