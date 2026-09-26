@@ -108,6 +108,8 @@ targets:
       - path: HPTravail/SalaryV2/SalaryWeeklyThresholdMonthBoundaryGuardV2.swift
       - path: HPTravail/SalaryV2/SalaryPayrollCalculationTimelineV2.swift
       - path: HPTravail/SalaryV2/CompanyBenefitInKindStoreV2.swift
+      - path: HPTravail/SalaryV2/CompanyPremiumContractV2.swift
+      - path: HPTravail/SalaryV2/CompanyPremiumStoreV2.swift
       - path: HPTravail/SalaryV2/EmployerHealthFamilyV2.swift
       - path: HPTravail/SalaryV2/PayrollEngineV2.swift
       - path: HPTravail/SalaryV2/PaidTimePolicyV2.swift
