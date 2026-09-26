@@ -247,12 +247,14 @@ object PlaceNames {
 }
 
 object SettingsUiInstaller {
-    private const val TAG = SettingsV2Host.TAG_PERSONALIZATION
+    private const val CONTENT_UPDATES = "settings_updates_content_v2"
+    private const val CONTENT_APPEARANCE = "settings_appearance_content_v2"
+    private const val CONTENT_WIDGET = "settings_widget_content_v2"
+    private const val CONTENT_DRIVE = "settings_drive_content_v2"
+    private const val CONTENT_HELP = "settings_help_content_v2"
 
     fun install(activity: MainActivity) {
         val panel = SettingsV2Host.panel(activity) ?: return
-        if (panel.findViewWithTag<View>(TAG) != null) return
-
         activity.findViewById<EditText>(R.id.workplaceAddress)?.apply {
             isFocusable = false
             isClickable = false
@@ -271,7 +273,8 @@ object SettingsUiInstaller {
         }
 
         val updates = settingsSection(activity, SettingsV2Host.TAG_UPDATES)
-        updates.addView(title(activity, "APPLICATION"))
+        if (updates.findViewWithTag<View>(CONTENT_UPDATES) == null) {
+            updates.addView(title(activity, "APPLICATION").apply { tag = CONTENT_UPDATES })
         updates.addView(TextView(activity).apply {
             text = "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
             textSize = 13f
@@ -288,9 +291,11 @@ object SettingsUiInstaller {
                 setPadding(0, 0, 0, dp(activity, 6))
             })
         }
+        }
 
         val appearance = settingsSection(activity, SettingsV2Host.TAG_PERSONALIZATION)
-        appearance.addView(title(activity, "APPARENCE DE L'APPLICATION"))
+        if (appearance.findViewWithTag<View>(CONTENT_APPEARANCE) == null) {
+            appearance.addView(title(activity, "APPARENCE DE L'APPLICATION").apply { tag = CONTENT_APPEARANCE })
         val modeButton = styledButton(activity, "")
         fun updateModeLabel() {
             val mode = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE).getString("mode", "auto") ?: "auto"
@@ -326,9 +331,11 @@ object SettingsUiInstaller {
             AppearanceManager.apply(activity)
         }
         appearance.addView(resetBg)
+        }
 
         val widget = settingsSection(activity, SettingsV2Host.TAG_WIDGET)
-        widget.addView(title(activity, "WIDGET"))
+        if (widget.findViewWithTag<View>(CONTENT_WIDGET) == null) {
+            widget.addView(title(activity, "WIDGET").apply { tag = CONTENT_WIDGET })
         val widgetBg = styledButton(activity, "COULEUR DU FOND DU WIDGET")
         widgetBg.setOnClickListener { chooseWidgetColor(activity, WidgetStyleSettings.KEY_BACKGROUND, "Fond du widget") }
         widget.addView(widgetBg)
@@ -347,9 +354,11 @@ object SettingsUiInstaller {
             }
         }
         widget.addView(showPosition)
+        }
 
         val drive = settingsSection(activity, SettingsV2Host.TAG_DRIVE)
-        drive.addView(title(activity, "SAUVEGARDE & SYNCHRONISATION"))
+        if (drive.findViewWithTag<View>(CONTENT_DRIVE) == null) {
+            drive.addView(title(activity, "SAUVEGARDE & SYNCHRONISATION").apply { tag = CONTENT_DRIVE })
         val driveStatus = TextView(activity).apply {
             textSize = 14f
             text = when {
@@ -381,14 +390,19 @@ object SettingsUiInstaller {
                 Toast.makeText(activity, "Sauvegarde Drive désactivée", Toast.LENGTH_SHORT).show()
             }
         })
+        }
 
         val help = settingsSection(activity, SettingsV2Host.TAG_HELP)
-        help.addView(title(activity, "AIDE"))
+        if (help.findViewWithTag<View>(CONTENT_HELP) == null) {
+            help.addView(title(activity, "AIDE").apply { tag = CONTENT_HELP })
         help.addView(styledButton(activity, "📖 NOTICE D'UTILISATION").apply {
             setOnClickListener { UserGuideDialog.show(activity) }
         })
+        }
 
-        listOf(updates, appearance, widget, drive, help).forEach(panel::addView)
+        listOf(updates, appearance, widget, drive, help).forEach { section ->
+            if (section.parent == null) panel.addView(section)
+        }
         SettingsV2SectionOrganizer.organize(activity)
         installPointageAddressButton(activity)
         AppearanceManager.apply(activity)
@@ -423,11 +437,12 @@ object SettingsUiInstaller {
         section.addView(addButton, (index + 1).coerceAtMost(section.childCount))
     }
 
-    private fun settingsSection(context: Context, sectionTag: String) = LinearLayout(context).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(0, dp(context, 14), 0, 0)
-        tag = sectionTag
-    }
+    private fun settingsSection(activity: MainActivity, sectionTag: String): LinearLayout =
+        SettingsV2Host.section(activity, sectionTag) ?: LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(activity, 14), 0, 0)
+            tag = sectionTag
+        }
 
     private fun styledButton(context: Context, label: String) = Button(context).apply {
         text = label
