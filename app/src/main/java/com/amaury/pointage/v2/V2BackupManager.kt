@@ -1,5 +1,7 @@
 package com.amaury.pointage.v2
 
+import com.amaury.pointage.v2.engine.PayrollCoverageAttestationV2
+
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
@@ -30,6 +32,8 @@ object V2BackupManager {
         "horatrack_v2_legal_sources",
         "horatrack_v2_rights",
         "horatrack_v2_payslips",
+        V2PayrollCoverageStore.PREFS,
+        V2SegmentedProrationStore.PREFS,
         "horatrack_v2_company_pause",
         "horatrack_v2_gps_state",
         SALARY_COMPANIES_PREFS,
@@ -65,14 +69,30 @@ object V2BackupManager {
             saved
         }
         val runtimePlan=payloads[RUNTIME_PREFS]?.let{prepareRuntimeMerge(context,it)}
+        val coveragePlan=payloads[V2PayrollCoverageStore.PREFS]
+            ?.let{prepareCoverageMerge(context,it)}
+        val segmentedProrationPlan=payloads[V2SegmentedProrationStore.PREFS]
+            ?.let{prepareSegmentedProrationMerge(context,it)}
         clearEphemeralGpsPresenceState(context)
         var restored=0;var merged=0
         savedNames.forEach{name->
             val saved=payloads.getValue(name)
-            if(name==RUNTIME_PREFS){
-                val plan=runtimePlan?:error("Historique de sauvegarde indisponible")
-                merged=applyRuntimeMerge(context,plan)
-            }else mergePreferences(context,name,saved)
+            when(name){
+                RUNTIME_PREFS->{
+                    val plan=runtimePlan?:error("Historique de sauvegarde indisponible")
+                    merged=applyRuntimeMerge(context,plan)
+                }
+                V2PayrollCoverageStore.PREFS->{
+                    val plan=coveragePlan?:error("Couverture paie de sauvegarde indisponible")
+                    applyCoverageMerge(context,plan)
+                }
+                V2SegmentedProrationStore.PREFS->{
+                    val plan=segmentedProrationPlan
+                        ?:error("Proratisation segmentée de sauvegarde indisponible")
+                    applySegmentedProrationMerge(context,plan)
+                }
+                else->mergePreferences(context,name,saved)
+            }
             restored++
         }
         V2ProfileStore.bind(context)
@@ -191,6 +211,43 @@ object V2BackupManager {
         return JSONArray(decoded.history.toString())
     }
 
+    internal fun decodeBackupCoverage(saved:JSONObject):List<PayrollCoverageAttestationV2>{
+        if(!saved.has(V2PayrollCoverageStore.KEY_ITEMS))return emptyList()
+        val item=saved.optJSONObject(V2PayrollCoverageStore.KEY_ITEMS)?:error("Couverture paie de sauvegarde mal typée")
+        val raw=(item.opt("v") as? String)?.takeIf{item.optString("t")=="s"}
+            ?:error("Couverture paie de sauvegarde mal typée")
+        val decoded=V2PayrollCoverageStore.decode(raw)
+        require(decoded.reliable){"Couverture paie de sauvegarde illisible ou incohérente"}
+        return decoded.attestations
+    }
+
+    internal fun mergeCoverageAttestations(
+        current:List<PayrollCoverageAttestationV2>,
+        saved:List<PayrollCoverageAttestationV2>
+    ):List<PayrollCoverageAttestationV2>{
+        require(V2PayrollCoverageStore.encode(current)!=null){
+            "Couverture paie locale illisible ou incohérente"
+        }
+        require(V2PayrollCoverageStore.encode(saved)!=null){
+            "Couverture paie de sauvegarde illisible ou incohérente"
+        }
+        val merged=current.toMutableList()
+        val byId=current.associateBy{it.id}.toMutableMap()
+        saved.forEach{remote->
+            val local=byId[remote.id]
+            if(local==null){
+                merged+=remote
+                byId[remote.id]=remote
+            }else require(local==remote){
+                "L'attestation de couverture "+remote.id+" diffère entre le téléphone et la sauvegarde"
+            }
+        }
+        require(V2PayrollCoverageStore.encode(merged)!=null){
+            "Fusion de couverture paie incohérente"
+        }
+        return merged
+    }
+
     internal fun mergeHistories(current:JSONArray,saved:JSONArray):HistoryMergePlan {
         require(V2RuntimeHistoryGuardV2.inspect(current).reliable){"Historique local illisible ou incohérent"}
         require(V2RuntimeHistoryGuardV2.inspect(saved).reliable){"Historique de sauvegarde illisible ou incohérent"}
@@ -230,6 +287,73 @@ object V2BackupManager {
         val current=V2RuntimeHistoryGuardV2.read(context)
         require(current.reliable){"Historique local illisible : restauration bloquée"}
         return mergeHistories(current.history,decodeBackupHistory(saved))
+    }
+
+    internal fun decodeBackupSegmentedProrations(saved: JSONObject): Map<String, String> {
+        val result = linkedMapOf<String, String>()
+        val keys = saved.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            if (!V2SegmentedProrationStore.isStorageKey(key)) {
+                error("Clé de proratisation segmentée invalide")
+            }
+            val item = saved.optJSONObject(key)
+                ?: error("Proratisation segmentée de sauvegarde mal typée")
+            val raw = (item.opt("v") as? String)
+                ?.takeIf { item.optString("t") == "s" }
+                ?: error("Proratisation segmentée de sauvegarde mal typée")
+            require(V2SegmentedProrationStore.decode(raw) != null) {
+                "Proratisation segmentée de sauvegarde illisible"
+            }
+            result[key] = raw
+        }
+        return result
+    }
+
+    internal fun mergeSegmentedProrations(
+        current: Map<String, String>,
+        saved: Map<String, String>
+    ): Map<String, String> =
+        V2SegmentedProrationStore.mergeRaw(current, saved)
+            ?: error("Conflit de proratisation segmentée entre le téléphone et la sauvegarde")
+
+    private fun prepareSegmentedProrationMerge(
+        context: Context,
+        saved: JSONObject
+    ): Map<String, String> {
+        val local = V2SegmentedProrationStore.readRaw(context)
+            ?: error("Proratisation segmentée locale illisible : restauration bloquée")
+        return mergeSegmentedProrations(
+            local,
+            decodeBackupSegmentedProrations(saved)
+        )
+    }
+
+    private fun applySegmentedProrationMerge(
+        context: Context,
+        plan: Map<String, String>
+    ) {
+        check(V2SegmentedProrationStore.replaceAllForRestore(context, plan)) {
+            "Impossible d'enregistrer la proratisation segmentée fusionnée"
+        }
+    }
+
+    private fun prepareCoverageMerge(
+        context:Context,
+        saved:JSONObject
+    ):List<PayrollCoverageAttestationV2>{
+        val local=V2PayrollCoverageStore.read(context)
+        require(local.reliable){"Couverture paie locale illisible : restauration bloquée"}
+        return mergeCoverageAttestations(local.attestations,decodeBackupCoverage(saved))
+    }
+
+    private fun applyCoverageMerge(
+        context:Context,
+        plan:List<PayrollCoverageAttestationV2>
+    ){
+        check(V2PayrollCoverageStore.replaceAllForRestore(context,plan)){
+            "Impossible d'enregistrer la couverture paie fusionnée"
+        }
     }
 
     private fun applyRuntimeMerge(context:Context,plan:HistoryMergePlan):Int {
