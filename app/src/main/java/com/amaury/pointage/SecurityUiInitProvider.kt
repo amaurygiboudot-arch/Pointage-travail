@@ -52,7 +52,7 @@ class SecurityUiInitProvider : ContentProvider() {
                     val current = destination.findViewWithTag<View>(TAG_SECURITY_BLOCK)
 
                     if (!isOwner) {
-                        if (current != null) panel.removeView(current)
+                        if (current != null) (current.parent as? ViewGroup)?.removeView(current)
                         return@addOnSuccessListener
                     }
 
@@ -84,7 +84,7 @@ class SecurityUiInitProvider : ContentProvider() {
                 }
                 .addOnFailureListener {
                     val current = destination.findViewWithTag<View>(TAG_SECURITY_BLOCK)
-                    if (current != null) panel.removeView(current)
+                    if (current != null) (current.parent as? ViewGroup)?.removeView(current)
                 }
         }
     }
