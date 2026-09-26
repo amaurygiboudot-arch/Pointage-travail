@@ -52,9 +52,10 @@ object SettingsV2SectionOrganizer {
             tag == SettingsV2Host.TAG_UPDATES -> 45
 
             tag == SettingsV2Host.TAG_HELP -> 50
-            view is SuggestionBoxView -> 51
-            tag == "first_steps_replay" -> 52
-            view is SnakeGameButtonView -> 53
+            tag == SettingsV2Host.TAG_EXTRAS -> 55
+            view is SuggestionBoxView -> 55
+            tag == "first_steps_replay" -> 55
+            view is SnakeGameButtonView -> 55
 
             view is V2RuntimePromptHostView -> 90
             else -> 70
@@ -68,6 +69,9 @@ object SettingsV2SectionOrganizer {
         }
         if (SettingsV2Host.section(activity, SettingsV2Host.TAG_POINTAGE) == null) {
             panel.addView(section(activity, SettingsV2Host.TAG_POINTAGE, null))
+        }
+        if (SettingsV2Host.section(activity, SettingsV2Host.TAG_EXTRAS) == null) {
+            panel.addView(section(activity, SettingsV2Host.TAG_EXTRAS, "AIDE & EXTRAS"))
         }
     }
 
@@ -88,6 +92,7 @@ object SettingsV2SectionOrganizer {
     private fun moveCoreViews(activity: MainActivity, panel: LinearLayout) {
         val account = SettingsV2Host.section(activity, SettingsV2Host.TAG_ACCOUNT_SECURITY) ?: return
         val pointage = SettingsV2Host.section(activity, SettingsV2Host.TAG_POINTAGE) ?: return
+        val extras = SettingsV2Host.section(activity, SettingsV2Host.TAG_EXTRAS) ?: return
 
         val directChildren = (0 until panel.childCount).map(panel::getChildAt)
         directChildren.forEach { view ->
@@ -99,6 +104,9 @@ object SettingsV2SectionOrganizer {
                     view is V2SecuritySettingsView ||
                     tag == V2SecuritySettingsView.TAG -> move(view, account)
                 isPointageView(view, id, tag) -> move(view, pointage)
+                view is SuggestionBoxView ||
+                    tag == "first_steps_replay" ||
+                    view is SnakeGameButtonView -> move(view, extras)
             }
         }
     }
