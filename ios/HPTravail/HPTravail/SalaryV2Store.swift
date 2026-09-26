@@ -6,6 +6,42 @@ import Foundation
 /// Toute donnée de salaire est résolue pour une entreprise sélectionnée sans ambiguïté.
 /// Une seule entreprise confirmée peut être sélectionnée automatiquement ; dès qu'il existe
 /// plusieurs entreprises, seul un choix utilisateur explicitement tracé peut être conservé.
+struct SalarySegmentedProrationDraftSegmentV2: Identifiable, Equatable {
+    let versionId: String
+    let startEpochDay: Int64
+    let endEpochDay: Int64
+    var scheduledMinutesText: String
+
+    var id: String {
+        "\(versionId)|\(startEpochDay)|\(endEpochDay)"
+    }
+}
+
+private enum SalarySegmentedProrationDraftBuilderV2 {
+    static func make(
+        segments: [SalaryEmploymentContractCoverageSegmentV2],
+        stored: ConfirmedSegmentedMonthlyProrationV2?
+    ) -> [SalarySegmentedProrationDraftSegmentV2] {
+        let storedById = Dictionary(
+            uniqueKeysWithValues: (stored?.segments ?? []).map {
+                ("\($0.versionId.trimmingCharacters(in: .whitespacesAndNewlines))|\($0.startEpochDay)|\($0.endEpochDay)", $0.scheduledMinutes)
+            }
+        )
+        return segments
+            .sorted { $0.startEpochDay < $1.startEpochDay }
+            .map { segment in
+                let versionId = segment.snapshot.versionId.trimmingCharacters(in: .whitespacesAndNewlines)
+                let id = "\(versionId)|\(segment.startEpochDay)|\(segment.endEpochDay)"
+                return SalarySegmentedProrationDraftSegmentV2(
+                    versionId: versionId,
+                    startEpochDay: segment.startEpochDay,
+                    endEpochDay: segment.endEpochDay,
+                    scheduledMinutesText: storedById[id].map(String.init) ?? ""
+                )
+            }
+    }
+}
+
 @MainActor
 final class SalaryV2Store: ObservableObject {
     typealias ReferenceProvider = (_ companyId: String, _ period: YearMonthV2) -> SalaryReferenceContractV2?
@@ -22,6 +58,14 @@ final class SalaryV2Store: ObservableObject {
     @Published private(set) var contractSegmentPaidWork: SalaryContractSegmentPaidWorkResultV2?
     @Published private(set) var conventionCoverage: SalaryConventionCoverageV2?
     @Published private(set) var contractResolution: SalaryEmploymentContractPayrollSnapshotV2?
+    @Published private(set) var socialProfile: SalaryEmployeeSocialProfileResolutionV2?
+    @Published private(set) var absenceSource: SalaryAbsenceSourceV2?
+    @Published private(set) var segmentedProrationSource: SalarySegmentedProrationSourceV2?
+    @Published private(set) var segmentedMonthlyBase: SegmentedMonthlyBaseResultV2?
+    @Published private(set) var segmentedPayrollBoundary: SalarySegmentedPayrollBoundaryAssessmentV2?
+    @Published var segmentedProrationSourceText = ""
+    @Published private(set) var segmentedProrationDraftSegments: [SalarySegmentedProrationDraftSegmentV2] = []
+    @Published private(set) var segmentedProrationFeedback: String?
     @Published var incomeTaxRateText = ""
     @Published var incomeTaxSource = ""
     @Published private(set) var incomeTaxFeedback: String?
@@ -37,6 +81,32 @@ final class SalaryV2Store: ObservableObject {
     @Published var contractHourlyRateText = ""
     @Published var contractSourceText = ""
     @Published private(set) var contractFeedback: String?
+
+    // Profil social salarié daté : aucune valeur n'est présumée.
+    @Published var socialProfessionalStatusSelection = ""
+    @Published var socialAlsaceMoselleSelection = ""
+    @Published var socialEffectiveDateText = ""
+    @Published var socialSourceText = ""
+    @Published private(set) var socialProfileFeedback: String?
+
+    // Classification conventionnelle exacte : champs indépendants, aucun rapprochement approximatif.
+    @Published var classificationCoefficientText = ""
+    @Published var classificationLevelText = ""
+    @Published var classificationEchelonText = ""
+    @Published var classificationPositionText = ""
+    @Published var classificationGroupText = ""
+    @Published var classificationCategoryText = ""
+    @Published var classificationEmploymentText = ""
+    @Published private(set) var classificationFeedback: String?
+
+    // Absences V2 : saisie factuelle + confirmation d'exhaustivité du mois.
+    @Published var absenceTypeSelection = SalaryAbsencePayrollImpactV2.typeUnpaid
+    @Published var absenceStartDateText = ""
+    @Published var absenceEndDateText = ""
+    @Published var absenceTreatmentSelection = SalaryAbsenceTreatmentV2.unpaid.rawValue
+    @Published var absenceFullDay = true
+    @Published var absenceMonthSourceText = ""
+    @Published private(set) var absenceFeedback: String?
 
     private let referenceProvider: ReferenceProvider
     private let companiesProvider: CompaniesProvider
@@ -86,12 +156,12 @@ final class SalaryV2Store: ObservableObject {
             )
         }()
         let conventionCoverage = companyId.map { companyId in
-            SalaryConventionCoverageResolverV2.resolve(
+            SalaryConventionPayrollBridgeV2.resolve(
                 companyId: companyId,
                 period: period,
                 companies: storedCompanies,
-                rules: conventionRulesProvider()
-            )
+                storedRules: conventionRulesProvider()
+            ).coverage
         }
         let contractResolution = companyId.map { companyId in
             SalaryEmploymentContractPayrollBridgeV2.resolve(
@@ -100,6 +170,37 @@ final class SalaryV2Store: ObservableObject {
                 stored: contractHistoryProvider()
             )
         }
+        let socialProfile = companyId.map { companyId in
+            SalaryEmployeeSocialProfileStoreV2.resolve(
+                companyId: companyId,
+                period: period
+            )
+        }
+        let absenceSource = companyId.map { companyId in
+            SalaryAbsenceStoreV2.resolve(companyId: companyId, period: period)
+        }
+        let segmentedProrationSource = companyId.map { companyId in
+            SalarySegmentedProrationStoreV2.resolve(companyId: companyId, period: period)
+        }
+        let segmentedMonthlyBase = SalarySegmentedMonthlyBaseProductionV2.resolve(
+            contractSnapshot: contractResolution,
+            conventionCoverage: conventionCoverage,
+            prorationSource: segmentedProrationSource
+        )
+        let segmentedPayrollBoundary: SalarySegmentedPayrollBoundaryAssessmentV2? = {
+            guard let contracts = contractResolution?.resolution,
+                  let rules = conventionCoverage else {
+                return nil
+            }
+            return SalarySegmentedPayrollBoundaryV2.assess(
+                contracts: contracts,
+                rules: rules
+            )
+        }()
+        let segmentedProrationDraftSegments = SalarySegmentedProrationDraftBuilderV2.make(
+            segments: contractResolution?.resolution?.calculationSegments ?? [],
+            stored: segmentedProrationSource?.proration
+        )
         let contractSegmentPaidWork: SalaryContractSegmentPaidWorkResultV2? = {
             guard let companyId,
                   let source = workSource,
@@ -131,6 +232,13 @@ final class SalaryV2Store: ObservableObject {
         self.contractSegmentPaidWork = contractSegmentPaidWork
         self.conventionCoverage = conventionCoverage
         self.contractResolution = contractResolution
+        self.socialProfile = socialProfile
+        self.absenceSource = absenceSource
+        self.segmentedProrationSource = segmentedProrationSource
+        self.segmentedMonthlyBase = segmentedMonthlyBase
+        self.segmentedPayrollBoundary = segmentedPayrollBoundary
+        self.segmentedProrationSourceText = segmentedProrationSource?.proration?.sourceId ?? ""
+        self.segmentedProrationDraftSegments = segmentedProrationDraftSegments
         self.snapshot = SalaryWorkspaceResolverV2.resolve(
             period: period,
             reference: reference,
@@ -139,6 +247,7 @@ final class SalaryV2Store: ObservableObject {
         self.incomeTaxRateText = taxRate?.ratePercent.map { String(format: "%.2f", $0) } ?? ""
         self.incomeTaxSource = taxRate?.source ?? ""
         hydrateContractForm(from: contractResolution?.resolution?.coverage?.singleSnapshotForWholePeriod)
+        hydrateConventionClassification()
     }
 
     var selectedCompany: SalaryCompanyV2? {
@@ -150,10 +259,30 @@ final class SalaryV2Store: ObservableObject {
         companies.reliable && companies.companies.count > 1 && selectedCompanyId == nil
     }
 
+    var requiresSegmentedProration: Bool {
+        let segments = contractResolution?.resolution?.calculationSegments ?? []
+        return segments.count > 1 && contractResolution?.readyForSingleContractCalculation != true
+    }
+
+    var hasMaterialSegmentedPayrollTransition: Bool {
+        !(segmentedPayrollBoundary?.transitionEpochDays.isEmpty ?? true)
+    }
+
     var displayWarnings: [String] {
         let companyWarnings = companies.warnings
         let conventionWarnings = conventionCoverage?.warnings ?? []
         let contractWarnings = contractResolution?.warnings ?? []
+        let socialProfileWarnings = socialProfile?.warnings ?? []
+        let absenceWarnings = absenceSource?.warnings ?? []
+        let segmentedProrationWarnings = requiresSegmentedProration
+            ? (segmentedProrationSource?.warnings ?? [])
+            : []
+        let segmentedBaseWarnings = requiresSegmentedProration
+            ? (segmentedMonthlyBase?.warnings ?? [])
+            : []
+        let segmentedBoundaryWarnings = hasMaterialSegmentedPayrollTransition
+            ? (segmentedPayrollBoundary?.warnings ?? [])
+            : []
         let segmentedWorkWarnings = contractSegmentPaidWork?.warnings ?? []
         let workspaceWarnings = snapshot.warnings
         let workWarnings = paidWork?.warnings ?? []
@@ -165,6 +294,11 @@ final class SalaryV2Store: ObservableObject {
             companyWarnings
             + conventionWarnings
             + contractWarnings
+            + socialProfileWarnings
+            + absenceWarnings
+            + segmentedProrationWarnings
+            + segmentedBaseWarnings
+            + segmentedBoundaryWarnings
             + segmentedWorkWarnings
             + workspaceWarnings
             + workWarnings
@@ -187,6 +321,7 @@ final class SalaryV2Store: ObservableObject {
             selectedCompanyId = nil
             selectedCompanyWasExplicit = false
             contractFeedback = nil
+            socialProfileFeedback = nil
             recompute()
             return true
         }
@@ -198,6 +333,7 @@ final class SalaryV2Store: ObservableObject {
             selectedCompanyId = nil
             selectedCompanyWasExplicit = false
             contractFeedback = nil
+            socialProfileFeedback = nil
             recompute()
             return false
         }
@@ -206,6 +342,10 @@ final class SalaryV2Store: ObservableObject {
         selectedCompanyWasExplicit = companies.companies.count > 1
         incomeTaxFeedback = nil
         contractFeedback = nil
+        socialProfileFeedback = nil
+        classificationFeedback = nil
+        absenceFeedback = nil
+        segmentedProrationFeedback = nil
         recompute()
         return true
     }
@@ -307,6 +447,314 @@ final class SalaryV2Store: ObservableObject {
     }
 
     @discardableResult
+    func confirmSocialProfile() -> Bool {
+        let targetBeforeReconciliation = selectedCompanyId
+        synchronizeCompanySelectionWithLatestStore()
+        guard let companyId = SalaryCompanySelectionV2.stableMutationTarget(
+            beforeReconciliation: targetBeforeReconciliation,
+            afterReconciliation: selectedCompanyId
+        ) else {
+            recompute()
+            socialProfileFeedback = "Confirmation impossible : l’entreprise analysée a changé. Vérifiez la sélection."
+            return false
+        }
+
+        guard let status = SalaryProfessionalStatusV2(
+            rawValue: socialProfessionalStatusSelection
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .uppercased()
+        ) else {
+            socialProfileFeedback = "Profil social : choisissez explicitement Cadre ou Non-cadre."
+            return false
+        }
+
+        let localRegime: Bool
+        switch socialAlsaceMoselleSelection
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased() {
+        case "YES":
+            localRegime = true
+        case "NO":
+            localRegime = false
+        default:
+            socialProfileFeedback = "Profil social : confirmez explicitement l’affiliation au régime local Alsace-Moselle."
+            return false
+        }
+
+        guard let effectiveDate = epochDay(from: socialEffectiveDateText) else {
+            socialProfileFeedback = "Profil social : date d’effet invalide — JJ/MM/AAAA."
+            return false
+        }
+        let source = socialSourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else {
+            socialProfileFeedback = "Profil social : indiquez la source qui confirme cette version."
+            return false
+        }
+
+        let saved = SalaryEmployeeSocialProfileStoreV2.upsertEffectiveVersion(
+            companyId: companyId,
+            effectiveFromEpochDay: effectiveDate,
+            professionalStatus: status,
+            alsaceMoselleLocalRegime: localRegime,
+            sourceId: source,
+            checkedAtMs: Int64((Date().timeIntervalSince1970 * 1_000).rounded())
+        )
+        guard saved else {
+            socialProfileFeedback = "Profil social : enregistrement refusé ; vérifiez l’historique et les données confirmées."
+            return false
+        }
+
+        socialProfileFeedback = "Version sociale datée confirmée pour cette entreprise."
+        refresh()
+        return true
+    }
+
+    @discardableResult
+    func confirmConventionClassification() -> Bool {
+        let targetBeforeReconciliation = selectedCompanyId
+        synchronizeCompanySelectionWithLatestStore()
+        guard let companyId = SalaryCompanySelectionV2.stableMutationTarget(
+            beforeReconciliation: targetBeforeReconciliation,
+            afterReconciliation: selectedCompanyId
+        ) else {
+            recompute()
+            classificationFeedback = "Classification : l’entreprise analysée a changé. Vérifiez la sélection."
+            return false
+        }
+
+        let coefficientRaw = classificationCoefficientText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let coefficient: Int?
+        if coefficientRaw.isEmpty {
+            coefficient = nil
+        } else if let value = Int(coefficientRaw), value > 0 {
+            coefficient = value
+        } else {
+            classificationFeedback = "Classification : coefficient invalide."
+            return false
+        }
+
+        func value(_ raw: String) -> String? {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        let classification = ConventionClassificationV2(
+            coefficient: coefficient,
+            level: value(classificationLevelText),
+            echelon: value(classificationEchelonText),
+            position: value(classificationPositionText),
+            group: value(classificationGroupText),
+            category: value(classificationCategoryText),
+            employment: value(classificationEmploymentText)
+        )
+        guard !classification.isEmpty else {
+            classificationFeedback = "Classification : renseignez au moins un critère exact."
+            return false
+        }
+
+        guard SalaryConventionClassificationStoreV2.save(
+            companyId: companyId,
+            value: classification
+        ) else {
+            classificationFeedback = "Classification : enregistrement refusé ou stockage non fiable."
+            return false
+        }
+
+        classificationFeedback = "Classification conventionnelle enregistrée pour cette entreprise."
+        refresh()
+        return true
+    }
+
+    @discardableResult
+    func saveAbsence() -> Bool {
+        let targetBeforeReconciliation = selectedCompanyId
+        synchronizeCompanySelectionWithLatestStore()
+        guard let companyId = SalaryCompanySelectionV2.stableMutationTarget(
+            beforeReconciliation: targetBeforeReconciliation,
+            afterReconciliation: selectedCompanyId
+        ) else {
+            recompute()
+            absenceFeedback = "Absence : l’entreprise analysée a changé. Vérifiez la sélection."
+            return false
+        }
+
+        guard let start = localCivilDate(from: absenceStartDateText),
+              let endInclusive = localCivilDate(from: absenceEndDateText),
+              let endExclusive = calendar.date(byAdding: .day, value: 1, to: endInclusive),
+              endExclusive > start else {
+            absenceFeedback = "Absence : vérifiez les dates de début et de fin — JJ/MM/AAAA."
+            return false
+        }
+        guard let treatment = SalaryAbsenceTreatmentV2(
+            rawValue: absenceTreatmentSelection
+        ) else {
+            absenceFeedback = "Absence : traitement salarial à confirmer."
+            return false
+        }
+        let type = absenceTypeSelection.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !type.isEmpty else {
+            absenceFeedback = "Absence : type à confirmer."
+            return false
+        }
+
+        let absence = SalaryAbsenceFactV2(
+            id: UUID().uuidString,
+            employerId: companyId,
+            type: type,
+            start: start,
+            end: endExclusive,
+            salaryTreatment: treatment,
+            fullDay: absenceFullDay,
+            status: .confirmed
+        )
+        guard SalaryAbsenceStoreV2.save(
+            companyId: companyId,
+            absence: absence
+        ) else {
+            absenceFeedback = "Absence : enregistrement refusé ou stockage non fiable."
+            return false
+        }
+
+        absenceStartDateText = ""
+        absenceEndDateText = ""
+        absenceFeedback = "Absence enregistrée. Reconfirmez ensuite l’exhaustivité du mois."
+        refresh()
+        return true
+    }
+
+    @discardableResult
+    func removeAbsence(_ id: String) -> Bool {
+        guard let companyId = selectedCompanyId,
+              SalaryAbsenceStoreV2.remove(
+                companyId: companyId,
+                absenceId: id
+              ) else {
+            absenceFeedback = "Absence : suppression impossible."
+            return false
+        }
+        absenceFeedback = "Absence supprimée. Reconfirmez l’exhaustivité du mois."
+        refresh()
+        return true
+    }
+
+    @discardableResult
+    func confirmAbsenceMonthCoverage() -> Bool {
+        let source = absenceMonthSourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let companyId = selectedCompanyId, !source.isEmpty else {
+            absenceFeedback = "Absences : indiquez la source de confirmation du mois."
+            return false
+        }
+        guard SalaryAbsenceStoreV2.confirmMonth(
+            companyId: companyId,
+            period: selectedPeriod,
+            source: source
+        ) else {
+            absenceFeedback = "Absences : confirmation mensuelle impossible."
+            return false
+        }
+        absenceFeedback = "Liste des absences confirmée exhaustive pour ce mois."
+        refresh()
+        return true
+    }
+
+    func updateSegmentedProrationMinutes(segmentId: String, text: String) {
+        guard let index = segmentedProrationDraftSegments.firstIndex(where: { $0.id == segmentId }) else {
+            return
+        }
+        segmentedProrationDraftSegments[index].scheduledMinutesText = text
+        segmentedProrationFeedback = nil
+    }
+
+    @discardableResult
+    func confirmSegmentedProration() -> Bool {
+        let targetBeforeReconciliation = selectedCompanyId
+        synchronizeCompanySelectionWithLatestStore()
+        guard let companyId = SalaryCompanySelectionV2.stableMutationTarget(
+            beforeReconciliation: targetBeforeReconciliation,
+            afterReconciliation: selectedCompanyId
+        ) else {
+            recompute()
+            segmentedProrationFeedback = "Proratisation : l’entreprise analysée a changé. Vérifiez la sélection."
+            return false
+        }
+        guard requiresSegmentedProration,
+              let segments = contractResolution?.resolution?.calculationSegments,
+              segments.count > 1 else {
+            segmentedProrationFeedback = "Proratisation : aucune segmentation contractuelle bloquante n’est à confirmer pour ce mois."
+            return false
+        }
+
+        let source = segmentedProrationSourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else {
+            segmentedProrationFeedback = "Proratisation : indiquez la source qui confirme les minutes planifiées."
+            return false
+        }
+
+        let expectedIds = Set(
+            segments.map {
+                let versionId = $0.snapshot.versionId.trimmingCharacters(in: .whitespacesAndNewlines)
+                return "\(versionId)|\($0.startEpochDay)|\($0.endEpochDay)"
+            }
+        )
+        guard expectedIds.count == segments.count,
+              Set(segmentedProrationDraftSegments.map(\.id)) == expectedIds else {
+            segmentedProrationFeedback = "Proratisation : les segments affichés ne correspondent plus au contrat résolu. Actualisez avant de confirmer."
+            return false
+        }
+
+        var confirmedSegments: [ConfirmedProrationSegmentV2] = []
+        for draft in segmentedProrationDraftSegments {
+            let raw = draft.scheduledMinutesText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let minutes = Int(raw), minutes >= 0 else {
+                segmentedProrationFeedback = "Proratisation : chaque segment doit avoir un nombre entier de minutes planifiées, positif ou nul."
+                return false
+            }
+            confirmedSegments.append(
+                ConfirmedProrationSegmentV2(
+                    versionId: draft.versionId,
+                    startEpochDay: draft.startEpochDay,
+                    endEpochDay: draft.endEpochDay,
+                    scheduledMinutes: minutes
+                )
+            )
+        }
+
+        let proration = ConfirmedSegmentedMonthlyProrationV2(
+            sourceId: source,
+            checkedAtMs: Int64((Date().timeIntervalSince1970 * 1_000).rounded()),
+            segments: confirmedSegments
+        )
+        guard SalarySegmentedProrationStoreV2.save(
+            companyId: companyId,
+            period: selectedPeriod,
+            proration: proration
+        ) else {
+            segmentedProrationFeedback = "Proratisation : confirmation refusée. Vérifiez les segments et le total de minutes."
+            return false
+        }
+
+        segmentedProrationFeedback = "Minutes planifiées confirmées pour les segments de ce mois. Aucun montant n’est encore calculé par cette confirmation."
+        refresh()
+        return true
+    }
+
+    @discardableResult
+    func removeSegmentedProration() -> Bool {
+        guard let companyId = selectedCompanyId,
+              SalarySegmentedProrationStoreV2.remove(
+                companyId: companyId,
+                period: selectedPeriod
+              ) else {
+            segmentedProrationFeedback = "Proratisation : suppression impossible."
+            return false
+        }
+        segmentedProrationFeedback = "Proratisation retirée : le mois redevient inconnu tant qu’une nouvelle base n’est pas confirmée."
+        refresh()
+        return true
+    }
+
+    @discardableResult
     func confirmIncomeTaxRate() -> Bool {
         let normalized = incomeTaxRateText.replacingOccurrences(of: ",", with: ".")
         let targetBeforeReconciliation = selectedCompanyId
@@ -368,6 +816,9 @@ final class SalaryV2Store: ObservableObject {
         guard let next else { return }
         selectedPeriod = next
         contractFeedback = nil
+        socialProfileFeedback = nil
+        absenceFeedback = nil
+        segmentedProrationFeedback = nil
         refresh()
     }
 
@@ -400,16 +851,47 @@ final class SalaryV2Store: ObservableObject {
                 sourceReliable: source.reliable,
                 calendar: calendar
             )
-            conventionCoverage = SalaryConventionCoverageResolverV2.resolve(
+            conventionCoverage = SalaryConventionPayrollBridgeV2.resolve(
                 companyId: companyId,
                 period: selectedPeriod,
                 companies: companies,
-                rules: conventionRulesProvider()
-            )
+                storedRules: conventionRulesProvider()
+            ).coverage
             contractResolution = SalaryEmploymentContractPayrollBridgeV2.resolve(
                 companyId: companyId,
                 period: selectedPeriod,
                 stored: contractHistoryProvider()
+            )
+            socialProfile = SalaryEmployeeSocialProfileStoreV2.resolve(
+                companyId: companyId,
+                period: selectedPeriod
+            )
+            absenceSource = SalaryAbsenceStoreV2.resolve(
+                companyId: companyId,
+                period: selectedPeriod
+            )
+            segmentedProrationSource = SalarySegmentedProrationStoreV2.resolve(
+                companyId: companyId,
+                period: selectedPeriod
+            )
+            segmentedMonthlyBase = SalarySegmentedMonthlyBaseProductionV2.resolve(
+                contractSnapshot: contractResolution,
+                conventionCoverage: conventionCoverage,
+                prorationSource: segmentedProrationSource
+            )
+            if let contracts = contractResolution?.resolution,
+               let rules = conventionCoverage {
+                segmentedPayrollBoundary = SalarySegmentedPayrollBoundaryV2.assess(
+                    contracts: contracts,
+                    rules: rules
+                )
+            } else {
+                segmentedPayrollBoundary = nil
+            }
+            segmentedProrationSourceText = segmentedProrationSource?.proration?.sourceId ?? ""
+            segmentedProrationDraftSegments = SalarySegmentedProrationDraftBuilderV2.make(
+                segments: contractResolution?.resolution?.calculationSegments ?? [],
+                stored: segmentedProrationSource?.proration
             )
             if let segments = contractResolution?.resolution?.calculationSegments, !segments.isEmpty {
                 contractSegmentPaidWork = SalaryContractSegmentPaidWorkAllocatorV2.allocate(
@@ -428,6 +910,13 @@ final class SalaryV2Store: ObservableObject {
             contractSegmentPaidWork = nil
             conventionCoverage = nil
             contractResolution = nil
+            socialProfile = nil
+            absenceSource = nil
+            segmentedProrationSource = nil
+            segmentedMonthlyBase = nil
+            segmentedPayrollBoundary = nil
+            segmentedProrationSourceText = ""
+            segmentedProrationDraftSegments = []
         }
 
         snapshot = SalaryWorkspaceResolverV2.resolve(
@@ -438,6 +927,51 @@ final class SalaryV2Store: ObservableObject {
         incomeTaxRateText = taxRate?.ratePercent.map { String(format: "%.2f", $0) } ?? ""
         incomeTaxSource = taxRate?.source ?? ""
         hydrateContractForm(from: contractResolution?.resolution?.coverage?.singleSnapshotForWholePeriod)
+        hydrateConventionClassification()
+    }
+
+    private func localCivilDate(from raw: String) -> Date? {
+        let parts = raw.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              let day = Int(parts[0]),
+              let month = Int(parts[1]),
+              let year = Int(parts[2]),
+              let civil = PayrollCivilDateV2(year: year, month: month, day: day) else {
+            return nil
+        }
+        return calendar.date(
+            from: DateComponents(
+                calendar: calendar,
+                timeZone: calendar.timeZone,
+                year: civil.year,
+                month: civil.month,
+                day: civil.day,
+                hour: 0,
+                minute: 0,
+                second: 0
+            )
+        )
+    }
+
+    private func hydrateConventionClassification() {
+        guard let companyId = selectedCompanyId else {
+            classificationCoefficientText = ""
+            classificationLevelText = ""
+            classificationEchelonText = ""
+            classificationPositionText = ""
+            classificationGroupText = ""
+            classificationCategoryText = ""
+            classificationEmploymentText = ""
+            return
+        }
+        let value = SalaryConventionClassificationStoreV2.load(companyId: companyId)
+        classificationCoefficientText = value.coefficient.map(String.init) ?? ""
+        classificationLevelText = value.level ?? ""
+        classificationEchelonText = value.echelon ?? ""
+        classificationPositionText = value.position ?? ""
+        classificationGroupText = value.group ?? ""
+        classificationCategoryText = value.category ?? ""
+        classificationEmploymentText = value.employment ?? ""
     }
 
     private func hydrateContractForm(from stored: SalaryEmploymentContractSnapshotV2?) {

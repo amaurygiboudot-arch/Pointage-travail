@@ -35,7 +35,6 @@ targets:
         NSLocationWhenInUseUsageDescription: HP Travail utilise votre position pour le pointage GPS et l'affichage soleil/lune.
         NSLocationAlwaysAndWhenInUseUsageDescription: HP Travail peut utiliser votre position en arrière-plan pour le pointage automatique si vous l'activez.
         NSMotionUsageDescription: HP Travail utilise l'orientation de l'iPhone pour afficher le ciel dans la bonne direction.
-        CelestialWeatherEndpoint: $(CELESTIAL_WEATHER_ENDPOINT)
         CFBundleURLTypes:
           - CFBundleTypeRole: Editor
             CFBundleURLSchemes:
@@ -47,7 +46,6 @@ targets:
         PRODUCT_MODULE_NAME: HPTravail
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGN_STYLE: Automatic
-        CELESTIAL_WEATHER_ENDPOINT: ""
 
   HPTravailTests:
     type: bundle.unit-test
@@ -68,6 +66,22 @@ targets:
       - path: HPTravail/SalaryV2/SalaryCompanySelectionV2.swift
       - path: HPTravail/SalaryV2/SalaryConventionRuleStoreV2.swift
       - path: HPTravail/SalaryV2/SalaryConventionCoverageV2.swift
+      - path: HPTravail/SalaryV2/SalaryConventionSegmentPayrollCompatibilityV2.swift
+      - path: HPTravail/SalaryV2/SalaryConventionPayrollBridgeV2.swift
+      - path: HPTravail/SalaryV2/SalaryEmployeeSocialProfileV2.swift
+      - path: HPTravail/SalaryV2/SocialSecurityCeilingV2.swift
+      - path: HPTravail/SalaryV2/FrenchPublicHolidayCalendarV2.swift
+      - path: HPTravail/SalaryV2/SalaryPremiumTimePolicyV2.swift
+      - path: HPTravail/SalaryV2/SalaryPayrollWeekEvidenceBuilderV2.swift
+      - path: HPTravail/SalaryV2/SalaryConventionNightRuleStoreV2.swift
+      - path: HPTravail/SalaryV2/SalaryAbsencePayrollImpactV2.swift
+      - path: HPTravail/SalaryV2/SalaryAbsenceStoreV2.swift
+      - path: HPTravail/SalaryV2/SalaryVerifiedProtectionCategoryV2.swift
+      - path: HPTravail/SalaryV2/SalaryConventionClassificationStoreV2.swift
+      - path: HPTravail/SalaryV2/SalaryConventionProtectionCategoryStoreV2.swift
+      - path: HPTravail/SalaryV2/SalaryConventionMatterCoverageStoreV2.swift
+      - path: HPTravail/SalaryV2/SalaryCanonicalReferenceProviderV2.swift
+      - path: HPTravail/SalaryV2/SalaryPayslipComparisonV2.swift
       - path: HPTravail/SalaryV2/SalaryEmploymentContractStoreV2.swift
       - path: HPTravail/SalaryV2/SalaryEmploymentContractHistoryV2.swift
       - path: HPTravail/SalaryV2/SalaryEmploymentContractHistoryStoreV2.swift
@@ -77,6 +91,17 @@ targets:
       - path: HPTravail/SalaryV2/SalaryEmploymentContractPayrollBridgeV2.swift
       - path: HPTravail/SalaryV2/SalaryContractSegmentPayrollCompatibilityV2.swift
       - path: HPTravail/SalaryV2/ConfirmedSegmentedMonthlyProrationV2.swift
+      - path: HPTravail/SalaryV2/SalarySegmentedProrationStoreV2.swift
+      - path: HPTravail/SalaryV2/SalarySegmentedMonthlyBaseBridgeV2.swift
+      - path: HPTravail/SalaryV2/SalarySegmentedMonthlyBaseProductionV2.swift
+      - path: HPTravail/SalaryV2/SalarySegmentedPayrollBoundaryV2.swift
+      - path: HPTravail/SalaryV2/SalarySegmentedWorkedGrossAssemblyV2.swift
+      - path: HPTravail/SalaryV2/SalarySegmentedWorkedGrossProductionV2.swift
+      - path: HPTravail/SalaryV2/SalarySegmentedCashGrossAssemblyV2.swift
+      - path: HPTravail/SalaryV2/SalarySegmentedCashGrossNetProjectionV2.swift
+      - path: HPTravail/SalaryV2/SalaryPayrollPremiumGrossV2.swift
+      - path: HPTravail/SalaryV2/SalarySegmentedWorkedVariableGrossSourceV2.swift
+      - path: HPTravail/SalaryV2/SalaryWeeklyThresholdMonthBoundaryGuardV2.swift
       - path: HPTravail/SalaryV2/SalaryPayrollCalculationTimelineV2.swift
       - path: HPTravail/SalaryV2/CompanyBenefitInKindStoreV2.swift
       - path: HPTravail/SalaryV2/EmployerHealthFamilyV2.swift
@@ -85,6 +110,7 @@ targets:
       - path: HPTravail/SalaryV2/SalaryPaidWorkAggregatorV2.swift
       - path: HPTravail/SalaryV2/SalaryContractSegmentPaidWorkV2.swift
       - path: HPTravail/SalaryV2/SalaryWorkSessionBridgeV2.swift
+      - path: HPTravail/SalaryV2/SalaryPayrollCoverageAttestationStoreV2.swift
       - path: HPTravail/SalaryV2/PartTimeComplementaryHoursV2.swift
       - path: HPTravail/SalaryV2/FullTimeStructuralOvertimeV2.swift
       - path: HPTravail/SalaryV2/EmployerUnemploymentAgsV2.swift

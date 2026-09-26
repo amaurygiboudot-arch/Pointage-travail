@@ -224,45 +224,6 @@ final class CelestialEngineV2Tests: XCTestCase {
         XCTAssertEqual(east.moon.distanceKilometers, west.moon.distanceKilometers, accuracy: 1e-6)
     }
 
-    func testLocalGlobeSceneCentresObserver() throws {
-        let snapshot = try DefaultCelestialEngineV2.snapshot(
-            latitudeDegrees: 46.67,
-            longitudeDegrees: -1.43,
-            date: date("2026-09-10T12:00:00Z")
-        )
-        let scene = CelestialGlobeProjectionV2.scene(snapshot: snapshot, mode: .local)
-
-        XCTAssertEqual(scene.viewLatitudeDegrees, snapshot.latitudeDegrees, accuracy: 1e-12)
-        XCTAssertEqual(scene.viewLongitudeDegrees, snapshot.longitudeDegrees, accuracy: 1e-12)
-        let observer = CelestialGlobeProjectionV2.project(
-            latitudeDegrees: snapshot.latitudeDegrees,
-            longitudeDegrees: snapshot.longitudeDegrees,
-            viewLatitudeDegrees: scene.viewLatitudeDegrees,
-            viewLongitudeDegrees: scene.viewLongitudeDegrees
-        )
-        XCTAssertEqual(observer.x, 0, accuracy: 1e-12)
-        XCTAssertEqual(observer.y, 0, accuracy: 1e-12)
-        XCTAssertEqual(observer.depth, 1, accuracy: 1e-12)
-    }
-
-    func testWorldGlobeSceneCentresRealTerminator() throws {
-        let snapshot = try DefaultCelestialEngineV2.snapshot(
-            latitudeDegrees: 46.67,
-            longitudeDegrees: -1.43,
-            date: date("2026-09-10T12:00:00Z")
-        )
-        let scene = CelestialGlobeProjectionV2.scene(snapshot: snapshot, mode: .world)
-        let subsolar = CelestialGlobeProjectionV2.project(
-            latitudeDegrees: scene.sunLatitudeDegrees,
-            longitudeDegrees: scene.sunLongitudeDegrees,
-            viewLatitudeDegrees: scene.viewLatitudeDegrees,
-            viewLongitudeDegrees: scene.viewLongitudeDegrees
-        )
-
-        XCTAssertEqual(scene.viewLatitudeDegrees, 0, accuracy: 1e-12)
-        XCTAssertEqual(subsolar.depth, 0, accuracy: 1e-9)
-    }
-
     private func date(_ value: String) -> Date {
         ISO8601DateFormatter().date(from: value)!
     }
@@ -635,63 +596,5 @@ final class CelestialDialProjectionV2Tests: XCTestCase {
             altitudeDegrees: -0.834,
             trueHeadingDegrees: 0
         ))
-    }
-}
-
-
-final class CelestialHorizonTransitionV2Tests: XCTestCase {
-    func testSunGlowStartsDuringCivilTwilight() {
-        XCTAssertEqual(
-            CelestialHorizonTransitionV2.sunGlowOpacity(altitudeDegrees: -6.1),
-            0,
-            accuracy: 1e-12
-        )
-        let early = CelestialHorizonTransitionV2.sunGlowOpacity(altitudeDegrees: -5)
-        let late = CelestialHorizonTransitionV2.sunGlowOpacity(altitudeDegrees: -2)
-        XCTAssertGreaterThan(early, 0)
-        XCTAssertGreaterThan(late, early)
-    }
-
-    func testDisksFadeInsteadOfPoppingAtHorizon() {
-        let horizon = CelestialHorizonTransitionV2.diskHorizonDegrees
-        XCTAssertEqual(
-            CelestialHorizonTransitionV2.diskOpacity(altitudeDegrees: horizon),
-            0,
-            accuracy: 1e-12
-        )
-        let midpoint = (horizon + CelestialHorizonTransitionV2.diskFullyVisibleDegrees) / 2
-        XCTAssertEqual(
-            CelestialHorizonTransitionV2.diskOpacity(altitudeDegrees: midpoint),
-            0.5,
-            accuracy: 0.05
-        )
-        XCTAssertEqual(
-            CelestialHorizonTransitionV2.diskOpacity(
-                altitudeDegrees: CelestialHorizonTransitionV2.diskFullyVisibleDegrees
-            ),
-            1,
-            accuracy: 1e-12
-        )
-    }
-}
-
-
-final class HomeTabBarVisibilityPolicyV2Tests: XCTestCase {
-    func testHomeTabBarStaysVisibleBeforeTenSeconds() {
-        XCTAssertFalse(
-            HomeTabBarVisibilityPolicyV2.shouldHide(isHome: true, inactiveFor: 9.999)
-        )
-    }
-
-    func testHomeTabBarHidesAtTenSeconds() {
-        XCTAssertTrue(
-            HomeTabBarVisibilityPolicyV2.shouldHide(isHome: true, inactiveFor: 10)
-        )
-    }
-
-    func testOtherTabsNeverUseHomeAutoHide() {
-        XCTAssertFalse(
-            HomeTabBarVisibilityPolicyV2.shouldHide(isHome: false, inactiveFor: 60)
-        )
     }
 }

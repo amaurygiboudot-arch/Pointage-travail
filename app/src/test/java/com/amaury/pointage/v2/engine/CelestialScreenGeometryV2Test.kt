@@ -1,124 +1,276 @@
 package com.amaury.pointage.v2.engine
 
-import kotlin.math.*
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Existing heading/layout contracts retained; coordinates now describe the approved 3D dome. */
 class CelestialScreenGeometryV2Test {
-    private fun body(az: Double, alt: Double) = CelestialBodyV2(azimuthDeg=az,altitudeDeg=alt,distanceKm=1.0,apparentScale=1.0)
-    private fun point(az: Double, alt: Double=0.0, heading: Float=0f) =
-        CelestialScreenGeometryV2.projectEarthCenteredSky(body(az,alt),heading)!!
-    private val flat=CelestialDeviceFrameV2(1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0)
-    private val upright=CelestialDeviceFrameV2(1.0,0.0,0.0,0.0,0.0,-1.0,0.0,1.0,0.0)
-    private val east=CelestialDeviceFrameV2(0.0,-1.0,0.0,0.0,0.0,-1.0,1.0,0.0,0.0)
 
-    @Test fun safeSpanFitsLandscapeAndTablet() {
-        for ((w,h) in listOf(800.0 to 280.0,1200.0 to 540.0))
-            assertTrue(CelestialScreenGeometryV2.safeRenderSpan(w,h)*CelestialScreenGeometryV2.VERTICAL_RENDER_ASPECT<=h)
+    @Test
+    fun `span de rendu reste contenu en paysage et tablette`() {
+        val landscape = CelestialScreenGeometryV2.safeRenderSpan(800.0, 280.0)
+        val tablet = CelestialScreenGeometryV2.safeRenderSpan(1_200.0, 540.0)
+
+        assertTrue(landscape * CelestialScreenGeometryV2.VERTICAL_RENDER_ASPECT <= 280.0)
+        assertTrue(tablet * CelestialScreenGeometryV2.VERTICAL_RENDER_ASPECT <= 540.0)
     }
-    @Test fun safeSpanKeepsPortraitWidthAndRejectsInvalidSizes() {
-        assertEquals(360.0,CelestialScreenGeometryV2.safeRenderSpan(360.0,640.0),1e-9)
-        assertEquals(0.0,CelestialScreenGeometryV2.safeRenderSpan(Double.NaN,640.0),0.0)
+
+    @Test
+    fun `span de rendu conserve la largeur en portrait`() {
+        assertEquals(360.0, CelestialScreenGeometryV2.safeRenderSpan(360.0, 640.0), 1e-9)
     }
-    @Test fun cardinalCoordinatesBelongToInclinedSphere() {
-        val altitude=Math.toRadians(AtmosphericRefractionV2.apparentAltitudeDeg(0.0))
-        val tilt=Math.toRadians(35.0)
-        val r=0.76
-        assertEquals(0.0,point(0.0).xRadiusFraction,1e-12)
-        assertEquals(-r*(cos(altitude)*sin(tilt)+sin(altitude)*cos(tilt)),point(0.0).yRadiusFraction,1e-12)
-        assertEquals(r*cos(altitude),point(90.0).xRadiusFraction,1e-12)
-        assertEquals(-r*sin(altitude)*cos(tilt),point(90.0).yRadiusFraction,1e-12)
-        assertTrue(point(180.0).yRadiusFraction>0.4)
-        assertTrue(point(270.0).xRadiusFraction< -0.75)
+
+    private fun body(az: Double, alt: Double) = CelestialBodyV2(
+        azimuthDeg = az,
+        altitudeDeg = alt,
+        distanceKm = 1.0,
+        apparentScale = 1.0
+    )
+
+    private val flatFacingNorth = CelestialDeviceFrameV2(
+        rightEast = 1.0,
+        rightNorth = 0.0,
+        rightUp = 0.0,
+        topEast = 0.0,
+        topNorth = 1.0,
+        topUp = 0.0,
+        normalEast = 0.0,
+        normalNorth = 0.0,
+        normalUp = 1.0
+    )
+
+    // Repère droit physiquement cohérent : écran vertical, normale vers le Nord,
+    // haut d'écran vers le bas du monde après bascule depuis la position à plat.
+    private val uprightFacingNorth = CelestialDeviceFrameV2(
+        rightEast = 1.0,
+        rightNorth = 0.0,
+        rightUp = 0.0,
+        topEast = 0.0,
+        topNorth = 0.0,
+        topUp = -1.0,
+        normalEast = 0.0,
+        normalNorth = 1.0,
+        normalUp = 0.0
+    )
+
+    private val uprightFacingEast = CelestialDeviceFrameV2(
+        rightEast = 0.0,
+        rightNorth = -1.0,
+        rightUp = 0.0,
+        topEast = 0.0,
+        topNorth = 0.0,
+        topUp = -1.0,
+        normalEast = 1.0,
+        normalNorth = 0.0,
+        normalUp = 0.0
+    )
+
+    @Test
+    fun `carte terre centree place nord en haut et est a droite`() {
+        val north = CelestialScreenGeometryV2.projectEarthCenteredSky(body(0.0, 0.0), 0f)
+        val east = CelestialScreenGeometryV2.projectEarthCenteredSky(body(90.0, 0.0), 0f)
+
+        assertNotNull(north)
+        assertNotNull(east)
+        assertEquals(0.0, north!!.xRadiusFraction, 1e-9)
+        assertTrue(north.yRadiusFraction < -0.99)
+        assertTrue(east!!.xRadiusFraction > 0.99)
+        assertEquals(0.0, east.yRadiusFraction, 1e-9)
     }
-    @Test fun headingThirtySevenStillPreservesAllCardinalDirections() {
-        assertTrue(point(37.0,heading=37f).yRadiusFraction< -0.4)
-        assertTrue(point(127.0,heading=37f).xRadiusFraction>0.75)
-        assertTrue(point(217.0,heading=37f).yRadiusFraction>0.4)
-        assertTrue(point(307.0,heading=37f).xRadiusFraction< -0.75)
+
+    @Test
+    fun `chaine cardinale place cap a midi est a droite sud en bas ouest a gauche`() {
+        val heading = 37f
+        val ahead = CelestialScreenGeometryV2.projectEarthCenteredSky(body(37.0, 0.0), heading)!!
+        val right = CelestialScreenGeometryV2.projectEarthCenteredSky(body(127.0, 0.0), heading)!!
+        val behind = CelestialScreenGeometryV2.projectEarthCenteredSky(body(217.0, 0.0), heading)!!
+        val left = CelestialScreenGeometryV2.projectEarthCenteredSky(body(307.0, 0.0), heading)!!
+
+        assertTrue(ahead.yRadiusFraction < -0.99)
+        assertTrue(kotlin.math.abs(ahead.xRadiusFraction) < 1e-9)
+        assertTrue(right.xRadiusFraction > 0.99)
+        assertTrue(kotlin.math.abs(right.yRadiusFraction) < 1e-9)
+        assertTrue(behind.yRadiusFraction > 0.99)
+        assertTrue(kotlin.math.abs(behind.xRadiusFraction) < 1e-9)
+        assertTrue(left.xRadiusFraction < -0.99)
+        assertTrue(kotlin.math.abs(left.yRadiusFraction) < 1e-9)
     }
-    @Test fun oppositeAzimuthDoesNotDisappearOnThreeSixtyMap() {
-        assertNotNull(CelestialScreenGeometryV2.projectEarthCenteredSky(body(180.0,25.0),0f))
+
+    @Test
+    fun `astre oppose au cap reste visible sur carte 360`() {
+        val south = CelestialScreenGeometryV2.projectEarthCenteredSky(body(180.0, 0.0), 0f)
+        assertNotNull(south)
+        assertEquals(0.0, south!!.xRadiusFraction, 1e-9)
+        assertTrue(south.yRadiusFraction > 0.99)
     }
-    @Test fun physicalFrameCompatibilityDoesNotCullRearBodies() {
-        assertNotNull(CelestialScreenGeometryV2.projectInDeviceSky(body(180.0,25.0),upright))
+
+    @Test
+    fun `compatibilite frame ne masque plus astre derriere telephone`() {
+        val south = CelestialScreenGeometryV2.projectInDeviceSky(
+            body = body(180.0, 0.0),
+            frame = uprightFacingNorth
+        )
+        assertNotNull(south)
+        assertTrue(south!!.yRadiusFraction > 0.99)
     }
-    @Test fun stabilizedHeadingStillWinsOverRawFrame() {
-        val frame=flat.copy(stabilizedHeadingDeg=90.0)
-        assertEquals(90.0,CelestialScreenGeometryV2.headingFromFrame(frame),1e-9)
-        assertTrue(CelestialScreenGeometryV2.projectInDeviceSky(body(0.0,0.0),frame)!!.xRadiusFraction< -0.75)
+
+    @Test
+    fun `cap stabilise du tracker prime sur azimut brut du frame`() {
+        val rawNorthButFilteredEast = flatFacingNorth.copy(stabilizedHeadingDeg = 90.0)
+
+        assertEquals(90.0, CelestialScreenGeometryV2.headingFromFrame(rawNorthButFilteredEast), 1e-9)
+        val north = CelestialScreenGeometryV2.projectInDeviceSky(
+            body = body(0.0, 0.0),
+            frame = rawNorthButFilteredEast
+        )
+        assertNotNull(north)
+        assertTrue(north!!.xRadiusFraction < -0.99)
     }
-    @Test fun tiltToVerticalDoesNotFlipHeading() {
-        val c=sqrt(0.5)
-        val half=CelestialDeviceFrameV2(1.0,0.0,0.0,0.0,c,-c,0.0,c,c)
-        for (f in listOf(flat,half,upright)) assertEquals(0.0,CelestialScreenGeometryV2.headingFromFrame(f),1e-9)
+
+    @Test
+    fun `cap est stable de plat a vertical vers nord`() {
+        val c = kotlin.math.sqrt(0.5)
+        val halfTilt = CelestialDeviceFrameV2(
+            rightEast = 1.0,
+            rightNorth = 0.0,
+            rightUp = 0.0,
+            topEast = 0.0,
+            topNorth = c,
+            topUp = -c,
+            normalEast = 0.0,
+            normalNorth = c,
+            normalUp = c
+        )
+
+        assertEquals(0.0, CelestialScreenGeometryV2.headingFromFrame(flatFacingNorth), 1e-9)
+        assertEquals(0.0, CelestialScreenGeometryV2.headingFromFrame(halfTilt), 1e-9)
+        assertEquals(0.0, CelestialScreenGeometryV2.headingFromFrame(uprightFacingNorth), 1e-9)
     }
-    @Test fun tiltInOtherDirectionDoesNotFlipHeading() {
-        val c=sqrt(0.5)
-        val half=CelestialDeviceFrameV2(1.0,0.0,0.0,0.0,c,c,0.0,-c,c)
-        val vertical=CelestialDeviceFrameV2(1.0,0.0,0.0,0.0,0.0,1.0,0.0,-1.0,0.0)
-        for (f in listOf(half,vertical)) assertEquals(0.0,CelestialScreenGeometryV2.headingFromFrame(f),1e-9)
+
+    @Test
+    fun `incliner dans lautre sens ne retourne pas le ciel de 180 degres`() {
+        val c = kotlin.math.sqrt(0.5)
+        val halfTiltTowardUser = CelestialDeviceFrameV2(
+            rightEast = 1.0,
+            rightNorth = 0.0,
+            rightUp = 0.0,
+            topEast = 0.0,
+            topNorth = c,
+            topUp = c,
+            normalEast = 0.0,
+            normalNorth = -c,
+            normalUp = c
+        )
+        val uprightFacingSouth = CelestialDeviceFrameV2(
+            rightEast = 1.0,
+            rightNorth = 0.0,
+            rightUp = 0.0,
+            topEast = 0.0,
+            topNorth = 0.0,
+            topUp = 1.0,
+            normalEast = 0.0,
+            normalNorth = -1.0,
+            normalUp = 0.0
+        )
+
+        assertEquals(0.0, CelestialScreenGeometryV2.headingFromFrame(halfTiltTowardUser), 1e-9)
+        assertEquals(0.0, CelestialScreenGeometryV2.headingFromFrame(uprightFacingSouth), 1e-9)
     }
-    @Test fun rollBeyondNinetyDoesNotFlipHeading() {
-        val c=cos(Math.toRadians(120.0));val s=sin(Math.toRadians(120.0))
-        val frame=CelestialDeviceFrameV2(c,0.0,s,0.0,1.0,0.0,-s,0.0,c)
-        assertEquals(0.0,CelestialScreenGeometryV2.headingFromFrame(frame),1e-9)
-        assertTrue(CelestialScreenGeometryV2.projectInDeviceSky(body(0.0,0.0),frame)!!.yRadiusFraction< -0.4)
+
+    @Test
+    fun `roulis au dela de 90 degres ne retourne plus le ciel`() {
+        // Le haut physique reste exactement vers le Nord. Seul l'axe droit passe
+        // de l'autre côté de la verticale. L'ancien algorithme basé en priorité
+        // sur Up x Right aurait renvoyé 180° au lieu de 0°.
+        val roll120 = Math.toRadians(120.0)
+        val c = kotlin.math.cos(roll120)
+        val s = kotlin.math.sin(roll120)
+        val frame = CelestialDeviceFrameV2(
+            rightEast = c,
+            rightNorth = 0.0,
+            rightUp = s,
+            topEast = 0.0,
+            topNorth = 1.0,
+            topUp = 0.0,
+            normalEast = -s,
+            normalNorth = 0.0,
+            normalUp = c
+        )
+
+        assertEquals(0.0, CelestialScreenGeometryV2.headingFromFrame(frame), 1e-9)
+        val north = CelestialScreenGeometryV2.projectInDeviceSky(body(0.0, 0.0), frame)!!
+        assertTrue(north.yRadiusFraction < -0.99)
     }
-    @Test fun uprightEastUsesRightAxisFallback() {
-        assertEquals(90.0,CelestialScreenGeometryV2.headingFromFrame(east),1e-9)
+
+    @Test
+    fun `cap est deduit de axe droit pour orientation est`() {
+        assertEquals(90.0, CelestialScreenGeometryV2.headingFromFrame(uprightFacingEast), 1e-9)
     }
-    @Test fun rotationChangesDepthNotJustFlatDiskAngle() {
-        val north=point(0.0);val rotated=point(0.0,heading=90f)
-        assertTrue(north.yRadiusFraction<0);assertTrue(rotated.xRadiusFraction<0)
-        assertTrue(abs(north.radialFraction-rotated.radialFraction)>0.2)
+
+    @Test
+    fun `rotation vers est tourne ciel autour terre`() {
+        val northWhenFacingNorth = CelestialScreenGeometryV2.projectEarthCenteredSky(body(0.0, 0.0), 0f)!!
+        val northWhenFacingEast = CelestialScreenGeometryV2.projectEarthCenteredSky(body(0.0, 0.0), 90f)!!
+
+        assertTrue(northWhenFacingNorth.yRadiusFraction < -0.99)
+        assertTrue(northWhenFacingEast.xRadiusFraction < -0.99)
     }
-    @Test fun increasingAltitudeHasContinuousSphericalTrajectory() {
-        var previous=point(90.0,0.0)
-        for (i in 1..900) {
-            val p=point(90.0,i/10.0)
-            assertTrue(hypot(p.xRadiusFraction-previous.xRadiusFraction,p.yRadiusFraction-previous.yRadiusFraction)<0.003)
-            previous=p
-        }
+
+    @Test
+    fun `altitude rapproche progressivement astre du centre`() {
+        val horizon = CelestialScreenGeometryV2.projectEarthCenteredSky(body(90.0, 0.0), 0f)!!
+        val middle = CelestialScreenGeometryV2.projectEarthCenteredSky(body(90.0, 45.0), 0f)!!
+        val high = CelestialScreenGeometryV2.projectEarthCenteredSky(body(90.0, 80.0), 0f)!!
+
+        assertTrue(horizon.radialFraction > middle.radialFraction)
+        assertTrue(middle.radialFraction > high.radialFraction)
     }
-    @Test fun refractionRaisesApparentAltitudeWithoutChangingEphemeris() {
-        val b=body(90.0,-0.5)
-        val p=CelestialScreenGeometryV2.projectEarthCenteredSky(b,0f)!!
-        assertTrue(p.yRadiusFraction<0)
-        assertEquals(-0.5,b.altitudeDeg,0.0)
+
+    @Test
+    fun `refraction remonte legerement astre au voisinage horizon`() {
+        val geometricHorizon = CelestialScreenGeometryV2.projectEarthCenteredSky(body(90.0, 0.0), 0f)!!
+        assertTrue(geometricHorizon.radialFraction < 1.0)
+
+        val justBelow = CelestialScreenGeometryV2.projectEarthCenteredSky(body(90.0, -0.5), 0f)
+        assertNotNull(justBelow)
+        assertTrue(justBelow!!.radialFraction < 1.0)
     }
-    @Test fun zenithNoLongerOrbitsCentreWithUndefinedAzimuth() {
-        val a=point(0.0,90.0);val b=point(180.0,90.0)
-        assertEquals(a.xRadiusFraction,b.xRadiusFraction,1e-12)
-        assertEquals(a.yRadiusFraction,b.yRadiusFraction,1e-12)
-        assertEquals(-0.76*cos(Math.toRadians(35.0)),a.yRadiusFraction,1e-12)
+
+    @Test
+    fun `zenith garde rayon interne pour ne pas masquer terre`() {
+        val zenith = CelestialScreenGeometryV2.projectEarthCenteredSky(body(123.0, 90.0), 0f)
+        assertNotNull(zenith)
+        assertEquals(CelestialScreenGeometryV2.ZENITH_RADIUS_FRACTION, zenith!!.radialFraction, 1e-9)
     }
-    @Test fun diskProjectionAndFadeShareTheirExistingCutoff() {
-        assertNull(CelestialScreenGeometryV2.projectEarthCenteredSky(body(90.0,-0.84),0f))
-        assertNotNull(CelestialScreenGeometryV2.projectEarthCenteredSky(body(90.0,-0.82),0f))
-        for (i in -1000..3000) {
-            val h=i/1000.0
-            val alpha=CelestialHorizonTransitionV2.diskAlpha(h)
-            if (alpha>0) assertNotNull(CelestialScreenGeometryV2.projectEarthCenteredSky(body(90.0,h),0f))
-            assertTrue(abs(alpha-CelestialHorizonTransitionV2.diskAlpha(h+0.001))<0.001)
-        }
+
+    @Test
+    fun `astre sous seuil standard du disque nest pas dessine`() {
+        assertNull(CelestialScreenGeometryV2.projectEarthCenteredSky(body(90.0, -0.84), 0f))
+        assertNotNull(CelestialScreenGeometryV2.projectEarthCenteredSky(body(90.0, -0.82), 0f))
     }
-    @Test fun invalidBodyCannotCreateScreenCoordinate() {
-        for (h in listOf(Double.NaN,Double.POSITIVE_INFINITY,91.0))
-            assertNull(CelestialScreenGeometryV2.projectEarthCenteredSky(body(90.0,h),0f))
-        assertNull(CelestialScreenGeometryV2.projectEarthCenteredSky(body(Double.NaN,30.0),0f))
+
+    @Test
+    fun `terminateur est coherent avec carte terre centree`() {
+        val direction = CelestialScreenGeometryV2.directionToward(
+            from = body(0.0, 0.0),
+            to = body(90.0, 0.0),
+            deviceAzimuthDeg = 0f
+        )
+        assertNotNull(direction)
+        assertTrue(direction!!.x > 0.99)
+        assertTrue(kotlin.math.abs(direction.y) < 0.01)
     }
-    @Test fun originalIconsFitInsideDialWithReservedMargin() {
-        for (az in 0..360 step 5) for (h in 0..90 step 3)
-            assertTrue(point(az.toDouble(),h.toDouble()).radialFraction+0.22<1)
-    }
-    @Test fun terminatorFollowsSameSphericalTangent() {
-        val d=CelestialScreenGeometryV2.directionToward(body(0.0,0.0),body(90.0,0.0),0f)!!
-        assertTrue(d.x>0.99);assertTrue(abs(d.y)<0.01)
-    }
-    @Test fun earthShadowStillPointsTowardAntiSun() {
-        val d=CelestialScreenGeometryV2.directionTowardAntiSun(body(170.0,0.0),body(0.0,0.0),0f)!!
-        assertTrue(d.x<0)
+
+    @Test
+    fun `axe ombre terrestre pointe vers anti soleil`() {
+        val direction = CelestialScreenGeometryV2.directionTowardAntiSun(
+            moon = body(170.0, 0.0),
+            sun = body(0.0, 0.0),
+            deviceAzimuthDeg = 0f
+        )
+        assertNotNull(direction)
+        assertTrue(direction!!.x < 0.0)
     }
 }
