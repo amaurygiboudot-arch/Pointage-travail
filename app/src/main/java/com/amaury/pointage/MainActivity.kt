@@ -767,7 +767,7 @@ class MainActivity : Activity() {
         val precisePermission = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val backgroundPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
             checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
-        gpsStatusText.text = gpsAutomaticStatus(
+        val status = gpsAutomaticStatus(
             enabled = autoGpsSwitch.isChecked,
             precisePermission = precisePermission,
             backgroundPermission = backgroundPermission,
@@ -778,6 +778,12 @@ class MainActivity : Activity() {
         val canOpenSystemSettings = shouldOpenSystemLocationSettings(
             autoGpsSwitch.isChecked, precisePermission, backgroundPermission, systemEnabled
         )
+        gpsStatusText.text = if (canOpenSystemSettings) {
+            "$status\nOuvrir les réglages de localisation"
+        } else status
+        gpsStatusText.contentDescription = if (canOpenSystemSettings) {
+            "$status. Ouvrir les réglages de localisation"
+        } else null
         gpsStatusText.isClickable = canOpenSystemSettings
         gpsStatusText.isFocusable = canOpenSystemSettings
         gpsStatusText.setOnClickListener(if (canOpenSystemSettings) View.OnClickListener {
