@@ -1,1 +1,1 @@
-Deploy Firebase Functions - backend deployment popup and notification pipeline - 2026-09-07
+Deploy Firebase Functions - App Check enforcement on callable functions - 2026-09-26
