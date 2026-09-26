@@ -22,6 +22,7 @@ final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
         XCTAssertTrue(result.cashGrossReliable)
         XCTAssertFalse(result.netBeforeIncomeTaxComplete)
         XCTAssertEqual(result.paidMinutes, 2_400)
+        XCTAssertEqual(result.complementaryMinutes, 0)
         XCTAssertEqual(result.nightMinutes, 120)
         XCTAssertEqual(result.workedGross, 1_000)
         XCTAssertEqual(result.cashGross, 1_100)
@@ -105,7 +106,8 @@ final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
                     endEpochDay: 7,
                     overtimeGross: 50,
                     complementaryGross: 0,
-                    premiumGross: 25
+                    premiumGross: 25,
+                    complementaryMinutes: 0
                 )
             ]
         )
