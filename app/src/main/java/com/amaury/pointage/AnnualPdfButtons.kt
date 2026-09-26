@@ -6,7 +6,7 @@ import android.content.Intent
 import android.util.AttributeSet
 import android.widget.Button
 import android.widget.Toast
-import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.AGKGMGV2
 import java.io.File
 import java.util.Calendar
 
@@ -24,10 +24,10 @@ class AnnualWorkPdfButton @JvmOverloads constructor(
         val activity = context as? MainActivity ?: return
         val year = Calendar.getInstance().get(Calendar.YEAR)
         runCatching {
-            val name = "HoraTrack_Bilan_travail_$year.pdf"
+            val name = "AGKGMG_Bilan_travail_$year.pdf"
             val file = File(activity.cacheDir, name)
             file.outputStream().use { output ->
-                if (HoraTrackV2.ENABLED) {
+                if (AGKGMGV2.ENABLED) {
                     AnnualPdfReports.writeWork(activity, year, output)
                 } else {
                     AnnualPdfReports.writeWork(activity, PointageStore.load(activity), year, output)
@@ -89,11 +89,11 @@ class AnnualSalaryPdfButton @JvmOverloads constructor(
             .replace(Regex("[^A-Za-z0-9_-]"), "_")
             .take(32)
             .ifBlank { "entreprise" }
-        val name = "HoraTrack_Estimation_salaire_${token}_$year.pdf"
+        val name = "AGKGMG_Estimation_salaire_${token}_$year.pdf"
         runCatching {
             val file = File(activity.cacheDir, name)
             file.outputStream().use { output ->
-                if (HoraTrackV2.ENABLED) {
+                if (AGKGMGV2.ENABLED) {
                     AnnualPdfReports.writeSalary(activity, year, output, company)
                 } else {
                     AnnualPdfReports.writeSalary(
