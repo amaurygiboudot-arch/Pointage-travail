@@ -5,13 +5,17 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.net.Uri
 import com.google.firebase.FirebaseApp
+import com.google.firebase.appcheck.AppCheckProviderFactory
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 
 /**
  * Installe App Check avant que les écrans et services de l'application
- * commencent à utiliser Firebase. Le contrôle strict côté Firebase reste
- * désactivé tant que les métriques App Check n'ont pas été vérifiées.
+ * commencent à utiliser Firebase.
+ *
+ * Les builds release/play utilisent Play Integrity. Seule la build Android
+ * réellement debuggable utilise le fournisseur App Check debug, dont la
+ * dépendance n'est pas embarquée dans les variantes de production.
  */
 class AppCheckInitProvider : ContentProvider() {
     override fun onCreate(): Boolean {
@@ -21,9 +25,7 @@ class AppCheckInitProvider : ContentProvider() {
         return runCatching {
             FirebaseApp.initializeApp(appContext)
             val appCheck = FirebaseAppCheck.getInstance()
-            appCheck.installAppCheckProviderFactory(
-                PlayIntegrityAppCheckProviderFactory.getInstance()
-            )
+            appCheck.installAppCheckProviderFactory(providerFactory())
             appCheck.setTokenAutoRefreshEnabled(true)
 
             prefs.edit()
@@ -63,6 +65,21 @@ class AppCheckInitProvider : ContentProvider() {
                 .apply()
             true
         }
+    }
+
+    private fun providerFactory(): AppCheckProviderFactory {
+        if (!BuildConfig.DEBUG) {
+            return PlayIntegrityAppCheckProviderFactory.getInstance()
+        }
+
+        // La classe n'existe que sur le classpath debug grâce à debugImplementation.
+        // La réflexion évite toute référence de compilation/packaging dans release/play.
+        val providerClass = Class.forName(
+            "com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory"
+        )
+        val instance = providerClass.getMethod("getInstance").invoke(null)
+        return instance as? AppCheckProviderFactory
+            ?: error("Fournisseur Firebase App Check debug invalide")
     }
 
     override fun query(
