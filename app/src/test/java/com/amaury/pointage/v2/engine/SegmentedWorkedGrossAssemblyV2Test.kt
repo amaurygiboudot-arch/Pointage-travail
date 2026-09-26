@@ -86,6 +86,30 @@ class SegmentedWorkedGrossAssemblyV2Test {
     }
 
     @Test
+    fun inconsistentB21BreakdownBlocksAssembly() {
+        val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
+            base = base(),
+            variableSource = SegmentedWorkedVariableGrossSourceResultV2(
+                pieces = listOf(
+                    variable("v1", 0, 14, 120.0),
+                    variable("v2", 15, 30, 80.0)
+                ),
+                reliable = true,
+                warnings = emptyList(),
+                breakdowns = listOf(
+                    SegmentedWorkedVariableGrossBreakdownV2("company", "v1", 0, 14, 121.0, 0.0, 0.0),
+                    SegmentedWorkedVariableGrossBreakdownV2("company", "v2", 15, 30, 80.0, 0.0, 0.0)
+                )
+            )
+        )
+
+        assertFalse(result.reliable)
+        assertNull(result.workedGross)
+        assertTrue(result.warnings.contains(SegmentedWorkedGrossAssemblerV2.BREAKDOWN_WARNING))
+    }
+
+    @Test
     fun missingVariablePieceNeverBecomesImplicitZero() {
         val result = SegmentedWorkedGrossAssemblerV2.assemble(
             contracts = contracts(),

@@ -58,6 +58,8 @@ enum SalarySegmentedWorkedGrossAssemblerV2 {
         "Brut segmenté : montant non fini ou négatif détecté ; assemblage bloqué."
     static let overflowWarning =
         "Brut segmenté : total monétaire non représentable de façon fiable ; assemblage bloqué."
+    static let breakdownWarning =
+        "Brut segment? : la ventilation des variables ne correspond pas aux pi?ces mon?taires prouv?es ; raccord aval bloqu?."
 
     static func assemble(
         contracts: SalaryEmploymentContractPeriodResolutionV2,
@@ -71,6 +73,37 @@ enum SalarySegmentedWorkedGrossAssemblerV2 {
                     + variableSource.warnings
                     + [variableReliabilityWarning]
             )
+        }
+        if !variableSource.breakdowns.isEmpty {
+            let piecePairs = variableSource.pieces.map {
+                (key($0.versionId, start: $0.startEpochDay, end: $0.endEpochDay), $0)
+            }
+            let pieceKeys = piecePairs.map { $0.0 }
+            let breakdownKeys = variableSource.breakdowns.map {
+                key($0.versionId, start: $0.startEpochDay, end: $0.endEpochDay)
+            }
+            let validKeys = Set(pieceKeys).count == pieceKeys.count
+                && Set(breakdownKeys).count == breakdownKeys.count
+                && Set(pieceKeys) == Set(breakdownKeys)
+            let validAmounts = variableSource.breakdowns.allSatisfy { item in
+                let amounts = [
+                    item.overtimeGross,
+                    item.complementaryGross,
+                    item.premiumGross,
+                    item.variableGross
+                ]
+                let itemKey = key(item.versionId, start: item.startEpochDay, end: item.endEpochDay)
+                guard let piece = piecePairs.first(where: { $0.0 == itemKey })?.1 else { return false }
+                return item.companyId.trimmingCharacters(in: .whitespacesAndNewlines)
+                        == contracts.companyId.trimmingCharacters(in: .whitespacesAndNewlines)
+                    && amounts.allSatisfy { $0.isFinite && $0 >= 0 }
+                    && abs(item.variableGross - piece.variableGross) <= currencyTolerance
+            }
+            guard validKeys, validAmounts else {
+                return blocked(
+                    contracts.warnings + base.warnings + variableSource.warnings + [breakdownWarning]
+                )
+            }
         }
         let assembled = assemble(
             contracts: contracts,
