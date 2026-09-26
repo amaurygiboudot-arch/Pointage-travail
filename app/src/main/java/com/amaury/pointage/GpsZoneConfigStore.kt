@@ -185,6 +185,24 @@ internal fun resolveGpsZoneRadiusForAddress(
     }
 }
 
+internal fun updateGpsZoneTypeById(
+    zones: JSONArray,
+    zoneId: String,
+    pointType: String
+): Boolean {
+    val targetId = zoneId.trim()
+    if (targetId.isBlank()) return false
+    var changed = false
+    for (index in 0 until zones.length()) {
+        val zone = zones.optJSONObject(index) ?: continue
+        if (zone.optString("id").trim() != targetId) continue
+        zone.put("pointType", pointType)
+        changed = true
+        break
+    }
+    return changed
+}
+
 internal fun resolveGpsRadiusForRefresh(existing: JSONObject?, fallbackRadius: Int): Int {
     val existingRadius = existing
         ?.optDouble("radius", Double.NaN)
