@@ -154,6 +154,42 @@ internal fun parsePersistedGpsZones(raw: String?): GpsZonesReadResult {
 }
 
 
+
+internal data class GpsLocationEntry(
+    val zoneId: String?,
+    val address: String
+)
+
+internal fun resolveGpsLocationEntries(
+    zonesResult: GpsZonesReadResult,
+    savedAddresses: List<String>
+): List<GpsLocationEntry>? {
+    if (zonesResult is GpsZonesReadResult.Corrupt) return null
+
+    val normalizedSaved = savedAddresses
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinctBy { it.lowercase() }
+
+    val entries = mutableListOf<GpsLocationEntry>()
+    val coveredAddresses = mutableSetOf<String>()
+
+    if (zonesResult is GpsZonesReadResult.Valid) {
+        zonesResult.zones.forEach { zone ->
+            val address = zone.address?.trim().orEmpty()
+            if (address.isBlank()) return@forEach
+            entries += GpsLocationEntry(zone.id, address)
+            coveredAddresses += address.lowercase()
+        }
+    }
+
+    normalizedSaved
+        .filterNot { it.lowercase() in coveredAddresses }
+        .forEach { entries += GpsLocationEntry(null, it) }
+
+    return entries
+}
+
 internal sealed class GpsZoneRadiusResolution {
     data class Known(val radiusMeters: Float) : GpsZoneRadiusResolution()
     object Missing : GpsZoneRadiusResolution()
