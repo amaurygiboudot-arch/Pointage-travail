@@ -35,10 +35,37 @@ struct SalarySegmentedPayrollSliceEvidenceV2: Equatable {
     }
 }
 
+struct SalarySegmentedWorkedVariableGrossBreakdownV2: Equatable {
+    let companyId: String
+    let versionId: String
+    let startEpochDay: Int64
+    let endEpochDay: Int64
+    let overtimeGross: Double
+    let complementaryGross: Double
+    let premiumGross: Double
+
+    var variableGross: Double {
+        overtimeGross + complementaryGross + premiumGross
+    }
+}
+
 struct SalarySegmentedWorkedVariableGrossSourceResultV2: Equatable {
     let pieces: [SalarySegmentedWorkedVariableGrossPieceV2]
     let reliable: Bool
     let warnings: [String]
+    let breakdowns: [SalarySegmentedWorkedVariableGrossBreakdownV2]
+
+    init(
+        pieces: [SalarySegmentedWorkedVariableGrossPieceV2],
+        reliable: Bool,
+        warnings: [String],
+        breakdowns: [SalarySegmentedWorkedVariableGrossBreakdownV2] = []
+    ) {
+        self.pieces = pieces
+        self.reliable = reliable
+        self.warnings = warnings
+        self.breakdowns = breakdowns
+    }
 }
 
 /// Produit les variables de brut segmentées à partir de semaines déjà qualifiées avec leur
@@ -142,6 +169,7 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
 
         var weekOwners: [WeekKey: SliceKey] = [:]
         var variableByContract: [ContractSegmentKey: Double] = [:]
+        var breakdownByContract: [ContractSegmentKey: VariableAmounts] = [:]
         var warnings = timeline.warnings
 
         for slice in timeline.slices {
@@ -213,7 +241,7 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
             }
 
             let payrollWeeks = supplied.weeks.map { item in item.week }
-            let variable: Double
+            let variable: VariableAmounts
             switch contract.type {
             case .fullTime:
                 guard let value = fullTimeVariable(
@@ -245,8 +273,8 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
                 return blocked(warnings + [unsupportedContractWarning])
             }
 
-            guard variable.isFinite,
-                  variable >= -currencyTolerance else {
+            guard variable.totalGross.isFinite,
+                  variable.totalGross >= -currencyTolerance else {
                 return blocked(warnings + [amountWarning])
             }
 
@@ -263,13 +291,19 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
                 startEpochDay: contractSegment.startEpochDay,
                 endEpochDay: contractSegment.endEpochDay
             )
-            let normalizedVariable = abs(variable) <= currencyTolerance ? 0 : variable
+            let normalizedVariable = abs(variable.totalGross) <= currencyTolerance ? 0 : variable.totalGross
             let next = (variableByContract[contractKey] ?? 0) + normalizedVariable
             guard next.isFinite, next >= -currencyTolerance else {
                 return blocked(warnings + [amountWarning])
             }
             variableByContract[contractKey] =
                 abs(next) <= currencyTolerance ? 0 : next
+            let previousBreakdown = breakdownByContract[contractKey] ?? VariableAmounts()
+            let nextBreakdown = previousBreakdown + variable
+            guard nextBreakdown.valid else {
+                return blocked(warnings + [amountWarning])
+            }
+            breakdownByContract[contractKey] = nextBreakdown
             warnings.append(contentsOf: supplied.warnings)
         }
 
@@ -281,7 +315,8 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
             )
         }
         guard Set(expectedContractKeys).count == expectedContractKeys.count,
-              Set(variableByContract.keys) == Set(expectedContractKeys) else {
+              Set(variableByContract.keys) == Set(expectedContractKeys),
+              Set(breakdownByContract.keys) == Set(expectedContractKeys) else {
             return blocked(warnings + [coverageWarning])
         }
 
@@ -314,10 +349,36 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
             )
         }
 
+        var breakdowns: [SalarySegmentedWorkedVariableGrossBreakdownV2] = []
+        for segment in contracts.calculationSegments.sorted(by: {
+            $0.startEpochDay < $1.startEpochDay
+        }) {
+            let key = ContractSegmentKey(
+                versionId: normalized(segment.snapshot.versionId),
+                startEpochDay: segment.startEpochDay,
+                endEpochDay: segment.endEpochDay
+            )
+            guard let item = breakdownByContract[key] else {
+                return blocked(warnings + [coverageWarning])
+            }
+            breakdowns.append(
+                SalarySegmentedWorkedVariableGrossBreakdownV2(
+                    companyId: companyId,
+                    versionId: key.versionId,
+                    startEpochDay: key.startEpochDay,
+                    endEpochDay: key.endEpochDay,
+                    overtimeGross: item.overtimeGross,
+                    complementaryGross: item.complementaryGross,
+                    premiumGross: item.premiumGross
+                )
+            )
+        }
+
         return SalarySegmentedWorkedVariableGrossSourceResultV2(
             pieces: pieces,
             reliable: true,
-            warnings: unique(warnings)
+            warnings: unique(warnings),
+            breakdowns: breakdowns
         )
     }
 
@@ -328,7 +389,7 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
         rules: PayrollRulesV2,
         evidence: PayrollInputEvidenceV2,
         warnings: inout [String]
-    ) -> Double? {
+    ) -> VariableAmounts? {
         guard let contractual = contract.contractualWeeklyMinutes,
               contractual > 0,
               let regularLimit = rules.weeklyRegularMinutes,
@@ -364,8 +425,11 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
                   premium >= 0 else {
                 return nil
             }
-            let total = overtime.variableOvertimeGross + premium
-            return total.isFinite && total >= 0 ? total : nil
+            let value = VariableAmounts(
+                overtimeGross: overtime.variableOvertimeGross,
+                premiumGross: premium
+            )
+            return value.valid ? value : nil
         } catch {
             return nil
         }
@@ -378,7 +442,7 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
         rules: PayrollRulesV2,
         evidence: PayrollInputEvidenceV2,
         warnings: inout [String]
-    ) -> Double? {
+    ) -> VariableAmounts? {
         guard let contractual = contract.contractualWeeklyMinutes,
               contractual > 0,
               evidence.grossInputsReliable else {
@@ -409,7 +473,8 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
                     rules: rules
                 ))
             }
-            return premium.isFinite && premium >= 0 ? premium : nil
+            let value = VariableAmounts(premiumGross: premium)
+            return value.valid ? value : nil
         } catch {
             return nil
         }
@@ -485,6 +550,39 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
     private static func unique(_ values: [String]) -> [String] {
         var seen = Set<String>()
         return values.filter { seen.insert($0).inserted }
+    }
+
+    private struct VariableAmounts {
+        let overtimeGross: Double
+        let complementaryGross: Double
+        let premiumGross: Double
+
+        init(
+            overtimeGross: Double = 0,
+            complementaryGross: Double = 0,
+            premiumGross: Double = 0
+        ) {
+            self.overtimeGross = overtimeGross
+            self.complementaryGross = complementaryGross
+            self.premiumGross = premiumGross
+        }
+
+        var totalGross: Double {
+            overtimeGross + complementaryGross + premiumGross
+        }
+
+        var valid: Bool {
+            [overtimeGross, complementaryGross, premiumGross, totalGross]
+                .allSatisfy { $0.isFinite && $0 >= -currencyTolerance }
+        }
+
+        static func + (lhs: VariableAmounts, rhs: VariableAmounts) -> VariableAmounts {
+            VariableAmounts(
+                overtimeGross: lhs.overtimeGross + rhs.overtimeGross,
+                complementaryGross: lhs.complementaryGross + rhs.complementaryGross,
+                premiumGross: lhs.premiumGross + rhs.premiumGross
+            )
+        }
     }
 
     private struct SliceKey: Hashable {

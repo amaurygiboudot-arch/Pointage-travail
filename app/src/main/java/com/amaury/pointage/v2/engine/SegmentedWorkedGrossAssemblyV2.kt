@@ -53,6 +53,60 @@ object SegmentedWorkedGrossAssemblerV2 {
         "Brut segmenté : montant non fini ou négatif détecté ; assemblage bloqué."
     const val OVERFLOW_WARNING =
         "Brut segmenté : total monétaire non représentable de façon fiable ; assemblage bloqué."
+    const val BREAKDOWN_WARNING =
+        "Brut segment? : la ventilation des variables ne correspond pas aux pi?ces mon?taires prouv?es ; raccord aval bloqu?."
+
+    fun assemble(
+        contracts: EmploymentContractPeriodResolutionV2,
+        base: SegmentedMonthlyBaseResultV2,
+        variableSource: SegmentedWorkedVariableGrossSourceResultV2
+    ): SegmentedWorkedGrossAssemblyResultV2 {
+        if (!variableSource.reliable) {
+            return blocked(
+                contracts.warnings +
+                    base.warnings +
+                    variableSource.warnings +
+                    VARIABLE_RELIABILITY_WARNING
+            )
+        }
+        if (variableSource.breakdowns.isNotEmpty()) {
+            val pieceByKey = variableSource.pieces.associateBy {
+                key(it.versionId, it.startEpochDay, it.endEpochDay)
+            }
+            val breakdownKeys = variableSource.breakdowns.map {
+                key(it.versionId, it.startEpochDay, it.endEpochDay)
+            }
+            val valid = pieceByKey.size == variableSource.pieces.size &&
+                breakdownKeys.distinct().size == breakdownKeys.size &&
+                breakdownKeys.toSet() == pieceByKey.keys &&
+                variableSource.breakdowns.all { item ->
+                    val amounts = listOf(
+                        item.overtimeGross,
+                        item.complementaryGross,
+                        item.premiumGross,
+                        item.variableGross
+                    )
+                    val piece = pieceByKey[key(item.versionId, item.startEpochDay, item.endEpochDay)]
+                    item.employerId.trim() == contracts.employerId.trim() &&
+                        amounts.all { it.isFinite() && it >= 0.0 } &&
+                        piece != null &&
+                        kotlin.math.abs(item.variableGross - piece.variableGross) <= CURRENCY_TOLERANCE
+                }
+            if (!valid) {
+                return blocked(
+                    contracts.warnings + base.warnings + variableSource.warnings + BREAKDOWN_WARNING
+                )
+            }
+        }
+        val assembled = assemble(
+            contracts = contracts,
+            base = base,
+            variables = variableSource.pieces
+        )
+        return assembled.copy(
+            warnings = (assembled.warnings + variableSource.warnings).distinct()
+        )
+    }
 
     /**
      * Raccord B21 -> B20 conservant le résultat de fiabilité et les avertissements globaux.
