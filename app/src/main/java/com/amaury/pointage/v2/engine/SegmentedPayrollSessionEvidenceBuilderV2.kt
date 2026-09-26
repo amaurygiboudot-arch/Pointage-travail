@@ -62,6 +62,7 @@ object SegmentedPayrollSessionEvidenceBuilderV2 {
     const val HOLIDAY_WARNING = "Preuves B21 : jour férié nécessitant une règle dédiée ou un périmètre confirmé."
     const val CALENDAR_WARNING = "Preuves B21 : dates, fuseau ou durée hors du domaine vérifiable."
     const val TRAVEL_WARNING = "Preuves B21 : déplacements distincts de la session non encore alloués dans cette chaîne."
+    const val PAUSE_GEOMETRY_WARNING = "Preuves B21 : pause hors des bornes du pointage ; durée payée non certifiable."
 
     fun build(
         contracts: EmploymentContractPeriodResolutionV2,
@@ -151,6 +152,7 @@ object SegmentedPayrollSessionEvidenceBuilderV2 {
                     val holidayDates = years.flatMap { FrenchPublicHolidayCalendarV2.genericHolidays(it, holidayScope) }.toSet()
                     val dedicatedDates = years.map { FrenchPublicHolidayCalendarV2.mayFirst(it) }.toSet()
                     for (session in scope.selected) {
+                        if (hasInvalidPauseGeometry(session)) return blocked(PAUSE_GEOMETRY_WARNING)
                         val full = PaidWorkAllocationV2.paidOverlapResult(session, from, to)
                         val insideStart = maxOf(from, sliceStart)
                         val insideEnd = minOf(to, sliceEnd)
@@ -185,6 +187,16 @@ object SegmentedPayrollSessionEvidenceBuilderV2 {
         } catch (_: ArithmeticException) { return blocked(CALENDAR_WARNING)
         } catch (_: IllegalArgumentException) { return blocked(CALENDAR_WARNING) }
         return SegmentedPayrollSessionEvidenceResultV2(output, true, warnings.distinct(), source.sourceId, usedIds.toList())
+    }
+
+    private fun hasInvalidPauseGeometry(session: WorkSessionV2): Boolean {
+        val start = WorkTimePolicyV2.repairKnownCountedEntry(session.realArrivalMs, session.countedEntryMs) ?: return true
+        val end = session.countedExitMs ?: return true
+        if (end <= start) return true
+        return session.pauses.any { pause ->
+            val pauseEnd = pause.endMs ?: return@any true
+            pause.startMs <= 0L || pauseEnd <= pause.startMs || pause.startMs < start || pauseEnd > end
+        }
     }
 
     private fun startOfDay(day: LocalDate, zone: ZoneId): Long {
