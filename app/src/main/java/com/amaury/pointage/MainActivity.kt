@@ -639,11 +639,7 @@ class MainActivity : Activity() {
                     val existing = existingZoneForAddress(address, existingZones)
                     val id = existing?.optString("id")?.takeIf { it.isNotBlank() }
                         ?: UUID.randomUUID().toString()
-                    val existingRadius = existing
-                        ?.optDouble("radius", Double.NaN)
-                        ?.takeIf { it.isFinite() && it in 50.0..1000.0 }
-                        ?.toInt()
-                    val zoneRadius = existingRadius ?: radius
+                    val zoneRadius = resolveGpsRadiusForRefresh(existing, radius)
                     val zone = refreshedGpsZoneJson(
                         existing = existing,
                         id = id,
