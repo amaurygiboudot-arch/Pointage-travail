@@ -96,12 +96,24 @@ class LocationManagementView @JvmOverloads constructor(
                 return@setPositiveButton
             }
             val addresses = savedAddresses().map { if (it.equals(oldAddress, true)) newAddress else it }.distinctBy { it.lowercase(Locale.FRANCE) }.take(10); rootView.findViewById<EditText>(R.id.workplaceAddress)?.setText(addresses.joinToString("\n"))
-            val names = jsonObjectPreference("address_names"); names.remove(oldAddress); if (newName.isNotBlank()) names.put(newAddress, newName)
+            val names = jsonObjectPreference("address_names").apply {
+                remove(oldAddress)
+                if (!newAddress.equals(oldAddress, ignoreCase = true)) remove(newAddress)
+            }
+            val targetZoneIds = (0 until oldZones.length()).mapNotNull { index ->
+                oldZones.optJSONObject(index)
+                    ?.takeIf { it.optString("address").trim().equals(oldAddress, ignoreCase = true) }
+                    ?.optString("id")
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+            }
+            val targetZoneId = targetZoneIds.singleOrNull()
             val enabled = contact?.optBoolean("enabled", false) ?: false; contacts.remove(oldAddress); contacts.put(newAddress, JSONObject().put("contactName", contactInput.text.toString().trim()).put("phone", phoneInput.text.toString().trim()).put("enabled", enabled))
             val companyMap = jsonObjectPreference("address_company_slots"); val oldCompanySlot = companyMap.optInt(oldAddress, 0); companyMap.remove(oldAddress); if (oldCompanySlot > 0) companyMap.put(newAddress, oldCompanySlot)
             val overrides = jsonObjectPreference("zone_point_overrides"); val confirmed = jsonObjectPreference("zone_point_confirmed"); if (addressChanged) { val oldPoint = overrides.optJSONObject(oldAddress); overrides.remove(oldAddress); if (oldPoint != null) overrides.put(newAddress, JSONObject(oldPoint.toString())); confirmed.remove(oldAddress); confirmed.remove(newAddress) }
             if (addressChanged) for (i in 0 until oldZones.length()) { val zone = oldZones.optJSONObject(i) ?: continue; if (zone.optString("address").trim().equals(oldAddress, ignoreCase = true)) { zone.put("address", newAddress); break } }
             val editor = prefs.edit().putString("address", addresses.joinToString("\n")).putString("address_names", names.toString()).putString("arrival_contacts", contacts.toString()).putString("address_company_slots", companyMap.toString()).putString("zone_point_overrides", overrides.toString()).putString("zone_point_confirmed", confirmed.toString()).putString("zones", oldZones.toString()).remove("active_zones").remove("entry_resolution_pending").remove("entry_resolution_token").remove("pending_exit_zones"); if (addressChanged) editor.putString("pending_point_address", newAddress); editor.apply()
+            PlaceNames.put(context, targetZoneId, newAddress, newName)
             GeofenceManager.reconfigureStoredZones(context); refresh(); PointageWidgetProvider.updateAll(context); QuickActionsWidgetProvider.updateAll(context); Toast.makeText(context, if (addressChanged) "Adresse modifiée — vérifie maintenant le point GPS précis" else "Lieu mis à jour", if (addressChanged) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show()
         }.setNegativeButton("Annuler", null).create(); dialog.setOnShowListener { styleDialog(dialog) }; dialog.show()
     }
