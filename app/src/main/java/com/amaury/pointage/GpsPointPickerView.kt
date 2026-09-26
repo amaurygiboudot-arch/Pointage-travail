@@ -143,6 +143,9 @@ class GpsPointPickerView @JvmOverloads constructor(
             .put("radius", prefs.getInt("radius", 150).coerceIn(50, 1000))
             .put("pointType", "POSTE")
             .put("pointSource", custom?.optString("source", "provisional") ?: "provisional")
+            .apply {
+                PlaceNames.get(context, address)?.takeIf { it.isNotBlank() }?.let { put("label", it) }
+            }
     }
 
     /**
@@ -191,6 +194,9 @@ class GpsPointPickerView @JvmOverloads constructor(
                     .put("radius", prefs.getInt("radius", 150).coerceIn(50, 1000))
                     .put("pointType", "POSTE")
                     .put("pointSource", point.optString("source", "manual"))
+                    .apply {
+                        PlaceNames.get(context, address)?.takeIf { it.isNotBlank() }?.let { put("label", it) }
+                    }
             )
             changed = true
         }
@@ -494,6 +500,8 @@ class GpsPointPickerView @JvmOverloads constructor(
         val custom = overrides().apply {
             put(address, JSONObject().put("latitude", latitude).put("longitude", longitude).put("source", source))
         }
+        val legacyOrCanonicalName = PlaceNames.get(context, zone.optString("id"), address)
+        var targetZoneId = zone.optString("id").trim()
         var found = false
         for (i in 0 until list.length()) {
             val item = list.optJSONObject(i) ?: continue
@@ -504,20 +512,28 @@ class GpsPointPickerView @JvmOverloads constructor(
                 item.put("pointSource", source)
                 if (item.optString("id").isBlank()) item.put("id", UUID.randomUUID().toString())
                 if (item.optString("pointType").isBlank()) item.put("pointType", "POSTE")
+                if (item.optString("label").isBlank() && !legacyOrCanonicalName.isNullOrBlank()) {
+                    item.put("label", legacyOrCanonicalName)
+                }
+                targetZoneId = item.optString("id").trim()
                 found = true
                 break
             }
         }
         if (!found) {
+            targetZoneId = targetZoneId.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
             list.put(
                 JSONObject()
-                    .put("id", zone.optString("id").takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString())
+                    .put("id", targetZoneId)
                     .put("address", address)
                     .put("latitude", latitude)
                     .put("longitude", longitude)
                     .put("radius", prefs.getInt("radius", 150).coerceIn(50, 1000))
                     .put("pointType", "POSTE")
                     .put("pointSource", source)
+                    .apply {
+                        if (!legacyOrCanonicalName.isNullOrBlank()) put("label", legacyOrCanonicalName)
+                    }
             )
         }
 
@@ -531,9 +547,12 @@ class GpsPointPickerView @JvmOverloads constructor(
             .remove("pending_exit_zones")
             .apply()
         applyingOverride = false
+        if (!legacyOrCanonicalName.isNullOrBlank() && targetZoneId.isNotBlank()) {
+            PlaceNames.put(context, targetZoneId, address, legacyOrCanonicalName)
+        }
         markConfirmed(address)
         registerCurrentZones()
-        Toast.makeText(context, "Point GPS enregistré pour ${PlaceNames.get(context, zone.optString("id"), address) ?: address}", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, "Point GPS enregistré pour ${PlaceNames.get(context, targetZoneId, address) ?: address}", Toast.LENGTH_LONG).show()
     }
 
     private fun markConfirmed(address: String) {
