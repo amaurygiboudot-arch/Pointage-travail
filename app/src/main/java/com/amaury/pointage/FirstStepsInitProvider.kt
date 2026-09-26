@@ -17,7 +17,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.AGKGMGV2
 
 /** Branche le tutoriel et les composants V2 sur l'interface normale. */
 class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleCallbacks {
@@ -85,7 +85,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     }
 
     private fun installEmployerSelector(activity: MainActivity) {
-        if (!HoraTrackV2.ENABLED) return
+        if (!AGKGMGV2.ENABLED) return
         val panel = activity.findViewById<LinearLayout>(R.id.pointageButtons) ?: return
         val existing = panel.findViewWithTag<V2EmployerSelectorView>(V2EmployerSelectorView.TAG)
         if (existing == null) {
@@ -115,7 +115,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         val prompt = BiometricPrompt.Builder(activity)
             .setTitle("Développeur")
             .setSubtitle("Confirme ton empreinte pour ouvrir la zone privée")
-            .setDescription("Accès réservé au propriétaire de HoraTrack")
+            .setDescription("Accès réservé au propriétaire de AGKGMG")
             .setNegativeButton("Annuler", activity.mainExecutor) { _, _ -> cancellationSignal.cancel() }
             .build()
         prompt.authenticate(cancellationSignal, activity.mainExecutor, object : BiometricPrompt.AuthenticationCallback() {
@@ -157,7 +157,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     }
 
     private fun installV2PdfExport(activity: MainActivity) {
-        if (!HoraTrackV2.ENABLED) return
+        if (!AGKGMGV2.ENABLED) return
         activity.findViewById<Button>(R.id.generateMonthlyPdfButton)?.setOnClickListener {
             activity.startActivity(Intent(activity, V2MonthlyPdfActivity::class.java))
         }
