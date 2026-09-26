@@ -45,7 +45,8 @@ class LocationManagementView @JvmOverloads constructor(
     }
 
     private fun createPlaceCard(address: String): LinearLayout {
-        val name = PlaceNames.get(context, address)?.takeIf { it.isNotBlank() } ?: "Lieu sans nom"
+        val zoneId = resolveUniqueGpsZoneIdForAddress(readPersistedGpsZones(prefs), address)
+        val name = PlaceNames.get(context, zoneId, address)?.takeIf { it.isNotBlank() } ?: "Lieu sans nom"
         val contacts = jsonObjectPreference("arrival_contacts")
         val contact = contacts.optJSONObject(address)
         val contactName = contact?.optString("contactName")?.takeIf { it.isNotBlank() }
@@ -69,7 +70,8 @@ class LocationManagementView @JvmOverloads constructor(
     }
 
     private fun showDetails(address: String) {
-        val contacts = jsonObjectPreference("arrival_contacts"); val contact = contacts.optJSONObject(address); val name = PlaceNames.get(context, address) ?: "Lieu sans nom"
+        val zoneId = resolveUniqueGpsZoneIdForAddress(readPersistedGpsZones(prefs), address)
+        val contacts = jsonObjectPreference("arrival_contacts"); val contact = contacts.optJSONObject(address); val name = PlaceNames.get(context, zoneId, address) ?: "Lieu sans nom"
         val contactName = contact?.optString("contactName")?.takeIf { it.isNotBlank() } ?: "Non renseigné"; val phone = contact?.optString("phone")?.takeIf { it.isNotBlank() } ?: "Non renseigné"; val notify = if (contact?.optBoolean("enabled", false) == true) "Oui" else "Non"; val radius = zoneRadiusText(address)
         val content = LinearLayout(context).apply { orientation = VERTICAL; setPadding(dp(20), dp(6), dp(20), 0); setBackgroundColor(panelColor()) }
         fun line(label: String, value: String): TextView = TextView(context).apply { text = "$label\n$value"; textSize = 14f; setTextColor(primaryText()); setPadding(0, dp(7), 0, dp(7)); content.addView(this) }
@@ -85,7 +87,8 @@ class LocationManagementView @JvmOverloads constructor(
             Toast.makeText(context, "Configuration GPS illisible : le lieu n'a pas été modifié", Toast.LENGTH_LONG).show()
             return
         }
-        val contacts = jsonObjectPreference("arrival_contacts"); val contact = contacts.optJSONObject(oldAddress); val nameInput = dialogInput("Nom du lieu", PlaceNames.get(context, oldAddress).orEmpty()); val addressInput = dialogInput("Adresse", oldAddress); val contactInput = dialogInput("Nom du contact", contact?.optString("contactName").orEmpty()); val phoneInput = dialogInput("Téléphone", contact?.optString("phone").orEmpty()).apply { inputType = android.text.InputType.TYPE_CLASS_PHONE }
+        val zoneId = resolveUniqueGpsZoneIdForAddress(readPersistedGpsZones(prefs), oldAddress)
+        val contacts = jsonObjectPreference("arrival_contacts"); val contact = contacts.optJSONObject(oldAddress); val nameInput = dialogInput("Nom du lieu", PlaceNames.get(context, zoneId, oldAddress).orEmpty()); val addressInput = dialogInput("Adresse", oldAddress); val contactInput = dialogInput("Nom du contact", contact?.optString("contactName").orEmpty()); val phoneInput = dialogInput("Téléphone", contact?.optString("phone").orEmpty()).apply { inputType = android.text.InputType.TYPE_CLASS_PHONE }
         val box = LinearLayout(context).apply { orientation = VERTICAL; setPadding(dp(20), dp(6), dp(20), 0); setBackgroundColor(panelColor()); addView(nameInput); addView(addressInput); addView(contactInput); addView(phoneInput) }
         val dialog = AlertDialog.Builder(context).setTitle("Modifier le lieu").setView(box).setPositiveButton("Enregistrer") { _, _ ->
             val newAddress = addressInput.text.toString().trim(); val newName = nameInput.text.toString().trim(); if (newAddress.isBlank()) return@setPositiveButton; val addressChanged = !newAddress.equals(oldAddress, ignoreCase = true)
