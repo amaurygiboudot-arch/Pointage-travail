@@ -14,9 +14,7 @@ object V2SegmentedMonthlyBaseProduction {
         conventionSnapshot: V2ConventionRulePayrollBridge.Snapshot?
     ): SegmentedMonthlyBaseResultV2? {
         val contracts = contractSnapshot?.resolution ?: return null
-        if (contracts.calculationSegments.size <= 1 ||
-            !contracts.requiresMultipleContractVersions
-        ) return null
+        if (!isApplicable(contracts)) return null
         val rules = conventionSnapshot?.resolution ?: return null
 
         val source = V2SegmentedProrationStore.resolve(
@@ -31,4 +29,10 @@ object V2SegmentedMonthlyBaseProduction {
             prorationSource = source
         )
     }
+
+    internal fun isApplicable(
+        contracts: com.amaury.pointage.v2.engine.EmploymentContractPeriodResolutionV2
+    ): Boolean =
+        contracts.calculationSegments.size > 1 &&
+            contracts.requiresMultipleContractVersions
 }
