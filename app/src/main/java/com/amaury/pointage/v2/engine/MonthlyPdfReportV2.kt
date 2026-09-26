@@ -4,7 +4,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
 import com.amaury.pointage.PdfVisualStyle
-import com.amaury.pointage.v2.AGKGMGV2
+import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2RuntimeHistoryGuardV2
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.model.WorkSessionV2
@@ -75,7 +75,7 @@ object MonthlyPdfReportV2 {
         selected.forEachIndexed { index, s ->
             if (y > H - 82f) startPage(continuation = true)
             val canvas = page!!.canvas
-            val result = AGKGMGV2.time.calculate(s)
+            val result = HoraTrackV2.time.calculate(s)
             val entry = s.realArrivalMs?.let(time::format) ?: "—"
             val exit = s.realExitMs?.let(time::format) ?: "EN COURS"
 
