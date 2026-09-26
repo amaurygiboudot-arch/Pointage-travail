@@ -57,6 +57,29 @@ object SegmentedWorkedGrossAssemblerV2 {
     fun assemble(
         contracts: EmploymentContractPeriodResolutionV2,
         base: SegmentedMonthlyBaseResultV2,
+        variableSource: SegmentedWorkedVariableGrossSourceResultV2
+    ): SegmentedWorkedGrossAssemblyResultV2 {
+        if (!variableSource.reliable) {
+            return blocked(
+                contracts.warnings +
+                    base.warnings +
+                    variableSource.warnings +
+                    VARIABLE_RELIABILITY_WARNING
+            )
+        }
+        val assembled = assemble(
+            contracts = contracts,
+            base = base,
+            variables = variableSource.pieces
+        )
+        return assembled.copy(
+            warnings = (assembled.warnings + variableSource.warnings).distinct()
+        )
+    }
+
+    fun assemble(
+        contracts: EmploymentContractPeriodResolutionV2,
+        base: SegmentedMonthlyBaseResultV2,
         variables: List<SegmentedWorkedVariableGrossPieceV2>
     ): SegmentedWorkedGrossAssemblyResultV2 {
         val employerId = contracts.employerId.trim()
