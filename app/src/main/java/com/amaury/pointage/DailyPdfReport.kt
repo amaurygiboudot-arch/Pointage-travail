@@ -51,7 +51,7 @@ object DailyPdfReport {
 
         fun finishPage() {
             page?.let {
-                it.canvas.drawText("© HoraTrack — Rapport généré par HoraTrack.  •  Page $pageNo", M, H - 20f, muted)
+                it.canvas.drawText("© AGKGMG — Rapport généré par AGKGMG.  •  Page $pageNo", M, H - 20f, muted)
                 pdf.finishPage(it)
             }
             page = null
@@ -159,7 +159,7 @@ object DailyPdfReport {
         y = H - 70f
         c.drawLine(M, y, W-M, y, line); y += 20
         c.drawText("Total travaillé : ${format(totalWorked)}", M, y, title)
-        c.drawText("© HoraTrack — rollback historique.", M, H - 20f, muted)
+        c.drawText("© AGKGMG — rollback historique.", M, H - 20f, muted)
         pdf.finishPage(page)
         pdf.writeTo(output)
         pdf.close()

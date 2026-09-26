@@ -24,7 +24,7 @@ class AnnualWorkPdfButton @JvmOverloads constructor(
         val activity = context as? MainActivity ?: return
         val year = Calendar.getInstance().get(Calendar.YEAR)
         runCatching {
-            val name = "HoraTrack_Bilan_travail_$year.pdf"
+            val name = "AGKGMG_Bilan_travail_$year.pdf"
             val file = File(activity.cacheDir, name)
             file.outputStream().use { output ->
                 if (HoraTrackV2.ENABLED) {
@@ -89,7 +89,7 @@ class AnnualSalaryPdfButton @JvmOverloads constructor(
             .replace(Regex("[^A-Za-z0-9_-]"), "_")
             .take(32)
             .ifBlank { "entreprise" }
-        val name = "HoraTrack_Estimation_salaire_${token}_$year.pdf"
+        val name = "AGKGMG_Estimation_salaire_${token}_$year.pdf"
         runCatching {
             val file = File(activity.cacheDir, name)
             file.outputStream().use { output ->
