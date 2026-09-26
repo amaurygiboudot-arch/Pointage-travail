@@ -144,4 +144,50 @@ class V2SalaryNetPresentationV2Test {
         assertNull(presentation.incomeTaxAmount)
         assertNull(presentation.secondaryAmount)
     }
+
+    @Test
+    fun segmentedIncompleteNetStaysIncompleteInLegacyPresentationContract() {
+        val presentation = V2SalaryNetPresentationV2.from(
+            com.amaury.pointage.v2.engine.SegmentedSalaryPresentationV2.Result(
+                state = com.amaury.pointage.v2.engine.SegmentedSalaryPresentationV2.State.GROSS_AVAILABLE_NET_INCOMPLETE,
+                workedGross = 1000.0,
+                additionalCashGross = 50.0,
+                cashGross = 1050.0,
+                socialGross = 1100.0,
+                netBeforeIncomeTax = null,
+                netTaxable = null,
+                incomeTax = null,
+                netAfterIncomeTax = null,
+                contributingSessionCount = 2,
+                warnings = emptyList()
+            )
+        )
+        assertEquals(V2SalaryNetPresentationV2.State.INCOMPLETE, presentation.state)
+        assertNull(presentation.primaryAmount)
+        assertNull(presentation.secondaryAmount)
+    }
+
+    @Test
+    fun segmentedAvailableNetIsForwardedWithoutRecalculation() {
+        val presentation = V2SalaryNetPresentationV2.from(
+            com.amaury.pointage.v2.engine.SegmentedSalaryPresentationV2.Result(
+                state = com.amaury.pointage.v2.engine.SegmentedSalaryPresentationV2.State.AVAILABLE,
+                workedGross = 1000.0,
+                additionalCashGross = 50.0,
+                cashGross = 1050.0,
+                socialGross = 1100.0,
+                netBeforeIncomeTax = 850.0,
+                netTaxable = 875.0,
+                incomeTax = 43.75,
+                netAfterIncomeTax = 806.25,
+                contributingSessionCount = 2,
+                warnings = emptyList()
+            )
+        )
+        assertEquals(V2SalaryNetPresentationV2.State.AVAILABLE, presentation.state)
+        assertEquals(850.0, presentation.primaryAmount!!, 0.0)
+        assertEquals(875.0, presentation.taxableAmount!!, 0.0)
+        assertEquals(43.75, presentation.incomeTaxAmount!!, 0.0)
+        assertEquals(806.25, presentation.secondaryAmount!!, 0.0)
+    }
 }

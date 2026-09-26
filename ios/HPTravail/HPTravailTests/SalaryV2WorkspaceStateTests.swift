@@ -84,4 +84,49 @@ final class SalaryV2WorkspaceStateTests: XCTestCase {
         XCTAssertNil(snapshot.netTaxable)
         XCTAssertTrue(snapshot.warnings.contains("Cotisation salariale à confirmer"))
     }
+
+    func testSegmentedIncompleteNetKeepsGrossButMasksNetInWorkspace() {
+        let segmented = SalarySegmentedSalaryPresentationV2.Result(
+            state: .grossAvailableNetIncomplete,
+            workedGross: 1_000,
+            additionalCashGross: 50,
+            cashGross: 1_050,
+            socialGross: 1_100,
+            netBeforeIncomeTax: nil,
+            netTaxable: nil,
+            incomeTax: nil,
+            netAfterIncomeTax: nil,
+            contributingSessionCount: 2,
+            warnings: ["net incomplet"]
+        )
+        let snapshot = SalaryWorkspaceResolverV2.resolve(period: month, segmented: segmented)
+        XCTAssertTrue(snapshot.sourceReady)
+        XCTAssertEqual(snapshot.socialGross, 1_100)
+        XCTAssertNil(snapshot.netBeforeIncomeTax)
+        XCTAssertNil(snapshot.netTaxable)
+        XCTAssertEqual(snapshot.warnings, ["net incomplet"])
+    }
+
+    func testSegmentedAvailableAmountsAreForwardedWithoutRecalculation() {
+        let segmented = SalarySegmentedSalaryPresentationV2.Result(
+            state: .available,
+            workedGross: 1_000,
+            additionalCashGross: 50,
+            cashGross: 1_050,
+            socialGross: 1_100,
+            netBeforeIncomeTax: 850,
+            netTaxable: 875,
+            incomeTax: 43.75,
+            netAfterIncomeTax: 806.25,
+            contributingSessionCount: 2,
+            warnings: []
+        )
+        let snapshot = SalaryWorkspaceResolverV2.resolve(period: month, segmented: segmented)
+        XCTAssertTrue(snapshot.sourceReady)
+        XCTAssertEqual(snapshot.socialGross, 1_100)
+        XCTAssertEqual(snapshot.netBeforeIncomeTax, 850)
+        XCTAssertEqual(snapshot.netTaxable, 875)
+        XCTAssertEqual(snapshot.incomeTax, 43.75)
+        XCTAssertEqual(snapshot.netAfterIncomeTax, 806.25)
+    }
 }
