@@ -639,16 +639,21 @@ class MainActivity : Activity() {
                     val existing = existingZoneForAddress(address, existingZones)
                     val id = existing?.optString("id")?.takeIf { it.isNotBlank() }
                         ?: UUID.randomUUID().toString()
+                    val existingRadius = existing
+                        ?.optDouble("radius", Double.NaN)
+                        ?.takeIf { it.isFinite() && it in 50.0..1000.0 }
+                        ?.toInt()
+                    val zoneRadius = existingRadius ?: radius
                     val zone = refreshedGpsZoneJson(
                         existing = existing,
                         id = id,
                         address = address,
                         latitude = result.latitude,
                         longitude = result.longitude,
-                        radius = radius
+                        radius = zoneRadius
                     )
                     zones.put(zone)
-                    workZones += WorkZone(id, result.latitude, result.longitude, radius.toFloat())
+                    workZones += WorkZone(id, result.latitude, result.longitude, zoneRadius.toFloat())
                 } else failedAddresses += address
             }
 
