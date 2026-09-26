@@ -53,7 +53,7 @@ class SegmentedWorkedGrossProductionV2Test {
     }
 
     @Test
-    fun anonymizedReadonlyExportReachesB20AfterExplicitEmployerConfirmation() {
+    fun anonymizedReadonlyExportStillBlocksAfterEmployerConfirmationWhenPauseGeometryIsInvalid() {
         val f = readonlyExportFixture(assignFirstEmployer = true)
         val result = SegmentedWorkedGrossProductionV2.calculateDetailed(
             contracts = f.contracts,
@@ -64,12 +64,10 @@ class SegmentedWorkedGrossProductionV2Test {
             nowMs = f.nowMs
         )
 
-        assertTrue(result.reliable)
-        assertEquals(6, result.evidence.contributingSessionIds.size)
-        assertEquals(listOf(43, 2019), result.evidence.slices.single().weeks.map { it.week.paidMinutes })
-        assertEquals(43, result.evidence.slices.single().weeks.first().week.sundayMinutes)
-        assertEquals(0.0, result.variables.pieces.single().variableGross, 0.0)
-        assertEquals(result.base.baseGross!!, result.workedGross!!, 0.0001)
+        assertFalse(result.reliable)
+        assertNull(result.workedGross)
+        assertTrue(result.evidence.slices.isEmpty())
+        assertTrue(result.evidence.warnings.contains(SegmentedPayrollSessionEvidenceBuilderV2.PAUSE_GEOMETRY_WARNING))
     }
 
     @Test
