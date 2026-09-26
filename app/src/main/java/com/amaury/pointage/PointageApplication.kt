@@ -401,13 +401,15 @@ object SettingsUiInstaller {
         setBackgroundResource(R.drawable.hp_panel)
         isAllCaps = false
         textSize = 14f
-        minHeight = 0
-        minimumHeight = 0
+        minHeight = dp(context, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP)
+        minimumHeight = dp(context, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP)
         minWidth = 0
         minimumWidth = 0
         gravity = Gravity.CENTER
-        setPadding(dp(context, 12), 0, dp(context, 12), 0)
-        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(context, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP)).apply {
+        isSingleLine = false
+        maxLines = 3
+        setPadding(dp(context, 12), dp(context, 8), dp(context, 12), dp(context, 8))
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(context, 4)
             bottomMargin = dp(context, 4)
         }
