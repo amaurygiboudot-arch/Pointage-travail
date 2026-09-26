@@ -246,8 +246,10 @@ class GpsPointPickerView @JvmOverloads constructor(
         val labels = ArrayList<String>()
         val items = ArrayList<JSONObject>()
         addresses.forEach { address ->
-            labels += (PlaceNames.get(context, address)?.takeIf { it.isNotBlank() }?.let { "$it — $address" } ?: address)
-            items += (findZone(address, list) ?: provisionalZone(address))
+            val item = findZone(address, list) ?: provisionalZone(address)
+            val zoneId = item.optString("id").trim().takeIf { it.isNotBlank() }
+            labels += (PlaceNames.get(context, zoneId, address)?.takeIf { it.isNotBlank() }?.let { "$it — $address" } ?: address)
+            items += item
         }
 
         val dark = AppThemeCatalog.useDarkPalette(context)
@@ -308,7 +310,7 @@ class GpsPointPickerView @JvmOverloads constructor(
         }
 
         root.addView(TextView(context).apply {
-            this.text = "📍 ${PlaceNames.get(context, address) ?: address}"
+            this.text = "📍 ${PlaceNames.get(context, zone.optString("id"), address) ?: address}"
             textSize = 19f
             setTextColor(accent)
             setPadding(0, 0, 0, dp(5))
@@ -531,7 +533,7 @@ class GpsPointPickerView @JvmOverloads constructor(
         applyingOverride = false
         markConfirmed(address)
         registerCurrentZones()
-        Toast.makeText(context, "Point GPS enregistré pour ${PlaceNames.get(context, address) ?: address}", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, "Point GPS enregistré pour ${PlaceNames.get(context, zone.optString("id"), address) ?: address}", Toast.LENGTH_LONG).show()
     }
 
     private fun markConfirmed(address: String) {
