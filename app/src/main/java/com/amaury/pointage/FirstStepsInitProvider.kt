@@ -99,6 +99,12 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
 
     private fun installOwnerShortcut(activity: MainActivity) {
         val settingsTab = activity.findViewById<TextView>(R.id.tabSettings) ?: return
+        if (!AdminDiagnosticsGate.canEnroll()) {
+            settingsTab.setOnLongClickListener(null)
+            settingsTab.isLongClickable = false
+            return
+        }
+        settingsTab.isLongClickable = true
         settingsTab.setOnLongClickListener {
             if (!AdminDiagnosticsGate.isEnabled(activity)) activity.startActivity(Intent(activity, OwnerEnrollmentActivity::class.java))
             else authenticateOwner(activity)
