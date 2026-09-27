@@ -304,7 +304,3 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
     }
 }
 
-class SafeGpsSaveButton @JvmOverloads constructor(
-    context: Context,
-    attrs: AttributeSet? = null
-) : Button(context, attrs)
