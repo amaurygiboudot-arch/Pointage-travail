@@ -3,7 +3,6 @@ package com.amaury.pointage
 import android.content.Context
 import android.os.Build
 import io.sentry.Sentry
-import io.sentry.SentryLevel
 import io.sentry.SentryOptions
 import io.sentry.android.core.SentryAndroid
 
@@ -58,27 +57,5 @@ object TelemetryManager {
         initialize(context)
     }
 
-    /** Une idée est envoyée uniquement après action explicite de l'utilisateur. */
-    fun sendIdea(context: Context, idea: String): Boolean {
-        if (BuildConfig.SENTRY_DSN.isBlank()) return false
-        initialize(context)
 
-        val version = runCatching {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName
-        }.getOrNull().orEmpty()
-
-        Sentry.withScope { scope ->
-            scope.setTag("hp_type", "feedback")
-            scope.setTag("hp_action", "review_only")
-            scope.setTag("owner_approval_required", "true")
-            scope.setTag("auto_code_change_allowed", "false")
-            scope.setTag("app_version", version.take(80))
-            scope.setTag("android_version", Build.VERSION.RELEASE.orEmpty().take(80))
-            scope.setTag("device_model", "${Build.MANUFACTURER} ${Build.MODEL}".trim().take(120))
-            scope.setExtra("idea", idea.take(4000))
-            scope.setExtra("governance", "Suggestion uniquement. Toute modification nécessite l'approbation explicite du propriétaire de HoraTrack.")
-            Sentry.captureMessage("Suggestion utilisateur HoraTrack", SentryLevel.INFO)
-        }
-        return true
-    }
 }
