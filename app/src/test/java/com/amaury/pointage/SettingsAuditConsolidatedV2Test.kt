@@ -27,7 +27,7 @@ class SettingsAuditConsolidatedV2Test {
 
         assertFalse(gpsPicker.contains("LayoutParams(0, dp(44), 1f)"))
         assertTrue(gpsPicker.contains("LayoutParams(0, dp(48), 1f)"))
-        assertTrue(gpsPicker.contains("kotlin.math.ceil(v * resources.displayMetrics.density.toDouble()).toInt()"))
+        assertTrue(gpsPicker.contains("kotlin.math.ceil(value * resources.displayMetrics.density.toDouble()).toInt()"))
 
         assertTrue(settings.contains("VÉRIFIER LES MISES À JOUR"))
         assertTrue(settings.contains("UpdateChecker.check("))
