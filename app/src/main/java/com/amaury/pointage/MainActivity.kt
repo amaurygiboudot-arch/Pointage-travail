@@ -153,7 +153,6 @@ class MainActivity : Activity() {
         val settingsButton: Button? = findViewById(R.id.settingsButton)
         val entryButton: Button? = findViewById(R.id.entryButton)
         val exitButton: Button? = findViewById(R.id.exitButton)
-        val saveGpsSettingsButton: Button? = findViewById(R.id.saveGpsSettingsButton)
         val locationPermissionButton: Button? = findViewById(R.id.locationPermissionButton)
         val chooseReportMonthButton: Button? = findViewById(R.id.chooseReportMonthButton)
         val generateMonthlyPdfButton: Button? = findViewById(R.id.generateMonthlyPdfButton)
@@ -230,7 +229,6 @@ class MainActivity : Activity() {
             if (ok) refreshScreen()
         }
 
-        saveGpsSettingsButton?.setOnClickListener { animateClick(saveGpsSettingsButton); saveGpsSettings() }
         locationPermissionButton?.setOnClickListener { animateClick(locationPermissionButton); requestLocationAccess() }
         chooseReportMonthButton?.setOnClickListener { animateClick(chooseReportMonthButton); showReportMonthDialog() }
         generateMonthlyPdfButton?.setOnClickListener { animateClick(generateMonthlyPdfButton); requestMonthlyPdfDestination() }
