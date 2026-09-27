@@ -139,6 +139,18 @@ class GpsPointPickerView @JvmOverloads constructor(
     private fun uniqueZoneForAddress(address: String, list: JSONArray?): JSONObject? =
         zonesForAddress(address, list).singleOrNull()
 
+    private fun pendingCompanyBindings(): JSONObject = runCatching {
+        JSONObject(prefs.getString("pending_point_company_bindings", "{}") ?: "{}")
+    }.getOrElse { JSONObject() }
+
+    private fun pendingCompanyBinding(address: String): JSONObject? {
+        val bindings = pendingCompanyBindings()
+        val key = bindings.keys().asSequence()
+            .firstOrNull { it.equals(address.trim(), ignoreCase = true) }
+            ?: return null
+        return bindings.optJSONObject(key)
+    }
+
     private fun provisionalZone(address: String): JSONObject {
         val provisionalId = UUID.randomUUID().toString()
         val custom = pointOverrideFor(provisionalId, address)
@@ -149,6 +161,12 @@ class GpsPointPickerView @JvmOverloads constructor(
         val lon = custom?.optDouble("longitude", Double.NaN)?.takeIf { it.isFinite() }
             ?: current?.longitude
             ?: 1.888334
+        val pendingBinding = pendingCompanyBinding(address)
+        val pendingCompanyId = pendingBinding?.optString("companyId")?.trim()?.takeIf { it.isNotBlank() }
+        val pendingCompanySlot = pendingBinding
+            ?.takeIf { it.has("companySlot") }
+            ?.optInt("companySlot", 0)
+            ?.takeIf { it in 1..2 }
         return JSONObject()
             .put("id", provisionalId)
             .put("address", address)
@@ -158,6 +176,8 @@ class GpsPointPickerView @JvmOverloads constructor(
             .put("pointType", "POSTE")
             .put("pointSource", custom?.optString("source", "provisional") ?: "provisional")
             .apply {
+                pendingCompanyId?.let { put("companyId", it) }
+                pendingCompanySlot?.let { put("companySlot", it) }
                 PlaceNames.get(context, address)?.takeIf { it.isNotBlank() }?.let { put("label", it) }
             }
     }
@@ -573,6 +593,10 @@ class GpsPointPickerView @JvmOverloads constructor(
         }
         if (!found) {
             targetZoneId = targetZoneId.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
+            val stagedCompanyId = zone.optString("companyId").trim().takeIf { it.isNotBlank() }
+            val stagedCompanySlot = if (zone.has("companySlot")) {
+                zone.optInt("companySlot", 0).takeIf { it in 1..2 }
+            } else null
             list.put(
                 JSONObject()
                     .put("id", targetZoneId)
@@ -583,6 +607,8 @@ class GpsPointPickerView @JvmOverloads constructor(
                     .put("pointType", "POSTE")
                     .put("pointSource", source)
                     .apply {
+                        stagedCompanyId?.let { put("companyId", it) }
+                        stagedCompanySlot?.let { put("companySlot", it) }
                         if (!legacyOrCanonicalName.isNullOrBlank()) put("label", legacyOrCanonicalName)
                     }
             )
@@ -596,14 +622,23 @@ class GpsPointPickerView @JvmOverloads constructor(
         custom.put(targetZoneId, JSONObject().put("latitude", latitude).put("longitude", longitude).put("source", source))
 
         applyingOverride = true
-        prefs.edit()
+        val editor = prefs.edit()
             .putString("zone_point_overrides", custom.toString())
             .putString("zones", list.toString())
             .remove("active_zones")
             .remove("entry_resolution_pending")
             .remove("entry_resolution_token")
             .remove("pending_exit_zones")
-            .apply()
+        val pendingBindings = pendingCompanyBindings()
+        pendingBindings.keys().asSequence()
+            .firstOrNull { it.equals(address, ignoreCase = true) }
+            ?.let(pendingBindings::remove)
+        if (pendingBindings.length() > 0) {
+            editor.putString("pending_point_company_bindings", pendingBindings.toString())
+        } else {
+            editor.remove("pending_point_company_bindings")
+        }
+        editor.apply()
         applyingOverride = false
         if (!legacyOrCanonicalName.isNullOrBlank() && targetZoneId.isNotBlank()) {
             PlaceNames.put(context, targetZoneId, address, legacyOrCanonicalName)
