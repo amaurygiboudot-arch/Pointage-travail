@@ -96,6 +96,9 @@ class ObjectiveDeliveryGameActivity : Activity() {
             addCard {
                 addTitle(type.title.uppercase())
                 addBody(type.subtitle)
+                addSmall(type.orderType)
+                addSmall(type.keyRoles)
+                addSmall(type.initialDifficulty)
                 if (savedCampaign != null) {
                     val status = when (savedCampaign.outcome) {
                         ObjectiveOutcome.WON ->
