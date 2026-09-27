@@ -181,6 +181,8 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             tag = "first_steps_replay"
             text = "REVOIR LE TUTORIEL PREMIERS PAS"
             isAllCaps = false
+            minHeight = dp(activity, 48)
+            minimumHeight = dp(activity, 48)
             setBackgroundResource(R.drawable.hp_panel)
             setOnClickListener { FirstStepsTutorial.restart(activity) }
             setOnLongClickListener(null)
