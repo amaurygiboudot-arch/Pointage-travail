@@ -28,15 +28,12 @@ object TelemetryManager {
                 event.user = null
                 event.request = null
 
-                val voluntaryFeedback = event.getTag("hp_type") == "feedback"
-                if (!voluntaryFeedback && !crashReportsEnabled(context)) return@BeforeSendCallback null
+                if (!crashReportsEnabled(context)) return@BeforeSendCallback null
 
                 // Les crashs automatiques ne quittent jamais le téléphone avec le
                 // Throwable brut : on conserve uniquement type + pile de code limitée.
-                if (!voluntaryFeedback) {
-                    event.throwable?.let { event.throwable = DiagnosticSanitizer.safeThrowable(it) }
-                    event.breadcrumbs?.clear()
-                }
+                event.throwable?.let { event.throwable = DiagnosticSanitizer.safeThrowable(it) }
+                event.breadcrumbs?.clear()
                 event
             })
         }
