@@ -61,6 +61,30 @@ internal fun smartCandidateZoneJson(
         }
 }
 
+
+internal fun hasGpsZoneForOwnerAtAddress(
+    zones: JSONArray,
+    address: String,
+    companyId: String?,
+    legacyCompanySlot: Int?
+): Boolean {
+    val normalizedAddress = address.trim()
+    val stableCompanyId = companyId?.trim()?.takeIf { it.isNotBlank() }
+    val legacySlot = legacyCompanySlot?.takeIf { it in 1..2 }
+
+    for (i in 0 until zones.length()) {
+        val zone = zones.optJSONObject(i) ?: continue
+        if (!zone.optString("address").trim().equals(normalizedAddress, ignoreCase = true)) continue
+
+        if (stableCompanyId != null) {
+            if (zone.optString("companyId").trim() == stableCompanyId) return true
+        } else if (legacySlot != null) {
+            if (zone.optInt("companySlot", 0) == legacySlot) return true
+        }
+    }
+    return false
+}
+
 /**
  * Configuration intelligente activée par défaut à la première installation.
  *
@@ -180,10 +204,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         val gps = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
         val zones = readPersistedGpsZones(gps).toMutableJsonArrayOrNull() ?: return
 
-        for (i in 0 until zones.length()) {
-            val z = zones.optJSONObject(i) ?: continue
-            if (z.optString("address").trim().equals(address, ignoreCase = true)) return
-        }
+        if (hasGpsZoneForOwnerAtAddress(zones, address, companyId, legacyCompanySlot)) return
 
         val geocoded = runCatching {
             Geocoder(context, Locale.FRANCE).getFromLocationName(address, 1)?.firstOrNull()
