@@ -36,6 +36,11 @@ object BackupPreferenceKeyPolicy {
         "celestial_night"
     )
 
+    private val backendUpdateLocalKeys = setOf(
+        "notification_permission_requested",
+        "last_server_check"
+    )
+
     private val smartSetupEphemeralExact = setOf(
         "pending_workplace_zone",
         "pending_workplace_address",
@@ -49,6 +54,7 @@ object BackupPreferenceKeyPolicy {
 
         if (preferenceFileName == "appearance_settings" && key in appearanceLocalKeys) return false
         if (preferenceFileName == "navigation_state" && key == "active_tab") return false
+        if (preferenceFileName == "firebase_backend_updates" && key in backendUpdateLocalKeys) return false
 
         if (preferenceFileName == "smart_setup") {
             if (key in smartSetupEphemeralExact) return false
