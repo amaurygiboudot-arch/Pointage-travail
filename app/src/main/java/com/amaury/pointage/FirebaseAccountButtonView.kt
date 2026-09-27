@@ -13,7 +13,7 @@ class FirebaseAccountButtonView @JvmOverloads constructor(
 ) : AppCompatButton(context, attrs, defStyleAttr) {
 
     init {
-        text = "COMPTE GOOGLE/iOS"
+        text = "GÉRER LE COMPTE"
         setOnClickListener {
             context.startActivity(Intent(context, FirebaseAccountActivity::class.java))
         }
