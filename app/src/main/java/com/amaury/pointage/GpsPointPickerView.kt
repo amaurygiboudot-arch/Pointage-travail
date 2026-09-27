@@ -149,6 +149,13 @@ class GpsPointPickerView @JvmOverloads constructor(
         val lon = custom?.optDouble("longitude", Double.NaN)?.takeIf { it.isFinite() }
             ?: current?.longitude
             ?: 1.888334
+        val pendingCompanyAddress = prefs.getString("pending_point_company_address", "").orEmpty().trim()
+        val pendingCompanyId = prefs.getString("pending_point_company_id", null)?.trim()?.takeIf { it.isNotBlank() }
+        val pendingCompanySlot = if (
+            pendingCompanyAddress.equals(address, ignoreCase = true) &&
+            prefs.contains("pending_point_company_slot")
+        ) prefs.getInt("pending_point_company_slot", 0).takeIf { it in 1..2 } else null
+
         return JSONObject()
             .put("id", provisionalId)
             .put("address", address)
@@ -158,6 +165,10 @@ class GpsPointPickerView @JvmOverloads constructor(
             .put("pointType", "POSTE")
             .put("pointSource", custom?.optString("source", "provisional") ?: "provisional")
             .apply {
+                if (pendingCompanyAddress.equals(address, ignoreCase = true)) {
+                    pendingCompanyId?.let { put("companyId", it) }
+                    pendingCompanySlot?.let { put("companySlot", it) }
+                }
                 PlaceNames.get(context, address)?.takeIf { it.isNotBlank() }?.let { put("label", it) }
             }
     }
@@ -573,6 +584,10 @@ class GpsPointPickerView @JvmOverloads constructor(
         }
         if (!found) {
             targetZoneId = targetZoneId.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
+            val stagedCompanyId = zone.optString("companyId").trim().takeIf { it.isNotBlank() }
+            val stagedCompanySlot = if (zone.has("companySlot")) {
+                zone.optInt("companySlot", 0).takeIf { it in 1..2 }
+            } else null
             list.put(
                 JSONObject()
                     .put("id", targetZoneId)
@@ -583,6 +598,8 @@ class GpsPointPickerView @JvmOverloads constructor(
                     .put("pointType", "POSTE")
                     .put("pointSource", source)
                     .apply {
+                        stagedCompanyId?.let { put("companyId", it) }
+                        stagedCompanySlot?.let { put("companySlot", it) }
                         if (!legacyOrCanonicalName.isNullOrBlank()) put("label", legacyOrCanonicalName)
                     }
             )
@@ -596,14 +613,21 @@ class GpsPointPickerView @JvmOverloads constructor(
         custom.put(targetZoneId, JSONObject().put("latitude", latitude).put("longitude", longitude).put("source", source))
 
         applyingOverride = true
-        prefs.edit()
+        val editor = prefs.edit()
             .putString("zone_point_overrides", custom.toString())
             .putString("zones", list.toString())
             .remove("active_zones")
             .remove("entry_resolution_pending")
             .remove("entry_resolution_token")
             .remove("pending_exit_zones")
-            .apply()
+        if (prefs.getString("pending_point_company_address", "").orEmpty().trim()
+                .equals(address, ignoreCase = true)
+        ) {
+            editor.remove("pending_point_company_address")
+                .remove("pending_point_company_id")
+                .remove("pending_point_company_slot")
+        }
+        editor.apply()
         applyingOverride = false
         if (!legacyOrCanonicalName.isNullOrBlank() && targetZoneId.isNotBlank()) {
             PlaceNames.put(context, targetZoneId, address, legacyOrCanonicalName)
