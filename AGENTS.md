@@ -30,6 +30,19 @@ Agents disponibles :
 
 Le chef d'orchestre conserve la vision globale, évite les modifications concurrentes des mêmes fichiers et regroupe les résultats avant de conclure.
 
+## MODE AGENTS DÉSACTIVÉS — CONTRÔLE STANDARD
+
+Lorsque le fichier `.codex/AGENTS_DISABLED_BY_OWNER` existe ou que `[agents].enabled = false` :
+
+- aucun agent spécialisé, `team_lead`, `qa_reviewer` ou `control_gate` n'est requis pour ouvrir, valider ou fusionner une PR ;
+- un ancien échec `Agent review gate` ne doit jamais bloquer une PR ;
+- la validation de référence repose uniquement sur les contrôles standards applicables au diff : tests V2, build Android, build Google Play APK/AAB, CodeQL, dependency review, tests Firebase Functions et build/tests iOS lorsque des fichiers iOS sont concernés ;
+- une PR verte sur les contrôles standards doit être fusionnée automatiquement dès que possible ;
+- si un contrôle standard échoue, corriger la cause réelle, relancer les contrôles puis fusionner ;
+- ne jamais réactiver les agents sans ordre explicite du propriétaire.
+
+Cette règle suspend temporairement les exigences multi-agents décrites plus bas tant que le mode agents désactivés reste actif.
+
 ## PRIORITÉS
 
 Salaire V2 reste la priorité fonctionnelle de la feuille de route.
