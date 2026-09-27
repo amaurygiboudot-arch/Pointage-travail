@@ -445,8 +445,8 @@ class GpsPointPickerView @JvmOverloads constructor(
                 webView.evaluateJavascript("setPoint($selectedLat,$selectedLon,true);", null)
             }
         }
-        quick.addView(addressButton, LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(5) })
-        quick.addView(positionButton, LayoutParams(0, dp(44), 1f).apply { marginStart = dp(5) })
+        quick.addView(addressButton, LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(5) })
+        quick.addView(positionButton, LayoutParams(0, dp(48), 1f).apply { marginStart = dp(5) })
         root.addView(quick)
 
         val save = actionButton("✓ VALIDER CE POINT") { }
