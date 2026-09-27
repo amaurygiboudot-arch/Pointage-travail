@@ -592,7 +592,7 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 AlertDialog.Builder(this).setTitle("Autoriser le pointage automatique")
-                    .setMessage("Pour détecter automatiquement l'arrivée et le départ même quand HoraTrack est fermé, choisis Localisation puis « Toujours autoriser ».")
+                    .setMessage("Pour détecter automatiquement l'arrivée et le départ même quand AGKGMG est fermé, choisis Localisation puis « Toujours autoriser ».")
                     .setPositiveButton("OUVRIR LES RÉGLAGES") { _, _ -> startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply { data = Uri.parse("package:$packageName") }) }
                     .setNegativeButton("Annuler") { _, _ -> disableAutomaticGps("Localisation en arrière-plan non autorisée") }.show()
             } else requestPermissions(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), REQUEST_BACKGROUND_LOCATION)
