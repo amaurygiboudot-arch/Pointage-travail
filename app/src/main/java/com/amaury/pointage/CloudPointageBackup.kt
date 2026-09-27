@@ -24,6 +24,9 @@ object CloudPointageBackup {
     fun saveAll(context: Context, onDone: (Boolean, String) -> Unit) {
         val user = FirebaseAuth.getInstance().currentUser
             ?: return onDone(false, "Aucun compte Google connecté")
+        if (!CloudAccountBindingV2.isBoundTo(context, user.uid)) {
+            return onDone(false, "Compte cloud non associé aux données locales de cet appareil")
+        }
         if (HoraTrackV2.ENABLED) {
             val payload = runCatching { V2BackupManager.snapshot(context.applicationContext).toString() }
                 .getOrElse { return onDone(false, "Impossible de préparer la sauvegarde : ${it.localizedMessage ?: it.javaClass.simpleName}") }
@@ -60,6 +63,9 @@ object CloudPointageBackup {
     fun restoreAll(context: Context, onDone: (Boolean, String) -> Unit) {
         val user = FirebaseAuth.getInstance().currentUser
             ?: return onDone(false, "Aucun compte Google connecté")
+        if (!CloudAccountBindingV2.isBoundTo(context, user.uid)) {
+            return onDone(false, "Compte cloud non associé aux données locales de cet appareil")
+        }
         val db = FirebaseFirestore.getInstance()
         val collection = db.collection("users").document(user.uid).collection("pointages")
 
