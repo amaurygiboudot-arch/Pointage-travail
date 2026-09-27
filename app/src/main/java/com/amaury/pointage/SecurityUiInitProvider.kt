@@ -67,7 +67,7 @@ class SecurityUiInitProvider : ContentProvider() {
                         setPadding(0, 0, 0, dp(activity, 10))
                     })
                     block.addView(Button(activity).apply {
-                        text = "🛡 VÉRIFIER LA SÉCURITÉ"
+                        text = "VÉRIFIER LA SÉCURITÉ"
                         isAllCaps = false
                         textSize = 14f
                         gravity = Gravity.CENTER
