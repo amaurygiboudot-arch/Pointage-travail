@@ -344,7 +344,7 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
     }
 
     private fun clearPhotoPanels(view: View, insideEnterprise: Boolean) {
-        val nowInside = insideEnterprise || view is EnterpriseLookupView
+        val nowInside = insideEnterprise
         if (nowInside && view is ViewGroup && view !is Button && view !is EditText && view !is Switch) {
             view.background = null
             view.setBackgroundColor(Color.TRANSPARENT)
