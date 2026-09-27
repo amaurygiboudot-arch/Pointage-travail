@@ -15,9 +15,10 @@ import java.util.concurrent.Executors
 /** Sauvegarde des données fonctionnelles HoraTrack, sans jetons d'authentification. */
 object V2BackupManager {
     private const val FORMAT_VERSION = 4
-    private const val ROOT_FOLDER = "Pointage Travail"
-    private const val FILE_NAME = "HoraTrack_backup.json"
-    private const val LEGACY_FILE_NAME = "HoraTrack_V2_backup.json"
+    private const val ROOT_FOLDER = "AGKGMG"
+    private const val FILE_NAME = "AGKGMG_backup.json"
+    private val LEGACY_ROOT_FOLDERS = listOf("Pointage Travail")
+    private val LEGACY_FILE_NAMES = listOf("HoraTrack_backup.json", "HoraTrack_V2_backup.json")
     private const val RUNTIME_PREFS = "horatrack_v2_test_runtime"
     private const val SALARY_COMPANIES_PREFS = "salary_companies_v2"
     private const val SALARY_COMPANY_PREFIX = "salary_company_"
@@ -131,7 +132,19 @@ object V2BackupManager {
         val hasLegacy=legacy.length()>0
         return !hasRuntime&&!hasLegacy&&salary.all.isEmpty()&&salaryV2.all.isEmpty()
     }
-    private fun configuredBackupUri(context:Context):Uri? = DriveBackupManager.withStorageAccess { val tree=DriveBackupManager.savedTreeUri(context)?:return@withStorageAccess null;val root=treeRootDocumentUri(tree);val folder=findChild(context,root,ROOT_FOLDER,DocumentsContract.Document.MIME_TYPE_DIR)?:return@withStorageAccess null;findChild(context,folder,FILE_NAME,"application/json")?:findChild(context,folder,LEGACY_FILE_NAME,"application/json") }
+    private fun configuredBackupUri(context:Context):Uri? = DriveBackupManager.withStorageAccess {
+        val tree=DriveBackupManager.savedTreeUri(context)?:return@withStorageAccess null
+        val root=treeRootDocumentUri(tree)
+        val folderNames=listOf(ROOT_FOLDER)+LEGACY_ROOT_FOLDERS
+        val fileNames=listOf(FILE_NAME)+LEGACY_FILE_NAMES
+        for(folderName in folderNames){
+            val folder=findChild(context,root,folderName,DocumentsContract.Document.MIME_TYPE_DIR)?:continue
+            for(fileName in fileNames){
+                findChild(context,folder,fileName,"application/json")?.let{return@withStorageAccess it}
+            }
+        }
+        null
+    }
     private fun encodePreferences(context:Context,name:String):JSONObject { val out=JSONObject();context.applicationContext.getSharedPreferences(name,Context.MODE_PRIVATE).all.forEach{(k,v)->if(GpsPresenceStateKeysV2.isTransferablePreferenceKey(name,k))when(v){is String->out.put(k,JSONObject().put("t","s").put("v",v));is Boolean->out.put(k,JSONObject().put("t","b").put("v",v));is Int->out.put(k,JSONObject().put("t","i").put("v",v));is Long->out.put(k,JSONObject().put("t","l").put("v",v));is Float->out.put(k,JSONObject().put("t","f").put("v",v.toDouble()));is Set<*>->out.put(k,JSONObject().put("t","set").put("v",JSONArray(v.filterIsInstance<String>())))}};return out }
     private fun mergePreferences(context:Context,name:String,saved:JSONObject){
         require(isValidTypedPreferencePayload(saved)){"Préférences $name invalides"}
