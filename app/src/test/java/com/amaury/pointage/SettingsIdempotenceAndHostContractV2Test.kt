@@ -40,16 +40,21 @@ class SettingsIdempotenceAndHostContractV2Test {
 
         listOf(
             "GpsZoneTypeView.TAG",
-            "V2BackupRestoreView.TAG",
-            "V2SecuritySettingsView.TAG",
-            "\"first_steps_replay\""
+            "V2BackupRestoreView.TAG"
         ).forEach { guard ->
             assertTrue(
                 "Resume-installed control $guard must be protected from duplication",
-                firstSteps.contains("findViewWithTag<View>($guard) == null") ||
-                    firstSteps.contains("findViewWithTag<V2SecuritySettingsView>($guard)")
+                firstSteps.contains("findViewWithTag<View>($guard) == null")
             )
         }
+        assertTrue(
+            "Security settings must reuse the existing tagged view",
+            firstSteps.contains("findViewWithTag<V2SecuritySettingsView>(V2SecuritySettingsView.TAG)")
+        )
+        assertTrue(
+            "Tutorial replay must early-return when already installed",
+            firstSteps.contains("findViewWithTag<View>(\"first_steps_replay\") != null) return")
+        )
     }
 
     @Test
@@ -59,11 +64,14 @@ class SettingsIdempotenceAndHostContractV2Test {
         val layout = source("app/src/main/res/layout/activity_main.xml")
 
         assertTrue(
-            "Until a dedicated replacement root exists, SettingsV2Host must remain the sole accessor for gpsSettingsPanel",
+            "Until a dedicated replacement root exists, SettingsV2Host must expose the transitional gpsSettingsPanel host",
             host.contains("activity.findViewById(R.id.gpsSettingsPanel)")
         )
         assertTrue(layout.contains("android:id=\"@+id/gpsSettingsPanel\""))
 
+        val pointageClassifier = organizer
+            .substringAfter("private fun isPointageView")
+            .substringBefore("private fun isCelestialView")
         listOf(
             "settingsPointageTitle",
             "locationManagementView",
@@ -74,10 +82,11 @@ class SettingsIdempotenceAndHostContractV2Test {
         ).forEach { id ->
             assertTrue(
                 "Legacy XML child $id must be classified into the canonical pointage V2 section",
-                organizer.contains("\"$id\"")
+                pointageClassifier.contains("\"$id\"")
             )
         }
 
+        val celestialClassifier = organizer.substringAfter("private fun isCelestialView")
         listOf(
             "settingsCelestialTitle",
             "settingsCelestialModeLabel",
@@ -87,7 +96,7 @@ class SettingsIdempotenceAndHostContractV2Test {
         ).forEach { id ->
             assertTrue(
                 "Legacy XML child $id must be classified into the canonical celestial V2 section",
-                organizer.contains("\"$id\"")
+                celestialClassifier.contains("\"$id\"")
             )
         }
     }
