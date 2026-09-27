@@ -65,7 +65,11 @@ object SettingsCompactMenuV2 {
                 SettingsV2Host.TAG_WIDGET
             )
             Page.BACKUP -> setOf(SettingsV2Host.TAG_DRIVE)
-            Page.HELP -> setOf(SettingsV2Host.TAG_HELP, SettingsV2Host.TAG_EXTRAS)
+            Page.HELP -> setOf(
+                SettingsV2Host.TAG_UPDATES,
+                SettingsV2Host.TAG_HELP,
+                SettingsV2Host.TAG_EXTRAS
+            )
         }
 
         managedSections(activity).forEach { section ->
