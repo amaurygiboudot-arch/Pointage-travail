@@ -132,7 +132,10 @@ class ObjectiveDeliveryGameActivity : Activity() {
                 if (practiceMode) {
                     "Mode entraînement — cette tentative ne remplace pas ta campagne."
                 } else {
-                    ObjectiveDeliveryGameStore.syncStatus(this@ObjectiveDeliveryGameActivity).label
+                    ObjectiveDeliveryGameStore.syncStatus(
+                        this@ObjectiveDeliveryGameActivity,
+                        current.companyType
+                    ).label
                 }
             )
             addBody("Chapitre 1 — Premier contact et devis")
