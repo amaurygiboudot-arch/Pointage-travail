@@ -140,7 +140,7 @@ object ButtonReliefInstaller {
             }
             is Button -> {
                 // Aucun fond ni couleur métier ici pour les boutons standards.
-                if (!isPrimaryPointage(id) && id != "settingsButton") ThemeFrameStyler.apply(view)
+                if (!isPrimaryPointage(id)) ThemeFrameStyler.apply(view)
             }
             is TextView -> {
                 val tab = id == "tabToday" || id == "tabHistory" || id == "tabAnalytics" || id == "tabSalary" || id == "tabSettings"
@@ -174,7 +174,6 @@ object ButtonReliefInstaller {
             return
         }
 
-        if (id == "settingsButton") return
 
         // Purge explicite des anciens fonds concurrents.
         if (button.background is DynamicDiamondDrawable || button.background is CarbonCompositeDrawable) {

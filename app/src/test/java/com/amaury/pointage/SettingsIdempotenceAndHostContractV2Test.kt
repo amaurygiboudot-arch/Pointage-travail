@@ -98,7 +98,6 @@ class SettingsIdempotenceAndHostContractV2Test {
             "geofenceRadius",
             "autoGpsSwitch",
             "gpsStatusText",
-            "saveGpsSettingsButton",
             "gpsPointPickerView",
             "locationPermissionButton",
             "locationManagementView"

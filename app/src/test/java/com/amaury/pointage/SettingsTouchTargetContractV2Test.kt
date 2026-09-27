@@ -32,6 +32,5 @@ class SettingsTouchTargetContractV2Test {
             assertTrue("dp conversion #$index must round upward", source.contains(ceilContract))
         }
 
-        assertTrue(settings.contains("contentDescription = \"Retour à Aujourd’hui\""))
     }
 }

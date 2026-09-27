@@ -138,7 +138,7 @@ object AppearanceManager {
                 view.setHintTextColor(secondary)
             }
             is Button -> {
-                val protected = idName == "entryButton" || idName == "pauseButton" || idName == "exitButton" || idName == "settingsButton"
+                val protected = idName == "entryButton" || idName == "pauseButton" || idName == "exitButton"
                 if (!protected) view.setTextColor(text)
             }
             is TextView -> {
@@ -258,19 +258,6 @@ object SettingsUiInstaller {
         activity.findViewById<EditText>(R.id.workplaceAddress)?.apply {
             isFocusable = false
             isClickable = false
-        }
-
-        val settingsButton = activity.findViewById<Button>(R.id.settingsButton)
-        val header = settingsButton.parent as? LinearLayout
-        if (header != null && header.findViewWithTag<View>("main_back_button") == null) {
-            val back = styledButton(activity, "←").apply {
-                tag = "main_back_button"
-                contentDescription = "Retour à Aujourd’hui"
-                textSize = 24f
-                layoutParams = LinearLayout.LayoutParams(dp(activity, 56), dp(activity, 56)).apply { marginEnd = dp(activity, 8) }
-                setOnClickListener { activity.findViewById<TextView>(R.id.tabToday)?.performClick() }
-            }
-            header.addView(back, 0)
         }
 
         val updates = settingsSection(activity, SettingsV2Host.TAG_UPDATES)
