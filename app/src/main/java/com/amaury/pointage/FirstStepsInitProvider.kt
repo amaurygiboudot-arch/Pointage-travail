@@ -181,6 +181,8 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             tag = "first_steps_replay"
             text = "REVOIR LE TUTORIEL PREMIERS PAS"
             isAllCaps = false
+            minHeight = dp(activity, 48)
+            minimumHeight = dp(activity, 48)
             setBackgroundResource(R.drawable.hp_panel)
             setOnClickListener { FirstStepsTutorial.restart(activity) }
             setOnLongClickListener(null)
@@ -197,6 +199,9 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         val panel = SettingsV2Host.panel(activity) ?: return
         panel.findViewWithTag<View>("developer_tools")?.let { panel.removeView(it) }
     }
+
+    private fun dp(activity: Activity, value: Int): Int =
+        kotlin.math.ceil(value * activity.resources.displayMetrics.density.toDouble()).toInt()
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
     override fun onActivityStarted(activity: Activity) = Unit
