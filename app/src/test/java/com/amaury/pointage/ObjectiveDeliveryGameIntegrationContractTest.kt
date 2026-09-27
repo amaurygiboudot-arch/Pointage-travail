@@ -60,6 +60,22 @@ class ObjectiveDeliveryGameIntegrationContractTest {
     }
 
     @Test
+    fun `offline saves are queued until network returns`() {
+        val store = source(
+            "app/src/main/java/com/amaury/pointage/ObjectiveDeliveryGameStore.kt"
+        )
+        val worker = source(
+            "app/src/main/java/com/amaury/pointage/ObjectiveDeliveryGameSyncWorker.kt"
+        )
+
+        assertTrue(store.contains("ObjectiveDeliveryGameSyncWorker.enqueue("))
+        assertTrue(worker.contains("NetworkType.CONNECTED"))
+        assertTrue(worker.contains("enqueueUniqueWork("))
+        assertTrue(worker.contains("ExistingWorkPolicy.REPLACE"))
+        assertTrue(worker.contains("Result.retry()"))
+    }
+
+    @Test
     fun `game touch target never truncates below 48dp`() {
         val activity = source(
             "app/src/main/java/com/amaury/pointage/ObjectiveDeliveryGameActivity.kt"
