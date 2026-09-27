@@ -139,12 +139,10 @@ object SettingsV2SectionOrganizer {
         if (tag == GpsZoneTypeView.TAG) return true
         if (id in setOf(
                 "settingsPointageTitle",
-                "settingsGeofenceRadiusLabel",
                 "workplaceAddress",
                 "geofenceRadius",
                 "autoGpsSwitch",
                 "gpsStatusText",
-                "saveGpsSettingsButton",
                 "gpsPointPickerView",
                 "locationPermissionButton",
                 "locationManagementView"
