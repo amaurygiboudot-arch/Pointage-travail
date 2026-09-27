@@ -139,6 +139,18 @@ class GpsPointPickerView @JvmOverloads constructor(
     private fun uniqueZoneForAddress(address: String, list: JSONArray?): JSONObject? =
         zonesForAddress(address, list).singleOrNull()
 
+    private fun pendingCompanyBindings(): JSONObject = runCatching {
+        JSONObject(prefs.getString("pending_point_company_bindings", "{}") ?: "{}")
+    }.getOrElse { JSONObject() }
+
+    private fun pendingCompanyBinding(address: String): JSONObject? {
+        val bindings = pendingCompanyBindings()
+        val key = bindings.keys().asSequence()
+            .firstOrNull { it.equals(address.trim(), ignoreCase = true) }
+            ?: return null
+        return bindings.optJSONObject(key)
+    }
+
     private fun provisionalZone(address: String): JSONObject {
         val provisionalId = UUID.randomUUID().toString()
         val custom = pointOverrideFor(provisionalId, address)
@@ -149,12 +161,12 @@ class GpsPointPickerView @JvmOverloads constructor(
         val lon = custom?.optDouble("longitude", Double.NaN)?.takeIf { it.isFinite() }
             ?: current?.longitude
             ?: 1.888334
-        val pendingCompanyAddress = prefs.getString("pending_point_company_address", "").orEmpty().trim()
-        val pendingCompanyId = prefs.getString("pending_point_company_id", null)?.trim()?.takeIf { it.isNotBlank() }
-        val pendingCompanySlot = if (
-            pendingCompanyAddress.equals(address, ignoreCase = true) &&
-            prefs.contains("pending_point_company_slot")
-        ) prefs.getInt("pending_point_company_slot", 0).takeIf { it in 1..2 } else null
+        val pendingBinding = pendingCompanyBinding(address)
+        val pendingCompanyId = pendingBinding?.optString("companyId")?.trim()?.takeIf { it.isNotBlank() }
+        val pendingCompanySlot = pendingBinding
+            ?.takeIf { it.has("companySlot") }
+            ?.optInt("companySlot", 0)
+            ?.takeIf { it in 1..2 }
 
         return JSONObject()
             .put("id", provisionalId)
@@ -165,10 +177,8 @@ class GpsPointPickerView @JvmOverloads constructor(
             .put("pointType", "POSTE")
             .put("pointSource", custom?.optString("source", "provisional") ?: "provisional")
             .apply {
-                if (pendingCompanyAddress.equals(address, ignoreCase = true)) {
-                    pendingCompanyId?.let { put("companyId", it) }
-                    pendingCompanySlot?.let { put("companySlot", it) }
-                }
+                pendingCompanyId?.let { put("companyId", it) }
+                pendingCompanySlot?.let { put("companySlot", it) }
                 PlaceNames.get(context, address)?.takeIf { it.isNotBlank() }?.let { put("label", it) }
             }
     }
@@ -620,12 +630,14 @@ class GpsPointPickerView @JvmOverloads constructor(
             .remove("entry_resolution_pending")
             .remove("entry_resolution_token")
             .remove("pending_exit_zones")
-        if (prefs.getString("pending_point_company_address", "").orEmpty().trim()
-                .equals(address, ignoreCase = true)
-        ) {
-            editor.remove("pending_point_company_address")
-                .remove("pending_point_company_id")
-                .remove("pending_point_company_slot")
+        val pendingBindings = pendingCompanyBindings()
+        pendingBindings.keys().asSequence()
+            .firstOrNull { it.equals(address, ignoreCase = true) }
+            ?.let(pendingBindings::remove)
+        if (pendingBindings.length() > 0) {
+            editor.putString("pending_point_company_bindings", pendingBindings.toString())
+        } else {
+            editor.remove("pending_point_company_bindings")
         }
         editor.apply()
         applyingOverride = false
