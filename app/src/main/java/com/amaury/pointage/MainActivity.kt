@@ -153,7 +153,6 @@ class MainActivity : Activity() {
         val settingsButton: Button? = findViewById(R.id.settingsButton)
         val entryButton: Button? = findViewById(R.id.entryButton)
         val exitButton: Button? = findViewById(R.id.exitButton)
-        val saveGpsSettingsButton: Button? = findViewById(R.id.saveGpsSettingsButton)
         val locationPermissionButton: Button? = findViewById(R.id.locationPermissionButton)
         val chooseReportMonthButton: Button? = findViewById(R.id.chooseReportMonthButton)
         val generateMonthlyPdfButton: Button? = findViewById(R.id.generateMonthlyPdfButton)
@@ -230,7 +229,6 @@ class MainActivity : Activity() {
             if (ok) refreshScreen()
         }
 
-        saveGpsSettingsButton?.setOnClickListener { animateClick(saveGpsSettingsButton); saveGpsSettings() }
         locationPermissionButton?.setOnClickListener { animateClick(locationPermissionButton); requestLocationAccess() }
         chooseReportMonthButton?.setOnClickListener { animateClick(chooseReportMonthButton); showReportMonthDialog() }
         generateMonthlyPdfButton?.setOnClickListener { animateClick(generateMonthlyPdfButton); requestMonthlyPdfDestination() }
@@ -566,118 +564,6 @@ class MainActivity : Activity() {
         updatingGpsSwitch = true
         autoGpsSwitch.isChecked = gpsPrefs.getBoolean("enabled", false)
         updatingGpsSwitch = false
-    }
-
-    private fun loadSavedZoneObjects(allowCorruptRepair: Boolean): JSONArray? =
-        when (val stored = readPersistedGpsZones(gpsPrefs)) {
-            GpsZonesReadResult.Missing -> JSONArray()
-            is GpsZonesReadResult.Valid -> JSONArray().apply {
-                stored.zones.forEach { put(JSONObject(it.sourceJson)) }
-            }
-            is GpsZonesReadResult.Corrupt -> if (allowCorruptRepair) JSONArray() else null
-        }
-
-    private fun existingZoneForAddress(address: String, existingZones: JSONArray): JSONObject? {
-        for (i in 0 until existingZones.length()) {
-            val zone = existingZones.optJSONObject(i) ?: continue
-            if (zone.optString("address").trim().equals(address.trim(), ignoreCase = true)) {
-                return JSONObject(zone.toString())
-            }
-        }
-        return null
-    }
-
-    private fun saveGpsSettings(allowCorruptRepair: Boolean = false) {
-        val rawLines = workplaceAddress.text.toString().lines().map { it.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase(Locale.FRANCE) }
-        if (rawLines.isEmpty()) { Toast.makeText(this, "Entre au moins une adresse", Toast.LENGTH_LONG).show(); return }
-        val addresses = rawLines.take(10)
-        if (rawLines.size > 10) Toast.makeText(this, "Seules les 10 premières adresses seront enregistrées", Toast.LENGTH_LONG).show()
-        val radius = geofenceRadius.text.toString().toIntOrNull()?.coerceIn(50, 1000) ?: 150
-        geofenceRadius.setText(radius.toString())
-        val existingZones = loadSavedZoneObjects(allowCorruptRepair)
-        if (existingZones == null) {
-            GeofenceManager.reconfigureStoredZones(this)
-            gpsStatusText.text = "Configuration GPS illisible — automatisation suspendue"
-            AlertDialog.Builder(this)
-                .setTitle("Configuration GPS à réparer")
-                .setMessage("Les zones enregistrées sont illisibles. HoraTrack a suspendu l'automatisation. Veux-tu recréer explicitement les zones à partir des adresses affichées ?")
-                .setPositiveButton("Recréer") { _, _ -> saveGpsSettings(allowCorruptRepair = true) }
-                .setNegativeButton("Annuler", null)
-                .show()
-            return
-        }
-        val storedAddressBeforeRequest = gpsPrefs.getString("address", "")
-        val storedRadiusBeforeRequest = gpsPrefs.getInt("radius", 150)
-        val storedZonesBeforeRequest = gpsPrefs.getString("zones", "[]")
-        val storedEnabledBeforeRequest = gpsPrefs.getBoolean("enabled", false)
-        val requestId = ++gpsSaveRequestId
-        val appContext = applicationContext
-        gpsStatusText.text = "Localisation des adresses…"
-
-        Thread {
-            val zones = JSONArray()
-            val workZones = mutableListOf<WorkZone>()
-            val failedAddresses = mutableListOf<String>()
-            val geocoder = Geocoder(appContext, Locale.FRANCE)
-            addresses.forEach { address ->
-                val result = runCatching { geocoder.getFromLocationName(address, 1) }.getOrNull()?.firstOrNull()
-                if (result != null) {
-                    val existing = existingZoneForAddress(address, existingZones)
-                    val id = existing?.optString("id")?.takeIf { it.isNotBlank() }
-                        ?: UUID.randomUUID().toString()
-                    val zoneRadius = resolveGpsRadiusForRefresh(existing, radius)
-                    val zone = refreshedGpsZoneJson(
-                        existing = existing,
-                        id = id,
-                        address = address,
-                        latitude = result.latitude,
-                        longitude = result.longitude,
-                        radius = zoneRadius
-                    )
-                    zones.put(zone)
-                    workZones += WorkZone(id, result.latitude, result.longitude, zoneRadius.toFloat())
-                } else failedAddresses += address
-            }
-
-            runOnUiThread finishGeocoding@{
-                if (requestId != gpsSaveRequestId || isFinishing || isDestroyed) return@finishGeocoding
-                val settingsChangedElsewhere =
-                    gpsPrefs.getString("address", "") != storedAddressBeforeRequest ||
-                        gpsPrefs.getInt("radius", 150) != storedRadiusBeforeRequest ||
-                        gpsPrefs.getString("zones", "[]") != storedZonesBeforeRequest ||
-                        gpsPrefs.getBoolean("enabled", false) != storedEnabledBeforeRequest
-                if (settingsChangedElsewhere) {
-                    updateGpsStatus()
-                    return@finishGeocoding
-                }
-
-                val saved = gpsPrefs.edit().putString("address", addresses.joinToString("\n")).putInt("radius", radius)
-                    .putBoolean("enabled", autoGpsSwitch.isChecked).putString("zones", zones.toString())
-                    .remove("active_zones").remove("entry_resolution_pending")
-                    .remove("entry_resolution_token").remove("pending_exit_zones").commit()
-                if (!saved) {
-                    disableAutomaticGps("Impossible d'enregistrer la configuration GPS")
-                    return@finishGeocoding
-                }
-                if (failedAddresses.isNotEmpty()) Toast.makeText(this, "${failedAddresses.size} adresse(s) n'ont pas pu être localisées.", Toast.LENGTH_LONG).show()
-                if (autoGpsSwitch.isChecked) {
-                    if (workZones.isEmpty()) disableAutomaticGps("Aucune adresse valide pour le pointage GPS")
-                    else if (GeofenceManager.hasRequiredPermissions(this)) {
-                        GeofenceManager.reconfigureStoredZones(this) { success, message -> runOnUiThread {
-                            gpsStatusText.text = if (success) "GPS automatique actif" else message
-                            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-                        } }
-                    } else {
-                        GeofenceManager.reconfigureStoredZones(this)
-                        requestLocationAccess()
-                    }
-                } else {
-                    GeofenceManager.reconfigureStoredZones(this)
-                    Toast.makeText(this, "Réglages enregistrés", Toast.LENGTH_SHORT).show()
-                }
-                updateGpsStatus()
-            }
-        }.start()
     }
 
     private fun enableAutomaticGpsFromCanonicalZones() {
