@@ -17,7 +17,7 @@ class GpsEnablePreservesCanonicalZonesV2Test {
     @Test
     fun `enabling automatic gps does not rebuild canonical zones from legacy addresses`() {
         val listener = source.substringAfter("autoGpsSwitch.setOnCheckedChangeListener")
-            .substringBefore("settingsButton?.setOnClickListener")
+            .substringBefore("entryButton?.setOnClickListener")
 
         assertTrue(listener.contains("enableAutomaticGpsFromCanonicalZones()"))
         assertFalse(listener.contains("saveGpsSettings()"))
