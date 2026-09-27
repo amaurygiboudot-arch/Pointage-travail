@@ -35,6 +35,7 @@ class SecurityUiInitProvider : ContentProvider() {
     private fun install(activity: Activity) {
         if (activity !is MainActivity) return
         activity.window.decorView.post {
+            SettingsUiInstaller.install(activity)
             val section = SettingsV2Host.section(activity, SettingsV2Host.TAG_ACCOUNT_SECURITY) ?: return@post
             val existing = section.findViewWithTag<View>(TAG_SECURITY_BLOCK)
             val user = FirebaseAuth.getInstance().currentUser
