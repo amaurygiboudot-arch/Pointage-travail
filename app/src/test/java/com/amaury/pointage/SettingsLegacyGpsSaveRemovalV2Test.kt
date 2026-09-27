@@ -24,5 +24,11 @@ class SettingsLegacyGpsSaveRemovalV2Test {
         assertFalse(layout.contains("saveGpsSettingsButton"))
         assertFalse(addressUi.contains("saveGpsSettingsButton"))
         assertFalse(organizer.contains("saveGpsSettingsButton"))
+        assertFalse(main.contains("settingsButton"))
+        assertFalse(layout.contains("settingsButton"))
+        assertFalse(source("app/src/main/java/com/amaury/pointage/PointageApplication.kt").contains("R.id.settingsButton"))
+        assertFalse(source("app/src/main/java/com/amaury/pointage/ThemeFrameStyler.kt").contains("settingsButton"))
+        assertFalse(source("app/src/main/java/com/amaury/pointage/ButtonReliefInstaller.kt").contains("settingsButton"))
+        assertFalse(source("app/src/main/java/com/amaury/pointage/LuxuryUiInstaller.kt").contains("settingsButton"))
     }
 }
