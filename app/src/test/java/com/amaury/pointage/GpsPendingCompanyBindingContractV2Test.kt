@@ -11,16 +11,16 @@ class GpsPendingCompanyBindingContractV2Test {
     private fun source(path: String) = File(root, path).readText()
 
     @Test
-    fun `manual gps fallback preserves selected company until canonical zone exists`() {
+    fun `manual gps fallback preserves each selected company until its canonical zone exists`() {
         val addAddress = source("app/src/main/java/com/amaury/pointage/AddressUiButtons.kt")
         val picker = source("app/src/main/java/com/amaury/pointage/GpsPointPickerView.kt")
 
-        assertTrue(addAddress.contains("if (geocoded == null)"))
-        assertTrue(addAddress.contains("pending_point_company_address"))
-        assertTrue(addAddress.contains("pending_point_company_id"))
-        assertTrue(addAddress.contains("pending_point_company_slot"))
+        assertTrue(addAddress.contains("pending_point_company_bindings"))
+        assertTrue(addAddress.contains("pendingCompanyBindings.put(formatted, binding)"))
+        assertTrue(addAddress.contains("pendingCompanyBindings.remove(formatted)"))
 
-        assertTrue(picker.contains("pendingCompanyAddress.equals(address, ignoreCase = true)"))
+        assertTrue(picker.contains("private fun pendingCompanyBindings(): JSONObject"))
+        assertTrue(picker.contains("firstOrNull { it.equals(address.trim(), ignoreCase = true) }"))
         assertTrue(picker.contains("pendingCompanyId?.let { put(\"companyId\", it) }"))
         assertTrue(picker.contains("pendingCompanySlot?.let { put(\"companySlot\", it) }"))
 
@@ -28,8 +28,12 @@ class GpsPendingCompanyBindingContractV2Test {
         assertTrue(picker.contains("stagedCompanyId?.let { put(\"companyId\", it) }"))
         assertTrue(picker.contains("stagedCompanySlot?.let { put(\"companySlot\", it) }"))
 
-        assertTrue(picker.contains(".remove(\"pending_point_company_address\")"))
-        assertTrue(picker.contains(".remove(\"pending_point_company_id\")"))
-        assertTrue(picker.contains(".remove(\"pending_point_company_slot\")"))
+        assertTrue(
+            picker.contains(
+                "firstOrNull { it.equals(address, ignoreCase = true) }"
+            )
+        )
+        assertTrue(picker.contains("editor.putString(\"pending_point_company_bindings\""))
+        assertTrue(picker.contains("editor.remove(\"pending_point_company_bindings\")"))
     }
 }
