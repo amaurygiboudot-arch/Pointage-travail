@@ -16,88 +16,91 @@ object UserGuideDialog {
         }
 
         content.addView(title(context, "NOTICE D'UTILISATION — AGKGMG"))
-        content.addView(body(context, "AGKGMG permet d'enregistrer tes heures de travail, tes pauses, de suivre ton historique, d'estimer ton salaire et de sauvegarder automatiquement tes rapports PDF."))
+        content.addView(
+            body(
+                context,
+                "AGKGMG enregistre les faits de temps de travail, les pauses et les lieux configurés. " +
+                    "Il peut ensuite les utiliser pour l'historique, les analyses, les sauvegardes et les contrôles de paie. " +
+                    "Une donnée absente ou non fiable reste à confirmer : l'application ne doit pas inventer un horaire, une règle ou un montant."
+            )
+        )
 
         addSection(content, context, "POINTAGE", """
 ENTRÉE
-Appuie en arrivant au travail. L'heure de début est enregistrée.
+Enregistre le début réel de la période de travail.
 
-PAUSE
-Appuie au début de ta pause. Appuie de nouveau pour reprendre le travail. Le temps de pause est retiré du temps réellement travaillé.
+PAUSE / REPRISE
+Ouvre puis ferme une pause. Lorsqu'un statut payé ou non payé est nécessaire et n'est pas connu, AGKGMG doit conserver l'incertitude ou demander une qualification au lieu de choisir silencieusement.
 
 SORTIE
-Appuie quand tu termines ta journée. AGKGMG calcule alors le temps travaillé en retirant les pauses.
+Ferme la période de travail en cours. Une sortie manquante ou ambiguë ne doit pas être inventée.
 
-SAISIE MANUELLE D'UNE PAUSE
-Permet d'ajouter ou corriger une pause qui n'a pas été enregistrée avec le bouton Pause.
+SAISIE ET CORRECTIONS MANUELLES
+Les corrections servent à décrire ce qui s'est réellement passé. Elles ne doivent pas créer automatiquement une règle de paie.
         """.trimIndent())
 
         addSection(content, context, "ONGLETS", """
+ACCUEIL
+Affiche l'accueil et le système Céleste lorsque cette fonction est disponible.
+
 AUJOURD'HUI
-Affiche le pointage et les informations de la journée en cours.
+Affiche l'état du pointage et les informations de la journée en cours.
 
 HISTORIQUE
-Affiche les pointages déjà enregistrés.
+Affiche les périodes de travail enregistrées et les informations disponibles pour les contrôler.
 
 ANALYSES
-Affiche les heures enregistrées et permet de consulter ou générer un rapport PDF pour le mois choisi.
+Présente les analyses construites à partir des données suffisamment fiables et les rapports disponibles.
+
+SALAIRE
+Regroupe les entreprises, profils, contrats, conventions, bulletins et résultats de paie V2.
 
 PARAMÈTRES
-Permet de régler les lieux de travail, le GPS automatique, l'apparence, les widgets, Google Drive et les mises à jour.
+Regroupe le compte et la sécurité, le pointage et les lieux, Céleste, l'apparence, les widgets, la sauvegarde, les mises à jour et l'aide.
         """.trimIndent())
 
-        addSection(content, context, "SALAIRE — COMMENT ÇA MARCHE ?", """
-L'onglet Salaire utilise les heures enregistrées dans AGKGMG pour donner une estimation du salaire brut du mois choisi.
+        addSection(content, context, "SALAIRE V2", """
+AGKGMG sépare les données de chaque entreprise afin d'éviter de mélanger plusieurs employeurs.
 
-1. TAUX HORAIRE BRUT
-Entre le montant brut payé pour une heure de travail, par exemple 13,70 €. Le calcul se met à jour automatiquement quand le taux change.
+Les calculs utilisent les faits de temps disponibles, le profil de l'entreprise et du salarié, la période concernée et les règles suffisamment prouvées. Une règle juridique ou une donnée manquante ne doit pas devenir un faux 0 €.
 
-2. DATE D'ENTRÉE DANS L'ENTREPRISE
-Indique ta date d'embauche. Elle permet à AGKGMG d'afficher ton ancienneté pour le mois sélectionné.
+Selon les informations disponibles, l'application peut présenter un résultat, un écart expliqué, une anomalie potentielle ou une donnée à confirmer. Un bulletin importé reste une valeur observée à comparer.
 
-3. ENTREPRISE PRINCIPALE
-Renseigne ton entreprise principale. Les informations enregistrées permettent d'associer la bonne convention collective et ses règles lorsque celles-ci sont disponibles dans l'application.
-
-4. CONVENTION COLLECTIVE
-La convention choisie détermine les règles utilisées pour les heures supplémentaires et les majorations intégrées. Appuie sur le nom de la convention pour voir ses détails. « Règles intégrées » signifie que AGKGMG connaît les règles utilisées pour le calcul. « Calcul légal provisoire » signifie que certaines règles particulières de cette convention ne sont pas encore intégrées.
-
-5. CHOISIR LE MOIS
-Choisis le mois que tu veux contrôler. AGKGMG reprend les pointages enregistrés pendant ce mois.
-
-6. RECALCULER
-Relance le calcul avec les informations actuellement enregistrées.
-
-7. HEURES DU MOIS
-« Heures normales » correspond aux heures payées au taux normal. Les lignes d'heures supplémentaires montrent les heures auxquelles une majoration s'applique. « Total pointé » correspond au temps de travail enregistré pour le mois, après prise en compte des pauses par le système de pointage.
-
-8. ESTIMATION BRUTE
-« Taux horaire » rappelle le taux saisi. « Heures supplémentaires » affiche le montant brut estimé lié aux heures supplémentaires. « Salaire estimé » donne l'estimation brute calculée pour le mois.
-
-IMPORTANT
-Le résultat est une estimation. AGKGMG ne remplace pas le bulletin de paie. Une prime, une absence, un accord d'entreprise, une règle conventionnelle non intégrée ou une information mal renseignée peut créer une différence avec la paie réelle.
+AGKGMG aide à contrôler une paie mais ne remplace ni le bulletin de paie officiel ni une vérification professionnelle lorsqu'une situation reste incertaine.
         """.trimIndent())
 
-        addSection(content, context, "PDF ET GOOGLE DRIVE", """
-Une fois le dossier Google Drive configuré, tu n'as normalement plus rien à faire.
+        addSection(content, context, "SAUVEGARDE & DONNÉES", """
+GOOGLE DRIVE
+Quand un dossier Drive est configuré, la sauvegarde V2 enregistre les données fonctionnelles prises en charge afin de permettre une restauration ultérieure.
 
-• AGKGMG vérifie automatiquement les journées terminées et crée un PDF de chaque journée.
-• Les fichiers sont classés automatiquement par lieu ou entreprise, puis par année et par mois.
-• Le PDF quotidien reprend les heures d'entrée et de sortie, les pauses et le temps réellement travaillé.
-• Lorsqu'un mois est terminé, AGKGMG crée automatiquement le récapitulatif PDF du mois terminé.
-• Le récapitulatif mensuel regroupe les pointages et les totaux du mois.
-• « Synchroniser tout l'historique » permet de recréer/synchroniser les rapports à partir des données encore présentes dans l'application.
+SAUVEGARDER MAINTENANT
+Déclenche une sauvegarde V2 dans le dossier Drive configuré.
 
-La sauvegarde automatique nécessite que le dossier Drive reste accessible sur le téléphone. Si Google Drive n'est pas disponible au moment du contrôle, AGKGMG réessaiera lors d'un prochain contrôle.
+RESTAURATION
+La restauration V2 est conservatrice : les données compatibles sont fusionnées et une sauvegarde illisible ou incohérente doit bloquer l'opération plutôt que remplacer silencieusement les données locales.
+
+SÉCURITÉ
+Le PIN de verrouillage, les jetons d'authentification et les états GPS purement temporaires restent locaux au téléphone.
         """.trimIndent())
 
-        addSection(content, context, "POINTAGE GPS", """
-Le pointage GPS peut détecter l'arrivée ou le départ d'un lieu de travail enregistré. Pour fonctionner quand l'application est fermée, Android doit autoriser AGKGMG à utiliser la localisation en arrière-plan. Le rayon définit la distance autour du lieu dans laquelle la détection peut se déclencher.
+        addSection(content, context, "POINTAGE & LIEUX / GPS", """
+Une entreprise peut utiliser plusieurs zones GPS. Chaque zone possède son propre identifiant et peut avoir son rayon, son type et son entreprise associée.
+
+La présence dans une zone GPS est un indice de contexte : elle ne signifie pas automatiquement qu'une durée est du temps de travail payé. En cas d'ambiguïté pouvant changer le résultat, AGKGMG doit conserver l'incertitude ou demander une confirmation.
+
+Sur Android, le pointage automatique dépend des autorisations de localisation, de la localisation générale du téléphone et de l'inscription effective des zones. Le statut affiché dans Paramètres indique si ces conditions sont réellement réunies.
         """.trimIndent())
 
-        addSection(content, context, "WIDGETS", """
-Le widget complet affiche les principales informations de pointage directement sur l'écran d'accueil.
+        addSection(content, context, "APPARENCE ET WIDGETS", """
+L'apparence de l'application et celle des widgets sont des réglages visuels. Elles ne modifient pas les règles de pointage ou de paie.
 
-Le widget rapide contient seulement Entrée, Pause/Reprendre et Sortie pour pointer plus vite sans ouvrir l'application.
+Les widgets permettent d'afficher l'état du pointage et d'accéder rapidement aux actions disponibles sans ouvrir l'écran principal.
+        """.trimIndent())
+
+        addSection(content, context, "MISES À JOUR", """
+Dans Paramètres > Aide, « Vérifier les mises à jour » utilise le mécanisme de mise à jour prévu pour la version installée.
+
+Sur la version distribuée par Google Play, les mises à jour sont gérées par Google Play. Les mécanismes APK internes restent désactivés sur cette variante.
         """.trimIndent())
 
         content.addView(body(context, "© 2026 AGKGMG — Tous droits réservés.").apply {
