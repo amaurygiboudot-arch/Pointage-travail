@@ -189,6 +189,12 @@ object GeofenceManager {
             return
         }
 
+        if (!DeviceLocationAvailability.isEnabled(context)) {
+            removeRegisteredGeofences(context)
+            onResult(false, "Localisation de l’appareil désactivée — active-la dans les réglages")
+            return
+        }
+
         if (!hasRequiredPermissions(context)) {
             removeRegisteredGeofences(context)
             onResult(false, "Autorisation de localisation manquante")
@@ -324,7 +330,7 @@ object GeofenceManager {
         val fingerprint = storedGpsConfigurationFingerprint(prefs)
         val plan = planStoredGeofenceRegistrationV2(
             enabled = prefs.getBoolean("enabled", false),
-            hasHardware = hasLocationHardware(app),
+            hasHardware = hasLocationHardware(app) && DeviceLocationAvailability.isEnabled(app),
             hasPermissions = hasRequiredPermissions(app),
             stored = readPersistedGpsZones(prefs),
             maxZones = MAX_ZONES
