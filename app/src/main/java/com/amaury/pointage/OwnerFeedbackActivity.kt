@@ -228,12 +228,12 @@ class OwnerFeedbackActivity : Activity() {
                 gravity = Gravity.CENTER
             }
             if (currentTab == "active") {
-                actions.addView(statusButton("À VOIR", "new", doc, accentColor), LinearLayout.LayoutParams(0, dp(46), 1f))
-                actions.addView(statusButton("RETENUE", "accepted", doc, accentColor), LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(5) })
-                actions.addView(statusButton("REFUSER", "rejected", doc, accentColor), LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(5) })
-                actions.addView(statusButton("FAITE", "done", doc, accentColor), LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(5) })
+                actions.addView(statusButton("À VOIR", "new", doc, accentColor), LinearLayout.LayoutParams(0, dp(48), 1f))
+                actions.addView(statusButton("RETENUE", "accepted", doc, accentColor), LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(5) })
+                actions.addView(statusButton("REFUSER", "rejected", doc, accentColor), LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(5) })
+                actions.addView(statusButton("FAITE", "done", doc, accentColor), LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(5) })
             } else {
-                actions.addView(statusButton("RESTAURER", "new", doc, accentColor), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)))
+                actions.addView(statusButton("RESTAURER", "new", doc, accentColor), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
             }
             addView(actions)
         }.also {
@@ -273,5 +273,6 @@ class OwnerFeedbackActivity : Activity() {
         else -> "Nouvelle"
     }
 
-    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+    private fun dp(value: Int) =
+        kotlin.math.ceil(value * resources.displayMetrics.density.toDouble()).toInt()
 }
