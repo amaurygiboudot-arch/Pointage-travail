@@ -292,7 +292,7 @@ object ButtonReliefInstaller {
         if (section.findViewWithTag<View>(TAG_DIAMOND_LAB) != null) return
         val button = Button(activity).apply {
             tag = TAG_DIAMOND_LAB
-            text = "💎 LABORATOIRE DIAMANT"
+            text = "LABORATOIRE DIAMANT"
             isAllCaps = false
             textSize = 13f
             minHeight = 0
