@@ -22,16 +22,12 @@ class V2BackupRestoreView @JvmOverloads constructor(
         orientation = VERTICAL
         setPadding(0, dp(14), 0, dp(4))
         addView(TextView(context).apply {
-            text = "SAUVEGARDE & RESTAURATION"
-            textSize = 15f
-        })
-        addView(TextView(context).apply {
             text = "Sauvegarde les pointages et réglages fonctionnels. Les jetons de connexion, le PIN et le verrouillage restent uniquement sur ce téléphone."
             textSize = 12f
             setPadding(0, dp(4), 0, dp(6))
         })
-        addView(button("☁️ SAUVEGARDER MAINTENANT") { backupNow() })
-        addView(button("♻️ RESTAURER UNE SAUVEGARDE") {
+        addView(button("SAUVEGARDER MAINTENANT") { backupNow() })
+        addView(button("RESTAURER UNE SAUVEGARDE") {
             (context as? Activity)?.startActivity(Intent(context, V2RestoreActivity::class.java))
         })
     }

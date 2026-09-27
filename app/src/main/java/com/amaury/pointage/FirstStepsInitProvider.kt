@@ -67,6 +67,8 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             removeLegacyGpsTestButton(activity)
             removeVisibleDeveloperButton(activity)
             SettingsV2SectionOrganizer.organize(activity)
+            SettingsUiInstaller.refreshDriveSection(activity)
+            SettingsCompactMenuV2.installOrRefresh(activity)
             FirstStepsTutorial.showIfNeeded(activity)
             WorkplaceProposalLimiter.showIfAllowed(activity)
             CompanyNameUiBinder.bind(activity)
@@ -177,7 +179,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         if (section.findViewWithTag<View>("first_steps_replay") != null) return
         val button = Button(activity).apply {
             tag = "first_steps_replay"
-            text = "🎓 REVOIR LE TUTORIEL PREMIERS PAS"
+            text = "REVOIR LE TUTORIEL PREMIERS PAS"
             isAllCaps = false
             setBackgroundResource(R.drawable.hp_panel)
             setOnClickListener { FirstStepsTutorial.restart(activity) }

@@ -12,7 +12,7 @@ class SnakeGameButtonView @JvmOverloads constructor(
 ) : AppCompatButton(context, attrs, defStyleAttr) {
 
     init {
-        text = "🐍  JOUER AU SERPENT"
+        text = "JOUER AU SERPENT"
         isAllCaps = false
         contentDescription = "Ouvrir le jeu Serpent"
         setOnClickListener { SnakeGameDialog.show(context) }

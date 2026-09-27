@@ -49,6 +49,8 @@ class PointageApplication : Application(), Application.ActivityLifecycleCallback
             // Si le téléchargement s'est terminé pendant que HP Travail était en arrière-plan,
             // ouvre immédiatement l'installateur au retour dans l'application.
             UpdateChecker.checkAutomatically(activity)
+            SettingsUiInstaller.refreshDriveSection(activity)
+            SettingsCompactMenuV2.installOrRefresh(activity)
             activity.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
             activity.findViewById<ShiftControlView>(R.id.shiftControlView)?.refresh()
             PointageWidgetProvider.updateAll(activity)
@@ -271,23 +273,6 @@ object SettingsUiInstaller {
         }
 
         val updates = settingsSection(activity, SettingsV2Host.TAG_UPDATES)
-        updates.addView(title(activity, "APPLICATION"))
-        updates.addView(TextView(activity).apply {
-            text = "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
-            textSize = 13f
-            setPadding(0, 0, 0, dp(activity, 6))
-        })
-        if (UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) {
-            updates.addView(styledButton(activity, "VÉRIFIER LES MISES À JOUR").apply {
-                setOnClickListener { UpdateChecker.check(activity, silent = false) }
-            })
-        } else {
-            updates.addView(TextView(activity).apply {
-                text = "Les mises à jour sont gérées par Google Play."
-                textSize = 13f
-                setPadding(0, 0, 0, dp(activity, 6))
-            })
-        }
 
         val appearance = settingsSection(activity, SettingsV2Host.TAG_PERSONALIZATION)
         appearance.addView(title(activity, "APPARENCE DE L'APPLICATION"))
@@ -349,35 +334,35 @@ object SettingsUiInstaller {
         widget.addView(showPosition)
 
         val drive = settingsSection(activity, SettingsV2Host.TAG_DRIVE)
-        drive.addView(title(activity, "SAUVEGARDE & SYNCHRONISATION"))
-        val driveStatus = TextView(activity).apply {
+        drive.addView(title(activity, "SAUVEGARDE & DONNÉES"))
+        drive.addView(TextView(activity).apply {
+            tag = "settings_drive_status"
             textSize = 14f
-            text = when {
-                !DriveBackupManager.isConfigured(activity) -> "Drive non configuré"
-                HoraTrackV2.ENABLED -> "● Sauvegarde Drive V2 active — pointages et réglages fonctionnels"
-                else -> "● Sauvegarde Drive active — PDF classés par lieu / année / mois"
-            }
-        }
-        drive.addView(driveStatus)
-        drive.addView(styledButton(activity, if (DriveBackupManager.isConfigured(activity)) "CHANGER LE DOSSIER GOOGLE DRIVE" else "CHOISIR LE DOSSIER GOOGLE DRIVE").apply {
+        })
+        drive.addView(styledButton(activity, "").apply {
+            tag = "settings_drive_folder"
             setOnClickListener { activity.startActivity(Intent(activity, DriveFolderPickerActivity::class.java)) }
         })
         drive.addView(styledButton(activity, "SYNCHRONISER TOUT L'HISTORIQUE").apply {
+            tag = "settings_drive_sync_all"
             setOnClickListener {
-                if (!DriveBackupManager.isConfigured(activity)) {
-                    Toast.makeText(activity, "Choisis d'abord un dossier Google Drive", Toast.LENGTH_LONG).show()
-                } else {
-                    Toast.makeText(activity, "Synchronisation Drive démarrée", Toast.LENGTH_SHORT).show()
-                    DriveBackupManager.syncAllAsync(activity) { ok, message ->
-                        activity.runOnUiThread { Toast.makeText(activity, if (ok) "Drive : $message" else "Erreur Drive : $message", Toast.LENGTH_LONG).show() }
+                Toast.makeText(activity, "Synchronisation Drive démarrée", Toast.LENGTH_SHORT).show()
+                DriveBackupManager.syncAllAsync(activity) { ok, message ->
+                    activity.runOnUiThread {
+                        Toast.makeText(
+                            activity,
+                            if (ok) "Drive : $message" else "Erreur Drive : $message",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
                 }
             }
         })
         drive.addView(styledButton(activity, "DÉCONNECTER LE DOSSIER DRIVE").apply {
+            tag = "settings_drive_disconnect"
             setOnClickListener {
                 DriveBackupManager.clear(activity)
-                driveStatus.text = "Drive non configuré"
+                refreshDriveSection(activity)
                 Toast.makeText(activity, "Sauvegarde Drive désactivée", Toast.LENGTH_SHORT).show()
             }
         })
@@ -391,7 +376,25 @@ object SettingsUiInstaller {
         listOf(updates, appearance, widget, drive, help).forEach(panel::addView)
         SettingsV2SectionOrganizer.organize(activity)
         installPointageAddressButton(activity)
+        refreshDriveSection(activity)
+        SettingsCompactMenuV2.installOrRefresh(activity)
         AppearanceManager.apply(activity)
+    }
+
+    fun refreshDriveSection(activity: MainActivity) {
+        val drive = SettingsV2Host.section(activity, SettingsV2Host.TAG_DRIVE) ?: return
+        val configured = DriveBackupManager.isConfigured(activity)
+        drive.findViewWithTag<TextView>("settings_drive_status")?.text = when {
+            !configured -> "Drive non configuré"
+            HoraTrackV2.ENABLED -> "Drive configuré — pointages et réglages fonctionnels"
+            else -> "Drive configuré — PDF classés par lieu / année / mois"
+        }
+        drive.findViewWithTag<Button>("settings_drive_folder")?.text =
+            if (configured) "CHANGER LE DOSSIER GOOGLE DRIVE" else "CHOISIR LE DOSSIER GOOGLE DRIVE"
+        drive.findViewWithTag<View>("settings_drive_sync_all")?.visibility =
+            if (configured) View.VISIBLE else View.GONE
+        drive.findViewWithTag<View>("settings_drive_disconnect")?.visibility =
+            if (configured) View.VISIBLE else View.GONE
     }
 
     private fun installPointageAddressButton(activity: MainActivity) {
@@ -416,7 +419,7 @@ object SettingsUiInstaller {
             setBackgroundResource(R.drawable.hp_panel)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(activity, 46)
+                dp(activity, 48)
             ).apply { topMargin = dp(activity, 8) }
         }
         val index = section.indexOfChild(addressList)
@@ -440,7 +443,7 @@ object SettingsUiInstaller {
         minimumWidth = 0
         gravity = Gravity.CENTER
         setPadding(dp(context, 12), 0, dp(context, 12), 0)
-        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 46)).apply {
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 48)).apply {
             topMargin = dp(context, 4)
             bottomMargin = dp(context, 4)
         }

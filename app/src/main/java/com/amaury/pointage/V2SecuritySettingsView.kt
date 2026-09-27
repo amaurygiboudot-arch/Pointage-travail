@@ -25,8 +25,8 @@ class V2SecuritySettingsView @JvmOverloads constructor(
         setPadding(0, dp(14), 0, dp(4))
         addView(TextView(context).apply { text = "VERROUILLAGE AGKGMG"; textSize = 15f })
         addView(status.apply { textSize = 12f; setPadding(0, dp(4), 0, dp(6)) })
-        addView(button("🔢 CONFIGURER LE PIN") { configurePin() })
-        addView(button("👆 ACTIVER / DÉSACTIVER LA BIOMÉTRIE") {
+        addView(button("CONFIGURER LE PIN") { configurePin() })
+        addView(button("ACTIVER / DÉSACTIVER LA BIOMÉTRIE") {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
                 Toast.makeText(context, "Biométrie disponible à partir d'Android 9", Toast.LENGTH_LONG).show()
             } else {
@@ -34,8 +34,8 @@ class V2SecuritySettingsView @JvmOverloads constructor(
                 refresh()
             }
         })
-        addView(button("⏱ DÉLAI DE VERROUILLAGE") { chooseTimeout() })
-        addView(button("🔒 ACTIVER / DÉSACTIVER LE VERROUILLAGE") {
+        addView(button("DÉLAI DE VERROUILLAGE") { chooseTimeout() })
+        addView(button("ACTIVER / DÉSACTIVER LE VERROUILLAGE") {
             val target = !V2AppLock.isEnabled(context)
             if (!V2AppLock.setEnabled(context, target)) {
                 Toast.makeText(context, "Configure d'abord un PIN ou active la biométrie", Toast.LENGTH_LONG).show()
