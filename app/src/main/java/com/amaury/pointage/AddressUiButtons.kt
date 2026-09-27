@@ -276,6 +276,27 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                             .remove("entry_resolution_token")
                             .remove("pending_exit_zones")
                             .putString("pending_point_address", formatted)
+                        val pendingCompanyBindings = runCatching {
+                            JSONObject(gpsPrefs.getString("pending_point_company_bindings", "{}") ?: "{}")
+                        }.getOrElse { JSONObject() }
+                        if (geocoded == null) {
+                            val binding = JSONObject()
+                            selectedCompanyId?.takeIf { it.isNotBlank() }?.let { binding.put("companyId", it) }
+                            if (!useV2EmployerBinding && legacyCompanySlot != null) {
+                                binding.put("companySlot", legacyCompanySlot)
+                            }
+                            if (binding.length() > 0) pendingCompanyBindings.put(formatted, binding)
+                            else pendingCompanyBindings.remove(formatted)
+                        } else {
+                            pendingCompanyBindings.keys().asSequence()
+                                .firstOrNull { it.equals(formatted, ignoreCase = true) }
+                                ?.let(pendingCompanyBindings::remove)
+                        }
+                        if (pendingCompanyBindings.length() > 0) {
+                            editor.putString("pending_point_company_bindings", pendingCompanyBindings.toString())
+                        } else {
+                            editor.remove("pending_point_company_bindings")
+                        }
                         if (!useV2EmployerBinding) editor.putString("address_company_slots", companyMap.toString())
                         editor.apply()
                         if (geocoded == null) {
