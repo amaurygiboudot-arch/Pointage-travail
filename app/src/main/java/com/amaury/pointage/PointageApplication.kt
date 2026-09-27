@@ -368,7 +368,7 @@ object SettingsUiInstaller {
 
         val help = settingsSection(activity, SettingsV2Host.TAG_HELP)
         help.addView(title(activity, "AIDE"))
-        help.addView(styledButton(activity, "📖 NOTICE D'UTILISATION").apply {
+        help.addView(styledButton(activity, "NOTICE D'UTILISATION").apply {
             setOnClickListener { UserGuideDialog.show(activity) }
         })
 
