@@ -91,7 +91,7 @@ class FirebaseAccountActivity : Activity() {
             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
             addView(TextView(this@FirebaseAccountActivity).apply {
-                text = "COMPTE GOOGLE & SAUVEGARDE"
+                text = "COMPTE GOOGLE & SAUVEGARDE CLOUD"
                 textSize = 22f
                 gravity = Gravity.CENTER
                 setTextColor(p.accent)
@@ -103,12 +103,12 @@ class FirebaseAccountActivity : Activity() {
             signInButton = themedButton("SE CONNECTER AVEC GOOGLE", p.text, p.accent, p.panel) { startGoogleSignIn() }
             addView(signInButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (62 * density).toInt()))
 
-            saveButton = themedButton("SAUVEGARDER TOUT MAINTENANT", p.text, p.accent, p.panel) { saveEverything() }
+            saveButton = themedButton("SAUVEGARDER DANS LE CLOUD", p.text, p.accent, p.panel) { saveEverything() }
             addView(saveButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (62 * density).toInt()).apply {
                 topMargin = (12 * density).toInt()
             })
 
-            restoreButton = themedButton("RESTAURER TOUT MAINTENANT", p.text, p.accent, p.panel) { restoreEverything() }
+            restoreButton = themedButton("RESTAURER DEPUIS LE CLOUD", p.text, p.accent, p.panel) { restoreEverything() }
             addView(restoreButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (62 * density).toInt()).apply {
                 topMargin = (12 * density).toInt()
             })
