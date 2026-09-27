@@ -15,6 +15,7 @@ object BackupSecurityPolicy {
         "recovery_state",
         "update_download",
         "update_push",
+        "update_push",
         "v2_app_lock"
     )
 
