@@ -11,6 +11,7 @@ class BackupSecurityPolicyTest {
             "v2_app_lock",
             "admin_diagnostics",
             "recovery_state",
+            "telemetry_settings",
             "update_download",
             "update_push",
             "app_check_status",
