@@ -14,6 +14,7 @@ class BackupSecurityPolicyTest {
             "update_download",
             "update_push",
             "app_check_status",
+            "cloud_account_binding_v2",
             "firebase_device_registry",
             "horatrack_v2_gps_state",
             "drive_backup",
