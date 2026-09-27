@@ -92,7 +92,8 @@ object GeofenceManager {
         )
 
     internal fun isStoredRegistrationCurrent(context: Context): Boolean {
-        if (!DeviceLocationAvailability.isEnabled(context)) return false
+        // A delayed platform callback can arrive while the master Location switch is off.
+        // Its authenticity depends on the stored registration fingerprint, not that switch.
         val prefs = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
         return isCurrentStoredGeofenceRegistrationV2(
             registrationValid = prefs.getBoolean(
