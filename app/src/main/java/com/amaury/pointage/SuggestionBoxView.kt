@@ -32,7 +32,7 @@ class SuggestionBoxView @JvmOverloads constructor(
         orientation = VERTICAL
         setPadding(0, dp(18), 0, dp(8))
 
-        val ownerInbox = adaptiveButton("📥  IDÉES REÇUES").apply {
+        val ownerInbox = adaptiveButton("IDÉES REÇUES").apply {
             visibility = View.GONE
             setOnClickListener { context.startActivity(Intent(context, OwnerFeedbackActivity::class.java)) }
         }
