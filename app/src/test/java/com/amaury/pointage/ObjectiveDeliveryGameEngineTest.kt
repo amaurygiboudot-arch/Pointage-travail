@@ -89,4 +89,24 @@ class ObjectiveDeliveryGameEngineTest {
                 .any { it.contains("incomplet", ignoreCase = true) }
         )
     }
+    @Test
+    fun `lost campaign can retry and still unlock chapter two`() {
+        val lost = play(
+            ObjectiveCompanyType.RETAIL,
+            42L,
+            ObjectiveDecision.LEAVE_WAITING,
+            ObjectiveDecision.STANDARD_SOLUTION,
+            ObjectiveDecision.FAST_PREMIUM
+        )
+
+        var retry = ObjectiveDeliveryGameEngine.retryChapterOne(lost)
+        retry = ObjectiveDeliveryGameEngine.apply(retry, ObjectiveDecision.ANSWER_NOW)
+        retry = ObjectiveDeliveryGameEngine.apply(retry, ObjectiveDecision.FULL_DISCOVERY)
+        retry = ObjectiveDeliveryGameEngine.apply(retry, ObjectiveDecision.VALUE_OFFER)
+
+        assertEquals(ObjectiveOutcome.WON, retry.outcome)
+        assertEquals(2, retry.unlockedChapter)
+        assertTrue(retry.revision > lost.revision)
+    }
+
 }
