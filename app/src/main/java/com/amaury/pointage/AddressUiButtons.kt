@@ -277,6 +277,23 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                             .remove("entry_resolution_token")
                             .remove("pending_exit_zones")
                             .putString("pending_point_address", formatted)
+                        if (geocoded == null) {
+                            editor.putString("pending_point_company_address", formatted)
+                            if (!selectedCompanyId.isNullOrBlank()) {
+                                editor.putString("pending_point_company_id", selectedCompanyId)
+                            } else {
+                                editor.remove("pending_point_company_id")
+                            }
+                            if (!useV2EmployerBinding && legacyCompanySlot != null) {
+                                editor.putInt("pending_point_company_slot", legacyCompanySlot)
+                            } else {
+                                editor.remove("pending_point_company_slot")
+                            }
+                        } else {
+                            editor.remove("pending_point_company_address")
+                                .remove("pending_point_company_id")
+                                .remove("pending_point_company_slot")
+                        }
                         if (!useV2EmployerBinding) editor.putString("address_company_slots", companyMap.toString())
                         editor.apply()
                         if (geocoded == null) {
