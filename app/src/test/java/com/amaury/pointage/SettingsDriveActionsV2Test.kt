@@ -8,10 +8,17 @@ class SettingsDriveActionsV2Test {
     private val root = generateSequence(File(System.getProperty("user.dir"))) { it.parentFile }
         .first { File(it, "app/src/main/java/com/amaury/pointage/PointageApplication.kt").isFile }
 
+    private fun source(path: String) = File(root, path).readText()
+
     @Test
-    fun `legacy sync action stays hidden when V2 owns backups`() {
-        val source = File(root, "app/src/main/java/com/amaury/pointage/PointageApplication.kt").readText()
-        assertTrue(source.contains("if (configured && !HoraTrackV2.ENABLED) View.VISIBLE else View.GONE"))
-        assertTrue(source.contains("V2BackupRestoreView" ).not() || true)
+    fun `V2 exposes one explicit backup action while legacy sync stays hidden`() {
+        val settings = source("app/src/main/java/com/amaury/pointage/PointageApplication.kt")
+        val backup = source("app/src/main/java/com/amaury/pointage/V2BackupRestoreView.kt")
+
+        assertTrue(
+            settings.contains("if (configured && !HoraTrackV2.ENABLED) View.VISIBLE else View.GONE")
+        )
+        assertTrue(backup.contains("SAUVEGARDER MAINTENANT"))
+        assertTrue(backup.contains("RESTAURER UNE SAUVEGARDE"))
     }
 }
