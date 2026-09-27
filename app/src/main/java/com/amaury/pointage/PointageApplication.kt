@@ -265,6 +265,7 @@ object SettingsUiInstaller {
         if (header != null && header.findViewWithTag<View>("main_back_button") == null) {
             val back = styledButton(activity, "←").apply {
                 tag = "main_back_button"
+                contentDescription = "Retour à Aujourd’hui"
                 textSize = 24f
                 layoutParams = LinearLayout.LayoutParams(dp(activity, 56), dp(activity, 56)).apply { marginEnd = dp(activity, 8) }
                 setOnClickListener { activity.findViewById<TextView>(R.id.tabToday)?.performClick() }
@@ -449,7 +450,8 @@ object SettingsUiInstaller {
         }
     }
 
-    private fun dp(context: Context, value: Int) = (value * context.resources.displayMetrics.density).toInt()
+    private fun dp(context: Context, value: Int) =
+        kotlin.math.ceil(value * context.resources.displayMetrics.density.toDouble()).toInt()
     private fun title(context: Context, text: String) = TextView(context).apply { this.text = text; textSize = 16f; setPadding(0, dp(context, 18), 0, dp(context, 10)) }
 
     private fun chooseAppBackground(activity: Activity) {
