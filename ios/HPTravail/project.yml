@@ -48,6 +48,8 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGN_STYLE: Automatic
         CELESTIAL_WEATHER_ENDPOINT: ""
+        MARKETING_VERSION: "1.9"
+        CURRENT_PROJECT_VERSION: "9"
 
   HPTravailTests:
     type: bundle.unit-test
