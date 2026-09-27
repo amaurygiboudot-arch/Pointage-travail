@@ -309,6 +309,18 @@ class ObjectiveDeliveryGameActivity : Activity() {
                 )
             }
 
+            if (!practiceMode && current.outcome != ObjectiveOutcome.WON) {
+                addAction("RÉESSAYER POUR PROGRESSER") {
+                    state = ObjectiveDeliveryGameEngine.retryChapterOne(current).also {
+                        ObjectiveDeliveryGameStore.save(
+                            this@ObjectiveDeliveryGameActivity,
+                            it
+                        )
+                    }
+                    render()
+                }
+            }
+
             if (!practiceMode) {
                 addAction("REJOUER LE CHAPITRE EN ENTRAÎNEMENT") {
                     val practiceId =
