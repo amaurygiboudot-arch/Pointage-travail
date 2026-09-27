@@ -138,6 +138,16 @@ class ObjectiveDeliveryGameActivity : Activity() {
             addBody("Chapitre 1 — Premier contact et devis")
         }
 
+        root.addView(ObjectiveDeliveryBoardView(this).apply {
+            bind(current)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(250)
+            ).apply {
+                bottomMargin = dp(12)
+            }
+        })
+
         if (current.outcome == ObjectiveOutcome.IN_PROGRESS) {
             addIndicators(current)
             addRiskCard(current)
