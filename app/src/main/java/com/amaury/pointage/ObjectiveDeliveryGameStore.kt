@@ -21,7 +21,7 @@ enum class ObjectiveSyncStatus(val label: String) {
 object ObjectiveDeliveryGameStore {
     private const val PREFS = "objective_delivery_game"
     private const val KEY_ACTIVE_TYPE = "active_company_type"
-    private const val KEY_SYNC_STATUS = "sync_status"
+    private const val KEY_SYNC_STATUS_PREFIX = "sync_status_"
     private const val CAMPAIGN_PREFIX = "campaign_"
     private const val GAME_FIREBASE_APP = "objective-delivery-game"
 
@@ -52,16 +52,25 @@ object ObjectiveDeliveryGameStore {
 
     fun save(context: Context, state: ObjectiveDeliveryState) {
         saveLocal(context, state, ObjectiveSyncStatus.PENDING)
-        syncToCloud(context.applicationContext, state)
+        ObjectiveDeliveryGameSyncWorker.enqueue(
+            context.applicationContext,
+            state.companyType
+        )
     }
 
     fun saveDeviceOnly(context: Context, state: ObjectiveDeliveryState) {
         saveLocal(context, state, ObjectiveSyncStatus.DEVICE)
     }
 
-    fun syncStatus(context: Context): ObjectiveSyncStatus {
+    fun syncStatus(
+        context: Context,
+        type: ObjectiveCompanyType
+    ): ObjectiveSyncStatus {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_SYNC_STATUS, ObjectiveSyncStatus.DEVICE.name)
+            .getString(
+                KEY_SYNC_STATUS_PREFIX + type.id,
+                ObjectiveSyncStatus.DEVICE.name
+            )
         return runCatching { ObjectiveSyncStatus.valueOf(raw ?: "") }
             .getOrDefault(ObjectiveSyncStatus.DEVICE)
     }
@@ -101,11 +110,21 @@ object ObjectiveDeliveryGameStore {
             .edit()
             .putString(KEY_ACTIVE_TYPE, state.companyType.id)
             .putString(CAMPAIGN_PREFIX + state.companyType.id, encode(state).toString())
-            .putString(KEY_SYNC_STATUS, status.name)
+            .putString(KEY_SYNC_STATUS_PREFIX + state.companyType.id, status.name)
             .apply()
     }
 
-    private fun syncToCloud(context: Context, state: ObjectiveDeliveryState) {
+    internal fun syncPending(
+        context: Context,
+        type: ObjectiveCompanyType,
+        onComplete: (Boolean) -> Unit
+    ) {
+        val state = load(context, type)
+        if (state == null) {
+            onComplete(true)
+            return
+        }
+
         ensureFirebaseUser(
             context = context,
             onReady = { uid, firestore ->
@@ -132,22 +151,28 @@ object ObjectiveDeliveryGameStore {
                         )
                     )
                 }.addOnSuccessListener {
-                    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                        .edit()
-                        .putString(KEY_SYNC_STATUS, ObjectiveSyncStatus.ONLINE.name)
-                        .apply()
+                    setSyncStatus(context, type, ObjectiveSyncStatus.ONLINE)
+                    onComplete(true)
                 }.addOnFailureListener {
-                    markSyncPending(context)
+                    setSyncStatus(context, type, ObjectiveSyncStatus.PENDING)
+                    onComplete(false)
                 }
             },
-            onUnavailable = { markSyncPending(context) }
+            onUnavailable = {
+                setSyncStatus(context, type, ObjectiveSyncStatus.PENDING)
+                onComplete(false)
+            }
         )
     }
 
-    private fun markSyncPending(context: Context) {
+    private fun setSyncStatus(
+        context: Context,
+        type: ObjectiveCompanyType,
+        status: ObjectiveSyncStatus
+    ) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
-            .putString(KEY_SYNC_STATUS, ObjectiveSyncStatus.PENDING.name)
+            .putString(KEY_SYNC_STATUS_PREFIX + type.id, status.name)
             .apply()
     }
 
