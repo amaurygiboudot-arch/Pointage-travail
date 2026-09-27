@@ -61,6 +61,18 @@ service cloud.firestore {
         allow read, create, update, delete: if isSignedIn()
           && request.auth.uid == userId;
       }
+
+      // Campagnes fictives du mini-jeu Objectif livraison.
+      // Elles restent privées et séparées des pointages et de Salaire V2.
+      match /objective_delivery/{campaignId} {
+        allow read, create, update, delete: if isSignedIn()
+          && request.auth.uid == userId
+          && request.resource.data.campaignId == campaignId
+          && request.resource.data.keys().hasOnly([
+            'schemaVersion', 'campaignId', 'companyType',
+            'revision', 'updatedAt', 'payload'
+          ]);
+      }
     }
 
     // Paramètres centraux de paie : lisibles par les utilisateurs connectés,
