@@ -144,7 +144,6 @@ object SettingsV2SectionOrganizer {
                 "geofenceRadius",
                 "autoGpsSwitch",
                 "gpsStatusText",
-                "saveGpsSettingsButton",
                 "gpsPointPickerView",
                 "locationPermissionButton",
                 "locationManagementView"
