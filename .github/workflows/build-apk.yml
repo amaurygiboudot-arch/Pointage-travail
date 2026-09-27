@@ -172,7 +172,20 @@ jobs:
           test -s AGKGMG-source-sha.txt
 
       - name: Verifier la signature AAB Play
-        run: jarsigner -verify -strict -certs AGKGMG-play.aab
+        env:
+          POINTAGE_KEYSTORE_PASSWORD: ${{ secrets.POINTAGE_KEYSTORE_PASSWORD }}
+          POINTAGE_KEY_ALIAS: ${{ secrets.POINTAGE_KEY_ALIAS }}
+        run: |
+          jarsigner -verify -certs AGKGMG-play.aab
+          EXPECTED_CERT="$(keytool -list -v \
+            -keystore "$RUNNER_TEMP/pointage-release.keystore" \
+            -storepass "$POINTAGE_KEYSTORE_PASSWORD" \
+            -alias "$POINTAGE_KEY_ALIAS" | sed -n 's/^[[:space:]]*SHA256: //p' | head -1 | tr -d ':[:space:]')"
+          ACTUAL_CERT="$(keytool -printcert -jarfile AGKGMG-play.aab | sed -n 's/^[[:space:]]*SHA256: //p' | head -1 | tr -d ':[:space:]')"
+          test -n "$EXPECTED_CERT"
+          test -n "$ACTUAL_CERT"
+          test "$EXPECTED_CERT" = "$ACTUAL_CERT"
+          echo "Signature AAB Play valide et certificat conforme a la cle d upload."
 
       - name: Publier artefact Play pour le workflow Google Play
         uses: actions/upload-artifact@v4
