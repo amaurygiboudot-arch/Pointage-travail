@@ -37,6 +37,19 @@ class ObjectiveDeliveryGameIntegrationContractTest {
     }
 
     @Test
+    fun `anonymous game auth stays isolated from main AGKGMG auth`() {
+        val store = source(
+            "app/src/main/java/com/amaury/pointage/ObjectiveDeliveryGameStore.kt"
+        )
+
+        assertTrue(store.contains("GAME_FIREBASE_APP"))
+        assertTrue(store.contains("FirebaseApp.initializeApp("))
+        assertTrue(store.contains("FirebaseAuth.getInstance(gameApp)"))
+        assertTrue(store.contains("FirebaseFirestore.getInstance(gameApp)"))
+        assertTrue(store.contains("defaultUser != null && !defaultUser.isAnonymous"))
+    }
+
+    @Test
     fun `game touch target never truncates below 48dp`() {
         val activity = source(
             "app/src/main/java/com/amaury/pointage/ObjectiveDeliveryGameActivity.kt"
