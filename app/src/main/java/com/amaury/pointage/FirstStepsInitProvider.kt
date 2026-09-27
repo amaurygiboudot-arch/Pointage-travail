@@ -200,6 +200,9 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         panel.findViewWithTag<View>("developer_tools")?.let { panel.removeView(it) }
     }
 
+    private fun dp(activity: Activity, value: Int): Int =
+        kotlin.math.ceil(value * activity.resources.displayMetrics.density.toDouble()).toInt()
+
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
     override fun onActivityStarted(activity: Activity) = Unit
     override fun onActivityPaused(activity: Activity) {
