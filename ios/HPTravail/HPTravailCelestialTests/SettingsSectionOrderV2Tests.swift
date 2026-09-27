@@ -35,5 +35,9 @@ final class SettingsSectionOrderV2Tests: XCTestCase {
         XCTAssertLessThan(celestial.lowerBound, appearance.lowerBound)
         XCTAssertTrue(tail.contains("CFBundleShortVersionString"))
         XCTAssertTrue(tail.contains("CFBundleVersion"))
+
+        let project = try source("ios/HPTravail/project.yml")
+        XCTAssertTrue(project.contains("MARKETING_VERSION: \"1.9\""))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION: \"9\""))
     }
 }
