@@ -261,6 +261,10 @@ object ObjectiveDeliveryGameStore {
         put("quotedDelayDays", state.quotedDelayDays)
         put("marginAmount", state.marginAmount)
         put("outcome", state.outcome.name)
+        put("chapterMetricA", state.chapterMetricA)
+        put("chapterMetricB", state.chapterMetricB)
+        put("chapterChoice", state.chapterChoice)
+        put("business", encodeBusiness(state.business))
         put("revision", state.revision)
         put("history", JSONArray(state.history))
     }
@@ -272,29 +276,182 @@ object ObjectiveDeliveryGameStore {
                 historyJson.optString(index).takeIf { it.isNotBlank() }?.let(::add)
             }
         }
+
+        val companyType = ObjectiveCompanyType.fromId(json.getString("companyType"))
+        val quotedPrice = json.optInt("quotedPrice", 0)
+        val quotedDelayDays = json.optInt("quotedDelayDays", 0)
+        val marginAmount = json.optInt("marginAmount", 0)
+        val business = json.optJSONObject("business")
+            ?.let(::decodeBusiness)
+            ?: ObjectiveBusinessScenarioFactory.initial(companyType).copy(
+                acceptedOrderPrice = quotedPrice,
+                acceptedOrderDelayDays = quotedDelayDays,
+                acceptedOrderMargin = marginAmount
+            )
+
         return ObjectiveDeliveryState(
-            schemaVersion = json.optInt(
-                "schemaVersion",
-                ObjectiveDeliveryGameEngine.SCHEMA_VERSION
-            ),
+            schemaVersion = ObjectiveDeliveryGameEngine.SCHEMA_VERSION,
             campaignId = json.getString("campaignId"),
-            companyType = ObjectiveCompanyType.fromId(json.getString("companyType")),
+            companyType = companyType,
             seed = json.optLong("seed", 0L),
             currentChapter = json.optInt("currentChapter", 1),
             unlockedChapter = json.optInt("unlockedChapter", 1),
             step = json.optInt("step", 0),
             clientTrust = json.optInt("clientTrust", 50).coerceIn(0, 100),
             needCompleteness = json.optInt("needCompleteness", 0).coerceIn(0, 100),
-            quotedPrice = json.optInt("quotedPrice", 0),
-            quotedDelayDays = json.optInt("quotedDelayDays", 0),
-            marginAmount = json.optInt("marginAmount", 0),
+            quotedPrice = quotedPrice,
+            quotedDelayDays = quotedDelayDays,
+            marginAmount = marginAmount,
             outcome = runCatching {
                 ObjectiveOutcome.valueOf(
                     json.optString("outcome", ObjectiveOutcome.IN_PROGRESS.name)
                 )
             }.getOrDefault(ObjectiveOutcome.IN_PROGRESS),
+            chapterMetricA = json.optInt("chapterMetricA", 0),
+            chapterMetricB = json.optInt("chapterMetricB", 0),
+            chapterChoice = json.optString("chapterChoice", ""),
+            business = business,
             revision = json.optInt("revision", 1).coerceAtLeast(1),
             history = history
+        )
+    }
+
+    private fun encodeBusiness(business: ObjectiveBusinessState): JSONObject =
+        JSONObject().apply {
+            put("cash", business.cash)
+            put("acceptedOrderPrice", business.acceptedOrderPrice)
+            put("acceptedOrderDelayDays", business.acceptedOrderDelayDays)
+            put("acceptedOrderMargin", business.acceptedOrderMargin)
+            put("handoffQuality", business.handoffQuality)
+            put("teamMorale", business.teamMorale)
+            put("simulatedLegalFloorIndex", business.simulatedLegalFloorIndex)
+            put("payGridIndex", business.payGridIndex)
+            put("annualRaiseEnvelopeBasisPoints", business.annualRaiseEnvelopeBasisPoints)
+            put("annualRaiseUsedBasisPoints", business.annualRaiseUsedBasisPoints)
+            put("supplierReliability", business.supplierReliability)
+            put("supplierLeadTimeDays", business.supplierLeadTimeDays)
+
+            put(
+                "employees",
+                JSONArray().apply {
+                    business.employees.forEach { employee ->
+                        put(
+                            JSONObject().apply {
+                                put("id", employee.id)
+                                put("firstName", employee.firstName)
+                                put("role", employee.role)
+                                put("contractType", employee.contractType.name)
+                                put("classification", employee.classification.name)
+                                put("weeklyHours", employee.weeklyHours)
+                                put("leaveBalanceDays", employee.leaveBalanceDays)
+                                put("skillLabel", employee.skillLabel)
+                                put("skillLevel", employee.skillLevel)
+                                put("seniorityMonths", employee.seniorityMonths)
+                                put("payIndex", employee.payIndex)
+                                put("morale", employee.morale)
+                            }
+                        )
+                    }
+                }
+            )
+
+            put(
+                "stock",
+                JSONArray().apply {
+                    business.stock.forEach { item ->
+                        put(
+                            JSONObject().apply {
+                                put("id", item.id)
+                                put("label", item.label)
+                                put("available", item.available)
+                                put("reserved", item.reserved)
+                                put("inbound", item.inbound)
+                                put("requiredForOrder", item.requiredForOrder)
+                                put("unitCost", item.unitCost)
+                            }
+                        )
+                    }
+                }
+            )
+        }
+
+    private fun decodeBusiness(json: JSONObject): ObjectiveBusinessState {
+        val employeesJson = json.optJSONArray("employees") ?: JSONArray()
+        val employees = buildList {
+            for (index in 0 until employeesJson.length()) {
+                val item = employeesJson.optJSONObject(index) ?: continue
+                add(
+                    ObjectiveEmployee(
+                        id = item.optString("id", "employee_$index"),
+                        firstName = item.optString("firstName", "Employé"),
+                        role = item.optString("role", "Équipe"),
+                        contractType = runCatching {
+                            ObjectiveContractType.valueOf(
+                                item.optString("contractType", ObjectiveContractType.CDI.name)
+                            )
+                        }.getOrDefault(ObjectiveContractType.CDI),
+                        classification = runCatching {
+                            ObjectiveClassification.valueOf(
+                                item.optString(
+                                    "classification",
+                                    ObjectiveClassification.NON_CADRE.name
+                                )
+                            )
+                        }.getOrDefault(ObjectiveClassification.NON_CADRE),
+                        weeklyHours = item.optInt("weeklyHours", 35).coerceAtLeast(1),
+                        leaveBalanceDays = item.optInt("leaveBalanceDays", 0).coerceAtLeast(0),
+                        skillLabel = item.optString("skillLabel", "Polyvalence"),
+                        skillLevel = item.optInt("skillLevel", 50).coerceIn(0, 100),
+                        seniorityMonths = item.optInt("seniorityMonths", 0).coerceAtLeast(0),
+                        payIndex = item.optInt("payIndex", 100).coerceAtLeast(1),
+                        morale = item.optInt("morale", 70).coerceIn(0, 100)
+                    )
+                )
+            }
+        }
+
+        val stockJson = json.optJSONArray("stock") ?: JSONArray()
+        val stock = buildList {
+            for (index in 0 until stockJson.length()) {
+                val item = stockJson.optJSONObject(index) ?: continue
+                add(
+                    ObjectiveStockItem(
+                        id = item.optString("id", "stock_$index"),
+                        label = item.optString("label", "Matière"),
+                        available = item.optInt("available", 0).coerceAtLeast(0),
+                        reserved = item.optInt("reserved", 0).coerceAtLeast(0),
+                        inbound = item.optInt("inbound", 0).coerceAtLeast(0),
+                        requiredForOrder = item.optInt("requiredForOrder", 0).coerceAtLeast(0),
+                        unitCost = item.optInt("unitCost", 0).coerceAtLeast(0)
+                    )
+                )
+            }
+        }
+
+        val floor = json.optInt("simulatedLegalFloorIndex", 100).coerceAtLeast(1)
+        return ObjectiveBusinessState(
+            cash = json.optInt("cash", 0).coerceAtLeast(0),
+            acceptedOrderPrice = json.optInt("acceptedOrderPrice", 0).coerceAtLeast(0),
+            acceptedOrderDelayDays = json.optInt("acceptedOrderDelayDays", 0).coerceAtLeast(0),
+            acceptedOrderMargin = json.optInt("acceptedOrderMargin", 0),
+            handoffQuality = json.optInt("handoffQuality", 0).coerceIn(0, 100),
+            teamMorale = json.optInt("teamMorale", 70).coerceIn(0, 100),
+            simulatedLegalFloorIndex = floor,
+            payGridIndex = json.optInt("payGridIndex", floor).coerceAtLeast(floor),
+            annualRaiseEnvelopeBasisPoints = json.optInt(
+                "annualRaiseEnvelopeBasisPoints",
+                500
+            ).coerceAtLeast(0),
+            annualRaiseUsedBasisPoints = json.optInt(
+                "annualRaiseUsedBasisPoints",
+                0
+            ).coerceAtLeast(0),
+            employees = employees,
+            stock = stock,
+            supplierReliability = json.optInt("supplierReliability", 75)
+                .coerceIn(0, 100),
+            supplierLeadTimeDays = json.optInt("supplierLeadTimeDays", 8)
+                .coerceAtLeast(0)
         )
     }
 }
