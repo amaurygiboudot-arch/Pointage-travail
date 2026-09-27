@@ -96,6 +96,14 @@ class BackupPreferenceKeyPolicyTest {
     }
 
     @Test
+    fun `notification permission and local polling cadence stay device-local`() {
+        assertFalse(BackupPreferenceKeyPolicy.canTransfer("firebase_backend_updates", "notification_permission_requested"))
+        assertFalse(BackupPreferenceKeyPolicy.canTransfer("firebase_backend_updates", "last_server_check"))
+        assertTrue(BackupPreferenceKeyPolicy.canTransfer("firebase_backend_updates", "known_revision"))
+        assertTrue(BackupPreferenceKeyPolicy.canTransfer("firebase_backend_updates", "popup_revision"))
+    }
+
+    @Test
     fun `existing gps ephemeral policy is still enforced`() {
         GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach { key ->
             assertFalse(key, BackupPreferenceKeyPolicy.canTransfer("gps_settings", key))
