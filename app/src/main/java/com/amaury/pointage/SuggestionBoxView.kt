@@ -65,7 +65,7 @@ class SuggestionBoxView @JvmOverloads constructor(
         }
         addView(ideaInput, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        val send = adaptiveButton("💡  ENVOYER L'IDÉE").apply {
+        val send = adaptiveButton("ENVOYER L'IDÉE").apply {
             setOnClickListener { sendIdea() }
         }
         addView(send, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
