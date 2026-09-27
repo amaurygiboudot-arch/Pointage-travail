@@ -602,6 +602,14 @@
                     android:background="@drawable/hp_panel"
                     android:textColor="@color/hp_gold_light"
                     android:textSize="14sp" />
+
+                <com.amaury.pointage.ObjectiveDeliveryGameButtonView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/hp_panel"
+                    android:textColor="@color/hp_gold_light"
+                    android:textSize="14sp" />
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>
