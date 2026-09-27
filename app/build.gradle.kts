@@ -38,12 +38,16 @@ android {
         buildConfigField("String", "FIREBASE_SENDER_ID", "\"${envString("FIREBASE_SENDER_ID")}\"")
         buildConfigField("String", "CELESTIAL_WEATHER_ENDPOINT", "\"${envString("CELESTIAL_WEATHER_ENDPOINT")}\"")
         buildConfigField("Boolean", "INTERNAL_APK_UPDATES_ENABLED", "true")
+        buildConfigField("Boolean", "INTERNAL_DEVELOPER_MODE_ENABLED", "false")
     }
 
     buildFeatures { buildConfig = true }
 
     buildTypes {
-        getByName("debug") { isDebuggable = true }
+        getByName("debug") {
+            isDebuggable = true
+            buildConfigField("Boolean", "INTERNAL_DEVELOPER_MODE_ENABLED", "true")
+        }
         getByName("release") {
             isDebuggable = false
             isMinifyEnabled = true
