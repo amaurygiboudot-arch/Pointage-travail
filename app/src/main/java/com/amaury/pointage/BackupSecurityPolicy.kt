@@ -47,6 +47,7 @@ object BackupPreferenceKeyPolicy {
         if (!GpsPresenceStateKeysV2.isTransferablePreferenceKey(preferenceFileName, key)) return false
 
         if (preferenceFileName == "appearance_settings" && key in appearanceLocalKeys) return false
+        if (preferenceFileName == "navigation_state" && key == "active_tab") return false
 
         if (preferenceFileName == "smart_setup") {
             if (key in smartSetupEphemeralExact) return false
