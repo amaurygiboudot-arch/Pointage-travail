@@ -83,6 +83,34 @@ class SmartSetupCompanyTargetsV2Test {
         assertFalse(zone.has("companyId"))
     }
 
+    @Test
+    fun `deux entreprises peuvent partager une adresse sans partager la meme zone GPS`() {
+        val zones = org.json.JSONArray()
+            .put(
+                org.json.JSONObject()
+                    .put("id", "zone-a")
+                    .put("address", "10 rue Commune")
+                    .put("companyId", "company-a")
+            )
+
+        assertTrue(hasGpsZoneForOwnerAtAddress(zones, "10 rue Commune", "company-a", null))
+        assertFalse(hasGpsZoneForOwnerAtAddress(zones, "10 rue Commune", "company-b", null))
+    }
+
+    @Test
+    fun `la compatibilite legacy distingue aussi les slots a une meme adresse`() {
+        val zones = org.json.JSONArray()
+            .put(
+                org.json.JSONObject()
+                    .put("id", "zone-legacy-1")
+                    .put("address", "10 rue Commune")
+                    .put("companySlot", 1)
+            )
+
+        assertTrue(hasGpsZoneForOwnerAtAddress(zones, "10 rue Commune", null, 1))
+        assertFalse(hasGpsZoneForOwnerAtAddress(zones, "10 rue Commune", null, 2))
+    }
+
     private fun company(id: String, siret: String, address: String) =
         SalaryCompanyStore.Company(
             id = id,
