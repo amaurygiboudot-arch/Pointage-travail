@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ObjectiveDeliveryGameIntegrationContractTest {
-    private val root = generateSequence(File(System.getProperty("user.dir"))) { it.parentFile }
+    private val root = generateSequence(File(System.getProperty("user.dir") ?: ".")) { it.parentFile }
         .first { File(it, "app/src/main/AndroidManifest.xml").isFile }
 
     private fun source(path: String): String = File(root, path).readText()
