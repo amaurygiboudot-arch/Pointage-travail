@@ -28,7 +28,6 @@ import java.util.UUID
 class AddAddressButton @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : Button(context, attrs) {
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        rootView.findViewById<Button>(R.id.saveGpsSettingsButton)?.visibility = View.GONE
         super.setOnClickListener { showAddressDialog() }
     }
 
