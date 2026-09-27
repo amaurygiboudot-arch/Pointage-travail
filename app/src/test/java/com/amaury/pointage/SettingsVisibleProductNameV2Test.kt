@@ -15,9 +15,12 @@ class SettingsVisibleProductNameV2Test {
     fun `settings help and security use AGKGMG visible name`() {
         val guide = source("app/src/main/java/com/amaury/pointage/UserGuideDialog.kt")
         val security = source("app/src/main/java/com/amaury/pointage/SecurityInfoActivity.kt")
+        val main = source("app/src/main/java/com/amaury/pointage/MainActivity.kt")
         assertTrue(guide.contains("AGKGMG"))
         assertFalse(guide.contains("HP Travail"))
         assertFalse(guide.contains("HP TRAVAIL"))
         assertFalse(security.contains("HP Travail"))
+        assertFalse(main.contains("quand HoraTrack est fermé"))
+        assertTrue(main.contains("quand AGKGMG est fermé"))
     }
 }
