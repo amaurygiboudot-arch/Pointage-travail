@@ -37,6 +37,14 @@ class BackupSecurityPolicyTest {
     }
 
     @Test
+    fun `les etats ephemeres ne sont jamais transferables meme dans un fichier fonctionnel`() {
+        assertFalse(BackupSecurityPolicy.canTransferPreferenceKey("gps_settings", GpsPresenceStateKeysV2.ACTIVE_ZONES))
+        assertFalse(BackupSecurityPolicy.canTransferPreferenceKey("gps_settings", GpsPresenceStateKeysV2.REGISTRATION_VALID))
+        assertFalse(BackupSecurityPolicy.canTransferPreferenceKey("smart_setup", "proposal_dialog_visible"))
+        assertTrue(BackupSecurityPolicy.canTransferPreferenceKey("smart_setup", "learn_workplace"))
+    }
+
+    @Test
     fun `les reglages fonctionnels restent transferables`() {
         listOf(
             "horatrack_v2_test_runtime",
