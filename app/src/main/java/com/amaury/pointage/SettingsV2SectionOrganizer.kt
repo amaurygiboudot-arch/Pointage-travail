@@ -59,6 +59,7 @@ object SettingsV2SectionOrganizer {
             view is SuggestionBoxView -> 55
             tag == "first_steps_replay" -> 55
             view is SnakeGameButtonView -> 55
+            view is ObjectiveDeliveryGameButtonView -> 55
 
             view is V2RuntimePromptHostView -> 90
             else -> 70
@@ -118,7 +119,8 @@ object SettingsV2SectionOrganizer {
                 }
                 view is SuggestionBoxView ||
                     tag == "first_steps_replay" ||
-                    view is SnakeGameButtonView -> move(view, extras)
+                    view is SnakeGameButtonView ||
+                    view is ObjectiveDeliveryGameButtonView -> move(view, extras)
             }
         }
     }
