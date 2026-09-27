@@ -7,22 +7,34 @@ import kotlin.math.roundToInt
 enum class ObjectiveCompanyType(
     val id: String,
     val title: String,
-    val subtitle: String
+    val subtitle: String,
+    val orderType: String,
+    val keyRoles: String,
+    val initialDifficulty: String
 ) {
     WORKSHOP(
         "workshop",
         "Atelier de fabrication sur commande",
-        "Produits personnalisés, étude, matières, fabrication et contrôle."
+        "Produits personnalisés, étude, matières, fabrication et contrôle.",
+        "Commandes : produits sur mesure avec dimensions et options",
+        "Métiers clés : commerce, étude, fabrication",
+        "Difficulté initiale : intermédiaire"
     ),
     RETAIL(
         "retail",
         "Commerce et distribution",
-        "Produits, stock, disponibilité, conseil et livraison client."
+        "Produits, stock, disponibilité, conseil et livraison client.",
+        "Commandes : équipements et articles issus du stock",
+        "Métiers clés : vente, stock, logistique",
+        "Difficulté initiale : accessible"
     ),
     SERVICES(
         "services",
         "Prestations et interventions",
-        "Diagnostic, planification, intervention et compte rendu client."
+        "Diagnostic, planification, intervention et compte rendu client.",
+        "Commandes : diagnostics et interventions planifiées",
+        "Métiers clés : accueil, planification, technicien",
+        "Difficulté initiale : accessible à intermédiaire"
     );
 
     companion object {
