@@ -16,8 +16,11 @@ class SettingsManualUpdateAccessV2Test {
         val menu = source("app/src/main/java/com/amaury/pointage/SettingsCompactMenuV2.kt")
 
         assertTrue(settings.contains("VÉRIFIER LES MISES À JOUR"))
+        assertTrue(settings.contains("OUVRIR GOOGLE PLAY"))
         assertTrue(settings.contains("UpdateChecker.check("))
         assertTrue(settings.contains("askBeforeDownload = true"))
+        assertTrue(settings.contains("market://details?id="))
+        assertTrue(settings.contains("play.google.com/store/apps/details?id="))
         assertTrue(menu.substringAfter("Page.HELP -> setOf(").substringBefore(")").contains("SettingsV2Host.TAG_UPDATES"))
     }
 }
