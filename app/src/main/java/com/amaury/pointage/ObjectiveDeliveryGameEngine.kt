@@ -85,12 +85,16 @@ data class ObjectiveDeliveryState(
     val quotedDelayDays: Int = 0,
     val marginAmount: Int = 0,
     val outcome: ObjectiveOutcome = ObjectiveOutcome.IN_PROGRESS,
+    val chapterMetricA: Int = 0,
+    val chapterMetricB: Int = 0,
+    val chapterChoice: String = "",
+    val business: ObjectiveBusinessState = ObjectiveBusinessState(),
     val revision: Int = 1,
     val history: List<String> = emptyList()
 )
 
 object ObjectiveDeliveryGameEngine {
-    const val SCHEMA_VERSION = 1
+    const val SCHEMA_VERSION = 2
 
     fun scenario(type: ObjectiveCompanyType): ObjectiveScenario = when (type) {
         ObjectiveCompanyType.WORKSHOP -> ObjectiveScenario(
@@ -119,12 +123,22 @@ object ObjectiveDeliveryGameEngine {
         )
     }
 
-    fun newCampaign(type: ObjectiveCompanyType, campaignId: String, seed: Long): ObjectiveDeliveryState =
-        ObjectiveDeliveryState(campaignId = campaignId, companyType = type, seed = seed)
+    fun newCampaign(
+        type: ObjectiveCompanyType,
+        campaignId: String,
+        seed: Long
+    ): ObjectiveDeliveryState =
+        ObjectiveDeliveryState(
+            campaignId = campaignId,
+            companyType = type,
+            seed = seed,
+            business = ObjectiveBusinessScenarioFactory.initial(type)
+        )
 
     fun retryChapterOne(state: ObjectiveDeliveryState): ObjectiveDeliveryState {
-        require(state.currentChapter == 1) { "Seul le chapitre 1 est disponible dans ce lot." }
+        require(state.currentChapter == 1) { "Ce redémarrage concerne le chapitre 1." }
         return state.copy(
+            schemaVersion = SCHEMA_VERSION,
             step = 0,
             clientTrust = 50,
             needCompleteness = 0,
@@ -132,6 +146,9 @@ object ObjectiveDeliveryGameEngine {
             quotedDelayDays = 0,
             marginAmount = 0,
             outcome = ObjectiveOutcome.IN_PROGRESS,
+            chapterMetricA = 0,
+            chapterMetricB = 0,
+            chapterChoice = "",
             revision = state.revision + 1,
             history = listOf("Nouvelle tentative du chapitre 1.")
         )
@@ -230,13 +247,29 @@ object ObjectiveDeliveryGameEngine {
             ObjectiveOutcome.IN_PROGRESS -> ""
         }
 
+        val updatedBusiness = if (outcome == ObjectiveOutcome.WON) {
+            state.business.copy(
+                acceptedOrderPrice = price,
+                acceptedOrderDelayDays = delay,
+                acceptedOrderMargin = margin
+            )
+        } else {
+            state.business
+        }
+
         return state.copy(
+            schemaVersion = SCHEMA_VERSION,
             step = 3,
-            unlockedChapter = if (outcome == ObjectiveOutcome.WON) max(state.unlockedChapter, 2) else state.unlockedChapter,
+            unlockedChapter = if (outcome == ObjectiveOutcome.WON) {
+                max(state.unlockedChapter, 2)
+            } else {
+                state.unlockedChapter
+            },
             quotedPrice = price,
             quotedDelayDays = delay,
             marginAmount = margin,
             outcome = outcome,
+            business = updatedBusiness,
             revision = state.revision + 1,
             history = state.history + note + resultNote
         )
