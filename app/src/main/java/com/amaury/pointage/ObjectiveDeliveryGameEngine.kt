@@ -122,6 +122,21 @@ object ObjectiveDeliveryGameEngine {
     fun newCampaign(type: ObjectiveCompanyType, campaignId: String, seed: Long): ObjectiveDeliveryState =
         ObjectiveDeliveryState(campaignId = campaignId, companyType = type, seed = seed)
 
+    fun retryChapterOne(state: ObjectiveDeliveryState): ObjectiveDeliveryState {
+        require(state.currentChapter == 1) { "Seul le chapitre 1 est disponible dans ce lot." }
+        return state.copy(
+            step = 0,
+            clientTrust = 50,
+            needCompleteness = 0,
+            quotedPrice = 0,
+            quotedDelayDays = 0,
+            marginAmount = 0,
+            outcome = ObjectiveOutcome.IN_PROGRESS,
+            revision = state.revision + 1,
+            history = listOf("Nouvelle tentative du chapitre 1.")
+        )
+    }
+
     fun apply(state: ObjectiveDeliveryState, decision: ObjectiveDecision): ObjectiveDeliveryState {
         require(state.outcome == ObjectiveOutcome.IN_PROGRESS) { "Le chapitre est déjà terminé." }
         return when (state.step) {
