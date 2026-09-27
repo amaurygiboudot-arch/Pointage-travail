@@ -15,8 +15,8 @@ object UserGuideDialog {
             setPadding(dp(context, 20), dp(context, 8), dp(context, 20), dp(context, 24))
         }
 
-        content.addView(title(context, "NOTICE D'UTILISATION — HP TRAVAIL"))
-        content.addView(body(context, "HP Travail permet d'enregistrer tes heures de travail, tes pauses, de suivre ton historique, d'estimer ton salaire et de sauvegarder automatiquement tes rapports PDF."))
+        content.addView(title(context, "NOTICE D'UTILISATION — AGKGMG"))
+        content.addView(body(context, "AGKGMG permet d'enregistrer tes heures de travail, tes pauses, de suivre ton historique, d'estimer ton salaire et de sauvegarder automatiquement tes rapports PDF."))
 
         addSection(content, context, "POINTAGE", """
 ENTRÉE
@@ -26,7 +26,7 @@ PAUSE
 Appuie au début de ta pause. Appuie de nouveau pour reprendre le travail. Le temps de pause est retiré du temps réellement travaillé.
 
 SORTIE
-Appuie quand tu termines ta journée. HP Travail calcule alors le temps travaillé en retirant les pauses.
+Appuie quand tu termines ta journée. AGKGMG calcule alors le temps travaillé en retirant les pauses.
 
 SAISIE MANUELLE D'UNE PAUSE
 Permet d'ajouter ou corriger une pause qui n'a pas été enregistrée avec le bouton Pause.
@@ -47,22 +47,22 @@ Permet de régler les lieux de travail, le GPS automatique, l'apparence, les wid
         """.trimIndent())
 
         addSection(content, context, "SALAIRE — COMMENT ÇA MARCHE ?", """
-L'onglet Salaire utilise les heures enregistrées dans HP Travail pour donner une estimation du salaire brut du mois choisi.
+L'onglet Salaire utilise les heures enregistrées dans AGKGMG pour donner une estimation du salaire brut du mois choisi.
 
 1. TAUX HORAIRE BRUT
 Entre le montant brut payé pour une heure de travail, par exemple 13,70 €. Le calcul se met à jour automatiquement quand le taux change.
 
 2. DATE D'ENTRÉE DANS L'ENTREPRISE
-Indique ta date d'embauche. Elle permet à HP Travail d'afficher ton ancienneté pour le mois sélectionné.
+Indique ta date d'embauche. Elle permet à AGKGMG d'afficher ton ancienneté pour le mois sélectionné.
 
 3. ENTREPRISE PRINCIPALE
 Renseigne ton entreprise principale. Les informations enregistrées permettent d'associer la bonne convention collective et ses règles lorsque celles-ci sont disponibles dans l'application.
 
 4. CONVENTION COLLECTIVE
-La convention choisie détermine les règles utilisées pour les heures supplémentaires et les majorations intégrées. Appuie sur le nom de la convention pour voir ses détails. « Règles intégrées » signifie que HP Travail connaît les règles utilisées pour le calcul. « Calcul légal provisoire » signifie que certaines règles particulières de cette convention ne sont pas encore intégrées.
+La convention choisie détermine les règles utilisées pour les heures supplémentaires et les majorations intégrées. Appuie sur le nom de la convention pour voir ses détails. « Règles intégrées » signifie que AGKGMG connaît les règles utilisées pour le calcul. « Calcul légal provisoire » signifie que certaines règles particulières de cette convention ne sont pas encore intégrées.
 
 5. CHOISIR LE MOIS
-Choisis le mois que tu veux contrôler. HP Travail reprend les pointages enregistrés pendant ce mois.
+Choisis le mois que tu veux contrôler. AGKGMG reprend les pointages enregistrés pendant ce mois.
 
 6. RECALCULER
 Relance le calcul avec les informations actuellement enregistrées.
@@ -74,24 +74,24 @@ Relance le calcul avec les informations actuellement enregistrées.
 « Taux horaire » rappelle le taux saisi. « Heures supplémentaires » affiche le montant brut estimé lié aux heures supplémentaires. « Salaire estimé » donne l'estimation brute calculée pour le mois.
 
 IMPORTANT
-Le résultat est une estimation. HP Travail ne remplace pas le bulletin de paie. Une prime, une absence, un accord d'entreprise, une règle conventionnelle non intégrée ou une information mal renseignée peut créer une différence avec la paie réelle.
+Le résultat est une estimation. AGKGMG ne remplace pas le bulletin de paie. Une prime, une absence, un accord d'entreprise, une règle conventionnelle non intégrée ou une information mal renseignée peut créer une différence avec la paie réelle.
         """.trimIndent())
 
         addSection(content, context, "PDF ET GOOGLE DRIVE", """
 Une fois le dossier Google Drive configuré, tu n'as normalement plus rien à faire.
 
-• HP Travail vérifie automatiquement les journées terminées et crée un PDF de chaque journée.
+• AGKGMG vérifie automatiquement les journées terminées et crée un PDF de chaque journée.
 • Les fichiers sont classés automatiquement par lieu ou entreprise, puis par année et par mois.
 • Le PDF quotidien reprend les heures d'entrée et de sortie, les pauses et le temps réellement travaillé.
-• Lorsqu'un mois est terminé, HP Travail crée automatiquement le récapitulatif PDF du mois terminé.
+• Lorsqu'un mois est terminé, AGKGMG crée automatiquement le récapitulatif PDF du mois terminé.
 • Le récapitulatif mensuel regroupe les pointages et les totaux du mois.
 • « Synchroniser tout l'historique » permet de recréer/synchroniser les rapports à partir des données encore présentes dans l'application.
 
-La sauvegarde automatique nécessite que le dossier Drive reste accessible sur le téléphone. Si Google Drive n'est pas disponible au moment du contrôle, HP Travail réessaiera lors d'un prochain contrôle.
+La sauvegarde automatique nécessite que le dossier Drive reste accessible sur le téléphone. Si Google Drive n'est pas disponible au moment du contrôle, AGKGMG réessaiera lors d'un prochain contrôle.
         """.trimIndent())
 
         addSection(content, context, "POINTAGE GPS", """
-Le pointage GPS peut détecter l'arrivée ou le départ d'un lieu de travail enregistré. Pour fonctionner quand l'application est fermée, Android doit autoriser HP Travail à utiliser la localisation en arrière-plan. Le rayon définit la distance autour du lieu dans laquelle la détection peut se déclencher.
+Le pointage GPS peut détecter l'arrivée ou le départ d'un lieu de travail enregistré. Pour fonctionner quand l'application est fermée, Android doit autoriser AGKGMG à utiliser la localisation en arrière-plan. Le rayon définit la distance autour du lieu dans laquelle la détection peut se déclencher.
         """.trimIndent())
 
         addSection(content, context, "WIDGETS", """
@@ -100,7 +100,7 @@ Le widget complet affiche les principales informations de pointage directement s
 Le widget rapide contient seulement Entrée, Pause/Reprendre et Sortie pour pointer plus vite sans ouvrir l'application.
         """.trimIndent())
 
-        content.addView(body(context, "© 2026 HP Travail — Tous droits réservés.").apply {
+        content.addView(body(context, "© 2026 AGKGMG — Tous droits réservés.").apply {
             setTypeface(typeface, Typeface.BOLD)
             setPadding(0, dp(context, 24), 0, dp(context, 8))
         })

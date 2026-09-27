@@ -150,7 +150,7 @@ class OwnerFeedbackActivity : Activity() {
         db.collection("users").document(user.uid).get()
             .addOnSuccessListener { profile ->
                 if (profile.getBoolean("owner") == true) loadFeedback()
-                else status.text = "Accès réservé au propriétaire de HP Travail."
+                else status.text = "Accès réservé au propriétaire de AGKGMG."
             }
             .addOnFailureListener { error ->
                 status.text = "Impossible de vérifier l’accès : ${error.localizedMessage ?: "erreur Firebase"}"
