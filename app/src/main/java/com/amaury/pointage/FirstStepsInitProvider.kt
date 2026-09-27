@@ -54,6 +54,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             CustomBackgroundStore.saveBackup(activity)
         }
         activity.window.decorView.post {
+            SettingsUiInstaller.install(activity)
             PrimaryButtonIsolation.install(activity)
             installEmployerSelector(activity)
             V2ManualEntryInstaller.install(activity)
