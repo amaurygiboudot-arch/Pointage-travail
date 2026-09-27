@@ -35,6 +35,8 @@ object SettingsV2SectionOrganizer {
         val id = resourceName(view)
 
         return when {
+            tag == SettingsV2Host.TAG_COMPACT_MENU -> 0
+            tag == SettingsV2Host.TAG_COMPACT_BACK -> 1
             tag == SettingsV2Host.TAG_ACCOUNT_SECURITY -> 10
             tag == SettingsV2Host.TAG_POINTAGE -> 20
 
@@ -75,7 +77,7 @@ object SettingsV2SectionOrganizer {
             panel.addView(section(activity, SettingsV2Host.TAG_CELESTIAL, null))
         }
         if (SettingsV2Host.section(activity, SettingsV2Host.TAG_EXTRAS) == null) {
-            panel.addView(section(activity, SettingsV2Host.TAG_EXTRAS, "AIDE & EXTRAS"))
+            panel.addView(section(activity, SettingsV2Host.TAG_EXTRAS, null))
         }
     }
 
