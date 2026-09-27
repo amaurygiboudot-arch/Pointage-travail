@@ -3175,3 +3175,99 @@ Toute nouvelle mise à disposition DEV doit remplacer la précédente à cet end
 Aucun doublon.
 Aucune seconde vérité.
 Aucun lien concurrent présenté comme version officielle.
+
+==============================================================================
+CHECKPOINT COURANT — AGKGMG / AUDIT PARAMÈTRES V2 — 27-09-2026
+==============================================================================
+
+STATUT : CETTE SECTION EST PLUS RÉCENTE ET SUPPLANTE LES RÈGLES ANTÉRIEURES
+QUI UTILISENT ENCORE LE NOM HORATRACK OU DEV-LATEST COMME CANAL DE DISTRIBUTION.
+
+1. NOM PRODUIT
+
+Le nom visible actuel de l'application est : AGKGMG.
+
+Les anciennes occurrences "HoraTrack", "HP Travail" ou "Pointage Travail" ne doivent
+plus être affichées à l'utilisateur, sauf lorsqu'elles sont volontairement conservées
+comme identifiants techniques, chemins de migration, noms de fichiers historiques ou
+fallbacks nécessaires à la compatibilité.
+
+2. DISTRIBUTION / MISES À JOUR
+
+Pour la distribution publique Android, la source officielle est Google Play Console.
+
+Les anciennes règles décrivant GitHub Release dev-latest comme emplacement officiel
+de mise à disposition utilisateur sont historiques et ne doivent plus être utilisées
+comme règle de production.
+
+Le moteur APK interne peut rester présent uniquement lorsqu'il est explicitement
+désactivé dans les variantes Google Play et ne doit jamais introduire un second canal
+public concurrent.
+
+3. MODE DE VALIDATION COURANT
+
+Les agents projet sont désactivés jusqu'à ordre explicite du propriétaire.
+
+Tant que ce verrou est actif :
+- aucun contrôle agent ne bloque une PR ;
+- validation par contrôles standards applicables au diff ;
+- tests V2 ;
+- build Android ;
+- build Google Play APK/AAB ;
+- CodeQL ;
+- dependency review ;
+- tests Firebase Functions ;
+- build/tests iOS lorsqu'iOS est concerné ;
+- fusion automatique si les contrôles standards applicables sont verts ;
+- en cas d'échec standard, corriger la cause réelle, relancer puis fusionner.
+
+4. PARAMÈTRES V2 — PROPRIÉTAIRES VALIDÉS
+
+Le menu compact Paramètres V2 reste organisé autour de :
+- COMPTE & SÉCURITÉ ;
+- POINTAGE & LIEUX ;
+- PERSONNALISATION ;
+- SAUVEGARDE & DONNÉES ;
+- AIDE, incluant les mises à jour.
+
+Règles :
+- une seule source de vérité par réglage ;
+- aucune réinstallation concurrente des contrôles GPS par Salaire ;
+- gpsSettingsPanel reste un host transitoire, pas une seconde source métier ;
+- les vues legacy visibles sont déplacées dans leur section V2 canonique ;
+- les contrôles publics doivent conserver une cible tactile réelle >= 48dp ;
+- les actions de sauvegarde V2 ne doivent pas dupliquer une ancienne action legacy ;
+- les anciennes vues/classes non instanciées doivent être supprimées seulement après preuve d'orphelinat.
+
+5. GPS / ZONES — CONTRAINTE À NE PAS OUBLIER
+
+Cette contrainte est conservée sans la rendre artificiellement prioritaire :
+
+Pour une même entreprise, AGKGMG doit pouvoir gérer plusieurs zones GPS distinctes.
+
+Le modèle cible doit permettre :
+- plusieurs zones pour une même entreprise ;
+- plusieurs zones pouvant partager la même adresse ;
+- zones multipoints / polygones lorsque ce lot sera traité ;
+- choix explicite du rôle de la zone, notamment TRAVAIL ou PAUSE ;
+- conservation d'un identifiant de zone stable et d'un companyId V2 ;
+- aucune réduction automatique de plusieurs zones à une seule adresse.
+
+Les champs legacy gps_settings.address, gps_settings.radius et address_company_slots
+restent pour l'instant des mécanismes de compatibilité / migration et ne doivent pas
+redevenir des propriétaires V2.
+
+6. PORTÉE UNIVERSELLE
+
+Toute modification Paramètres/GPS doit être valable pour 100 % des utilisateurs
+concernés :
+- tous métiers ;
+- toutes classes/catégories pertinentes ;
+- toutes entreprises et organisations de travail ;
+- Android et iOS ;
+- toutes marques et tous modèles d'appareils compatibles.
+
+Aucune règle générale ne doit être codée à partir d'un seul téléphone, employeur,
+métier ou scénario de test.
+
+FIN DU CHECKPOINT COURANT
