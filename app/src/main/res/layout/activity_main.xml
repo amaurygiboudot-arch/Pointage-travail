@@ -516,13 +516,6 @@
                     android:textColorHint="@color/hp_grey"
                     android:textSize="14sp" />
 
-                <TextView
-                    android:id="@+id/settingsGeofenceRadiusLabel"
-                    android:layout_width="1dp"
-                    android:layout_height="1dp"
-                    android:visibility="gone"
-                    android:text="Rayon de déclenchement (mètres)" />
-
                 <EditText
                     android:id="@+id/geofenceRadius"
                     android:layout_width="1dp"
@@ -552,14 +545,6 @@
                     android:text="GPS automatique désactivé"
                     android:textColor="@color/hp_grey"
                     android:textSize="14sp" />
-
-                <Button
-                    android:id="@+id/saveGpsSettingsButton"
-                    android:layout_width="1dp"
-                    android:layout_height="1dp"
-                    android:visibility="gone"
-                    android:alpha="0"
-                    android:text="" />
 
                 <com.amaury.pointage.GpsPointPickerView
                     android:id="@+id/gpsPointPickerView"
