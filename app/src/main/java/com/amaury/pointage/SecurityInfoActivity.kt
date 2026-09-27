@@ -68,7 +68,7 @@ class SecurityInfoActivity : Activity() {
         addCard(root, "Certificat SHA-256", signingCertificateSha256())
         addCard(root, "Firebase App Check", appCheckStatus())
         addCard(root, "Installation d'autres applications", if (declaresPermission(Manifest.permission.REQUEST_INSTALL_PACKAGES)) "⚠ Permission présente" else "✓ Permission absente")
-        addCard(root, "Trafic réseau non chiffré", "✓ Désactivé par la configuration de HP Travail")
+        addCard(root, "Trafic réseau non chiffré", "✓ Désactivé par la configuration de AGKGMG")
         addCard(root, "Localisation en arrière-plan", if (declaresPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) "Utilisée pour le pointage GPS automatique" else "Non demandée")
         addCard(root, "Notifications", if (declaresPermission(Manifest.permission.POST_NOTIFICATIONS)) "Permission déclarée" else "Non demandées")
 
