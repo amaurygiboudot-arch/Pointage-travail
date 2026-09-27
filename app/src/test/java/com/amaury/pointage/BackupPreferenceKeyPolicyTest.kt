@@ -7,7 +7,7 @@ import org.junit.Test
 class BackupPreferenceKeyPolicyTest {
     @Test
     fun `device local preference files never leave the phone`() {
-        listOf("telemetry_settings", "location_onboarding", "v2_app_lock", "drive_backup", "horatrack_v2_gps_state")
+        listOf("telemetry_settings", "location_onboarding", "v2_app_lock", "drive_backup", "horatrack_v2_backup", "horatrack_v2_gps_state")
             .forEach { assertFalse(it, BackupSecurityPolicy.canTransferPreferenceFile(it)) }
     }
 
@@ -41,5 +41,6 @@ class BackupPreferenceKeyPolicyTest {
         assertTrue(BackupPreferenceKeyPolicy.canTransfer("appearance_settings", "visual_theme"))
         assertTrue(BackupPreferenceKeyPolicy.canTransfer("navigation_state", "report_month_ms"))
         assertTrue(BackupPreferenceKeyPolicy.canTransfer("firebase_backend_updates", "known_revision"))
+        assertTrue(BackupPreferenceKeyPolicy.canTransfer("celestial_settings", "globe_mode"))
     }
 }
