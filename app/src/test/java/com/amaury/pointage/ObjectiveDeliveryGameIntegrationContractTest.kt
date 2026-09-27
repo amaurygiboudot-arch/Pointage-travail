@@ -17,6 +17,12 @@ class ObjectiveDeliveryGameIntegrationContractTest {
             "app/src/main/java/com/amaury/pointage/SettingsV2SectionOrganizer.kt"
         )
         val manifest = source("app/src/main/AndroidManifest.xml")
+        val activity = source(
+            "app/src/main/java/com/amaury/pointage/ObjectiveDeliveryGameActivity.kt"
+        )
+        val board = source(
+            "app/src/main/java/com/amaury/pointage/ObjectiveDeliveryBoardView.kt"
+        )
 
         assertTrue(layout.contains("ObjectiveDeliveryGameButtonView"))
         assertTrue(organizer.contains("view is ObjectiveDeliveryGameButtonView"))
@@ -25,6 +31,10 @@ class ObjectiveDeliveryGameIntegrationContractTest {
                 "<activity android:name=\".ObjectiveDeliveryGameActivity\" android:exported=\"false\" />"
             )
         )
+        assertTrue(activity.contains("ObjectiveDeliveryBoardView(this)"))
+        assertTrue(board.contains("PARCOURS DE LA COMMANDE"))
+        assertTrue(board.contains("PROSPECT"))
+        assertTrue(board.contains("COMMANDE"))
     }
 
     @Test
