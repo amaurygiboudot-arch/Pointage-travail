@@ -262,14 +262,21 @@ object SettingsUiInstaller {
 
         val updates = settingsSection(activity, SettingsV2Host.TAG_UPDATES)
         updates.addView(title(activity, "MISES À JOUR"))
-        updates.addView(styledButton(activity, "VÉRIFIER LES MISES À JOUR").apply {
+        updates.addView(styledButton(
+            activity,
+            if (UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) "VÉRIFIER LES MISES À JOUR" else "OUVRIR GOOGLE PLAY"
+        ).apply {
             tag = "settings_check_updates"
             setOnClickListener {
-                UpdateChecker.check(
-                    activity = activity,
-                    silent = false,
-                    askBeforeDownload = true
-                )
+                if (UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) {
+                    UpdateChecker.check(
+                        activity = activity,
+                        silent = false,
+                        askBeforeDownload = true
+                    )
+                } else {
+                    openGooglePlayForUpdates(activity)
+                }
             }
         })
 
@@ -378,6 +385,14 @@ object SettingsUiInstaller {
         refreshDriveSection(activity)
         SettingsCompactMenuV2.installOrRefresh(activity)
         AppearanceManager.apply(activity)
+    }
+
+    private fun openGooglePlayForUpdates(activity: MainActivity) {
+        val packageId = activity.packageName
+        val market = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("market://details?id=$packageId"))
+        val web = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://play.google.com/store/apps/details?id=$packageId"))
+        runCatching { activity.startActivity(market) }
+            .onFailure { activity.startActivity(web) }
     }
 
     fun refreshDriveSection(activity: MainActivity) {
