@@ -10,6 +10,11 @@ class OwnerEnrollmentActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!AdminDiagnosticsGate.canEnroll()) {
+            Toast.makeText(this, "Mode développeur indisponible sur cette version.", Toast.LENGTH_SHORT).show()
+            finish()
+            return
+        }
         if (AdminDiagnosticsGate.isEnabled(this)) {
             finish()
             return
