@@ -20,7 +20,7 @@ import android.widget.TextView
  * Les trois boutons de pointage diamant et le bouton paramètres restent protégés.
  */
 object ThemeFrameStyler {
-    private val protectedIds = setOf("entryButton", "pauseButton", "exitButton", "settingsButton")
+    private val protectedIds = setOf("entryButton", "pauseButton", "exitButton")
     private val tabIds = setOf("tabHome", "tabToday", "tabHistory", "tabAnalytics", "tabSalary", "tabSettings")
     private val visualIds = setOf("clockDigital", "heroClockPermanent", "heroClockHands", "sunIndicator")
     private val referenceOrange = Color.parseColor("#F3A64A")
