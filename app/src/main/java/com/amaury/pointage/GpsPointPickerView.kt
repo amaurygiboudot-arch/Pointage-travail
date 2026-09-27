@@ -677,5 +677,5 @@ class GpsPointPickerView @JvmOverloads constructor(
     }
 
     private fun fmt(value: Double) = String.format(Locale.FRANCE, "%.6f", value)
-    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+    private fun dp(value: Int) = kotlin.math.ceil(value * resources.displayMetrics.density.toDouble()).toInt()
 }
