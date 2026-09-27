@@ -65,9 +65,15 @@ service cloud.firestore {
       // Campagnes fictives du mini-jeu Objectif livraison.
       // Elles restent privées et séparées des pointages et de Salaire V2.
       match /objective_delivery/{campaignId} {
-        allow read, create, update, delete: if isSignedIn()
+        allow read, delete: if isSignedIn()
+          && request.auth.uid == userId;
+
+        allow create, update: if isSignedIn()
           && request.auth.uid == userId
           && request.resource.data.campaignId == campaignId
+          && request.resource.data.schemaVersion is int
+          && request.resource.data.revision is int
+          && request.resource.data.payload is string
           && request.resource.data.keys().hasOnly([
             'schemaVersion', 'campaignId', 'companyType',
             'revision', 'updatedAt', 'payload'
