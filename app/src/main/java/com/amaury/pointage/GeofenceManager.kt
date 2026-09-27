@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.Build
+import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingRequest
@@ -316,6 +317,7 @@ object GeofenceManager {
             Triple(context, currentSerial, mustClear)
         }
         val prefs = app.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
+        promoteLegacyEmployerBindingsIfPossible(app, prefs)
         val presenceEditor = prefs.edit()
         GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach(presenceEditor::remove)
         val presenceCleared = presenceEditor.commit()
@@ -452,6 +454,35 @@ object GeofenceManager {
             return
         }
         callbacks.forEach { callback -> callback(success, message) }
+    }
+
+    private fun promoteLegacyEmployerBindingsIfPossible(
+        context: Context,
+        prefs: android.content.SharedPreferences
+    ) {
+        if (!HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)) return
+        val storedZones = readPersistedGpsZones(prefs)
+        if (storedZones !is GpsZonesReadResult.Valid || storedZones.zones.isEmpty()) return
+
+        val companies = SalaryCompanyStore.readConfirmed(context)
+        if (!companies.reliable || companies.companies.isEmpty()) return
+
+        val legacyMap = if (prefs.contains("address_company_slots")) {
+            val raw = runCatching { prefs.getString("address_company_slots", null) }.getOrNull()
+            runCatching { raw?.let(::JSONObject) }.getOrNull()
+        } else {
+            null
+        }
+
+        val editable = storedZones.toMutableJsonArrayOrNull() ?: return
+        val promoted = promoteLegacyGpsEmployerBindingsV2(
+            zones = editable,
+            legacyAddressSlots = legacyMap,
+            confirmedCompanyIds = companies.companies.map { it.id }
+        )
+        if (promoted <= 0) return
+
+        prefs.edit().putString("zones", editable.toString()).commit()
     }
 
     private fun storedGpsConfigurationFingerprint(prefs: android.content.SharedPreferences): String {
