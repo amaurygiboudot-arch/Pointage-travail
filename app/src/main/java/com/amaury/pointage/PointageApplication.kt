@@ -393,7 +393,7 @@ object SettingsUiInstaller {
         drive.findViewWithTag<Button>("settings_drive_folder")?.text =
             if (configured) "CHANGER LE DOSSIER GOOGLE DRIVE" else "CHOISIR LE DOSSIER GOOGLE DRIVE"
         drive.findViewWithTag<View>("settings_drive_sync_all")?.visibility =
-            if (configured) View.VISIBLE else View.GONE
+            if (configured && !HoraTrackV2.ENABLED) View.VISIBLE else View.GONE
         drive.findViewWithTag<View>("settings_drive_disconnect")?.visibility =
             if (configured) View.VISIBLE else View.GONE
     }
