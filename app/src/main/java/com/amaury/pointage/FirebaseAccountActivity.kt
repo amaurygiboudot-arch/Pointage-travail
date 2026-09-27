@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
@@ -145,6 +146,12 @@ class FirebaseAccountActivity : Activity() {
     }
 
     private fun saveEverything() {
+        withAuthorizedCloudAccount("sauvegarder les données locales dans ce compte") {
+            saveEverythingAuthorized()
+        }
+    }
+
+    private fun saveEverythingAuthorized() {
         setCloudButtonsEnabled(false)
         CloudPointageBackup.saveAll(this) { historyOk, historyMessage ->
             if (HoraTrackV2.ENABLED) {
@@ -181,6 +188,12 @@ class FirebaseAccountActivity : Activity() {
     }
 
     private fun restoreEverything() {
+        withAuthorizedCloudAccount("restaurer les données de ce compte sur cet appareil") {
+            restoreEverythingAuthorized()
+        }
+    }
+
+    private fun restoreEverythingAuthorized() {
         setCloudButtonsEnabled(false)
         if (HoraTrackV2.ENABLED) {
             CloudPointageBackup.restoreAll(this) { ok, message ->
@@ -211,6 +224,41 @@ class FirebaseAccountActivity : Activity() {
                 }
             }
         }
+    }
+
+    private fun withAuthorizedCloudAccount(actionLabel: String, action: () -> Unit) {
+        val user = auth.currentUser ?: run {
+            Toast.makeText(this, "Aucun compte Google connecté", Toast.LENGTH_LONG).show()
+            return
+        }
+        val bound = CloudAccountBindingV2.boundUid(this)
+        if (bound == user.uid) {
+            action()
+            return
+        }
+
+        val switching = bound != null && bound != user.uid
+        val message = if (switching) {
+            "Les données locales de cet appareil sont actuellement associées à un autre compte cloud.\n\n" +
+                "Confirmer ce changement autorisera le compte connecté à $actionLabel. " +
+                "Aucune donnée locale ne sera effacée automatiquement."
+        } else {
+            "Pour $actionLabel, AGKGMG doit associer les données locales de cet appareil au compte Google connecté.\n\n" +
+                "Cette association reste locale à l'appareil et n'est jamais sauvegardée dans le cloud."
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(if (switching) "Changer le compte cloud associé ?" else "Associer ce compte cloud ?")
+            .setMessage(message)
+            .setPositiveButton("CONFIRMER") { _, _ ->
+                if (CloudAccountBindingV2.bind(this, user.uid)) {
+                    action()
+                } else {
+                    Toast.makeText(this, "Association du compte impossible", Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNegativeButton("ANNULER", null)
+            .show()
     }
 
     private fun themedButton(label:String,textColor:Int,accentColor:Int,panelColor:Int,action:()->Unit):Button =
