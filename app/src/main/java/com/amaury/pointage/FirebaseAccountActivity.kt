@@ -241,7 +241,8 @@ class FirebaseAccountActivity : Activity() {
         val message = if (switching) {
             "Les données locales de cet appareil sont actuellement associées à un autre compte cloud.\n\n" +
                 "Confirmer ce changement autorisera le compte connecté à $actionLabel. " +
-                "Aucune donnée locale ne sera effacée automatiquement."
+                "Aucune donnée locale ne sera effacée automatiquement. Une restauration peut fusionner " +
+                "les données de ce compte avec celles déjà présentes sur l'appareil."
         } else {
             "Pour $actionLabel, AGKGMG doit associer les données locales de cet appareil au compte Google connecté.\n\n" +
                 "Cette association reste locale à l'appareil et n'est jamais sauvegardée dans le cloud."
