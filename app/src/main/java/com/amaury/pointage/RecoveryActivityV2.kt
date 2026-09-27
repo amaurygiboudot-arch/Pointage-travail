@@ -86,15 +86,17 @@ class RecoveryActivityV2 : Activity() {
         }
 
         val brand = TextView(this).apply {
-            text = "♛  HORATRACK"
+            text = "♛  AGKGMG"
             textSize = 25f
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(20, 20, 20))
-            setOnClickListener {
-                ownerTapCount++
-                if (ownerTapCount >= 7) {
-                    ownerTapCount = 0
-                    requestOwnerEnrollment()
+            if (AdminDiagnosticsGate.canEnroll()) {
+                setOnClickListener {
+                    ownerTapCount++
+                    if (ownerTapCount >= 7) {
+                        ownerTapCount = 0
+                        requestOwnerEnrollment()
+                    }
                 }
             }
         }
@@ -148,7 +150,7 @@ class RecoveryActivityV2 : Activity() {
                 val report = CrashRecoveryManager.getLastCrashReport(this@RecoveryActivityV2)
                 val share = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "HoraTrack — rapport d’erreur")
+                    putExtra(Intent.EXTRA_SUBJECT, "AGKGMG — rapport d’erreur")
                     putExtra(Intent.EXTRA_TEXT, report)
                 }
                 startActivity(Intent.createChooser(share, "Partager le rapport d’erreur"))
@@ -172,7 +174,7 @@ class RecoveryActivityV2 : Activity() {
         content.addView(retry, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)).apply { topMargin = dp(10) })
 
         content.addView(Button(this).apply {
-            text = "OUVRIR HORATRACK QUAND MÊME"
+            text = "OUVRIR AGKGMG QUAND MÊME"
             styleButton(this)
             setOnClickListener {
                 CrashRecoveryManager.clear(this@RecoveryActivityV2)
@@ -267,6 +269,7 @@ class RecoveryActivityV2 : Activity() {
     }
 
     private fun requestOwnerEnrollment() {
+        if (!AdminDiagnosticsGate.canEnroll()) return
         if (AdminDiagnosticsGate.isEnabled(this)) {
             Toast.makeText(this, "Diagnostic développeur déjà activé sur ce téléphone.", Toast.LENGTH_SHORT).show()
             adminButton.visibility = View.VISIBLE
