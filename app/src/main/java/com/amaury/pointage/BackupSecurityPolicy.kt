@@ -12,6 +12,7 @@ object BackupSecurityPolicy {
         "horatrack_v2_gps_state",
         "pointage",
         "recovery_state",
+        "telemetry_settings",
         "update_download",
         "update_push",
         "v2_app_lock"
