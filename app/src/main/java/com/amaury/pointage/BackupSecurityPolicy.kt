@@ -30,6 +30,11 @@ object BackupSecurityPolicy {
 
 /** Politique unique de transfert au niveau des clés de préférences. */
 object BackupPreferenceKeyPolicy {
+    private val appearanceLocalKeys = setOf(
+        "custom_image_bg",
+        "celestial_night"
+    )
+
     private val smartSetupEphemeralExact = setOf(
         "pending_workplace_zone",
         "pending_workplace_address",
@@ -40,6 +45,8 @@ object BackupPreferenceKeyPolicy {
     fun canTransfer(preferenceFileName: String, key: String): Boolean {
         if (!BackupSecurityPolicy.canTransferPreferenceFile(preferenceFileName)) return false
         if (!GpsPresenceStateKeysV2.isTransferablePreferenceKey(preferenceFileName, key)) return false
+
+        if (preferenceFileName == "appearance_settings" && key in appearanceLocalKeys) return false
 
         if (preferenceFileName == "smart_setup") {
             if (key in smartSetupEphemeralExact) return false
