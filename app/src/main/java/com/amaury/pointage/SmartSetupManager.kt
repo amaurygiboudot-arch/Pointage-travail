@@ -91,6 +91,9 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         val app = context.applicationContext
         appContext = app
         val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        // Etat purement UI : un process tué pendant le dialogue ne doit jamais
+        // bloquer la proposition au prochain démarrage.
+        prefs.edit().remove("proposal_dialog_visible").apply()
         if (!prefs.getBoolean(KEY_INITIALIZED, false)) {
             prefs.edit()
                 .putBoolean(KEY_INITIALIZED, true)
