@@ -553,14 +553,6 @@
                     android:textColor="@color/hp_grey"
                     android:textSize="14sp" />
 
-                <Button
-                    android:id="@+id/saveGpsSettingsButton"
-                    android:layout_width="1dp"
-                    android:layout_height="1dp"
-                    android:visibility="gone"
-                    android:alpha="0"
-                    android:text="" />
-
                 <com.amaury.pointage.GpsPointPickerView
                     android:id="@+id/gpsPointPickerView"
                     android:layout_width="match_parent"
