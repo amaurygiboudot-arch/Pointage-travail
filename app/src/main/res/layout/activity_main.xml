@@ -555,6 +555,7 @@
                     android:id="@+id/locationPermissionButton"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:minHeight="48dp"
                     android:layout_marginTop="8dp"
                     android:text="AUTORISER LA LOCALISATION"
                     android:textColor="@color/hp_gold_light"
@@ -564,6 +565,7 @@
                 <com.amaury.pointage.FirebaseAccountButtonView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:minHeight="48dp"
                     android:layout_marginTop="8dp"
                     android:text="COMPTE GOOGLE &amp; SYNCHRONISATION FIREBASE"
                     android:textColor="@color/hp_gold_light"
