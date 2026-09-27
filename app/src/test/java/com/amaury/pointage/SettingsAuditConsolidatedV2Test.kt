@@ -20,6 +20,7 @@ class SettingsAuditConsolidatedV2Test {
         val guide = source("app/src/main/java/com/amaury/pointage/UserGuideDialog.kt")
         val securityInfo = source("app/src/main/java/com/amaury/pointage/SecurityInfoActivity.kt")
         val owner = source("app/src/main/java/com/amaury/pointage/OwnerFeedbackActivity.kt")
+        val backgroundPicker = source("app/src/main/java/com/amaury/pointage/BackgroundPickerActivity.kt")
 
         assertTrue(security.contains("minHeight = dp(activity, 48)"))
         assertTrue(security.contains("minimumHeight = dp(activity, 48)"))
@@ -28,6 +29,8 @@ class SettingsAuditConsolidatedV2Test {
         assertFalse(gpsPicker.contains("LayoutParams(0, dp(44), 1f)"))
         assertTrue(gpsPicker.contains("LayoutParams(0, dp(48), 1f)"))
         assertTrue(gpsPicker.contains("kotlin.math.ceil(value * resources.displayMetrics.density.toDouble()).toInt()"))
+        assertTrue(backgroundPicker.contains("dp(48)"))
+        assertTrue(backgroundPicker.contains("kotlin.math.ceil(v * resources.displayMetrics.density.toDouble()).toInt()"))
 
         assertTrue(settings.contains("VÉRIFIER LES MISES À JOUR"))
         assertTrue(settings.contains("UpdateChecker.check("))
