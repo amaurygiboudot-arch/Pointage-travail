@@ -83,6 +83,17 @@ class SmartSetupCompanyTargetsV2Test {
         assertFalse(zone.has("companyId"))
     }
 
+    @Test
+    fun `smart setup clears stale dialog visibility on startup`() {
+        val source = java.io.File(
+            generateSequence(java.io.File(System.getProperty("user.dir"))) { it.parentFile }
+                .first { java.io.File(it, "app/src/main/java/com/amaury/pointage/SmartSetupManager.kt").isFile },
+            "app/src/main/java/com/amaury/pointage/SmartSetupManager.kt"
+        ).readText()
+
+        assertTrue(source.contains("remove(\"proposal_dialog_visible\")"))
+    }
+
     private fun company(id: String, siret: String, address: String) =
         SalaryCompanyStore.Company(
             id = id,
