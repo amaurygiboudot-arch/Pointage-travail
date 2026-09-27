@@ -173,5 +173,5 @@ object SettingsCompactMenuV2 {
         ).mapNotNull { SettingsV2Host.section(activity, it) }.distinct()
 
     private fun dp(activity: MainActivity, value: Int): Int =
-        (value * activity.resources.displayMetrics.density).toInt()
+        kotlin.math.ceil(value * activity.resources.displayMetrics.density.toDouble()).toInt()
 }
