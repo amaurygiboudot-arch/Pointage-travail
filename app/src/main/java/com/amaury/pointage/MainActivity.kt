@@ -150,7 +150,6 @@ class MainActivity : Activity() {
         tabSalary = requiredView(R.id.tabSalary, "tabSalary")
         tabSettings = requiredView(R.id.tabSettings, "tabSettings")
 
-        val settingsButton: Button? = findViewById(R.id.settingsButton)
         val entryButton: Button? = findViewById(R.id.entryButton)
         val exitButton: Button? = findViewById(R.id.exitButton)
         val locationPermissionButton: Button? = findViewById(R.id.locationPermissionButton)
@@ -188,11 +187,6 @@ class MainActivity : Activity() {
             } else {
                 enableAutomaticGpsFromCanonicalZones()
             }
-        }
-
-        settingsButton?.setOnClickListener {
-            animateClick(settingsButton)
-            showSettingsDialog()
         }
 
         entryButton?.setOnClickListener {
