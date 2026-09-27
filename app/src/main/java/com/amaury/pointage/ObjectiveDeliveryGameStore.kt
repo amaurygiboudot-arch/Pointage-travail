@@ -1,6 +1,10 @@
 package com.amaury.pointage
 
 import android.content.Context
+import com.google.firebase.FirebaseApp
+import com.google.firebase.appcheck.AppCheckProviderFactory
+import com.google.firebase.appcheck.FirebaseAppCheck
+import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -19,6 +23,12 @@ object ObjectiveDeliveryGameStore {
     private const val KEY_ACTIVE_TYPE = "active_company_type"
     private const val KEY_SYNC_STATUS = "sync_status"
     private const val CAMPAIGN_PREFIX = "campaign_"
+    private const val GAME_FIREBASE_APP = "objective-delivery-game"
+
+    private data class FirebaseSession(
+        val auth: FirebaseAuth,
+        val firestore: FirebaseFirestore
+    )
 
     fun loadActive(context: Context): ObjectiveDeliveryState? {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -58,9 +68,9 @@ object ObjectiveDeliveryGameStore {
 
     fun restoreLatestFromCloud(context: Context, onComplete: (ObjectiveDeliveryState?) -> Unit) {
         ensureFirebaseUser(
-            onReady = { uid ->
-                FirebaseFirestore.getInstance()
-                    .collection("users")
+            context = context.applicationContext,
+            onReady = { uid, firestore ->
+                firestore.collection("users")
                     .document(uid)
                     .collection("objective_delivery")
                     .orderBy("updatedAt", Query.Direction.DESCENDING)
@@ -68,7 +78,9 @@ object ObjectiveDeliveryGameStore {
                     .get()
                     .addOnSuccessListener { result ->
                         val payload = result.documents.firstOrNull()?.getString("payload")
-                        val state = payload?.let { runCatching { decode(JSONObject(it)) }.getOrNull() }
+                        val state = payload?.let {
+                            runCatching { decode(JSONObject(it)) }.getOrNull()
+                        }
                         if (state != null) {
                             saveLocal(context, state, ObjectiveSyncStatus.ONLINE)
                         }
@@ -80,7 +92,11 @@ object ObjectiveDeliveryGameStore {
         )
     }
 
-    private fun saveLocal(context: Context, state: ObjectiveDeliveryState, status: ObjectiveSyncStatus) {
+    private fun saveLocal(
+        context: Context,
+        state: ObjectiveDeliveryState,
+        status: ObjectiveSyncStatus
+    ) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_ACTIVE_TYPE, state.companyType.id)
@@ -91,14 +107,14 @@ object ObjectiveDeliveryGameStore {
 
     private fun syncToCloud(context: Context, state: ObjectiveDeliveryState) {
         ensureFirebaseUser(
-            onReady = { uid ->
-                val ref = FirebaseFirestore.getInstance()
-                    .collection("users")
+            context = context,
+            onReady = { uid, firestore ->
+                val ref = firestore.collection("users")
                     .document(uid)
                     .collection("objective_delivery")
                     .document(state.campaignId)
 
-                FirebaseFirestore.getInstance().runTransaction { tx ->
+                firestore.runTransaction { tx ->
                     val remote = tx.get(ref)
                     val remoteRevision = remote.getLong("revision") ?: 0L
                     check(remoteRevision <= state.revision.toLong()) {
@@ -121,30 +137,87 @@ object ObjectiveDeliveryGameStore {
                         .putString(KEY_SYNC_STATUS, ObjectiveSyncStatus.ONLINE.name)
                         .apply()
                 }.addOnFailureListener {
-                    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                        .edit()
-                        .putString(KEY_SYNC_STATUS, ObjectiveSyncStatus.PENDING.name)
-                        .apply()
+                    markSyncPending(context)
                 }
             },
-            onUnavailable = {
-                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                    .edit()
-                    .putString(KEY_SYNC_STATUS, ObjectiveSyncStatus.PENDING.name)
-                    .apply()
-            }
+            onUnavailable = { markSyncPending(context) }
         )
     }
 
-    private fun ensureFirebaseUser(onReady: (String) -> Unit, onUnavailable: () -> Unit) {
-        val auth = FirebaseAuth.getInstance()
-        auth.currentUser?.uid?.let {
-            onReady(it)
+    private fun markSyncPending(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_SYNC_STATUS, ObjectiveSyncStatus.PENDING.name)
+            .apply()
+    }
+
+    /**
+     * Un compte Google AGKGMG déjà connecté est réutilisé.
+     * Sinon le jeu emploie une FirebaseApp secondaire afin que son compte anonyme
+     * ne devienne jamais le currentUser global de l'application.
+     */
+    private fun cloudSession(context: Context): FirebaseSession? {
+        val defaultAuth = runCatching { FirebaseAuth.getInstance() }.getOrNull()
+            ?: return null
+        val defaultUser = defaultAuth.currentUser
+        if (defaultUser != null && !defaultUser.isAnonymous) {
+            return FirebaseSession(defaultAuth, FirebaseFirestore.getInstance())
+        }
+
+        val gameApp = runCatching {
+            FirebaseApp.getApps(context)
+                .firstOrNull { it.name == GAME_FIREBASE_APP }
+                ?: FirebaseApp.initializeApp(
+                    context,
+                    FirebaseApp.getInstance().options,
+                    GAME_FIREBASE_APP
+                )
+        }.getOrNull() ?: return null
+
+        configureGameAppCheck(gameApp)
+        return FirebaseSession(
+            auth = FirebaseAuth.getInstance(gameApp),
+            firestore = FirebaseFirestore.getInstance(gameApp)
+        )
+    }
+
+    private fun configureGameAppCheck(app: FirebaseApp) {
+        runCatching {
+            val appCheck = FirebaseAppCheck.getInstance(app)
+            appCheck.installAppCheckProviderFactory(gameAppCheckProviderFactory())
+            appCheck.setTokenAutoRefreshEnabled(true)
+        }
+    }
+
+    private fun gameAppCheckProviderFactory(): AppCheckProviderFactory {
+        if (!BuildConfig.DEBUG) {
+            return PlayIntegrityAppCheckProviderFactory.getInstance()
+        }
+
+        val providerClass = Class.forName(
+            "com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory"
+        )
+        val instance = providerClass.getMethod("getInstance").invoke(null)
+        return instance as? AppCheckProviderFactory
+            ?: error("Fournisseur Firebase App Check debug invalide")
+    }
+
+    private fun ensureFirebaseUser(
+        context: Context,
+        onReady: (String, FirebaseFirestore) -> Unit,
+        onUnavailable: () -> Unit
+    ) {
+        val session = cloudSession(context) ?: return onUnavailable()
+        session.auth.currentUser?.uid?.let { uid ->
+            onReady(uid, session.firestore)
             return
         }
-        auth.signInAnonymously()
+
+        session.auth.signInAnonymously()
             .addOnSuccessListener { result ->
-                result.user?.uid?.let(onReady) ?: onUnavailable()
+                result.user?.uid?.let { uid ->
+                    onReady(uid, session.firestore)
+                } ?: onUnavailable()
             }
             .addOnFailureListener { onUnavailable() }
     }
@@ -175,7 +248,10 @@ object ObjectiveDeliveryGameStore {
             }
         }
         return ObjectiveDeliveryState(
-            schemaVersion = json.optInt("schemaVersion", ObjectiveDeliveryGameEngine.SCHEMA_VERSION),
+            schemaVersion = json.optInt(
+                "schemaVersion",
+                ObjectiveDeliveryGameEngine.SCHEMA_VERSION
+            ),
             campaignId = json.getString("campaignId"),
             companyType = ObjectiveCompanyType.fromId(json.getString("companyType")),
             seed = json.optLong("seed", 0L),
@@ -188,7 +264,9 @@ object ObjectiveDeliveryGameStore {
             quotedDelayDays = json.optInt("quotedDelayDays", 0),
             marginAmount = json.optInt("marginAmount", 0),
             outcome = runCatching {
-                ObjectiveOutcome.valueOf(json.optString("outcome", ObjectiveOutcome.IN_PROGRESS.name))
+                ObjectiveOutcome.valueOf(
+                    json.optString("outcome", ObjectiveOutcome.IN_PROGRESS.name)
+                )
             }.getOrDefault(ObjectiveOutcome.IN_PROGRESS),
             revision = json.optInt("revision", 1).coerceAtLeast(1),
             history = history
