@@ -301,7 +301,7 @@ object LuxuryUiInstaller {
 
     private fun applyTransparencyToView(view: View, alpha: Int) {
         val idName = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
-        val isProtectedImageButton = idName == "entryButton" || idName == "pauseButton" || idName == "exitButton" || idName == "settingsButton"
+        val isProtectedImageButton = idName == "entryButton" || idName == "pauseButton" || idName == "exitButton"
         val isPanel = idName == "statusCard" || idName == "pointageButtons" || idName == "contentPanel" || idName == "gpsSettingsPanel" || idName == "analyticsPdfPanel" || idName.contains("Panel", ignoreCase = true) || idName.contains("Card", ignoreCase = true)
         val isStandardButton = view is Button && !isProtectedImageButton
         if ((isPanel || isStandardButton) && view.background != null) view.background.mutate().alpha = alpha
