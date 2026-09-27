@@ -51,3 +51,41 @@ class BackupSecurityPolicyTest {
         }
     }
 }
+
+
+class BackupPreferenceKeyPolicyTest {
+    @Test
+    fun `smart setup local learning state is never transferable`() {
+        listOf(
+            "candidate_enter_zone-1",
+            "candidate_days_zone-1",
+            "pending_workplace_zone",
+            "pending_workplace_address",
+            "pending_workplace_company",
+            "proposal_dialog_visible"
+        ).forEach { key ->
+            assertFalse(key, BackupPreferenceKeyPolicy.canTransfer("smart_setup", key))
+        }
+    }
+
+    @Test
+    fun `smart setup durable choices remain transferable`() {
+        listOf(
+            "initialized",
+            "enabled",
+            "learn_workplace",
+            "learn_pauses",
+            "candidate_rejected_zone-1"
+        ).forEach { key ->
+            assertTrue(key, BackupPreferenceKeyPolicy.canTransfer("smart_setup", key))
+        }
+    }
+
+    @Test
+    fun `existing gps ephemeral policy is still enforced`() {
+        GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach { key ->
+            assertFalse(key, BackupPreferenceKeyPolicy.canTransfer("gps_settings", key))
+        }
+        assertTrue(BackupPreferenceKeyPolicy.canTransfer("gps_settings", "zones"))
+    }
+}
