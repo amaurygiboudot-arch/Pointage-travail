@@ -71,7 +71,7 @@ struct ContentView: View {
             }
             Button("Plus tard", role: .cancel) {}
         } message: {
-            Text("La présence GPS reste un indice. HoraTrack n'enregistre aucun temps payé sans ta confirmation.")
+            Text("La présence GPS reste un indice. AGKGMG n'enregistre aucun temps payé sans ta confirmation.")
         }
         .onAppear {
             _ = locationManager.reconcileSession(openSessionId: store.currentSession?.id)
@@ -97,7 +97,7 @@ struct ContentView: View {
             }
             Button("Annuler", role: .cancel) {}
         } message: {
-            Text("HoraTrack ne déduit jamais une pause sans connaître explicitement son statut payé/non payé.")
+            Text("AGKGMG ne déduit jamais une pause sans connaître explicitement son statut payé/non payé.")
         }
         .alert("Compte Google / Apple", isPresented: Binding(
             get: { authManager.errorMessage != nil },
@@ -324,7 +324,7 @@ struct ContentView: View {
                             .foregroundStyle(.orange)
                         Text("Données à vérifier")
                             .font(.headline)
-                        Text("L'historique HoraTrack est illisible. Aucun nouveau pointage ne sera enregistré tant qu'il n'est pas réparé.")
+                        Text("L'historique AGKGMG est illisible. Aucun nouveau pointage ne sera enregistré tant qu'il n'est pas réparé.")
                             .multilineTextAlignment(.center)
                             .foregroundStyle(.secondary)
                     }
