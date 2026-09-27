@@ -25,4 +25,12 @@ object BackupSecurityPolicy {
             !normalized.contains("google_sign_in") &&
             !normalized.contains("google_app_measurement")
     }
+
+    fun canTransferPreferenceKey(name: String, key: String): Boolean {
+        if (!canTransferPreferenceFile(name)) return false
+        val normalizedName = name.trim().lowercase(Locale.ROOT)
+        if (normalizedName == "gps_settings" && key in GpsPresenceStateKeysV2.EPHEMERAL_KEYS) return false
+        if (normalizedName == "smart_setup" && key == "proposal_dialog_visible") return false
+        return true
+    }
 }
