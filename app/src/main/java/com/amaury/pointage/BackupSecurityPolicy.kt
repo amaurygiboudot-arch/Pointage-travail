@@ -26,3 +26,26 @@ object BackupSecurityPolicy {
             !normalized.contains("google_app_measurement")
     }
 }
+
+
+/** Politique unique de transfert au niveau des clés de préférences. */
+object BackupPreferenceKeyPolicy {
+    private val smartSetupEphemeralExact = setOf(
+        "pending_workplace_zone",
+        "pending_workplace_address",
+        "pending_workplace_company",
+        "proposal_dialog_visible"
+    )
+
+    fun canTransfer(preferenceFileName: String, key: String): Boolean {
+        if (!BackupSecurityPolicy.canTransferPreferenceFile(preferenceFileName)) return false
+        if (!GpsPresenceStateKeysV2.isTransferablePreferenceKey(preferenceFileName, key)) return false
+
+        if (preferenceFileName == "smart_setup") {
+            if (key in smartSetupEphemeralExact) return false
+            if (key.startsWith("candidate_enter_")) return false
+            if (key.startsWith("candidate_days_")) return false
+        }
+        return true
+    }
+}
