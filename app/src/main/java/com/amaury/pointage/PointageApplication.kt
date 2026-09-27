@@ -138,7 +138,7 @@ object AppearanceManager {
                 view.setHintTextColor(secondary)
             }
             is Button -> {
-                val protected = idName == "entryButton" || idName == "pauseButton" || idName == "exitButton" || idName == "settingsButton"
+                val protected = idName == "entryButton" || idName == "pauseButton" || idName == "exitButton"
                 if (!protected) view.setTextColor(text)
             }
             is TextView -> {
