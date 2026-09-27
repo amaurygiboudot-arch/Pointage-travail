@@ -261,6 +261,17 @@ object SettingsUiInstaller {
         }
 
         val updates = settingsSection(activity, SettingsV2Host.TAG_UPDATES)
+        updates.addView(title(activity, "MISES À JOUR"))
+        updates.addView(styledButton(activity, "VÉRIFIER LES MISES À JOUR").apply {
+            tag = "settings_check_updates"
+            setOnClickListener {
+                UpdateChecker.check(
+                    activity = activity,
+                    silent = false,
+                    askBeforeDownload = true
+                )
+            }
+        })
 
         val appearance = settingsSection(activity, SettingsV2Host.TAG_PERSONALIZATION)
         appearance.addView(title(activity, "APPARENCE DE L'APPLICATION"))
@@ -380,7 +391,7 @@ object SettingsUiInstaller {
         drive.findViewWithTag<Button>("settings_drive_folder")?.text =
             if (configured) "CHANGER LE DOSSIER GOOGLE DRIVE" else "CHOISIR LE DOSSIER GOOGLE DRIVE"
         drive.findViewWithTag<View>("settings_drive_sync_all")?.visibility =
-            if (configured) View.VISIBLE else View.GONE
+            if (configured && !HoraTrackV2.ENABLED) View.VISIBLE else View.GONE
         drive.findViewWithTag<View>("settings_drive_disconnect")?.visibility =
             if (configured) View.VISIBLE else View.GONE
     }
