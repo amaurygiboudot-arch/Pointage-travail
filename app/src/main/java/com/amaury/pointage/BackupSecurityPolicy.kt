@@ -7,6 +7,7 @@ object BackupSecurityPolicy {
     private val deviceLocalPreferenceFiles = setOf(
         "admin_diagnostics",
         "app_check_status",
+        "cloud_account_binding_v2",
         "drive_backup",
         "firebase_device_registry",
         "horatrack_v2_gps_state",
