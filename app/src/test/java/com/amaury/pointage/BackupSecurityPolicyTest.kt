@@ -82,6 +82,14 @@ class BackupPreferenceKeyPolicyTest {
     }
 
     @Test
+    fun `local appearance state is never transferred without its device resource`() {
+        assertFalse(BackupPreferenceKeyPolicy.canTransfer("appearance_settings", "custom_image_bg"))
+        assertFalse(BackupPreferenceKeyPolicy.canTransfer("appearance_settings", "celestial_night"))
+        assertTrue(BackupPreferenceKeyPolicy.canTransfer("appearance_settings", "visual_theme"))
+        assertTrue(BackupPreferenceKeyPolicy.canTransfer("appearance_settings", "app_bg"))
+    }
+
+    @Test
     fun `existing gps ephemeral policy is still enforced`() {
         GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach { key ->
             assertFalse(key, BackupPreferenceKeyPolicy.canTransfer("gps_settings", key))
