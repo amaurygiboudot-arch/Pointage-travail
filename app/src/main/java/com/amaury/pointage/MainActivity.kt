@@ -187,7 +187,7 @@ class MainActivity : Activity() {
                 Toast.makeText(this, "Autorise la localisation pour activer le pointage automatique", Toast.LENGTH_LONG).show()
                 requestLocationAccess()
             } else {
-                saveGpsSettings()
+                enableAutomaticGpsFromCanonicalZones()
             }
         }
 
@@ -678,6 +678,29 @@ class MainActivity : Activity() {
                 updateGpsStatus()
             }
         }.start()
+    }
+
+    private fun enableAutomaticGpsFromCanonicalZones() {
+        when (val stored = readPersistedGpsZones(gpsPrefs)) {
+            GpsZonesReadResult.Missing -> {
+                disableAutomaticGps("Aucune zone GPS enregistrée")
+            }
+            is GpsZonesReadResult.Corrupt -> {
+                disableAutomaticGps("Configuration GPS invalide : vérifie les zones enregistrées")
+            }
+            is GpsZonesReadResult.Valid -> {
+                if (stored.zones.isEmpty()) {
+                    disableAutomaticGps("Aucune zone GPS valide enregistrée")
+                    return
+                }
+                GeofenceManager.resyncStoredZones(this) { success, message ->
+                    runOnUiThread {
+                        gpsStatusText.text = if (success) "GPS automatique actif" else message
+                        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
     }
 
     private fun requestLocationAccess() {
