@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
+import android.util.TypedValue
 import android.view.View
 import kotlin.math.ceil
 import kotlin.math.min
@@ -188,7 +189,11 @@ class ObjectiveDeliveryBoardView @JvmOverloads constructor(
         value * resources.displayMetrics.density
 
     private fun sp(value: Float): Float =
-        value * resources.displayMetrics.scaledDensity
+        TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_SP,
+            value,
+            resources.displayMetrics
+        )
 
     private data class Point(val x: Float, val y: Float)
 }
