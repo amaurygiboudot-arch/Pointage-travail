@@ -180,7 +180,7 @@ class BackgroundPickerActivity : Activity() {
         save.requestLayout()
     }
 
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+    private fun dp(v: Int) = kotlin.math.ceil(v * resources.displayMetrics.density.toDouble()).toInt()
 
     private class CropImageView(context: Context) : androidx.appcompat.widget.AppCompatImageView(context) {
         private var source: Bitmap? = null
