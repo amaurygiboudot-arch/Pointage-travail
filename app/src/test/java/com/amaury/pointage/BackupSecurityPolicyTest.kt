@@ -90,6 +90,12 @@ class BackupPreferenceKeyPolicyTest {
     }
 
     @Test
+    fun `navigation restores report period but not the previous device tab`() {
+        assertFalse(BackupPreferenceKeyPolicy.canTransfer("navigation_state", "active_tab"))
+        assertTrue(BackupPreferenceKeyPolicy.canTransfer("navigation_state", "report_month_ms"))
+    }
+
+    @Test
     fun `existing gps ephemeral policy is still enforced`() {
         GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach { key ->
             assertFalse(key, BackupPreferenceKeyPolicy.canTransfer("gps_settings", key))
