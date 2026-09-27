@@ -275,14 +275,30 @@ object SettingsUiInstaller {
 
         val updates = settingsSection(activity, SettingsV2Host.TAG_UPDATES)
         updates.addView(title(activity, "MISES À JOUR"))
-        updates.addView(styledButton(activity, "VÉRIFIER LES MISES À JOUR").apply {
+        updates.addView(styledButton(
+            activity,
+            if (UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) "VÉRIFIER LES MISES À JOUR" else "OUVRIR GOOGLE PLAY"
+        ).apply {
             tag = "settings_check_updates"
             setOnClickListener {
-                UpdateChecker.check(
-                    activity = activity,
-                    silent = false,
-                    askBeforeDownload = true
-                )
+                if (UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) {
+                    UpdateChecker.check(
+                        activity = activity,
+                        silent = false,
+                        askBeforeDownload = true
+                    )
+                } else {
+                    val market = Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse("market://details?id=${activity.packageName}")
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    val web = Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse("https://play.google.com/store/apps/details?id=${activity.packageName}")
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    runCatching { activity.startActivity(market) }
+                        .onFailure { activity.startActivity(web) }
+                }
             }
         })
 
