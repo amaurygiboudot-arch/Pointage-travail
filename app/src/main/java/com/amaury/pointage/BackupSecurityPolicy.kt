@@ -26,3 +26,41 @@ object BackupSecurityPolicy {
             !normalized.contains("google_app_measurement")
     }
 }
+
+/** Source unique des clés de préférences qui peuvent suivre l'utilisateur entre appareils. */
+object BackupPreferenceKeyPolicy {
+    private val appearanceDeviceLocalKeys = setOf(
+        "custom_image_bg",
+        "celestial_night"
+    )
+
+    private val backendUpdateDeviceLocalKeys = setOf(
+        "notification_permission_requested",
+        "last_server_check"
+    )
+
+    private val smartSetupEphemeralKeys = setOf(
+        "pending_workplace_zone",
+        "pending_workplace_address",
+        "pending_workplace_company",
+        "proposal_dialog_visible"
+    )
+
+    fun canTransfer(preferenceFileName: String, key: String): Boolean {
+        val fileName = preferenceFileName.trim().lowercase(Locale.ROOT)
+        val normalizedKey = key.trim()
+        if (normalizedKey.isBlank()) return false
+        if (!BackupSecurityPolicy.canTransferPreferenceFile(fileName)) return false
+        if (!GpsPresenceStateKeysV2.isTransferablePreferenceKey(fileName, normalizedKey)) return false
+
+        if (fileName == "appearance_settings" && normalizedKey in appearanceDeviceLocalKeys) return false
+        if (fileName == "navigation_state" && normalizedKey == "active_tab") return false
+        if (fileName == "firebase_backend_updates" && normalizedKey in backendUpdateDeviceLocalKeys) return false
+        if (fileName == "smart_setup") {
+            if (normalizedKey in smartSetupEphemeralKeys) return false
+            if (normalizedKey.startsWith("candidate_enter_")) return false
+            if (normalizedKey.startsWith("candidate_days_")) return false
+        }
+        return true
+    }
+}
