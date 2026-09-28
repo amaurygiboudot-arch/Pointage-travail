@@ -126,7 +126,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
                     pauseText = "--"
                     stateText = "À VÉRIFIER"
                     stateColor = Color.parseColor("#E38B20")
-                    locationText = "📍 Données HoraTrack à vérifier"
+                    locationText = "📍 Données AGKGMG à vérifier"
                 } else if (read.snapshot.session != null) {
                     val session = read.snapshot.session
                     val result = read.snapshot.result
@@ -310,7 +310,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
             ACTION_ENTRY -> {
                 handledAction = true
                 if (HoraTrackV2.ENABLED && !V2RuntimeReader.current(context).reliable) {
-                    Toast.makeText(context, "Pointage bloqué : données HoraTrack à vérifier", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Pointage bloqué : données AGKGMG à vérifier", Toast.LENGTH_LONG).show()
                 } else {
                     val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.entry(context) else PointageStore.entry(context)
                     if (ok) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
@@ -323,7 +323,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
                     val read = V2RuntimeReader.current(context)
                     val session = read.snapshot.session
                     if (!read.reliable) {
-                        Toast.makeText(context, "Pause bloquée : données HoraTrack à vérifier", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "Pause bloquée : données AGKGMG à vérifier", Toast.LENGTH_LONG).show()
                     } else if (session == null || session.realExitMs != null) {
                         Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
                     } else {
@@ -344,7 +344,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
                                 true
                             }.getOrDefault(false)
                             if (!launched) {
-                                Toast.makeText(context, "Ouvre HoraTrack pour choisir le statut de la pause", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "Ouvre AGKGMG pour choisir le statut de la pause", Toast.LENGTH_LONG).show()
                             }
                         }
                     }
@@ -359,7 +359,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
             ACTION_EXIT -> {
                 handledAction = true
                 if (HoraTrackV2.ENABLED && !V2RuntimeReader.current(context).reliable) {
-                    Toast.makeText(context, "Pointage bloqué : données HoraTrack à vérifier", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Pointage bloqué : données AGKGMG à vérifier", Toast.LENGTH_LONG).show()
                 } else {
                     val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.exit(context) else PointageStore.exit(context)
                     if (ok) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
