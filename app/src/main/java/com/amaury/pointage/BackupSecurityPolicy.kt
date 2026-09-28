@@ -10,6 +10,7 @@ object BackupSecurityPolicy {
         "drive_backup",
         "firebase_device_registry",
         "horatrack_v2_gps_state",
+        "location_onboarding",
         "pointage",
         "recovery_state",
         "update_download",
