@@ -39,11 +39,6 @@ object BackupPreferenceKeyPolicy {
         "celestial_night"
     )
 
-    private val backendUpdateDeviceLocalKeys = setOf(
-        "notification_permission_requested",
-        "last_server_check"
-    )
-
     private val smartSetupEphemeralKeys = setOf(
         "pending_workplace_zone",
         "pending_workplace_address",
@@ -60,7 +55,6 @@ object BackupPreferenceKeyPolicy {
 
         if (fileName == "appearance_settings" && normalizedKey in appearanceDeviceLocalKeys) return false
         if (fileName == "navigation_state" && normalizedKey == "active_tab") return false
-        if (fileName == "firebase_backend_updates" && normalizedKey in backendUpdateDeviceLocalKeys) return false
         if (fileName == "smart_setup") {
             if (normalizedKey in smartSetupEphemeralKeys) return false
             if (normalizedKey.startsWith("candidate_enter_")) return false
