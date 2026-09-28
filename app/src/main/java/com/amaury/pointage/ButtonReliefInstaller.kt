@@ -140,7 +140,7 @@ object ButtonReliefInstaller {
             }
             is Button -> {
                 // Aucun fond ni couleur métier ici pour les boutons standards.
-                if (!isPrimaryPointage(id) && id != "settingsButton") ThemeFrameStyler.apply(view)
+                if (!isPrimaryPointage(id)) ThemeFrameStyler.apply(view)
             }
             is TextView -> {
                 val tab = id == "tabToday" || id == "tabHistory" || id == "tabAnalytics" || id == "tabSalary" || id == "tabSettings"
@@ -174,7 +174,6 @@ object ButtonReliefInstaller {
             return
         }
 
-        if (id == "settingsButton") return
 
         // Purge explicite des anciens fonds concurrents.
         if (button.background is DynamicDiamondDrawable || button.background is CarbonCompositeDrawable) {
@@ -263,7 +262,7 @@ object ButtonReliefInstaller {
             }
         }
         section.addView(button, if (section.childCount >= 2) 2 else section.childCount,
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 46)).apply {
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 48)).apply {
                 topMargin = dp(activity, 4)
                 bottomMargin = dp(activity, 4)
             })
@@ -292,7 +291,7 @@ object ButtonReliefInstaller {
         if (section.findViewWithTag<View>(TAG_DIAMOND_LAB) != null) return
         val button = Button(activity).apply {
             tag = TAG_DIAMOND_LAB
-            text = "💎 LABORATOIRE DIAMANT"
+            text = "LABORATOIRE DIAMANT"
             isAllCaps = false
             textSize = 13f
             minHeight = 0
@@ -357,5 +356,5 @@ object ButtonReliefInstaller {
     }
 
     private fun dp(context: Context, value: Int): Int =
-        (value * context.resources.displayMetrics.density).toInt()
+        kotlin.math.ceil(value * context.resources.displayMetrics.density.toDouble()).toInt()
 }

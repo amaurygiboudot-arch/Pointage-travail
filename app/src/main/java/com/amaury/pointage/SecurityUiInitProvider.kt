@@ -67,12 +67,12 @@ class SecurityUiInitProvider : ContentProvider() {
                         setPadding(0, 0, 0, dp(activity, 10))
                     })
                     block.addView(Button(activity).apply {
-                        text = "🛡 VÉRIFIER LA SÉCURITÉ"
+                        text = "VÉRIFIER LA SÉCURITÉ"
                         isAllCaps = false
                         textSize = 14f
                         gravity = Gravity.CENTER
-                        minHeight = 0
-                        minimumHeight = 0
+                        minHeight = dp(activity, 48)
+                        minimumHeight = dp(activity, 48)
                         setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 10))
                         setBackgroundResource(R.drawable.hp_panel)
                         setOnClickListener { activity.startActivity(Intent(activity, SecurityInfoActivity::class.java)) }
@@ -87,7 +87,8 @@ class SecurityUiInitProvider : ContentProvider() {
         }
     }
 
-    private fun dp(activity: Activity, value: Int): Int = (value * activity.resources.displayMetrics.density).toInt()
+    private fun dp(activity: Activity, value: Int): Int =
+        kotlin.math.ceil(value * activity.resources.displayMetrics.density.toDouble()).toInt()
 
     override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?): Cursor? = null
     override fun getType(uri: Uri): String? = null

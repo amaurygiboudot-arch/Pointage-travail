@@ -12,9 +12,14 @@ class SnakeGameButtonView @JvmOverloads constructor(
 ) : AppCompatButton(context, attrs, defStyleAttr) {
 
     init {
-        text = "🐍  JOUER AU SERPENT"
+        text = "JOUER AU SERPENT"
         isAllCaps = false
         contentDescription = "Ouvrir le jeu Serpent"
+        minHeight = minimumTouchTargetPx()
+        minimumHeight = minimumTouchTargetPx()
         setOnClickListener { SnakeGameDialog.show(context) }
     }
+
+    private fun minimumTouchTargetPx(): Int =
+        kotlin.math.ceil(48 * resources.displayMetrics.density.toDouble()).toInt()
 }

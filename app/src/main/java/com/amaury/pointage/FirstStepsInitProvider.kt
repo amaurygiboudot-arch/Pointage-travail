@@ -67,6 +67,8 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             removeLegacyGpsTestButton(activity)
             removeVisibleDeveloperButton(activity)
             SettingsV2SectionOrganizer.organize(activity)
+            SettingsUiInstaller.refreshDriveSection(activity)
+            SettingsCompactMenuV2.installOrRefresh(activity)
             FirstStepsTutorial.showIfNeeded(activity)
             WorkplaceProposalLimiter.showIfAllowed(activity)
             CompanyNameUiBinder.bind(activity)
@@ -99,6 +101,12 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
 
     private fun installOwnerShortcut(activity: MainActivity) {
         val settingsTab = activity.findViewById<TextView>(R.id.tabSettings) ?: return
+        if (!AdminDiagnosticsGate.canEnroll()) {
+            settingsTab.setOnLongClickListener(null)
+            settingsTab.isLongClickable = false
+            return
+        }
+        settingsTab.isLongClickable = true
         settingsTab.setOnLongClickListener {
             if (!AdminDiagnosticsGate.isEnabled(activity)) activity.startActivity(Intent(activity, OwnerEnrollmentActivity::class.java))
             else authenticateOwner(activity)
@@ -177,8 +185,10 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         if (section.findViewWithTag<View>("first_steps_replay") != null) return
         val button = Button(activity).apply {
             tag = "first_steps_replay"
-            text = "🎓 REVOIR LE TUTORIEL PREMIERS PAS"
+            text = "REVOIR LE TUTORIEL PREMIERS PAS"
             isAllCaps = false
+            minHeight = dp(activity, 48)
+            minimumHeight = dp(activity, 48)
             setBackgroundResource(R.drawable.hp_panel)
             setOnClickListener { FirstStepsTutorial.restart(activity) }
             setOnLongClickListener(null)
@@ -195,6 +205,9 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         val panel = SettingsV2Host.panel(activity) ?: return
         panel.findViewWithTag<View>("developer_tools")?.let { panel.removeView(it) }
     }
+
+    private fun dp(activity: Activity, value: Int): Int =
+        kotlin.math.ceil(value * activity.resources.displayMetrics.density.toDouble()).toInt()
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
     override fun onActivityStarted(activity: Activity) = Unit

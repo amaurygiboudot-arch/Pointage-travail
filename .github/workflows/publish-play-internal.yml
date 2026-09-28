@@ -1,11 +1,11 @@
 name: Publish AGKGMG to Google Play internal
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/play-publish-trigger.txt"
+  workflow_run:
+    workflows:
+      - "Compiler HoraTrack APK et AAB"
+    types:
+      - completed
 
 concurrency:
   group: google-play-internal
@@ -14,40 +14,40 @@ concurrency:
 jobs:
   publish-internal:
     name: Publish signed AAB to Google Play internal
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
 
     steps:
-      - name: Checkout exact trigger commit
-        uses: actions/checkout@v4
-
-      - name: Read expected version code
-        shell: bash
-        run: |
-          EXPECTED_VERSION_CODE="$(sed -n 's/^EXPECTED_VERSION_CODE=//p' .github/play-publish-trigger.txt | tail -1)"
-          test "$EXPECTED_VERSION_CODE" -gt 1470
-          echo "EXPECTED_VERSION_CODE=$EXPECTED_VERSION_CODE" >> "$GITHUB_ENV"
-
-      - name: Download canonical signed Play AAB
+      - name: Download exact signed Play bundle
         env:
           GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ github.event.workflow_run.id }}
+          EXPECTED_SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           mkdir -p "$RUNNER_TEMP/play"
-          gh release download dev-latest \
-            -p "HoraTrack-dev.aab" \
-            -p "HoraTrack-dev-version.txt" \
-            -p "SHA256-AAB-dev.txt" \
+          gh run download "$BUILD_RUN_ID" \
+            --repo "${{ github.repository }}" \
+            -n "AGKGMG-Play-Bundle" \
             -D "$RUNNER_TEMP/play"
           cd "$RUNNER_TEMP/play"
-          test -s HoraTrack-dev.aab
-          test -s HoraTrack-dev-version.txt
-          test -s SHA256-AAB-dev.txt
-          sha256sum -c SHA256-AAB-dev.txt
-          VERSION_NAME="$(cat HoraTrack-dev-version.txt)"
-          VERSION_CODE="$(printf '%s' "$VERSION_NAME" | sed -n 's/^1\.\([0-9][0-9]*\).*/\1/p')"
-          test "$VERSION_CODE" = "$EXPECTED_VERSION_CODE"
+          test -s AGKGMG-play.aab
+          test -s AGKGMG-play-SHA256.txt
+          test -s AGKGMG-version.txt
+          test -s AGKGMG-version-code.txt
+          test -s AGKGMG-source-sha.txt
+          sha256sum -c AGKGMG-play-SHA256.txt
+          VERSION_NAME="$(cat AGKGMG-version.txt)"
+          VERSION_CODE="$(cat AGKGMG-version-code.txt)"
+          SOURCE_SHA="$(cat AGKGMG-source-sha.txt)"
+          test "$VERSION_CODE" -gt 1470
+          test "$SOURCE_SHA" = "$EXPECTED_SOURCE_SHA"
           echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "EXPECTED_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
 
       - name: Select secured Google credential
         env:
@@ -71,19 +71,17 @@ jobs:
       - name: Publish to internal testing
         env:
           PACKAGE_NAME: com.amaury.pointage
-          PLAY_TRACK: qa
         run: |
           python <<'PY'
-          import json, os, pathlib, requests
+          import os, pathlib, requests
           from google.oauth2 import service_account
           from google.auth.transport.requests import Request
 
           package = os.environ["PACKAGE_NAME"]
-          play_track = os.environ["PLAY_TRACK"]
           expected = int(os.environ["EXPECTED_VERSION_CODE"])
           version_name = os.environ["VERSION_NAME"]
           credential_file = os.environ["PLAY_CREDENTIALS"]
-          aab = pathlib.Path(os.environ["RUNNER_TEMP"]) / "play" / "HoraTrack-dev.aab"
+          aab = pathlib.Path(os.environ["RUNNER_TEMP"]) / "play" / "AGKGMG-play.aab"
 
           credentials = service_account.Credentials.from_service_account_file(
               credential_file,
@@ -93,14 +91,66 @@ jobs:
           headers = {"Authorization": f"Bearer {credentials.token}"}
           api = "https://androidpublisher.googleapis.com/androidpublisher/v3"
 
+          def require_ok(response, label):
+              if response.ok:
+                  return
+              try:
+                  detail = response.json()
+              except Exception:
+                  detail = response.text[:4000]
+              raise RuntimeError(f"{label}: HTTP {response.status_code}: {detail}")
+
           edit_response = requests.post(
               f"{api}/applications/{package}/edits",
               headers={**headers, "Content-Type": "application/json"},
               json={},
               timeout=30,
           )
-          edit_response.raise_for_status()
+          require_ok(edit_response, "Création de l edit")
           edit_id = edit_response.json()["id"]
+
+          tracks_response = requests.get(
+              f"{api}/applications/{package}/edits/{edit_id}/tracks",
+              headers=headers,
+              timeout=30,
+          )
+          require_ok(tracks_response, "Liste des tracks")
+          tracks = tracks_response.json().get("tracks", [])
+          non_prod = [t for t in tracks if str(t.get("track", "")).strip() not in ("", "production")]
+
+          def highest_code(track):
+              codes = []
+              for release in track.get("releases") or []:
+                  for code in release.get("versionCodes") or []:
+                      try:
+                          codes.append(int(code))
+                      except (TypeError, ValueError):
+                          pass
+              return max(codes) if codes else -1
+
+          populated = [t for t in non_prod if highest_code(t) >= 0]
+          if populated:
+              populated.sort(
+                  key=lambda t: (
+                      highest_code(t),
+                      1 if str(t.get("track", "")).strip() == "internal" else 0,
+                      1 if str(t.get("track", "")).strip() == "qa" else 0,
+                  ),
+                  reverse=True,
+              )
+              play_track = str(populated[0]["track"]).strip()
+          else:
+              available = [str(t.get("track", "")).strip() for t in non_prod]
+              if "internal" in available:
+                  play_track = "internal"
+              elif "qa" in available:
+                  play_track = "qa"
+              elif len(available) == 1:
+                  play_track = available[0]
+              else:
+                  raise RuntimeError(f"Aucun track interne identifiable: {available}")
+
+          print(f"Track Google Play sélectionné: {play_track}")
 
           with aab.open("rb") as handle:
               upload = requests.post(
@@ -110,7 +160,7 @@ jobs:
                   data=handle,
                   timeout=180,
               )
-          upload.raise_for_status()
+          require_ok(upload, "Upload AAB")
           uploaded_code = int(upload.json()["versionCode"])
           if uploaded_code != expected:
               raise RuntimeError(f"VersionCode AAB inattendu: {uploaded_code} != {expected}")
@@ -132,7 +182,7 @@ jobs:
               },
               timeout=30,
           )
-          track.raise_for_status()
+          require_ok(track, f"Mise à jour du track {play_track}")
 
           commit = requests.post(
               f"{api}/applications/{package}/edits/{edit_id}:commit",
@@ -140,8 +190,8 @@ jobs:
               json={},
               timeout=30,
           )
-          commit.raise_for_status()
-          print(f"Google Play internal: versionCode {uploaded_code} publiée.")
+          require_ok(commit, "Commit Google Play")
+          print(f"Google Play internal: versionCode {uploaded_code} publiée sur {play_track}.")
           PY
 
       - name: Remove temporary credential

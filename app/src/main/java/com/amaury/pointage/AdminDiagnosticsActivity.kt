@@ -21,13 +21,24 @@ object AdminDiagnosticsGate {
     private const val PREFS = "admin_diagnostics"
     private const val KEY_ENABLED = "owner_enabled"
 
-    fun isEnabled(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
-    fun enable(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, true).apply()
+    internal fun developerModeAllowed(internalDeveloperBuild: Boolean): Boolean = internalDeveloperBuild
+
+    fun canEnroll(): Boolean =
+        developerModeAllowed(BuildConfig.INTERNAL_DEVELOPER_MODE_ENABLED)
+
+    fun isEnabled(context: Context): Boolean =
+        canEnroll() && context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
+
+    fun enable(context: Context) {
+        if (!canEnroll()) return
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, true).apply()
+    }
 
     fun deviceCredentialIntent(context: Context, title: String): Intent? {
+        if (!canEnroll()) return null
         val km = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         if (!km.isDeviceSecure) return null
-        return km.createConfirmDeviceCredentialIntent(title, "Accès réservé au propriétaire de HP Travail")
+        return km.createConfirmDeviceCredentialIntent(title, "Accès réservé au propriétaire de AGKGMG")
     }
 }
 
@@ -155,7 +166,7 @@ class AdminDiagnosticsActivity : Activity() {
 
     private fun shareToChatGpt(report: String, analysis: String, fingerprint: String) {
         val text = buildString {
-            appendLine("HP Travail — diagnostic développeur privé")
+            appendLine("AGKGMG — diagnostic développeur privé")
             appendLine("Identifiant erreur : $fingerprint")
             appendLine()
             appendLine("Analyse locale :")
@@ -165,11 +176,11 @@ class AdminDiagnosticsActivity : Activity() {
             append(report)
             appendLine()
             appendLine()
-            append("Analyse cette erreur dans le dépôt HP Travail, propose la correction précise et n’applique rien sans ma validation.")
+            append("Analyse cette erreur dans le dépôt AGKGMG, propose la correction précise et n’applique rien sans ma validation.")
         }
         val base = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "HP Travail — diagnostic $fingerprint")
+            putExtra(Intent.EXTRA_SUBJECT, "AGKGMG — diagnostic $fingerprint")
             putExtra(Intent.EXTRA_TEXT, text)
         }
         val chatGpt = Intent(base).setPackage("com.openai.chatgpt")
@@ -182,8 +193,8 @@ class AdminDiagnosticsActivity : Activity() {
         return when {
             "outofmemoryerror" in r -> "Mémoire insuffisante : réduire les bitmaps, caches ou effets graphiques avant de relancer."
             "securityexception" in r -> "Erreur d’autorisation ou de sécurité : vérifier permission, provider, URI ou accès protégé."
-            "illegalargumentexception" in r && "required value was null" in r -> "Valeur obligatoire devenue nulle. Priorité : identifier le premier fichier HP Travail dans la pile, puis sécuriser la ressource ou le décodage concerné."
-            "nullpointerexception" in r -> "Référence nulle. Priorité : première ligne du code HP Travail dans la pile et ajout d’une validation avant utilisation."
+            "illegalargumentexception" in r && "required value was null" in r -> "Valeur obligatoire devenue nulle. Priorité : identifier le premier fichier AGKGMG dans la pile, puis sécuriser la ressource ou le décodage concerné."
+            "nullpointerexception" in r -> "Référence nulle. Priorité : première ligne du code AGKGMG dans la pile et ajout d’une validation avant utilisation."
             "http 403" in r || "forbidden" in r -> "Accès réseau refusé par le serveur. Utiliser un mécanisme de secours et éviter de bloquer l’application."
             "true3dbutton" in r || "opengl" in r || "egl" in r -> "Erreur liée au moteur graphique 3D. Revenir automatiquement au rendu 2D sur le téléphone concerné."
             "carbon" in r -> "Erreur liée au thème Carbone ou à ses ressources. Le rendu doit rester facultatif et toujours disposer d’un fallback."

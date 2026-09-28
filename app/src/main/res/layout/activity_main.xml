@@ -146,7 +146,7 @@
                 android:layout_width="1dp"
                 android:layout_height="1dp"
                 android:alpha="0"
-                android:text="HP TRAVAIL" />
+                android:text="AGKGMG" />
 
             <TextClock
                 android:id="@+id/clockDigital"
@@ -154,18 +154,6 @@
                 android:layout_height="1dp"
                 android:alpha="0"
                 android:format24Hour="HH:mm:ss" />
-
-            <Button
-                android:id="@+id/settingsButton"
-                android:layout_width="68dp"
-                android:layout_height="68dp"
-                android:layout_gravity="top|end"
-                android:layout_marginTop="4dp"
-                android:layout_marginEnd="2dp"
-                android:background="@android:color/transparent"
-                android:text=""
-                android:visibility="gone"
-                android:contentDescription="Paramètres" />
 
             <TextView
                 android:id="@+id/celestialStatusText"
@@ -548,18 +536,14 @@
                     android:id="@+id/gpsStatusText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:minHeight="48dp"
                     android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
                     android:text="GPS automatique désactivé"
                     android:textColor="@color/hp_grey"
                     android:textSize="14sp" />
-
-                <Button
-                    android:id="@+id/saveGpsSettingsButton"
-                    android:layout_width="1dp"
-                    android:layout_height="1dp"
-                    android:visibility="gone"
-                    android:alpha="0"
-                    android:text="" />
 
                 <com.amaury.pointage.GpsPointPickerView
                     android:id="@+id/gpsPointPickerView"
@@ -571,6 +555,7 @@
                     android:id="@+id/locationPermissionButton"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:minHeight="48dp"
                     android:layout_marginTop="8dp"
                     android:text="AUTORISER LA LOCALISATION"
                     android:textColor="@color/hp_gold_light"
@@ -580,6 +565,7 @@
                 <com.amaury.pointage.FirebaseAccountButtonView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:minHeight="48dp"
                     android:layout_marginTop="8dp"
                     android:text="COMPTE GOOGLE &amp; SYNCHRONISATION FIREBASE"
                     android:textColor="@color/hp_gold_light"

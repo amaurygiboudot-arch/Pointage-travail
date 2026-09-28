@@ -10,6 +10,13 @@ Toute intégration doit repartir de main courant et réconcilier les changements
 
 31.1 ETAT GITHUB ET LIVRAISON VERIFIES
 Dépôt : amaurygiboudot-arch/Pointage-travail.
+
+REGLE DE DISTRIBUTION ACTUELLE — PRIORITAIRE SUR LES ARCHIVES
+À compter de la décision produit la plus récente, toutes les mises à jour distribuées de l'application doivent passer par Google Play Console.
+La variante Google Play est le canal Android de référence pour test et distribution utilisateur.
+L'ancien mécanisme APK/GitHub Release dev-latest est conservé uniquement comme historique documentaire et ne doit plus être utilisé comme source active de mise à jour.
+Aucune future reprise ne doit réactiver un updater GitHub, proposer dev-latest comme dernière version officielle ni créer une seconde vérité de distribution sans décision explicite ultérieure.
+
 main vérifié après P3 Paramètres : af111583506a07966875dcb756e932a63a17b8b0.
 PR #482 fusionnée : l'AAB destiné à Google Play utilise la variante play et désactive l'ancien updater APK/GitHub.
 PR #483 fusionnée : identité visible principale renommée AGKGMG, sans changement du package Android ni des identifiants Firebase.
@@ -3047,9 +3054,15 @@ FIN DU DOCUMENT
 
 
 ==============================================================================
-ANNEXE B — SOURCE INTÉGRALE EMPLACEMENT UNIQUE DES MISES À JOUR
-Source fournie conservée sans modification ; aucune publication réalisée ici.
+ANNEXE B — ARCHIVE HISTORIQUE — ANCIEN EMPLACEMENT UNIQUE DES MISES À JOUR
+STATUT ACTUEL : REMPLACÉE PAR GOOGLE PLAY CONSOLE
 ==============================================================================
+
+IMPORTANT — NE PAS UTILISER CETTE ANNEXE POUR UNE NOUVELLE PUBLICATION.
+Le texte ci-dessous est conservé pour traçabilité historique. Sa règle dev-latest est obsolète.
+La règle active est celle du checkpoint courant : mises à jour distribuées via Google Play Console, sans updater GitHub concurrent.
+
+--- DÉBUT DE L'ARCHIVE HISTORIQUE CONSERVÉE ---
 
 HORATRACK — EMPLACEMENT UNIQUE DES MISES À JOUR DE L’APPLICATION
 

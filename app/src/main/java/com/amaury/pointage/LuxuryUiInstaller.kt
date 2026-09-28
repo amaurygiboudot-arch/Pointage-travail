@@ -220,7 +220,7 @@ object LuxuryUiInstaller {
         }
 
         wrapper.addView(heading, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        wrapper.addView(button, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 46)).apply {
+        wrapper.addView(button, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 48)).apply {
             topMargin = dp(activity, 2)
             bottomMargin = dp(activity, 2)
         })
@@ -237,9 +237,9 @@ object LuxuryUiInstaller {
                     child.minimumHeight = 0
                     child.gravity = Gravity.CENTER
                     child.setPadding(dp(activity, 14), 0, dp(activity, 14), 0)
-                    child.layoutParams = (child.layoutParams as? LinearLayout.LayoutParams ?: LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 46))).apply {
+                    child.layoutParams = (child.layoutParams as? LinearLayout.LayoutParams ?: LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 48))).apply {
                         width = ViewGroup.LayoutParams.MATCH_PARENT
-                        height = dp(activity, 46)
+                        height = dp(activity, 48)
                         topMargin = dp(activity, 4)
                         bottomMargin = dp(activity, 4)
                     }
@@ -301,7 +301,7 @@ object LuxuryUiInstaller {
 
     private fun applyTransparencyToView(view: View, alpha: Int) {
         val idName = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
-        val isProtectedImageButton = idName == "entryButton" || idName == "pauseButton" || idName == "exitButton" || idName == "settingsButton"
+        val isProtectedImageButton = idName == "entryButton" || idName == "pauseButton" || idName == "exitButton"
         val isPanel = idName == "statusCard" || idName == "pointageButtons" || idName == "contentPanel" || idName == "gpsSettingsPanel" || idName == "analyticsPdfPanel" || idName.contains("Panel", ignoreCase = true) || idName.contains("Card", ignoreCase = true)
         val isStandardButton = view is Button && !isProtectedImageButton
         if ((isPanel || isStandardButton) && view.background != null) view.background.mutate().alpha = alpha
@@ -358,5 +358,6 @@ object LuxuryUiInstaller {
         activity.findViewById<LinearLayout>(R.id.navigationTabs)?.let(NavigationTabContrastV2::apply)
     }
 
-    private fun dp(activity: MainActivity, value: Int): Int = (value * activity.resources.displayMetrics.density).toInt()
+    private fun dp(activity: MainActivity, value: Int): Int =
+        kotlin.math.ceil(value * activity.resources.displayMetrics.density.toDouble()).toInt()
 }

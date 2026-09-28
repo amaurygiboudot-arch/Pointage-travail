@@ -6,7 +6,12 @@ on:
     branches:
       - main
     paths:
+      - "app/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle/**"
       - ".github/icon-build-trigger.txt"
+      - ".github/workflows/build-apk.yml"
 
 concurrency:
   group: horatrack-apk-aab
@@ -57,7 +62,7 @@ jobs:
     needs: security-gate
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
 
     steps:
       - name: Recuperer exactement le commit controle
@@ -96,10 +101,11 @@ jobs:
 
       - name: Preparer la version
         run: |
-          echo "VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "VERSION_NAME=1.${{ github.run_number }}" >> "$GITHUB_ENV"
+          VERSION_CODE=$((100000 + GITHUB_RUN_NUMBER))
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=1.$VERSION_CODE" >> "$GITHUB_ENV"
 
-      - name: Compiler APK et AAB release signes
+      - name: Compiler APK release et AAB Play signes
         id: gradle_build
         env:
           POINTAGE_KEYSTORE_PATH: ${{ runner.temp }}/pointage-release.keystore
@@ -113,7 +119,7 @@ jobs:
           FIREBASE_SENDER_ID: ${{ secrets.FIREBASE_SENDER_ID }}
         run: |
           set +e
-          gradle :app:assembleRelease :app:bundleRelease --build-cache --parallel --stacktrace 2>&1 | tee build-error.log
+          gradle :app:assembleRelease :app:bundlePlay --build-cache --parallel --stacktrace 2>&1 | tee build-error.log
           STATUS=${PIPESTATUS[0]}
           echo "exit_code=$STATUS" >> "$GITHUB_OUTPUT"
           exit 0
@@ -152,143 +158,44 @@ jobs:
           test -n "$APKSIGNER" || (echo "apksigner introuvable" && exit 1)
           "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
 
-      - name: Preparer APK AAB et informations de version
+      - name: Preparer artefact Play canonique
         run: |
-          cp app/build/outputs/apk/release/app-release.apk HoraTrack.apk
-          cp HoraTrack.apk HP-Travail.apk
-          cp app/build/outputs/bundle/release/app-release.aab HoraTrack.aab
-          sha256sum HoraTrack.apk > HoraTrack-SHA256.txt
-          sha256sum HoraTrack.aab > HoraTrack-AAB-SHA256.txt
-          cp HoraTrack-SHA256.txt SHA256.txt
-          printf '%s\n' "$VERSION_NAME" > HoraTrack-version.txt
-          cp HoraTrack-SHA256.txt HP-Travail-SHA256.txt
-          cp HoraTrack-version.txt HP-Travail-version.txt
-          test -s HoraTrack.apk
-          test -s HP-Travail.apk
-          test -s HoraTrack.aab
-          test -s HoraTrack-SHA256.txt
-          test -s HoraTrack-AAB-SHA256.txt
-          test -s SHA256.txt
+          cp app/build/outputs/bundle/play/app-play.aab AGKGMG-play.aab
+          sha256sum AGKGMG-play.aab > AGKGMG-play-SHA256.txt
+          printf '%s\n' "$VERSION_NAME" > AGKGMG-version.txt
+          printf '%s\n' "$VERSION_CODE" > AGKGMG-version-code.txt
+          printf '%s\n' "$SOURCE_SHA" > AGKGMG-source-sha.txt
+          test -s AGKGMG-play.aab
+          test -s AGKGMG-play-SHA256.txt
+          test -s AGKGMG-version.txt
+          test -s AGKGMG-version-code.txt
+          test -s AGKGMG-source-sha.txt
 
-      - name: Publier artefacts APK et AAB
+      - name: Verifier la signature AAB Play
+        env:
+          POINTAGE_KEYSTORE_PASSWORD: ${{ secrets.POINTAGE_KEYSTORE_PASSWORD }}
+          POINTAGE_KEY_ALIAS: ${{ secrets.POINTAGE_KEY_ALIAS }}
+        run: |
+          jarsigner -verify -certs AGKGMG-play.aab
+          EXPECTED_CERT="$(keytool -list -v \
+            -keystore "$RUNNER_TEMP/pointage-release.keystore" \
+            -storepass "$POINTAGE_KEYSTORE_PASSWORD" \
+            -alias "$POINTAGE_KEY_ALIAS" | sed -n 's/^[[:space:]]*SHA256: //p' | head -1 | tr -d ':[:space:]')"
+          ACTUAL_CERT="$(keytool -printcert -jarfile AGKGMG-play.aab | sed -n 's/^[[:space:]]*SHA256: //p' | head -1 | tr -d ':[:space:]')"
+          test -n "$EXPECTED_CERT"
+          test -n "$ACTUAL_CERT"
+          test "$EXPECTED_CERT" = "$ACTUAL_CERT"
+          echo "Signature AAB Play valide et certificat conforme a la cle d upload."
+
+      - name: Publier artefact Play pour le workflow Google Play
         uses: actions/upload-artifact@v4
         with:
-          name: HoraTrack-APK-AAB
+          name: AGKGMG-Play-Bundle
           path: |
-            HoraTrack.apk
-            HoraTrack.aab
-            HoraTrack-SHA256.txt
-            HoraTrack-AAB-SHA256.txt
-            HoraTrack-version.txt
-            SHA256.txt
-            HP-Travail.apk
-            HP-Travail-SHA256.txt
-            HP-Travail-version.txt
+            AGKGMG-play.aab
+            AGKGMG-play-SHA256.txt
+            AGKGMG-version.txt
+            AGKGMG-version-code.txt
+            AGKGMG-source-sha.txt
           if-no-files-found: error
           retention-days: 30
-
-      - name: Envoyer automatiquement l APK dans Firebase App Distribution
-        env:
-          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
-          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
-        run: |
-          if [ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ] || [ -z "$FIREBASE_APP_ID" ]; then
-            echo "Firebase App Distribution non configure : secret FIREBASE_SERVICE_ACCOUNT_JSON ou FIREBASE_APP_ID manquant."
-            exit 0
-          fi
-          printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/firebase-service-account.json"
-          chmod 600 "$RUNNER_TEMP/firebase-service-account.json"
-          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-service-account.json"
-          npm install --global firebase-tools
-          firebase appdistribution:distribute HoraTrack.apk \
-            --app "$FIREBASE_APP_ID" \
-            --release-notes "HoraTrack ${VERSION_NAME} - mise a jour automatique depuis GitHub Actions"
-          rm -f "$RUNNER_TEMP/firebase-service-account.json"
-
-      - name: Publier la mise a jour GitHub
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG="v${VERSION_NAME}"
-          gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
-          gh release create "$TAG" \
-            HoraTrack.apk \
-            HoraTrack.aab \
-            HoraTrack-SHA256.txt \
-            HoraTrack-AAB-SHA256.txt \
-            HoraTrack-version.txt \
-            SHA256.txt \
-            HP-Travail.apk \
-            HP-Travail-SHA256.txt \
-            HP-Travail-version.txt \
-            --target "${SOURCE_SHA}" \
-            --title "HoraTrack ${VERSION_NAME}" \
-            --notes "Mise à jour automatique HoraTrack - APK + AAB Google Play" \
-            --latest
-
-      - name: Verifier que la mise a jour est publiquement disponible
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG="v${VERSION_NAME}"
-          gh release view "$TAG" --json tagName,isDraft,isPrerelease,assets,url
-          gh release download "$TAG" -p "HoraTrack.apk" -D "$RUNNER_TEMP/release-check"
-          gh release download "$TAG" -p "HoraTrack.aab" -D "$RUNNER_TEMP/release-check"
-          gh release download "$TAG" -p "SHA256.txt" -D "$RUNNER_TEMP/release-check"
-          test -s "$RUNNER_TEMP/release-check/HoraTrack.apk"
-          test -s "$RUNNER_TEMP/release-check/HoraTrack.aab"
-          test -s "$RUNNER_TEMP/release-check/SHA256.txt"
-
-      - name: Notifier tous les telephones HoraTrack
-        env:
-          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
-          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
-        run: |
-          if [ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ] || [ -z "$FIREBASE_PROJECT_ID" ]; then
-            echo "Firebase push non configure : APK publie normalement, notification distante ignoree."
-            exit 0
-          fi
-          python -m pip install --quiet google-auth requests
-          python <<'PY'
-          import json, os, requests
-          from google.oauth2 import service_account
-          from google.auth.transport.requests import Request
-
-          info = json.loads(os.environ["FIREBASE_SERVICE_ACCOUNT_JSON"])
-          project = os.environ["FIREBASE_PROJECT_ID"]
-          version = os.environ["VERSION_NAME"]
-          credentials = service_account.Credentials.from_service_account_info(
-              info,
-              scopes=["https://www.googleapis.com/auth/firebase.messaging"],
-          )
-          credentials.refresh(Request())
-          payload = {
-              "message": {
-                  "topic": "hp_travail_updates",
-                  "notification": {
-                      "title": "Mise à jour HoraTrack",
-                      "body": f"La version {version} est disponible. Ouvre HoraTrack pour l'installer."
-                  },
-                  "data": {
-                      "kind": "update",
-                      "version": version,
-                      "title": "Mise à jour HoraTrack",
-                      "body": f"La version {version} est disponible. Ouvre HoraTrack pour l'installer."
-                  },
-                  "android": {
-                      "priority": "high",
-                      "notification": {
-                          "channel_id": "hp_travail_updates"
-                      }
-                  }
-              }
-          }
-          response = requests.post(
-              f"https://fcm.googleapis.com/v1/projects/{project}/messages:send",
-              headers={"Authorization": f"Bearer {credentials.token}", "Content-Type": "application/json"},
-              json=payload,
-              timeout=30,
-          )
-          response.raise_for_status()
-          print("Notification de mise a jour HoraTrack envoyee")
-          PY
