@@ -39,7 +39,7 @@ enum SalaryConventionSeniorityPremiumBridgeV2 {
             )
         }
 
-        let normalizedIdcc = SalaryConventionRuleStoreV2.normalizeIdcc(idcc)
+        let normalizedIdcc = SalaryConventionSeniorityIdccV2.normalize(idcc)
         let classification = SalaryConventionClassificationStoreV2.load(
             companyId: companyId,
             defaults: defaults
@@ -154,7 +154,7 @@ enum SalaryConventionSeniorityPremiumBridgeV2 {
         sourceKnowledgeReliable: Bool = true,
         sourceKnowledgeWarnings: [String] = []
     ) -> RuntimeSourceSelection {
-        let normalizedIdcc = SalaryConventionRuleStoreV2.normalizeIdcc(idcc)
+        let normalizedIdcc = SalaryConventionSeniorityIdccV2.normalize(idcc)
 
         guard sourceKnowledgeReliable else {
             return .init(
@@ -212,7 +212,7 @@ enum SalaryConventionSeniorityPremiumBridgeV2 {
 
         let matching = stored.rules.filter {
             $0.structurallyValid()
-                && SalaryConventionRuleStoreV2.normalizeIdcc($0.idcc) == normalizedIdcc
+                && SalaryConventionSeniorityIdccV2.normalize($0.idcc) == normalizedIdcc
                 && $0.active(on: referenceDate)
                 && classification.matches($0.classification)
         }
@@ -235,7 +235,7 @@ enum SalaryConventionSeniorityPremiumBridgeV2 {
         coverage: ConventionMatterCoverageV2.Snapshot,
         warnings: [String]
     ) -> Snapshot {
-        let normalized = SalaryConventionRuleStoreV2.normalizeIdcc(idcc)
+        let normalized = SalaryConventionSeniorityIdccV2.normalize(idcc)
         let merged = unique(
             warnings + [
                 "Prime d'ancienneté IDCC \(normalized) : aucune règle monétaire n'est appliquée tant que KALI et la priorité ACCO ne sont pas suffisamment prouvés pour ce profil et cette période."

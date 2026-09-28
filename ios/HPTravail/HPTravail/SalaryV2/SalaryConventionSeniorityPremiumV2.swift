@@ -1,5 +1,15 @@
 import Foundation
 
+/// Canonicalisation IDCC dédiée à l'ancienneté, alignée sur Android.
+/// Les variantes 00292 / 0292 / 292 désignent donc le même IDCC 292.
+enum SalaryConventionSeniorityIdccV2 {
+    static func normalize(_ value: String) -> String {
+        let digits = value.filter { $0.isNumber }
+        let canonical = digits.drop(while: { $0 == "0" })
+        return String(canonical)
+    }
+}
+
 /// Prime d'ancienneté conventionnelle iOS, miroir du moteur Android.
 /// Calcul civil pur : aucune dépendance au fuseau, au métier ou à l'interface.
 enum SalaryConventionSeniorityPremiumV2 {
@@ -29,7 +39,7 @@ enum SalaryConventionSeniorityPremiumV2 {
         let extensionEffectiveFrom: PayrollCivilDateV2?
 
         func structurallyValid() -> Bool {
-            guard !SalaryConventionRuleStoreV2.normalizeIdcc(idcc).isEmpty,
+            guard !SalaryConventionSeniorityIdccV2.normalize(idcc).isEmpty,
                   !ruleId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   !steps.isEmpty else { return false }
@@ -89,10 +99,10 @@ enum SalaryConventionSeniorityPremiumV2 {
         confirmedMonthlySupplement: Double? = 0,
         companyApplicabilityConfirmed: Bool = false
     ) -> Result {
-        let normalized = SalaryConventionRuleStoreV2.normalizeIdcc(idcc)
+        let normalized = SalaryConventionSeniorityIdccV2.normalize(idcc)
         let knownMatching = rules
             .filter { $0.structurallyValid() }
-            .filter { SalaryConventionRuleStoreV2.normalizeIdcc($0.idcc) == normalized }
+            .filter { SalaryConventionSeniorityIdccV2.normalize($0.idcc) == normalized }
             .filter { $0.active(on: referenceDate) }
             .filter { classification.matches($0.classification) }
 

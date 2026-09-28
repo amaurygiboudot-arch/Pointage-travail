@@ -34,10 +34,10 @@ enum SalaryConventionSeniorityPremiumStoreV2 {
     ) -> ReadResult {
         let stored = readConfirmed(defaults: defaults)
         guard stored.reliable else { return stored }
-        let normalized = SalaryConventionRuleStoreV2.normalizeIdcc(idcc)
+        let normalized = SalaryConventionSeniorityIdccV2.normalize(idcc)
         return .init(
             rules: stored.rules.filter {
-                SalaryConventionRuleStoreV2.normalizeIdcc($0.idcc) == normalized
+                SalaryConventionSeniorityIdccV2.normalize($0.idcc) == normalized
             },
             reliable: true,
             warnings: stored.warnings
@@ -50,7 +50,7 @@ enum SalaryConventionSeniorityPremiumStoreV2 {
         defaults: UserDefaults = .standard
     ) -> Bool {
         guard rule.structurallyValid() else { return false }
-        let normalizedIdcc = SalaryConventionRuleStoreV2.normalizeIdcc(rule.idcc)
+        let normalizedIdcc = SalaryConventionSeniorityIdccV2.normalize(rule.idcc)
         guard !normalizedIdcc.isEmpty else { return false }
 
         lock.lock()
@@ -75,7 +75,7 @@ enum SalaryConventionSeniorityPremiumStoreV2 {
         guard normalized.structurallyValid() else { return false }
 
         var rules = stored.rules.filter {
-            !(SalaryConventionRuleStoreV2.normalizeIdcc($0.idcc) == normalizedIdcc &&
+            !(SalaryConventionSeniorityIdccV2.normalize($0.idcc) == normalizedIdcc &&
               $0.ruleId.trimmingCharacters(in: .whitespacesAndNewlines) == normalized.ruleId)
         }
         rules.append(normalized)
@@ -86,7 +86,7 @@ enum SalaryConventionSeniorityPremiumStoreV2 {
 
         let reloaded = readConfirmed(defaults: defaults)
         return reloaded.reliable && reloaded.rules.contains {
-            SalaryConventionRuleStoreV2.normalizeIdcc($0.idcc) == normalizedIdcc &&
+            SalaryConventionSeniorityIdccV2.normalize($0.idcc) == normalizedIdcc &&
             $0.ruleId == normalized.ruleId
         }
     }
@@ -120,7 +120,7 @@ enum SalaryConventionSeniorityPremiumStoreV2 {
     ) -> Bool {
         guard rules.allSatisfy({ $0.structurallyValid() }) else { return false }
         let keys = rules.map {
-            "\(SalaryConventionRuleStoreV2.normalizeIdcc($0.idcc))\u{0}\($0.ruleId.trimmingCharacters(in: .whitespacesAndNewlines))"
+            "\(SalaryConventionSeniorityIdccV2.normalize($0.idcc))\u{0}\($0.ruleId.trimmingCharacters(in: .whitespacesAndNewlines))"
         }
         return Set(keys).count == keys.count
     }
@@ -129,8 +129,8 @@ enum SalaryConventionSeniorityPremiumStoreV2 {
         _ rules: [SalaryConventionSeniorityPremiumV2.Rule]
     ) -> String? {
         let sorted = rules.sorted {
-            let left = SalaryConventionRuleStoreV2.normalizeIdcc($0.idcc)
-            let right = SalaryConventionRuleStoreV2.normalizeIdcc($1.idcc)
+            let left = SalaryConventionSeniorityIdccV2.normalize($0.idcc)
+            let right = SalaryConventionSeniorityIdccV2.normalize($1.idcc)
             if left != right { return left < right }
             if $0.effectiveFrom != $1.effectiveFrom { return $0.effectiveFrom < $1.effectiveFrom }
             return $0.ruleId < $1.ruleId
@@ -138,7 +138,7 @@ enum SalaryConventionSeniorityPremiumStoreV2 {
 
         let array: [[String: Any]] = sorted.map { rule in
             [
-                "idcc": SalaryConventionRuleStoreV2.normalizeIdcc(rule.idcc),
+                "idcc": SalaryConventionSeniorityIdccV2.normalize(rule.idcc),
                 "ruleId": rule.ruleId,
                 "effectiveFrom": dateString(rule.effectiveFrom),
                 "effectiveTo": json(rule.effectiveTo.map(dateString)),
