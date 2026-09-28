@@ -92,10 +92,14 @@ class BackupPreferenceKeyPolicyTest {
         assertFalse(BackupPreferenceKeyPolicy.canTransfer("navigation_state", "active_tab"))
         assertTrue(BackupPreferenceKeyPolicy.canTransfer("navigation_state", "report_month_ms"))
 
-        assertFalse(BackupPreferenceKeyPolicy.canTransfer("firebase_backend_updates", "notification_permission_requested"))
-        assertFalse(BackupPreferenceKeyPolicy.canTransfer("firebase_backend_updates", "last_server_check"))
-        assertTrue(BackupPreferenceKeyPolicy.canTransfer("firebase_backend_updates", "known_revision"))
-        assertTrue(BackupPreferenceKeyPolicy.canTransfer("firebase_backend_updates", "popup_revision"))
+        listOf(
+            "notification_permission_requested",
+            "last_server_check",
+            "known_revision",
+            "popup_revision"
+        ).forEach { key ->
+            assertFalse(key, BackupPreferenceKeyPolicy.canTransfer("firebase_backend_updates", key))
+        }
     }
 
     @Test
