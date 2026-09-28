@@ -91,24 +91,11 @@ object PayrollEngineV2 {
                 if (minutes > 0) overtimeGross += minutes / 60.0 * rate * tier.multiplier
             }
 
-            rules.nightMultiplier?.let { multiplier ->
-                require(multiplier.isFinite() && multiplier >= 1.0) { "Multiplicateur nuit invalide" }
-                if (week.nightMinutes > 0) extras += week.nightMinutes / 60.0 * rate * (multiplier - 1.0)
-            }
-            rules.saturdayMultiplier?.let { multiplier ->
-                require(multiplier.isFinite() && multiplier >= 1.0) { "Multiplicateur samedi invalide" }
-                if (week.saturdayMinutes > 0) extras += week.saturdayMinutes / 60.0 * rate * (multiplier - 1.0)
-            }
-            rules.sundayMultiplier?.let { multiplier ->
-                require(multiplier.isFinite() && multiplier >= 1.0) { "Multiplicateur dimanche invalide" }
-                if (week.sundayMinutes > 0) extras += week.sundayMinutes / 60.0 * rate * (multiplier - 1.0)
-            }
-            rules.publicHolidayMultiplier?.let { multiplier ->
-                require(multiplier.isFinite() && multiplier >= 1.0) { "Multiplicateur jour férié invalide" }
-                if (week.publicHolidayMinutes > 0) {
-                    extras += week.publicHolidayMinutes / 60.0 * rate * (multiplier - 1.0)
-                }
-            }
+            extras += PayrollPremiumGrossV2.calculate(
+                week = week,
+                grossHourlyRate = rate,
+                rules = rules
+            )
         }
 
         val regularGross = regularMinutes / 60.0 * rate
