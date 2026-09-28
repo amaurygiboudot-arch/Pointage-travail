@@ -96,6 +96,36 @@ class SegmentedSalaryCanonicalOutputV2Test {
         assertTrue(result.warnings.contains(SegmentedSalaryCanonicalOutputAssemblerV2.CHAIN_WARNING))
     }
 
+    @Test
+    fun `projection nette d un autre brut reste bloquee`() {
+        val worked = fixtureWorked()
+        val cash = cash(worked, 1_100.0)
+        val otherCash = cash(worked, 1_200.0)
+        val projectionFromOtherCash = net(otherCash, complete = true).projection
+        val inconsistent = net(cash, complete = true).copy(projection = projectionFromOtherCash)
+
+        val result = SegmentedSalaryCanonicalOutputAssemblerV2.assemble(worked, cash, inconsistent)
+
+        assertTrue(result.cashGrossReliable)
+        assertFalse(result.netBeforeIncomeTaxComplete)
+        assertNull(result.netBeforeIncomeTax)
+        assertNull(result.netTaxable)
+        assertTrue(result.warnings.contains(SegmentedSalaryCanonicalOutputAssemblerV2.NET_PROOF_WARNING))
+    }
+
+    @Test
+    fun `drapeau brut non fiable bloque le net meme si la projection est complete`() {
+        val worked = fixtureWorked()
+        val cash = cash(worked, 1_100.0)
+        val inconsistent = net(cash, complete = true).copy(cashGrossReliable = false)
+
+        val result = SegmentedSalaryCanonicalOutputAssemblerV2.assemble(worked, cash, inconsistent)
+
+        assertFalse(result.netBeforeIncomeTaxComplete)
+        assertNull(result.netBeforeIncomeTax)
+        assertTrue(result.warnings.contains(SegmentedSalaryCanonicalOutputAssemblerV2.NET_PROOF_WARNING))
+    }
+
     private fun fixtureWorked(): SegmentedWorkedGrossProductionResultV2 {
         val week = SegmentedPayrollWeekEvidenceV2(
             weekYear = 2026,

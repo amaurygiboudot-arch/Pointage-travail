@@ -40,6 +40,8 @@ enum SalarySegmentedCanonicalOutputAssemblerV2 {
         "Sortie Salaire segmentée : la ventilation nuit/samedi/dimanche/jour férié n'est pas fiable."
     static let variableWarning =
         "Sortie Salaire segmentée : la ventilation des variables de brut n'est pas fiable."
+    static let netProofWarning =
+        "Sortie Salaire segmentée : la projection nette ne correspond pas au brut fiable de cette chaîne."
 
     static func assemble(
         worked: SalarySegmentedWorkedGrossProductionResultV2,
@@ -131,8 +133,14 @@ enum SalarySegmentedCanonicalOutputAssemblerV2 {
         let projection = net.projection
         let netComplete =
             chainConsistent &&
+            reliableCashGross != nil &&
+            net.cashGrossReliable &&
             net.netBeforeIncomeTaxComplete &&
+            projection?.grossReliable == true &&
+            projection?.netBeforeIncomeTaxComplete == true &&
+            sameMoney(projection?.cashGross, reliableCashGross) &&
             projection?.netBeforeIncomeTax != nil
+        if net.netBeforeIncomeTaxComplete && !netComplete { warnings.append(netProofWarning) }
 
         return .init(
             worked: worked,

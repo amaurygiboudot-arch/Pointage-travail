@@ -85,6 +85,90 @@ final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
         XCTAssertTrue(result.warnings.contains(SalarySegmentedCanonicalOutputAssemblerV2.chainWarning))
     }
 
+    func testNetProjectionForDifferentCashGrossIsRejected() {
+        let worked = fixtureWorked()
+        let cash = cash(worked, 1_100)
+        let projection = EmployeeNetProjectionV2.calculate(
+            projectionInput(cashGross: 1_200)
+        )
+        XCTAssertTrue(projection.netBeforeIncomeTaxComplete)
+        let inconsistent = SalarySegmentedCashGrossNetProjectionResultV2(
+            cash: cash,
+            projection: projection,
+            cashGrossReliable: true,
+            netBeforeIncomeTaxComplete: true,
+            warnings: []
+        )
+
+        let result = SalarySegmentedCanonicalOutputAssemblerV2.assemble(
+            worked: worked, cash: cash, net: inconsistent
+        )
+        XCTAssertTrue(result.cashGrossReliable)
+        XCTAssertFalse(result.netBeforeIncomeTaxComplete)
+        XCTAssertNil(result.netBeforeIncomeTax)
+        XCTAssertNil(result.netTaxable)
+        XCTAssertTrue(result.warnings.contains(SalarySegmentedCanonicalOutputAssemblerV2.netProofWarning))
+    }
+
+    func testUnreliableGrossFlagBlocksOtherwiseCompleteNet() {
+        let worked = fixtureWorked()
+        let cash = cash(worked, 1_100)
+        let projection = EmployeeNetProjectionV2.calculate(
+            projectionInput(cashGross: 1_100)
+        )
+        XCTAssertTrue(projection.netBeforeIncomeTaxComplete)
+        let inconsistent = SalarySegmentedCashGrossNetProjectionResultV2(
+            cash: cash,
+            projection: projection,
+            cashGrossReliable: false,
+            netBeforeIncomeTaxComplete: true,
+            warnings: []
+        )
+
+        let result = SalarySegmentedCanonicalOutputAssemblerV2.assemble(
+            worked: worked, cash: cash, net: inconsistent
+        )
+        XCTAssertFalse(result.netBeforeIncomeTaxComplete)
+        XCTAssertNil(result.netBeforeIncomeTax)
+        XCTAssertTrue(result.warnings.contains(SalarySegmentedCanonicalOutputAssemblerV2.netProofWarning))
+    }
+
+    private func projectionInput(cashGross: Double) -> EmployeeNetProjectionV2.Input {
+        let period = CompanyEmployeeDeductionResolverV2.YearMonth(year: 2026, month: 4)!
+        let kinds: [(String, CompanyEmployeeDeductionResolverV2.Kind, Double)] = [
+            ("mutual", .mutualEmployee, 42),
+            ("provident", .providentEmployee, 18),
+            ("transport", .transportEmployee, 0),
+            ("employer-taxable", .employerProtectionTaxable, 8),
+            ("employer-csg", .employerProtectionCsgCrdsBase, 12),
+            ("provident-nd", .employeeProvidentNonDeductible, 4)
+        ]
+        let deductions = CompanyEmployeeDeductionResolverV2.resolve(
+            records: kinds.map { item in
+                .init(id: item.0, kind: item.1, amount: item.2,
+                      effectiveFrom: period, effectiveTo: period, source: "Bulletin confirmé")
+            },
+            period: period
+        )
+        return .init(
+            cashGross: cashGross,
+            upstreamGrossReliable: true,
+            benefits: .init(applied: [], totalGross: 0, reliable: true, warnings: []),
+            year: 2026,
+            ceiling: SocialSecurityCeilingV2.calculate(
+                .init(period: YearMonthV2(year: 2026, month: 4)!,
+                      contractType: .fullTime, contractualWeeklyMinutes: 35 * 60,
+                      entryDate: PayrollCivilDateV2(year: 2020, month: 1, day: 1)!)
+            ),
+            alsaceMoselleLocalRegime: false,
+            professionalStatus: "NON_CADRE",
+            protectionCategory: ProtectionCategoryV2.noConventionOverride(),
+            companyDeductions: deductions,
+            period: period,
+            incomeTaxRate: nil
+        )
+    }
+
     private func fixtureWorked() -> SalarySegmentedWorkedGrossProductionResultV2 {
         let week = SalarySegmentedPayrollWeekEvidenceV2(
             yearForWeekOfYear: 2026,
