@@ -44,6 +44,8 @@ object SegmentedSalaryCanonicalOutputAssemblerV2 {
         "Sortie Salaire segmentée : la ventilation nuit/samedi/dimanche/jour férié n'est pas fiable."
     const val VARIABLE_WARNING =
         "Sortie Salaire segmentée : la ventilation des variables de brut n'est pas fiable."
+    const val NET_PROOF_WARNING =
+        "Sortie Salaire segmentée : la projection nette ne correspond pas au brut fiable de cette chaîne."
 
     fun assemble(
         worked: SegmentedWorkedGrossProductionResultV2,
@@ -135,8 +137,14 @@ object SegmentedSalaryCanonicalOutputAssemblerV2 {
         val projection = net.projection
         val netComplete =
             chainConsistent &&
+                reliableCashGross != null &&
+                net.cashGrossReliable &&
                 net.netBeforeIncomeTaxComplete &&
+                projection?.payroll?.grossReliable == true &&
+                projection?.netBeforeIncomeTaxComplete == true &&
+                sameMoney(projection?.payroll?.gross, reliableCashGross) &&
                 projection?.netBeforeIncomeTax != null
+        if (net.netBeforeIncomeTaxComplete && !netComplete) warnings += NET_PROOF_WARNING
 
         return SegmentedSalaryCanonicalOutputV2(
             worked = worked,
