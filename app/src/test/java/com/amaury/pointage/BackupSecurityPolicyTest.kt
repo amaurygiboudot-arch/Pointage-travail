@@ -16,6 +16,7 @@ class BackupSecurityPolicyTest {
             "app_check_status",
             "firebase_device_registry",
             "horatrack_v2_gps_state",
+            "location_onboarding",
             "drive_backup",
             "pointage",
             " V2_APP_LOCK "
