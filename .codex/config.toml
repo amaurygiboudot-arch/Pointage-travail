@@ -8,7 +8,7 @@ allow_login_shell = false
 apps = true
 
 [agents]
-enabled = false
+enabled = true
 max_concurrent_threads_per_session = 5
 default_subagent_reasoning_effort = "medium"
 
