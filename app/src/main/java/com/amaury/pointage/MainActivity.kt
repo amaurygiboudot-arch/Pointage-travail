@@ -15,6 +15,8 @@ import android.os.Looper
 import android.provider.Settings
 import android.view.MotionEvent
 import android.view.View
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -42,6 +44,28 @@ import java.util.Locale
 import java.util.UUID
 
 class MainActivity : Activity() {
+
+    private var settingsBackCallback: OnBackInvokedCallback? = null
+
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        if (SettingsCompactMenuV2.handleBack(this)) return
+        super.onBackPressed()
+    }
+
+    internal fun updateSettingsBackCallback(enabled: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (enabled && settingsBackCallback == null) {
+            val callback = OnBackInvokedCallback { SettingsCompactMenuV2.showMenu(this) }
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback
+            )
+            settingsBackCallback = callback
+        } else if (!enabled) {
+            settingsBackCallback?.let { onBackInvokedDispatcher.unregisterOnBackInvokedCallback(it) }
+            settingsBackCallback = null
+        }
+    }
 
     companion object {
         private const val REQUEST_CREATE_MONTHLY_PDF = 2002
@@ -272,6 +296,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        updateSettingsBackCallback(false)
         gpsSaveRequestId++
         homeTabsHandler.removeCallbacks(hideHomeTabsRunnable)
         navigationTabs.animate().cancel()
@@ -293,6 +318,7 @@ class MainActivity : Activity() {
 
     private fun persistActiveTab(tab: String) {
         activeTab = tab
+        updateSettingsBackCallback(tab == "settings" && SettingsCompactMenuV2.hasActivePage(this))
         navigationPrefs.edit().putString(KEY_ACTIVE_TAB, tab).apply()
     }
 
