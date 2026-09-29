@@ -4,6 +4,7 @@
   "additionalProperties": false,
   "required": [
     "schema_version",
+    "base_sha",
     "head_sha",
     "required_specialists",
     "specialist_reviews",
@@ -14,7 +15,8 @@
     "blocking_issues"
   ],
   "properties": {
-    "schema_version": { "type": "integer", "const": 1 },
+    "schema_version": { "type": "integer", "const": 2 },
+    "base_sha": { "type": "string", "minLength": 7 },
     "head_sha": { "type": "string", "minLength": 7 },
     "required_specialists": {
       "type": "array",

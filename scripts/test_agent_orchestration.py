@@ -51,12 +51,14 @@ class AgentRouterTest(unittest.TestCase):
 class AgentReviewValidatorTest(unittest.TestCase):
     def route(self):
         return {
+            "base_sha": "base123",
             "specialists": ["celestial_system", "ui_ux"],
         }
 
     def valid_report(self):
         return {
-            "schema_version": 1,
+            "schema_version": 2,
+            "base_sha": "base123",
             "head_sha": "abc123",
             "required_specialists": ["celestial_system", "ui_ux"],
             "specialist_reviews": [
@@ -81,6 +83,12 @@ class AgentReviewValidatorTest(unittest.TestCase):
     def test_stale_head_fails(self):
         errors = validator.validate(self.route(), self.valid_report(), "new456")
         self.assertTrue(any("head_sha" in error for error in errors))
+
+    def test_retargeted_base_invalidates_report(self):
+        route = self.route()
+        route["base_sha"] = "newbase456"
+        errors = validator.validate(route, self.valid_report(), "abc123")
+        self.assertTrue(any("base_sha" in error for error in errors))
 
     def test_missing_specialist_fails(self):
         report = self.valid_report()
@@ -108,6 +116,7 @@ class AgentReviewValidatorTest(unittest.TestCase):
             comments[0]["author_association"] = "OWNER"
             path.write_text(json.dumps(comments), encoding="utf-8")
             self.assertEqual(report, validator.report_from_comments(str(path), "abc123"))
+            self.assertIsNone(validator.report_from_comments(str(path), "abc123", "otherbase"))
 
     def test_action_comment_requires_app_provenance(self):
         report = self.valid_report()

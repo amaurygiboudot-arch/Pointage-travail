@@ -13,8 +13,11 @@ permissions:
 
 jobs:
   agent-review-gate:
-    name: Agent review gate
+    name: Collect agent review
     runs-on: ubuntu-latest
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     permissions:
       contents: read
       issues: read
@@ -138,3 +141,21 @@ jobs:
           python3 scripts/validate_agent_review.py --route .agent-route.json --report .agent-review.json --head "$HEAD_SHA"
           python3 scripts/format_agent_review_comment.py --route .agent-route.json --report .agent-review.json > .agent-review-comment.md
           gh pr comment "$PR_NUMBER" --body-file .agent-review-comment.md
+
+  final-agent-review:
+    name: Agent review gate
+    needs: [agent-review-gate, publish-agent-review]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require complete review and publication
+        env:
+          REVIEW_RESULT: ${{ needs.agent-review-gate.result }}
+          PUBLISH_RESULT: ${{ needs.publish-agent-review.result }}
+          FRESH: ${{ needs.agent-review-gate.outputs.fresh }}
+        run: |
+          if [ "$REVIEW_RESULT" = success ] && { [ "$FRESH" != true ] || [ "$PUBLISH_RESULT" = success ]; }; then
+            exit 0
+          fi
+          echo "::error::La revue ou la publication du rapport d'agents n'a pas réussi."
+          exit 1

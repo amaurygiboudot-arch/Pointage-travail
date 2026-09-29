@@ -28,7 +28,7 @@ def decode_marker(body: str):
     return reports
 
 
-def report_from_comments(path: str, head: str):
+def report_from_comments(path: str, head: str, base: str | None = None):
     comments = load_json(path)
     candidates = []
     for comment in comments:
@@ -42,7 +42,7 @@ def report_from_comments(path: str, head: str):
             continue
         body = comment.get("body", "")
         for report in decode_marker(body):
-            if report.get("head_sha") == head:
+            if report.get("head_sha") == head and (base is None or report.get("base_sha") == base):
                 candidates.append(report)
     return candidates[-1] if candidates else None
 
@@ -52,8 +52,10 @@ def validate(route: dict, report: dict, head: str) -> list[str]:
     if report is None:
         return ["aucun rapport d'agents valide trouvé pour ce HEAD"]
 
-    if report.get("schema_version") != 1:
-        errors.append("schema_version != 1")
+    if report.get("schema_version") != 2:
+        errors.append("schema_version != 2")
+    if report.get("base_sha") != route.get("base_sha"):
+        errors.append("base_sha du rapport différent de la base courante")
     if report.get("head_sha") != head:
         errors.append("head_sha du rapport différent du HEAD courant")
 
@@ -115,7 +117,9 @@ def main() -> int:
     args = parser.parse_args()
 
     route = load_json(args.route)
-    report = load_json(args.report) if args.report else report_from_comments(args.comments, args.head)
+    report = load_json(args.report) if args.report else report_from_comments(
+        args.comments, args.head, route.get("base_sha")
+    )
     errors = validate(route, report, args.head)
 
     if errors:
