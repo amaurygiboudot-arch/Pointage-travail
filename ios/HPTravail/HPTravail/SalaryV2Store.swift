@@ -45,6 +45,7 @@ private enum SalarySegmentedProrationDraftBuilderV2 {
 @MainActor
 final class SalaryV2Store: ObservableObject {
     typealias ReferenceProvider = (_ companyId: String, _ period: YearMonthV2) -> SalaryReferenceContractV2?
+    typealias SegmentedProvider = (_ companyId: String, _ period: YearMonthV2) -> SalarySegmentedCanonicalOutputV2?
     typealias CompaniesProvider = () -> SalaryCompanyReadResultV2
     typealias ConventionRulesProvider = () -> SalaryConventionRuleReadResultV2
     typealias ContractHistoryProvider = () -> SalaryEmploymentContractHistoryReadResultV2
@@ -109,6 +110,7 @@ final class SalaryV2Store: ObservableObject {
     @Published private(set) var absenceFeedback: String?
 
     private let referenceProvider: ReferenceProvider
+    private let segmentedProvider: SegmentedProvider
     private let companiesProvider: CompaniesProvider
     private let conventionRulesProvider: ConventionRulesProvider
     private let contractHistoryProvider: ContractHistoryProvider
@@ -119,6 +121,7 @@ final class SalaryV2Store: ObservableObject {
 
     init(
         referenceProvider: @escaping ReferenceProvider = { _, _ in nil },
+        segmentedProvider: @escaping SegmentedProvider = { _, _ in nil },
         now: Date = Date(),
         calendar: Calendar = .current,
         incomeTaxStore: CompanyIncomeTaxRateStoreV2 = CompanyIncomeTaxRateStoreV2(),
@@ -219,6 +222,7 @@ final class SalaryV2Store: ObservableObject {
         }()
 
         self.referenceProvider = referenceProvider
+        self.segmentedProvider = segmentedProvider
         self.companiesProvider = companiesProvider
         self.conventionRulesProvider = conventionRulesProvider
         self.contractHistoryProvider = contractHistoryProvider
@@ -239,8 +243,14 @@ final class SalaryV2Store: ObservableObject {
         self.segmentedPayrollBoundary = segmentedPayrollBoundary
         self.segmentedProrationSourceText = segmentedProrationSource?.proration?.sourceId ?? ""
         self.segmentedProrationDraftSegments = segmentedProrationDraftSegments
+        let needsSegmentedSource =
+            !(segmentedPayrollBoundary?.transitionEpochDays.isEmpty ?? true) ||
+            ((contractResolution?.resolution?.calculationSegments.count ?? 0) > 1 &&
+             contractResolution?.readyForSingleContractCalculation != true)
         self.snapshot = SalaryWorkspaceResolverV2.resolve(
             period: period,
+            requiresSegmentedSource: needsSegmentedSource,
+            segmented: needsSegmentedSource ? companyId.flatMap { segmentedProvider($0, period) } : nil,
             reference: reference,
             incomeTaxRate: taxRate
         )
@@ -919,8 +929,11 @@ final class SalaryV2Store: ObservableObject {
             segmentedProrationDraftSegments = []
         }
 
+        let needsSegmentedSource = hasMaterialSegmentedPayrollTransition || requiresSegmentedProration
         snapshot = SalaryWorkspaceResolverV2.resolve(
             period: selectedPeriod,
+            requiresSegmentedSource: needsSegmentedSource,
+            segmented: needsSegmentedSource ? companyId.flatMap { segmentedProvider($0, selectedPeriod) } : nil,
             reference: reference,
             incomeTaxRate: taxRate
         )

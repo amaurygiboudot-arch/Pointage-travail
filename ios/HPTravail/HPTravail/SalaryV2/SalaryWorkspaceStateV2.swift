@@ -22,6 +22,33 @@ struct SalaryWorkspaceSnapshotV2: Equatable {
 enum SalaryWorkspaceResolverV2 {
     static let upstreamUnavailableWarning =
         "Salaire V2 iOS : les sources canoniques amont ne sont pas encore raccordées pour ce mois ; aucun montant n'est inventé."
+    static let segmentedSourceUnavailableWarning =
+        "Salaire V2 iOS : une transition datée exige la chaîne segmentée canonique ; aucun montant issu du calcul mensuel unique n'est affiché."
+
+    static func resolve(
+        period: YearMonthV2,
+        requiresSegmentedSource: Bool,
+        segmented: SalarySegmentedCanonicalOutputV2?,
+        reference: SalaryReferenceContractV2?,
+        incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot? = nil
+    ) -> SalaryWorkspaceSnapshotV2 {
+        guard requiresSegmentedSource else {
+            return resolve(period: period, reference: reference, incomeTaxRate: incomeTaxRate)
+        }
+        guard let segmented else {
+            return SalaryWorkspaceSnapshotV2(
+                period: period,
+                sourceReady: false,
+                socialGross: nil,
+                netBeforeIncomeTax: nil,
+                netTaxable: nil,
+                incomeTax: nil,
+                netAfterIncomeTax: nil,
+                warnings: [segmentedSourceUnavailableWarning]
+            )
+        }
+        return resolve(period: period, segmented: segmented)
+    }
 
     static func resolve(
         period: YearMonthV2,
