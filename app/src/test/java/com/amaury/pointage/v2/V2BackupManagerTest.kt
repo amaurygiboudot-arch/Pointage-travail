@@ -46,6 +46,65 @@ class V2BackupManagerTest {
     }
 
     @Test
+    fun `une sauvegarde structurellement restaurable est acceptee avant remplacement Drive`() {
+        val preferences = JSONObject()
+            .put(
+                "navigation_state",
+                JSONObject().put("report_month_ms", typed("l", 1_000L))
+            )
+        val root = JSONObject()
+            .put("formatVersion", 4)
+            .put("createdAtMs", 2_000L)
+            .put("preferences", preferences)
+
+        assertTrue(V2BackupManager.isStructurallyRestorableBackup(root))
+    }
+
+    @Test
+    fun `une copie tronquee inconnue ou runtime corrompue ne peut pas servir de recovery`() {
+        assertFalse(V2BackupManager.isStructurallyRestorableBackup(JSONObject()))
+        assertFalse(
+            V2BackupManager.isStructurallyRestorableBackup(
+                JSONObject()
+                    .put("formatVersion", 4)
+                    .put(
+                        "preferences",
+                        JSONObject().put(
+                            "future_unknown_store",
+                            JSONObject().put("value", typed("s", "x"))
+                        )
+                    )
+            )
+        )
+        assertFalse(
+            V2BackupManager.isStructurallyRestorableBackup(
+                JSONObject()
+                    .put("formatVersion", 4)
+                    .put(
+                        "preferences",
+                        JSONObject().put(
+                            "navigation_state",
+                            JSONObject().put("report_month_ms", "raw")
+                        )
+                    )
+            )
+        )
+        assertFalse(
+            V2BackupManager.isStructurallyRestorableBackup(
+                JSONObject()
+                    .put("formatVersion", 4)
+                    .put(
+                        "preferences",
+                        JSONObject().put(
+                            "horatrack_v2_test_runtime",
+                            JSONObject().put("history", typed("s", "not-json"))
+                        )
+                    )
+            )
+        )
+    }
+
+    @Test
     fun `historique absent reste compatible avec les anciennes sauvegardes`() {
         assertEquals(0, V2BackupManager.decodeBackupHistory(JSONObject()).length())
     }
