@@ -353,8 +353,6 @@ jobs:
       - name: Require authenticated agent review
         if: steps.existing.outputs.valid != 'true' && steps.codex-auth.outputs.configured != 'true'
         run: |
-          echo "::error::Aucune preuve multi-agents valide pour ce HEAD et OPENAI_API_KEY n'est pas configuré."
-          echo "::error::Dans le Codespace authentifié, exécuter: bash scripts/agent-toolbox.sh agent-review origin/main HEAD"
-          echo "::error::Puis relancer ce workflow. Un agent absent n'est jamais considéré PASS."
+          echo "::error::Aucune preuve multi-agents publiée par GitHub Actions pour ce HEAD et OPENAI_API_KEY n'est pas configuré."
+          echo "::error::Configurer le secret de revue automatique, puis relancer ce workflow. Un commentaire utilisateur n'est pas une preuve CI."
           exit 1
-
