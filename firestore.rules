@@ -26,6 +26,34 @@ service cloud.firestore {
       return !data.keys().hasAny([field]) || data[field] is timestamp;
     }
 
+    function validGameSnapshot(data, campaignId) {
+      return data.keys().hasOnly([
+          'schemaVersion', 'campaignId', 'revision', 'parentSnapshotIds',
+          'deviceId', 'payload', 'updatedAt'
+        ])
+        && data.keys().hasAll([
+          'schemaVersion', 'campaignId', 'revision', 'parentSnapshotIds',
+          'deviceId', 'payload', 'updatedAt'
+        ])
+        && data.schemaVersion == 1
+        && data.campaignId is string
+        && data.campaignId == campaignId
+        && campaignId in ['atelier', 'commerce', 'prestations']
+        && data.revision is int
+        && data.revision > 0
+        && data.revision <= 1000000000
+        && data.parentSnapshotIds is list
+        && data.parentSnapshotIds.size() <= 8
+        && data.deviceId is string
+        && data.deviceId.size() >= 16
+        && data.deviceId.size() <= 64
+        && data.payload is string
+        && data.payload.size() > 0
+        && data.payload.size() <= 500000
+        && data.updatedAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
     match /users/{userId} {
       allow read: if isSignedIn()
         && (request.auth.uid == userId || isOwner());
@@ -60,6 +88,18 @@ service cloud.firestore {
       match /app_backup/{backupId} {
         allow read, create, update, delete: if isSignedIn()
           && request.auth.uid == userId;
+      }
+
+      // Saves of the fictional mini-game are private and append-only. Each
+      // immutable snapshot links to its parent(s), so concurrent devices do
+      // not overwrite one another when they play offline.
+      match /game_saves/{campaignId}/snapshots/{snapshotId} {
+        allow read: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn()
+          && request.auth.uid == userId
+          && snapshotId.matches('^[A-Za-z0-9_-]{1,128}$')
+          && validGameSnapshot(request.resource.data, campaignId);
+        allow update, delete: if false;
       }
     }
 
