@@ -263,7 +263,7 @@ jobs:
 
   agent-review-gate:
     name: Agent review gate
-    if: github.event_name == 'pull_request' # Owner reactivation order in Agent Projet Disponible en Cas de Besoin.txt
+    if: false # Owner lock: agents disabled until explicit reactivation order
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -353,6 +353,8 @@ jobs:
       - name: Require authenticated agent review
         if: steps.existing.outputs.valid != 'true' && steps.codex-auth.outputs.configured != 'true'
         run: |
-          echo "::error::Aucune preuve multi-agents publiée par GitHub Actions pour ce HEAD et OPENAI_API_KEY n'est pas configuré."
-          echo "::error::Configurer le secret de revue automatique, puis relancer ce workflow. Un commentaire utilisateur n'est pas une preuve CI."
+          echo "::error::Aucune preuve multi-agents valide pour ce HEAD et OPENAI_API_KEY n'est pas configuré."
+          echo "::error::Dans le Codespace authentifié, exécuter: bash scripts/agent-toolbox.sh agent-review origin/main HEAD"
+          echo "::error::Puis relancer ce workflow. Un agent absent n'est jamais considéré PASS."
           exit 1
+
