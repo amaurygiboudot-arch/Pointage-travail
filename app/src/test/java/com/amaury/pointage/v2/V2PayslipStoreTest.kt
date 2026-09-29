@@ -1,6 +1,9 @@
 package com.amaury.pointage.v2
 
 import com.amaury.pointage.SalaryCompanyStore
+import com.amaury.pointage.V2SalaryAdapter
+import com.amaury.pointage.v2.model.ContractTypeV2
+import com.amaury.pointage.v2.model.ContractV2
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -184,6 +187,80 @@ class V2PayslipStoreTest {
         val stored = SalaryCompanyStore.ReadResult(emptyList(), reliable = true)
 
         assertNull(V2PayslipStore.confirmedCompany(stored, "company-a"))
+    }
+
+    @Test
+    fun `la base maladie utilise le taux du contrat date pour les heures structurelles`() {
+        val contract = ContractV2(
+            id = "contract-v2",
+            employerId = "company-a",
+            type = ContractTypeV2.FULL_TIME,
+            contractualWeeklyMinutes = 39 * 60,
+            grossHourlyRate = 20.0,
+            hireDateEpochDay = 0L
+        )
+
+        val gross = V2PayslipStore.sicknessContractualGross(
+            contract = contract,
+            regularGross = 2_000.0,
+            overtimeTiers = listOf(
+                V2SalaryAdapter.TierDuration(
+                    label = "Heures supplémentaires structurelles",
+                    durationMs = 3_600_000L,
+                    multiplier = 1.25
+                )
+            )
+        )
+
+        assertEquals(2_025.0, gross ?: -1.0, 0.001)
+    }
+
+    @Test
+    fun `une base maladie structurelle sans taux contractuel confirme reste inconnue`() {
+        val contract = ContractV2(
+            id = "contract-v2",
+            employerId = "company-a",
+            type = ContractTypeV2.FULL_TIME,
+            contractualWeeklyMinutes = 39 * 60,
+            grossHourlyRate = null,
+            hireDateEpochDay = 0L
+        )
+
+        assertNull(
+            V2PayslipStore.sicknessContractualGross(
+                contract = contract,
+                regularGross = 2_000.0,
+                overtimeTiers = listOf(
+                    V2SalaryAdapter.TierDuration(
+                        label = "Heures supplémentaires structurelles",
+                        durationMs = 3_600_000L,
+                        multiplier = 1.25
+                    )
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `le temps partiel conserve uniquement la base reguliere du contrat date`() {
+        val contract = ContractV2(
+            id = "part-time",
+            employerId = "company-a",
+            type = ContractTypeV2.PART_TIME,
+            contractualWeeklyMinutes = 20 * 60,
+            grossHourlyRate = 12.0,
+            hireDateEpochDay = 0L
+        )
+
+        assertEquals(
+            1_040.0,
+            V2PayslipStore.sicknessContractualGross(
+                contract = contract,
+                regularGross = 1_040.0,
+                overtimeTiers = emptyList()
+            ) ?: -1.0,
+            0.001
+        )
     }
 
     @Test
