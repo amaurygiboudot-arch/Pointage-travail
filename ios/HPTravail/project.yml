@@ -121,6 +121,7 @@ targets:
       - path: HPTravail/SalaryV2/SalaryPayrollSourceKnowledgeV2.swift
       - path: HPTravail/SalaryV2/SalaryConventionSeniorityPremiumBridgeV2.swift
       - path: HPTravail/SalaryV2/SalaryConfirmedCashGrossComponentsBridgeV2.swift
+      - path: HPTravail/SalaryV2/SalarySegmentedFixedCashComponentsBridgeV2.swift
       - path: HPTravail/SalaryV2/EmployerHealthFamilyV2.swift
       - path: HPTravail/SalaryV2/PayrollEngineV2.swift
       - path: HPTravail/SalaryV2/PaidTimePolicyV2.swift
