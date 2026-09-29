@@ -147,7 +147,6 @@ final class SalaryV2Store: ObservableObject {
             companies: storedCompanies
         )
         let taxRate = companyId.map { incomeTaxStore.snapshot(companyId: $0, for: period) }
-        let reference = companyId.flatMap { referenceProvider($0, period) }
         let workSource = companyId.map { _ in workSourceProvider() }
         let paidWork: SalaryPaidWorkAggregationV2? = {
             guard let companyId, let source = workSource else { return nil }
@@ -248,6 +247,8 @@ final class SalaryV2Store: ObservableObject {
             !(segmentedPayrollBoundary?.transitionEpochDays.isEmpty ?? true) ||
             ((contractResolution?.resolution?.calculationSegments.count ?? 0) > 1 &&
              contractResolution?.readyForSingleContractCalculation != true)
+        let reference = needsSegmentedSource
+            ? nil : companyId.flatMap { referenceProvider($0, period) }
         self.segmentedSocialCeiling = needsSegmentedSource
             ? Self.resolveSegmentedCeiling(
                 companyId: companyId,
@@ -863,7 +864,6 @@ final class SalaryV2Store: ObservableObject {
     private func recompute() {
         let companyId = selectedCompanyId
         let taxRate = companyId.map { incomeTaxStore.snapshot(companyId: $0, for: selectedPeriod) }
-        let reference = companyId.flatMap { referenceProvider($0, selectedPeriod) }
 
         if let companyId {
             let source = workSourceProvider()
@@ -955,6 +955,8 @@ final class SalaryV2Store: ObservableObject {
         }
 
         let needsSegmentedSource = hasMaterialSegmentedPayrollTransition || requiresSegmentedProration
+        let reference = needsSegmentedSource
+            ? nil : companyId.flatMap { referenceProvider($0, selectedPeriod) }
         snapshot = SalaryWorkspaceResolverV2.resolve(
             period: selectedPeriod,
             requiresSegmentedSource: needsSegmentedSource,
