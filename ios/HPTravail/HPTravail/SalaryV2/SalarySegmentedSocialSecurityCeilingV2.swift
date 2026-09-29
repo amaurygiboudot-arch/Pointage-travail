@@ -18,6 +18,22 @@ enum SalarySegmentedSocialSecurityCeilingV2 {
     static let hireDateWarning =
         "Plafond SS segmenté : date d'entrée confirmée absente ou incohérente."
 
+    /// Réutilise uniquement un total d'heures complémentaires déjà prouvé par B20.
+    /// Une source absente, non fiable, négative ou en dépassement reste inconnue.
+    static func confirmedComplementaryMinutes(
+        from source: SalarySegmentedWorkedVariableGrossSourceResultV2?
+    ) -> Int? {
+        guard let source, source.reliable else { return nil }
+        var total = 0
+        for item in source.breakdowns {
+            guard item.complementaryMinutes >= 0 else { return nil }
+            let addition = total.addingReportingOverflow(item.complementaryMinutes)
+            guard !addition.overflow else { return nil }
+            total = addition.partialValue
+        }
+        return total
+    }
+
     static func resolve(
         period: YearMonthV2,
         contracts: SalaryEmploymentContractPeriodResolutionV2,
