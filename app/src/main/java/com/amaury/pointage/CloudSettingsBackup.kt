@@ -15,12 +15,12 @@ object CloudSettingsBackup {
     fun restoreAll(context:Context,onDone:(Boolean,String)->Unit){val user=FirebaseAuth.getInstance().currentUser?:return onDone(false,"Aucun compte Google connecté");val app=context.applicationContext;FirebaseFirestore.getInstance().collection("users").document(user.uid).collection(COLLECTION).document(DOCUMENT).get().addOnSuccessListener{doc->if(!doc.exists())return@addOnSuccessListener onDone(false,"Aucune sauvegarde de réglages trouvée");val payload=doc.getString("payload");if(payload.isNullOrBlank())return@addOnSuccessListener onDone(false,"Sauvegarde de réglages vide : rien n'a été remplacé");val root=runCatching{JSONObject(payload)}.getOrNull();if(root==null||root.length()==0)return@addOnSuccessListener onDone(false,"Sauvegarde de réglages illisible : rien n'a été remplacé");val result=runCatching{importPreferences(app,root)};if(result.isSuccess)onDone(true,"réglages fusionnés sans effacer les données locales") else onDone(false,"Restauration des réglages impossible : ${result.exceptionOrNull()?.localizedMessage?:"erreur inconnue"}")}.addOnFailureListener{onDone(false,it.localizedMessage?:"Firestore refuse la restauration des réglages")}}
     private fun exportPreferences(context:Context):JSONObject{val root=JSONObject();val dir=File(context.applicationInfo.dataDir,"shared_prefs");dir.listFiles().orEmpty().filter{it.isFile&&it.name.endsWith(".xml")}.map{it.name.removeSuffix(".xml")}.filter(::shouldBackup).sorted().forEach{name->val values=JSONObject();context.getSharedPreferences(name,Context.MODE_PRIVATE).all.forEach{(k,v)->if(BackupPreferenceKeyPolicy.canTransfer(name,k))when(v){null->Unit;is Boolean,is Int,is Long,is Float,is String->values.put(k,v);is Set<*>->values.put(k,JSONArray(v.filterIsInstance<String>().sorted()))}};root.put(name,values)};return root}
     private fun importPreferences(context: Context, root: JSONObject) {
+        val files = validateImport(root)
         val gpsEditor = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE).edit()
         GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach(gpsEditor::remove)
         if (!gpsEditor.commit()) error("Échec de réinitialisation de la présence GPS")
 
-        for (name in root.keys().asSequence().toList().filter(::shouldBackup)) {
-            val values = root.optJSONObject(name) ?: continue
+        for ((name, values) in files) {
             val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE)
             val editor = prefs.edit()
             if (name == "gps_settings") {
@@ -54,6 +54,28 @@ object CloudSettingsBackup {
         }
 
         GeofenceManager.reconfigureStoredZones(context)
+    }
+    internal fun validateImport(root: JSONObject): List<Pair<String, JSONObject>> {
+        val files = root.keys().asSequence().filter(::shouldBackup).map { name ->
+            val values = root.optJSONObject(name)
+                ?: error("Fichier de réglages invalide : $name")
+            for (key in values.keys()) {
+                if (!GpsPresenceStateKeysV2.isTransferablePreferenceKey(name, key)) continue
+                val value = values.opt(key)
+                when (value) {
+                    is Boolean, is Int, is Long, is Double, is String -> Unit
+                    is JSONArray -> {
+                        for (index in 0 until value.length()) {
+                            require(value.opt(index) is String) { "Liste de réglages invalide : $name/$key" }
+                        }
+                    }
+                    else -> error("Valeur de réglage invalide : $name/$key")
+                }
+            }
+            name to values
+        }.toList()
+        require(files.isNotEmpty()) { "Aucun réglage restaurable" }
+        return files
     }
     private fun shouldBackup(name:String):Boolean=BackupSecurityPolicy.canTransferPreferenceFile(name)
 }

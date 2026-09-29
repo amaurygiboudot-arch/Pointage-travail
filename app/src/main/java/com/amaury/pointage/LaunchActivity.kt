@@ -131,7 +131,7 @@ class LaunchActivity : Activity() {
         })
 
         card.addView(TextView(this).apply {
-            text = "BIENVENUE SUR HORATRACK"
+            text = "BIENVENUE SUR AGKGMG"
             gravity = Gravity.CENTER
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 20f

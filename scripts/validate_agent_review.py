@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 
 MARKER = re.compile(r"<!-- HORATRACK_AGENT_REVIEW_V1:([A-Za-z0-9_-]+) -->")
+OWNER_LOGIN = "amaurygiboudot-arch"
+ACTION_LOGIN = "github-actions[bot]"
 
 
 def load_json(path: str):
@@ -26,24 +28,36 @@ def decode_marker(body: str):
     return reports
 
 
-def report_from_comments(path: str, head: str):
+def report_from_comments(path: str, head: str, base: str | None = None):
     comments = load_json(path)
     candidates = []
     for comment in comments:
-        body = comment.get("body", "") if isinstance(comment, dict) else ""
+        if not isinstance(comment, dict):
+            continue
+        author = comment.get("user", {}).get("login") if isinstance(comment.get("user"), dict) else None
+        owner = author == OWNER_LOGIN and comment.get("author_association") == "OWNER"
+        app = comment.get("performed_via_github_app")
+        action = author == ACTION_LOGIN and isinstance(app, dict) and app.get("slug") == "github-actions"
+        if not (owner or action):
+            continue
+        body = comment.get("body", "")
         for report in decode_marker(body):
-            if report.get("head_sha") == head:
+            if report.get("head_sha") == head and (base is None or report.get("base_sha") == base):
                 candidates.append(report)
     return candidates[-1] if candidates else None
 
 
 def validate(route: dict, report: dict, head: str) -> list[str]:
     errors = []
+    if route.get("head_sha") != head:
+        errors.append("head_sha du routeur différent du HEAD demandé")
     if report is None:
-        return ["aucun rapport d'agents valide trouvé pour ce HEAD"]
+        return errors + ["aucun rapport d'agents valide trouvé pour ce HEAD"]
 
-    if report.get("schema_version") != 1:
-        errors.append("schema_version != 1")
+    if report.get("schema_version") != 2:
+        errors.append("schema_version != 2")
+    if report.get("base_sha") != route.get("base_sha"):
+        errors.append("base_sha du rapport différent de la base courante")
     if report.get("head_sha") != head:
         errors.append("head_sha du rapport différent du HEAD courant")
 
@@ -105,7 +119,9 @@ def main() -> int:
     args = parser.parse_args()
 
     route = load_json(args.route)
-    report = load_json(args.report) if args.report else report_from_comments(args.comments, args.head)
+    report = load_json(args.report) if args.report else report_from_comments(
+        args.comments, args.head, route.get("base_sha")
+    )
     errors = validate(route, report, args.head)
 
     if errors:

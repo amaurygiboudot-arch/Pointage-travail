@@ -22,6 +22,14 @@ struct ContentView: View {
     @State private var clockInFeedback: String?
     @State private var gpsFeedback: String?
     @State private var homeTabBarVisible = true
+    @State private var settingsPage: SettingsPage?
+
+    private enum SettingsPage: String {
+        case account = "Compte & sécurité"
+        case pointage = "Pointage & lieux"
+        case personalization = "Personnalisation"
+        case help = "Aide"
+    }
 
     var body: some View {
         TabView {
@@ -338,152 +346,190 @@ struct ContentView: View {
     private var settingsView: some View {
         NavigationStack {
             Form {
-                Section("Application") {
-                    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
-                    let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
-                    Text("Version \(version) (\(build))")
-                        .foregroundStyle(.secondary)
+                if settingsPage == nil {
+                    Section {
+                        ForEach([SettingsPage.account, .pointage, .personalization, .help], id: \.self) { page in
+                            Button {
+                                settingsPage = page
+                            } label: {
+                                HStack {
+                                    Text(page.rawValue)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .frame(minHeight: 44)
+                                .contentShape(Rectangle())
+                            }
+                        }
+                    }
                 }
 
-                Section("Compte & sécurité") {
-                    if !authManager.isFirebaseConfigured {
-                        Text("Configuration Firebase iOS requise")
+                if settingsPage == nil {
+                    Section("Application") {
+                        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+                        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
+                        Text("Version \(version) (\(build))")
                             .foregroundStyle(.secondary)
-                    } else {
-                        HStack {
-                            Text("Google")
-                            Spacer()
-                            Text(authManager.isGoogleLinked ? "Connecté" : "Non connecté")
-                                .foregroundStyle(authManager.isGoogleLinked ? .green : .secondary)
-                        }
-                        if !authManager.isGoogleLinked {
-                            Button("SE CONNECTER AVEC GOOGLE") {
-                                authManager.signInWithGoogle()
-                            }
-                        }
+                    }
+                }
 
-                        HStack {
-                            Text("Apple")
-                            Spacer()
-                            Text(authManager.isAppleLinked ? "Connecté" : "Non connecté")
-                                .foregroundStyle(authManager.isAppleLinked ? .green : .secondary)
-                        }
-                        if !authManager.isAppleLinked {
-                            Button("SE CONNECTER AVEC APPLE") {
-                                authManager.signInWithApple()
-                            }
-                        }
-
-                        if let user = authManager.user {
-                            Text(user.displayName ?? user.email ?? "Profil AGKGMG")
+                if settingsPage == .account {
+                    Section("Compte & sécurité") {
+                        if !authManager.isFirebaseConfigured {
+                            Text("Configuration Firebase iOS requise")
                                 .foregroundStyle(.secondary)
-                            Button("SE DÉCONNECTER DU PROFIL", role: .destructive) {
-                                authManager.signOut()
+                        } else {
+                            HStack {
+                                Text("Google")
+                                Spacer()
+                                Text(authManager.isGoogleLinked ? "Connecté" : "Non connecté")
+                                    .foregroundStyle(authManager.isGoogleLinked ? .green : .secondary)
+                            }
+                            if !authManager.isGoogleLinked {
+                                Button("SE CONNECTER AVEC GOOGLE") {
+                                    authManager.signInWithGoogle()
+                                }
+                            }
+
+                            HStack {
+                                Text("Apple")
+                                Spacer()
+                                Text(authManager.isAppleLinked ? "Connecté" : "Non connecté")
+                                    .foregroundStyle(authManager.isAppleLinked ? .green : .secondary)
+                            }
+                            if !authManager.isAppleLinked {
+                                Button("SE CONNECTER AVEC APPLE") {
+                                    authManager.signInWithApple()
+                                }
+                            }
+
+                            if let user = authManager.user {
+                                Text(user.displayName ?? user.email ?? "Profil AGKGMG")
+                                    .foregroundStyle(.secondary)
+                                Button("SE DÉCONNECTER DU PROFIL", role: .destructive) {
+                                    authManager.signOut()
+                                }
                             }
                         }
                     }
                 }
 
-                Section("Pointage & lieux") {
-                    Text(locationLabel)
-                    Text(locationManager.statusMessage)
-                        .foregroundStyle(.secondary)
-                    Toggle(
-                        "Pointage GPS automatique",
-                        isOn: Binding(
-                            get: { locationManager.automaticEnabled },
-                            set: { locationManager.setAutomaticEnabled($0) }
+                if settingsPage == .pointage {
+                    Section("Pointage & lieux") {
+                        Text(locationLabel)
+                        Text(locationManager.statusMessage)
+                            .foregroundStyle(.secondary)
+                        Toggle(
+                            "Pointage GPS automatique",
+                            isOn: Binding(
+                                get: { locationManager.automaticEnabled },
+                                set: { locationManager.setAutomaticEnabled($0) }
+                            )
                         )
-                    )
-                    Button("Obtenir ma position actuelle") {
-                        locationManager.requestCurrentLocation()
-                    }
-                    Button("Autoriser en arrière-plan") {
-                        locationManager.requestAlways()
-                    }
-                    .disabled(
-                        !locationManager.automaticEnabled || locationManager.zones.isEmpty
-                    )
-                    Button("Réessayer l'activation GPS") {
-                        locationManager.retryRegistration()
-                    }
-                    .disabled(
-                        !locationManager.automaticEnabled || locationManager.zones.isEmpty
-                    )
-                    if !locationManager.configurationReliable {
-                        Button("Réinitialiser la configuration GPS", role: .destructive) {
-                            locationManager.resetGpsConfiguration()
+                        Button("Obtenir ma position actuelle") {
+                            locationManager.requestCurrentLocation()
                         }
-                        Text("Cette action efface les zones et événements GPS illisibles, puis désactive l'automatisme.")
+                        Button("Autoriser en arrière-plan") {
+                            locationManager.requestAlways()
+                        }
+                        .disabled(
+                            !locationManager.automaticEnabled || locationManager.zones.isEmpty
+                        )
+                        Button("Réessayer l'activation GPS") {
+                            locationManager.retryRegistration()
+                        }
+                        .disabled(
+                            !locationManager.automaticEnabled || locationManager.zones.isEmpty
+                        )
+                        if !locationManager.configurationReliable {
+                            Button("Réinitialiser la configuration GPS", role: .destructive) {
+                                locationManager.resetGpsConfiguration()
+                            }
+                            Text("Cette action efface les zones et événements GPS illisibles, puis désactive l'automatisme.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(locationManager.zones) { zone in
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(zone.label)
+                                    Text("Poste • rayon \(Int(zone.radius)) m")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button(role: .destructive) {
+                                    locationManager.removeZone(id: zone.id)
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                            }
+                        }
+                        Button("Ajouter une zone Poste ici") {
+                            locationManager.requestCurrentLocation()
+                            showGpsZoneEditor = true
+                        }
+                        .disabled(
+                            !locationManager.configurationReliable
+                                || locationManager.zones.count >= GpsZoneConfigurationV2.maximumZoneCount
+                        )
+                        Text("Maximum 10 zones. Les parkings, pauses et zones candidates ne sont pas encore automatisés sur iPhone.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(locationManager.zones) { zone in
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(zone.label)
-                                Text("Poste • rayon \(Int(zone.radius)) m")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Button(role: .destructive) {
-                                locationManager.removeZone(id: zone.id)
-                            } label: {
-                                Image(systemName: "trash")
-                            }
-                        }
-                    }
-                    Button("Ajouter une zone Poste ici") {
-                        locationManager.requestCurrentLocation()
-                        showGpsZoneEditor = true
-                    }
-                    .disabled(
-                        !locationManager.configurationReliable
-                            || locationManager.zones.count >= GpsZoneConfigurationV2.maximumZoneCount
-                    )
-                    Text("Maximum 10 zones. Les parkings, pauses et zones candidates ne sont pas encore automatisés sur iPhone.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
 
-                Section("Système céleste") {
-                    Picker("Mode du globe", selection: $celestialGlobeMode) {
-                        Text("Local").tag(CelestialGlobeModeV2.local.rawValue)
-                        Text("Monde").tag(CelestialGlobeModeV2.world.rawValue)
+                if settingsPage == .personalization {
+                    Section("Système céleste") {
+                        Picker("Mode du globe", selection: $celestialGlobeMode) {
+                            Text("Local").tag(CelestialGlobeModeV2.local.rawValue)
+                            Text("Monde").tag(CelestialGlobeModeV2.world.rawValue)
+                        }
+                        .pickerStyle(.segmented)
+                        Text(
+                            celestialGlobeMode == CelestialGlobeModeV2.world.rawValue
+                                ? "Monde : le terminateur réel reste au centre pour voir ensemble la partie éclairée et la partie nocturne."
+                                : "Local : le globe reste centré sur votre position GPS."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        if let endpoint = Bundle.main.object(
+                            forInfoDictionaryKey: "CelestialWeatherEndpoint"
+                        ) as? String,
+                           endpoint.contains("open-meteo.com") {
+                            Text("Données météo : Open-Meteo • CC BY 4.0")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    .pickerStyle(.segmented)
-                    Text(
-                        celestialGlobeMode == CelestialGlobeModeV2.world.rawValue
-                            ? "Monde : le terminateur réel reste au centre pour voir ensemble la partie éclairée et la partie nocturne."
-                            : "Local : le globe reste centré sur votre position GPS."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    if let endpoint = Bundle.main.object(
-                        forInfoDictionaryKey: "CelestialWeatherEndpoint"
-                    ) as? String,
-                       endpoint.contains("open-meteo.com") {
-                        Text("Données météo : Open-Meteo • CC BY 4.0")
-                            .font(.caption2)
+
+                    Section("Apparence") {
+                        Picker("Thème", selection: $theme) {
+                            Text("Signature Or").tag("signature")
+                            Text("Acier Bleu").tag("blue")
+                        }
+                    }
+                }
+
+                if settingsPage == .help {
+                    Section("À propos") {
+                        Text("Version iPhone de AGKGMG")
+                        Text("Google et Apple peuvent être liés séparément ou ensemble au même profil Firebase.")
                             .foregroundStyle(.secondary)
                     }
                 }
-
-                Section("Apparence") {
-                    Picker("Thème", selection: $theme) {
-                        Text("Signature Or").tag("signature")
-                        Text("Acier Bleu").tag("blue")
+            }
+            .navigationTitle(settingsPage?.rawValue ?? "Réglages")
+            .toolbar {
+                if settingsPage != nil {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button("Retour aux réglages") {
+                            settingsPage = nil
+                        }
                     }
                 }
-
-                Section("À propos") {
-                    Text("Version iPhone de AGKGMG")
-                    Text("Google et Apple peuvent être liés séparément ou ensemble au même profil Firebase.")
-                        .foregroundStyle(.secondary)
-                }
             }
-            .navigationTitle("Réglages")
         }
     }
 
