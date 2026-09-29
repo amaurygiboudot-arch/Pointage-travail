@@ -1,4 +1,0 @@
-HORATRACK_AGENTS_DISABLED=true
-
-Owner decision: all project agents are disabled until the owner explicitly orders reactivation.
-Do not run specialist agents, team_lead, qa_reviewer, control_gate, or automatic multi-agent review while this file exists.
