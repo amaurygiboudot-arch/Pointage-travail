@@ -23,6 +23,23 @@ import android.widget.TextView
 import android.widget.Toast
 import java.util.Locale
 
+/** Intersections strictes sur une journée circulaire ; des pauses adjacentes sont autorisées. */
+internal object CompanyPauseOverlapV2 {
+    private fun segments(start: Int, end: Int): List<IntRange> =
+        if (end > start) listOf(start until end)
+        else listOf(start until 1440, 0 until end).filterNot { it.isEmpty() }
+
+    fun overlaps(firstStart: Int, firstEnd: Int, secondStart: Int, secondEnd: Int): Boolean {
+        require(listOf(firstStart, firstEnd, secondStart, secondEnd).all { it in 0..1439 })
+        require(firstStart != firstEnd && secondStart != secondEnd)
+        return segments(firstStart, firstEnd).any { first ->
+            segments(secondStart, secondEnd).any { second ->
+                first.first <= second.last && second.first <= first.last
+            }
+        }
+    }
+}
+
 /** Réglages de pauses propres à une entreprise V2, identifiée par son ID stable. */
 object CompanyPauseSettingsV2 {
     private const val MIGRATION_KEY = "base_pauses_v2_migrated"
@@ -340,6 +357,13 @@ class CompanyPauseSettingsV2View(
                 }
                 if (pending.any { !it.valid }) {
                     Toast.makeText(context, "Chaque pause renseignée doit avoir une heure de début et de fin valides", Toast.LENGTH_LONG).show()
+                } else if (pending.filterNot { it.clear }.let { configured ->
+                        configured.size == 2 && CompanyPauseOverlapV2.overlaps(
+                            configured[0].start!!, configured[0].end!!,
+                            configured[1].start!!, configured[1].end!!
+                        )
+                    }) {
+                    Toast.makeText(context, "Les deux pauses ne doivent pas se chevaucher", Toast.LENGTH_LONG).show()
                 } else {
                     pending.forEach { entry ->
                         if (entry.clear) CompanyPauseSettingsV2.clearPause(context, companyId, entry.index)
