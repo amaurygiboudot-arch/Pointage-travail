@@ -65,6 +65,7 @@ final class SalaryV2Store: ObservableObject {
     @Published private(set) var segmentedMonthlyBase: SegmentedMonthlyBaseResultV2?
     @Published private(set) var segmentedPayrollBoundary: SalarySegmentedPayrollBoundaryAssessmentV2?
     @Published private(set) var segmentedWorkedGross: SalarySegmentedWorkedGrossDetailedBridgeResultV2?
+    @Published private(set) var segmentedCashGross: SalarySegmentedCashGrossAssemblyResultV2?
     @Published private(set) var segmentedSocialCeiling: SalarySegmentedSocialSecurityCeilingResultV2?
     @Published var segmentedProrationSourceText = ""
     @Published private(set) var segmentedProrationDraftSegments: [SalarySegmentedProrationDraftSegmentV2] = []
@@ -250,7 +251,7 @@ final class SalaryV2Store: ObservableObject {
              contractResolution?.readyForSingleContractCalculation != true)
         let reference = needsSegmentedSource
             ? nil : companyId.flatMap { referenceProvider($0, period) }
-        self.segmentedWorkedGross = needsSegmentedSource
+        let segmentedWorkedGross = needsSegmentedSource
             ? Self.resolveSegmentedWorkedGross(
                 company: companyId.flatMap {
                     SalaryCompanyStoreV2.confirmedCompany(storedCompanies, companyId: $0)
@@ -263,6 +264,15 @@ final class SalaryV2Store: ObservableObject {
                 now: now
             )
             : nil
+        self.segmentedWorkedGross = segmentedWorkedGross
+        self.segmentedCashGross = Self.resolveSegmentedCashGross(
+            company: companyId.flatMap {
+                SalaryCompanyStoreV2.confirmedCompany(storedCompanies, companyId: $0)
+            },
+            period: period,
+            worked: segmentedWorkedGross,
+            socialProfile: socialProfile
+        )
         self.segmentedSocialCeiling = needsSegmentedSource
             ? Self.resolveSegmentedCeiling(
                 companyId: companyId,
@@ -320,6 +330,7 @@ final class SalaryV2Store: ObservableObject {
             ? (segmentedPayrollBoundary?.warnings ?? [])
             : []
         let segmentedWorkedWarnings = segmentedWorkedGross?.warnings ?? []
+        let segmentedCashWarnings = segmentedCashGross?.warnings ?? []
         let segmentedCeilingWarnings = segmentedSocialCeiling?.warnings ?? []
         let segmentedWorkWarnings = contractSegmentPaidWork?.warnings ?? []
         let workspaceWarnings = snapshot.warnings
@@ -338,6 +349,7 @@ final class SalaryV2Store: ObservableObject {
             + segmentedBaseWarnings
             + segmentedBoundaryWarnings
             + segmentedWorkedWarnings
+            + segmentedCashWarnings
             + segmentedCeilingWarnings
             + segmentedWorkWarnings
             + workspaceWarnings
@@ -939,6 +951,12 @@ final class SalaryV2Store: ObservableObject {
                     now: Date()
                 )
                 : nil
+            segmentedCashGross = Self.resolveSegmentedCashGross(
+                company: SalaryCompanyStoreV2.confirmedCompany(companies, companyId: companyId),
+                period: selectedPeriod,
+                worked: segmentedWorkedGross,
+                socialProfile: socialProfile
+            )
             segmentedSocialCeiling = needsSegmentedSource
                 ? Self.resolveSegmentedCeiling(
                     companyId: companyId,
@@ -977,6 +995,7 @@ final class SalaryV2Store: ObservableObject {
             segmentedMonthlyBase = nil
             segmentedPayrollBoundary = nil
             segmentedWorkedGross = nil
+            segmentedCashGross = nil
             segmentedSocialCeiling = nil
             segmentedProrationSourceText = ""
             segmentedProrationDraftSegments = []
@@ -1017,6 +1036,32 @@ final class SalaryV2Store: ObservableObject {
             contracts: contracts,
             rules: rules,
             now: now
+        )
+    }
+
+    private static func resolveSegmentedCashGross(
+        company: SalaryCompanyV2?,
+        period: YearMonthV2,
+        worked: SalarySegmentedWorkedGrossDetailedBridgeResultV2?,
+        socialProfile: SalaryEmployeeSocialProfileResolutionV2?
+    ) -> SalarySegmentedCashGrossAssemblyResultV2? {
+        guard let company,
+              let worked,
+              worked.reliable,
+              let result = worked.worked,
+              result.base.reliable,
+              let baseGross = result.base.baseGross else { return nil }
+        let fixed = SalarySegmentedFixedCashComponentsBridgeV2.load(
+            companyId: company.id,
+            idcc: company.idcc,
+            period: period,
+            actualMonthlyBaseGross: baseGross,
+            professionalStatus: socialProfile?.reliable == true
+                ? socialProfile?.professionalStatus?.rawValue : nil
+        )
+        return SalarySegmentedCashGrossAssemblerV2.assemble(
+            worked: result,
+            fixed: fixed
         )
     }
 

@@ -358,9 +358,27 @@ struct SalaryV2View: View {
                         )
                         .font(.footnote.bold())
 
-                        Text("Ce montant inclut la base et les variables de travail prouvées. Les primes fixes, avantages, cotisations et le net final restent à confirmer séparément.")
+                        Text("Ce montant inclut la base et les variables de travail prouvées. Les composantes fixes sont contrôlées séparément.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+
+                        if let cash = salaryStore.segmentedCashGross,
+                           cash.reliable,
+                           let cashAmount = cash.cashGross {
+                            Label(
+                                "Brut en espèces segmenté calculé : \(euros(cashAmount))",
+                                systemImage: "checkmark.shield.fill"
+                            )
+                            .font(.footnote.bold())
+
+                            Text("Les avantages en nature, cotisations et le net final restent contrôlés séparément.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Brut en espèces bloqué : ancienneté et primes fixes du mois à confirmer.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     } else {
                         Text("Le brut de travail reste bloqué tant que les pointages, semaines complètes, règles de primes et proratas ne sont pas tous confirmés.")
                             .font(.caption)
