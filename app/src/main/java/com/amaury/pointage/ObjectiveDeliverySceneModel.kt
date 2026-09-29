@@ -430,22 +430,4 @@ internal object ObjectiveDeliverySceneCatalog {
             else -> (replay?.chapterTen ?: campaign.chapterTen).outcome ==
                 ObjectiveDeliveryChapterTenOutcome.CASH_OR_CUSTOMER_RISK
         }
-
-    private fun person(
-        name: String,
-        role: String,
-        task: String,
-        x: Float,
-        y: Float,
-        shirt: Int,
-        skin: Int,
-        hair: Int
-    ): ObjectiveDeliveryScenePerson {
-        val route = listOf(
-            ObjectiveDeliveryScenePoint(x.coerceIn(0.12f, 0.88f), y.coerceIn(0.22f, 0.82f)),
-            ObjectiveDeliveryScenePoint((x + 0.18f).coerceIn(0.12f, 0.88f), (y - 0.13f).coerceIn(0.22f, 0.82f)),
-            ObjectiveDeliveryScenePoint((x - 0.08f).coerceIn(0.12f, 0.88f), (y + 0.10f).coerceIn(0.22f, 0.82f))
-        )
-        return ObjectiveDeliveryScenePerson(name, role, task, route, shirt, skin, hair)
-    }
 }
