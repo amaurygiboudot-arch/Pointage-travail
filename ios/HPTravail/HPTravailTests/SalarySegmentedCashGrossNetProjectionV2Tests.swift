@@ -45,6 +45,61 @@ final class SalarySegmentedCashGrossNetProjectionV2Tests: XCTestCase {
         XCTAssertNil(actual.projection)
     }
 
+    func testMismatchedRateYearBlocksNetButKeepsConfirmedCashGross() {
+        let base = completeContext()
+        let context = SalarySegmentedNetProjectionContextV2(
+            benefits: base.benefits,
+            year: 2025,
+            ceiling: base.ceiling,
+            alsaceMoselleLocalRegime: base.alsaceMoselleLocalRegime,
+            professionalStatus: base.professionalStatus,
+            protectionCategory: base.protectionCategory,
+            companyDeductions: base.companyDeductions,
+            period: base.period,
+            incomeTaxRate: base.incomeTaxRate
+        )
+        let actual = SalarySegmentedCashGrossNetProjectionV2.project(
+            cash: cash(3_000),
+            context: context
+        )
+
+        XCTAssertTrue(actual.cashGrossReliable)
+        XCTAssertFalse(actual.netBeforeIncomeTaxComplete)
+        XCTAssertNil(actual.projection)
+        XCTAssertTrue(actual.warnings.contains(SalarySegmentedCashGrossNetProjectionV2.periodWarning))
+    }
+
+    func testCeilingFromDifferentMonthBlocksSegmentedNet() {
+        let base = completeContext()
+        let context = SalarySegmentedNetProjectionContextV2(
+            benefits: base.benefits,
+            year: base.year,
+            ceiling: SocialSecurityCeilingV2.calculate(
+                .init(
+                    period: YearMonthV2(year: 2026, month: 5)!,
+                    contractType: .fullTime,
+                    contractualWeeklyMinutes: 35 * 60,
+                    entryDate: PayrollCivilDateV2(year: 2020, month: 1, day: 1)!
+                )
+            ),
+            alsaceMoselleLocalRegime: base.alsaceMoselleLocalRegime,
+            professionalStatus: base.professionalStatus,
+            protectionCategory: base.protectionCategory,
+            companyDeductions: base.companyDeductions,
+            period: base.period,
+            incomeTaxRate: base.incomeTaxRate
+        )
+        let actual = SalarySegmentedCashGrossNetProjectionV2.project(
+            cash: cash(3_000),
+            context: context
+        )
+
+        XCTAssertTrue(actual.cashGrossReliable)
+        XCTAssertFalse(actual.netBeforeIncomeTaxComplete)
+        XCTAssertNil(actual.projection)
+        XCTAssertTrue(actual.warnings.contains(SalarySegmentedCashGrossNetProjectionV2.periodWarning))
+    }
+
     func testIncompleteCeilingKeepsCashButBlocksFinalNet() {
         var context = completeContext()
         context = .init(
