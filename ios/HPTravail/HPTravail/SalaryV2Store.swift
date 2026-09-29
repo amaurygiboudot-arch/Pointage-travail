@@ -64,6 +64,7 @@ final class SalaryV2Store: ObservableObject {
     @Published private(set) var segmentedProrationSource: SalarySegmentedProrationSourceV2?
     @Published private(set) var segmentedMonthlyBase: SegmentedMonthlyBaseResultV2?
     @Published private(set) var segmentedPayrollBoundary: SalarySegmentedPayrollBoundaryAssessmentV2?
+    @Published private(set) var segmentedWorkedGross: SalarySegmentedWorkedGrossDetailedBridgeResultV2?
     @Published private(set) var segmentedSocialCeiling: SalarySegmentedSocialSecurityCeilingResultV2?
     @Published var segmentedProrationSourceText = ""
     @Published private(set) var segmentedProrationDraftSegments: [SalarySegmentedProrationDraftSegmentV2] = []
@@ -249,6 +250,19 @@ final class SalaryV2Store: ObservableObject {
              contractResolution?.readyForSingleContractCalculation != true)
         let reference = needsSegmentedSource
             ? nil : companyId.flatMap { referenceProvider($0, period) }
+        self.segmentedWorkedGross = needsSegmentedSource
+            ? Self.resolveSegmentedWorkedGross(
+                company: companyId.flatMap {
+                    SalaryCompanyStoreV2.confirmedCompany(storedCompanies, companyId: $0)
+                },
+                period: period,
+                contracts: contractResolution?.resolution,
+                rules: conventionCoverage,
+                work: workSource,
+                calendar: calendar,
+                now: now
+            )
+            : nil
         self.segmentedSocialCeiling = needsSegmentedSource
             ? Self.resolveSegmentedCeiling(
                 companyId: companyId,
@@ -305,6 +319,7 @@ final class SalaryV2Store: ObservableObject {
         let segmentedBoundaryWarnings = hasMaterialSegmentedPayrollTransition
             ? (segmentedPayrollBoundary?.warnings ?? [])
             : []
+        let segmentedWorkedWarnings = segmentedWorkedGross?.warnings ?? []
         let segmentedCeilingWarnings = segmentedSocialCeiling?.warnings ?? []
         let segmentedWorkWarnings = contractSegmentPaidWork?.warnings ?? []
         let workspaceWarnings = snapshot.warnings
@@ -322,6 +337,7 @@ final class SalaryV2Store: ObservableObject {
             + segmentedProrationWarnings
             + segmentedBaseWarnings
             + segmentedBoundaryWarnings
+            + segmentedWorkedWarnings
             + segmentedCeilingWarnings
             + segmentedWorkWarnings
             + workspaceWarnings
@@ -912,6 +928,17 @@ final class SalaryV2Store: ObservableObject {
                 segmentedPayrollBoundary = nil
             }
             let needsSegmentedSource = hasMaterialSegmentedPayrollTransition || requiresSegmentedProration
+            segmentedWorkedGross = needsSegmentedSource
+                ? Self.resolveSegmentedWorkedGross(
+                    company: SalaryCompanyStoreV2.confirmedCompany(companies, companyId: companyId),
+                    period: selectedPeriod,
+                    contracts: contractResolution?.resolution,
+                    rules: conventionCoverage,
+                    work: source,
+                    calendar: calendar,
+                    now: Date()
+                )
+                : nil
             segmentedSocialCeiling = needsSegmentedSource
                 ? Self.resolveSegmentedCeiling(
                     companyId: companyId,
@@ -949,6 +976,7 @@ final class SalaryV2Store: ObservableObject {
             segmentedProrationSource = nil
             segmentedMonthlyBase = nil
             segmentedPayrollBoundary = nil
+            segmentedWorkedGross = nil
             segmentedSocialCeiling = nil
             segmentedProrationSourceText = ""
             segmentedProrationDraftSegments = []
@@ -968,6 +996,28 @@ final class SalaryV2Store: ObservableObject {
         incomeTaxSource = taxRate?.source ?? ""
         hydrateContractForm(from: contractResolution?.resolution?.coverage?.singleSnapshotForWholePeriod)
         hydrateConventionClassification()
+    }
+
+    private static func resolveSegmentedWorkedGross(
+        company: SalaryCompanyV2?,
+        period: YearMonthV2,
+        contracts: SalaryEmploymentContractPeriodResolutionV2?,
+        rules: SalaryConventionCoverageV2?,
+        work: SalaryWorkSessionSourceV2?,
+        calendar: Calendar,
+        now: Date
+    ) -> SalarySegmentedWorkedGrossDetailedBridgeResultV2? {
+        guard let company, let contracts, let rules, let work else { return nil }
+        return SalarySegmentedWorkedGrossProductionBridgeV2.calculateDetailedFromStores(
+            companyId: company.id,
+            companyAddress: company.address,
+            period: period,
+            timeZoneId: calendar.timeZone.identifier,
+            work: work,
+            contracts: contracts,
+            rules: rules,
+            now: now
+        )
     }
 
     private static func resolveSegmentedCeiling(
