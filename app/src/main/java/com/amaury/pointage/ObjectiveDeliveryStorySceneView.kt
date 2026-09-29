@@ -144,10 +144,17 @@ internal class ObjectiveDeliveryStorySceneView(
         if (index !in scene.people.indices) return
         val person = scene.people[index]
         val status = sceneCanvas.agentStatus(index)
-        selectedPersonDetails.text =
-            "${moodFace(person.mood)} ${person.name} • ${person.role}\n${person.task}\n$status"
+        val dialogue = sceneCanvas.agentSpeechLine(index)
+        val speechDescription = dialogue?.let { " Réplique : $it." }.orEmpty()
+        selectedPersonDetails.text = buildString {
+            append(moodFace(person.mood)).append(" ").append(person.name)
+                .append(" • ").append(person.role)
+            append("\n").append(person.task)
+            append("\n").append(status)
+            dialogue?.let { append("\n« ").append(it).append(" »") }
+        }
         selectedPersonDetails.contentDescription =
-            "${person.name}, ${person.role}. ${person.task} $status Humeur : ${moodLabel(person.mood)}."
+            "${person.name}, ${person.role}. ${person.task} $status Humeur : ${moodLabel(person.mood)}.$speechDescription"
     }
 
     private fun sceneText(
@@ -487,6 +494,12 @@ private class ObjectiveDeliverySceneCanvas(
         }
     }
 
+    fun agentSpeechLine(index: Int): String? {
+        val agent = npcAgents[index] ?: return null
+        val step = agent.plan.getOrNull(agent.stepIndex) ?: return null
+        return ObjectiveDeliveryNpcBrain.speechLine(scene, index, step, agent.isMoving)
+    }
+
     private fun initializeNpcBrains(elapsed: Float) {
         npcAgents.clear()
         scene.people.indices.forEach { index ->
@@ -766,6 +779,68 @@ private class ObjectiveDeliverySceneCanvas(
         text.textSize = dp(8f)
         canvas.drawText("TU ES ICI • " + zone.label, labelPill.centerX(), labelPill.centerY() + dp(3f), text)
         drawMiniMap(canvas)
+        drawSelectedNpcSpeech(canvas)
+    }
+
+    private fun drawSelectedNpcSpeech(canvas: Canvas) {
+        val dialogue = agentSpeechLine(selectedIndex) ?: return
+        if (width <= dp(120f) || height <= dp(100f)) return
+
+        val elapsed = (SystemClock.uptimeMillis() - animationStart) / 1000f
+        val person = characterPosition(selectedIndex, elapsed)
+        val screenX = width / 2f + (person.first - cameraX) * zoomFactor
+        val screenY = height / 2f + (person.second - cameraY) * zoomFactor
+
+        text.textAlign = Paint.Align.LEFT
+        text.textSize = dp(9.5f)
+        val maxBubbleWidth = (width - dp(24f)).coerceAtMost(dp(250f))
+        val fittedDialogue = fitDialogueLine(dialogue, maxBubbleWidth - dp(18f))
+        val bubbleWidth = (text.measureText(fittedDialogue) + dp(18f))
+            .coerceIn(dp(90f), maxBubbleWidth)
+        val bubbleHeight = dp(28f)
+        val margin = dp(8f)
+        val left = (screenX - bubbleWidth / 2f)
+            .coerceIn(margin, (width - bubbleWidth - margin).coerceAtLeast(margin))
+        val minTop = dp(62f)
+        val maxTop = (height - bubbleHeight - margin).coerceAtLeast(minTop)
+        val abovePerson = screenY - dp(56f)
+        val preferredTop = if (abovePerson < minTop) screenY + dp(18f) else abovePerson
+        val top = preferredTop.coerceIn(minTop, maxTop)
+        val bubble = RectF(left, top, left + bubbleWidth, top + bubbleHeight)
+
+        fill.color = 0xF5FFFFFF.toInt()
+        canvas.drawRoundRect(bubble, dp(10f), dp(10f), fill)
+        stroke.color = 0xFF8DAFA8.toInt()
+        stroke.strokeWidth = dp(0.7f)
+        canvas.drawRoundRect(bubble, dp(10f), dp(10f), stroke)
+
+        val tailX = screenX.coerceIn(bubble.left + dp(10f), bubble.right - dp(10f))
+        val tail = Path().apply {
+            moveTo(tailX - dp(5f), bubble.bottom - dp(1f))
+            lineTo(tailX, bubble.bottom + dp(5f))
+            lineTo(tailX + dp(5f), bubble.bottom - dp(1f))
+            close()
+        }
+        canvas.drawPath(tail, fill)
+        canvas.drawPath(tail, stroke)
+
+        text.color = 0xFF28545C.toInt()
+        canvas.drawText(
+            fittedDialogue,
+            bubble.left + dp(9f),
+            bubble.centerY() + dp(3.2f),
+            text
+        )
+        text.textAlign = Paint.Align.CENTER
+    }
+
+    private fun fitDialogueLine(value: String, maxWidth: Float): String {
+        if (text.measureText(value) <= maxWidth) return value
+        for (end in value.lastIndex downTo 1) {
+            val candidate = value.substring(0, end).trimEnd() + "…"
+            if (text.measureText(candidate) <= maxWidth) return candidate
+        }
+        return "…"
     }
 
     private fun drawMiniMap(canvas: Canvas) {
