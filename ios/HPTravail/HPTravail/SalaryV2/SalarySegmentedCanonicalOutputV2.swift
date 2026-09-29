@@ -1,6 +1,7 @@
 import Foundation
 
 struct SalarySegmentedCanonicalOutputV2 {
+    let period: YearMonthV2
     let worked: SalarySegmentedWorkedGrossProductionResultV2
     let cash: SalarySegmentedCashGrossAssemblyResultV2
     let net: SalarySegmentedCashGrossNetProjectionResultV2
@@ -44,6 +45,7 @@ enum SalarySegmentedCanonicalOutputAssemblerV2 {
         "Sortie Salaire segmentée : la projection nette ne correspond pas au brut fiable de cette chaîne."
 
     static func assemble(
+        period: YearMonthV2,
         worked: SalarySegmentedWorkedGrossProductionResultV2,
         cash: SalarySegmentedCashGrossAssemblyResultV2,
         net: SalarySegmentedCashGrossNetProjectionResultV2
@@ -143,6 +145,7 @@ enum SalarySegmentedCanonicalOutputAssemblerV2 {
         if net.netBeforeIncomeTaxComplete && !netComplete { warnings.append(netProofWarning) }
 
         return .init(
+            period: period,
             worked: worked,
             cash: cash,
             net: net,

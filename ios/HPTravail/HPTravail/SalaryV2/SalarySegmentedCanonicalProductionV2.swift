@@ -21,6 +21,7 @@ enum SalarySegmentedCanonicalProductionV2 {
             context: netContext
         )
         let output = SalarySegmentedCanonicalOutputAssemblerV2.assemble(
+            period: YearMonthV2(year: netContext.period.year, month: netContext.period.month)!,
             worked: worked,
             cash: cash,
             net: net
