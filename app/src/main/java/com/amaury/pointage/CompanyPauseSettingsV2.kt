@@ -207,6 +207,16 @@ class CompanyPauseSettingsV2View(
         var soundValue: String
     )
 
+    private data class PendingPause(
+        val index: Int,
+        val fields: PauseFields,
+        val start: Int?,
+        val end: Int?,
+        val clear: Boolean
+    ) {
+        val valid: Boolean get() = clear || (start != null && end != null && start != end)
+    }
+
     init {
         orientation = VERTICAL
         setPadding(0, dp(14), 0, dp(6))
@@ -323,26 +333,25 @@ class CompanyPauseSettingsV2View(
 
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val entries = listOf(1 to p1, 2 to p2)
-                var invalid = false
-                entries.forEach { (index, fields) ->
+                val pending = listOf(1 to p1, 2 to p2).map { (index, fields) ->
                     val rawStart = fields.start.text.toString()
                     val rawEnd = fields.end.text.toString()
-                    val bothBlank = rawStart.isBlank() && rawEnd.isBlank()
-                    val start = parse(rawStart)
-                    val end = parse(rawEnd)
-                    when {
-                        bothBlank -> CompanyPauseSettingsV2.clearPause(context, companyId, index)
-                        start == null || end == null || start == end -> invalid = true
-                        else -> {
-                            CompanyPauseSettingsV2.savePause(context, companyId, index, start, end, fields.paid.isChecked)
-                            CompanyPauseSettingsV2.saveAlarm(context, companyId, index, fields.alarm.isChecked, fields.soundValue)
-                        }
-                    }
+                    PendingPause(index, fields, parse(rawStart), parse(rawEnd), rawStart.isBlank() && rawEnd.isBlank())
                 }
-                if (invalid) {
+                if (pending.any { !it.valid }) {
                     Toast.makeText(context, "Chaque pause renseignée doit avoir une heure de début et de fin valides", Toast.LENGTH_LONG).show()
                 } else {
+                    pending.forEach { entry ->
+                        if (entry.clear) CompanyPauseSettingsV2.clearPause(context, companyId, entry.index)
+                        else {
+                            CompanyPauseSettingsV2.savePause(
+                                context, companyId, entry.index, entry.start!!, entry.end!!, entry.fields.paid.isChecked
+                            )
+                            CompanyPauseSettingsV2.saveAlarm(
+                                context, companyId, entry.index, entry.fields.alarm.isChecked, entry.fields.soundValue
+                            )
+                        }
+                    }
                     PauseAlarmSoundCatalog.stopPreview()
                     CompanyPauseAlarmManager.scheduleAll(context)
                     if (p1.alarm.isChecked || p2.alarm.isChecked) requestAlarmPermissionsIfNeeded()
