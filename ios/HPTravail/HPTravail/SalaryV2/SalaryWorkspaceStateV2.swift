@@ -25,6 +25,46 @@ enum SalaryWorkspaceResolverV2 {
 
     static func resolve(
         period: YearMonthV2,
+        segmented: SalarySegmentedCanonicalOutputV2?
+    ) -> SalaryWorkspaceSnapshotV2 {
+        guard let segmented else {
+            return SalaryWorkspaceSnapshotV2(
+                period: period,
+                sourceReady: false,
+                socialGross: nil,
+                netBeforeIncomeTax: nil,
+                netTaxable: nil,
+                incomeTax: nil,
+                netAfterIncomeTax: nil,
+                warnings: [upstreamUnavailableWarning]
+            )
+        }
+
+        let sourceReady =
+            segmented.paidTimeReliable &&
+            segmented.workedGrossReliable &&
+            segmented.cashGrossReliable
+        let socialGross = segmented.net.projection.flatMap { projection in
+            projection.grossReliable && projection.contributionGross.isFinite && projection.contributionGross >= 0
+                ? projection.contributionGross
+                : nil
+        }
+        let netComplete = sourceReady && segmented.netBeforeIncomeTaxComplete
+
+        return SalaryWorkspaceSnapshotV2(
+            period: period,
+            sourceReady: sourceReady,
+            socialGross: sourceReady ? socialGross : nil,
+            netBeforeIncomeTax: netComplete ? segmented.netBeforeIncomeTax : nil,
+            netTaxable: netComplete ? segmented.netTaxable : nil,
+            incomeTax: netComplete ? segmented.incomeTax : nil,
+            netAfterIncomeTax: netComplete ? segmented.netAfterIncomeTax : nil,
+            warnings: unique(segmented.warnings)
+        )
+    }
+
+    static func resolve(
+        period: YearMonthV2,
         reference: SalaryReferenceContractV2?,
         incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot? = nil
     ) -> SalaryWorkspaceSnapshotV2 {
