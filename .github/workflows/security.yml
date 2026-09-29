@@ -263,7 +263,7 @@ jobs:
 
   agent-review-gate:
     name: Agent review gate
-    if: false # Owner lock: agents disabled until explicit reactivation order
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
