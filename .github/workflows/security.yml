@@ -263,7 +263,7 @@ jobs:
 
   agent-review-gate:
     name: Agent review gate
-    if: github.event_name == 'pull_request' # Owner reactivation order in Fusion.txt
+    if: github.event_name == 'pull_request' # Owner reactivation order in Agent Projet Disponible en Cas de Besoin.txt
     runs-on: ubuntu-latest
     permissions:
       contents: read
