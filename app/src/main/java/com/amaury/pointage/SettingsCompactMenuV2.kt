@@ -43,6 +43,7 @@ object SettingsCompactMenuV2 {
 
     fun showMenu(activity: MainActivity) {
         activePages[activity] = null
+        activity.updateSettingsBackCallback(false)
         SettingsV2Host.panel(activity)?.let { panel ->
             panel.findViewWithTag<View>(SettingsV2Host.TAG_COMPACT_MENU)?.visibility = View.VISIBLE
             panel.findViewWithTag<View>(SettingsV2Host.TAG_COMPACT_BACK)?.visibility = View.GONE
@@ -50,9 +51,20 @@ object SettingsCompactMenuV2 {
         managedSections(activity).forEach { it.visibility = View.GONE }
     }
 
+    fun hasActivePage(activity: MainActivity): Boolean = activePages[activity] != null
+
+    /** Consumes Back only while a settings category is open and visible. */
+    fun handleBack(activity: MainActivity): Boolean {
+        if (SettingsV2Host.panel(activity)?.visibility != View.VISIBLE) return false
+        if (activePages[activity] == null) return false
+        showMenu(activity)
+        return true
+    }
+
     private fun showPage(activity: MainActivity, page: Page) {
         activePages[activity] = page
         val panel = SettingsV2Host.panel(activity) ?: return
+        activity.updateSettingsBackCallback(panel.visibility == View.VISIBLE)
         panel.findViewWithTag<View>(SettingsV2Host.TAG_COMPACT_MENU)?.visibility = View.GONE
         panel.findViewWithTag<View>(SettingsV2Host.TAG_COMPACT_BACK)?.visibility = View.VISIBLE
 
