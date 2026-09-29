@@ -140,6 +140,30 @@ class V2PayslipStoreTest {
     }
 
     @Test
+    fun `la comparaison utilise uniquement l idcc V2 confirme`() {
+        val company = SalaryCompanyStore.Company(
+            id = "company-a",
+            name = "Entreprise A",
+            siret = "12345678901234",
+            idcc = " 292 "
+        )
+
+        assertEquals("292", V2PayslipStore.comparisonCompanyIdcc(company))
+    }
+
+    @Test
+    fun `la comparaison sans idcc V2 ne reactive aucune preference historique`() {
+        val company = SalaryCompanyStore.Company(
+            id = "company-a",
+            name = "Entreprise A",
+            siret = "12345678901234",
+            idcc = "   "
+        )
+
+        assertNull(V2PayslipStore.comparisonCompanyIdcc(company))
+    }
+
+    @Test
     fun `comparaison bulletin exige une entreprise stable`() {
         val assigned = V2PayslipStore.decodeRecords(
             JSONArray().put(recordJson(companyId = " company-a ")).toString()
