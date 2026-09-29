@@ -12,6 +12,7 @@ import android.os.SystemClock
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -43,16 +44,22 @@ internal class ObjectiveDeliveryStorySceneView(
         contentDescription = "Scène animée du chapitre ${scene.chapter}"
 
         addView(sceneText(
-            "LES COULISSES DU CHAPITRE ${scene.chapter}",
+            "MONDE OUVERT • CHAPITRE ${scene.chapter}",
             11f,
             0xFF93D8CB.toInt(),
             bold = true
         ), sceneLayout(bottom = 4))
         addView(sceneText(scene.headline, 19f, Color.WHITE, bold = true), sceneLayout(bottom = 3))
-        addView(sceneText(scene.story, 14f, 0xFFE1EFEC.toInt()), sceneLayout(bottom = 10))
+        addView(sceneText(scene.story, 14f, 0xFFE1EFEC.toInt()), sceneLayout(bottom = 4))
+        addView(sceneText(
+            "Touche le sol pour marcher • glisse pour regarder • pince pour zoomer",
+            12f,
+            0xFFAAD8CE.toInt(),
+            bold = true
+        ), sceneLayout(bottom = 10))
 
         sceneCanvas = ObjectiveDeliverySceneCanvas(context, scene).apply {
-            contentDescription = "Vue de dessus animée : ${scene.zoneLabel}. Touche un personnage pour voir son rôle."
+            contentDescription = "Monde ouvert d’entreprise en vue de dessus : ${scene.zoneLabel}. Touche le sol pour marcher, glisse pour explorer, pince pour zoomer. Sélectionne un personnage pour voir son rôle."
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
         }
         addView(FrameLayout(context).apply {
@@ -60,7 +67,7 @@ internal class ObjectiveDeliveryStorySceneView(
             clipToOutline = true
             addView(sceneCanvas, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                sceneDp(222)
+                sceneDp(294)
             ))
         }, sceneLayout(bottom = 8))
 
@@ -98,7 +105,7 @@ internal class ObjectiveDeliveryStorySceneView(
         }
         addView(chipScroller, sceneLayout(top = 2))
         sceneCanvas.onPersonSelected = ::selectPerson
-        selectPerson(0)
+        selectPerson(sceneCanvas.playerIndex)
     }
 
     internal fun reapplySceneStyles() {
@@ -110,6 +117,7 @@ internal class ObjectiveDeliveryStorySceneView(
         if (scene.people.isEmpty()) return
         val safeIndex = index.coerceIn(scene.people.indices)
         sceneCanvas.selectedIndex = safeIndex
+        sceneCanvas.focusPerson(safeIndex)
         val person = scene.people[safeIndex]
         selectedPersonDetails.text =
             "${moodFace(person.mood)} ${person.name} • ${person.role}\n${person.task}"
@@ -127,8 +135,9 @@ internal class ObjectiveDeliveryStorySceneView(
                 "${scene.people[chipIndex].name}, ${scene.people[chipIndex].role}"
         }
         sceneCanvas.contentDescription =
-            "Vue de dessus animée : ${scene.zoneLabel}. " +
-                "${person.name}, ${person.role}, sélectionné. ${person.task}"
+            "Monde ouvert de l’entreprise. " +
+                "${person.name}, ${person.role}, sélectionné. ${person.task} " +
+                "Touche un endroit pour déplacer la direction, glisse pour explorer et pince pour zoomer."
     }
 
     private fun sceneText(
@@ -168,13 +177,46 @@ private class ObjectiveDeliverySceneCanvas(
     context: Context,
     private val scene: ObjectiveDeliverySceneModel
 ) : View(context) {
+    private data class WorldZone(
+        val label: String,
+        val column: Int,
+        val row: Int,
+        val floorColor: Int
+    )
+
     var selectedIndex: Int = 0
+    val playerIndex: Int = scene.people.indexOfFirst { person ->
+        person.name.equals("Direction", ignoreCase = true) ||
+            person.role.contains("direction", ignoreCase = true)
+    }.let { if (it >= 0) it else 0 }
     var onPersonSelected: ((Int) -> Unit)? = null
 
+    private val zones = listOf(
+        WorldZone("ACCUEIL CLIENT", 0, 0, 0xFFF7F2E8.toInt()),
+        WorldZone("BUREAUX & DEVIS", 1, 0, 0xFFEAF2EE.toInt()),
+        WorldZone("STOCK & MATIÈRES", 2, 0, 0xFFF2EEDC.toInt()),
+        WorldZone("ATELIER & QUALITÉ", 0, 1, 0xFFE7F0ED.toInt()),
+        WorldZone("ESPACE ÉQUIPE", 1, 1, 0xFFEEF1E8.toInt()),
+        WorldZone("QUAI & SÉCURITÉ", 2, 1, 0xFFE7EFED.toInt())
+    )
     private val density = resources.displayMetrics.density
     private var animationStart = 0L
+    private var previousFrameAt = 0L
     private var downX = 0f
     private var downY = 0f
+    private var downCameraX = 0f
+    private var downCameraY = 0f
+    private var managerX = 0f
+    private var managerY = 0f
+    private var cameraX = 0f
+    private var cameraY = 0f
+    private var zoomFactor = 1f
+    private var walkingTarget: ObjectiveDeliveryScenePoint? = null
+    private var trackingIndex = playerIndex
+    private var cameraReady = false
+    private var manualCamera = false
+    private var isDragging = false
+    private var isPinching = false
 
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -186,6 +228,22 @@ private class ObjectiveDeliverySceneCanvas(
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
+    private val scaleDetector = ScaleGestureDetector(
+        context,
+        object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                isPinching = true
+                return true
+            }
+
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                zoomFactor = (zoomFactor * detector.scaleFactor).coerceIn(0.72f, 1.45f)
+                clampCamera()
+                invalidate()
+                return true
+            }
+        }
+    )
 
     private val animateFrame = object : Runnable {
         override fun run() {
@@ -195,9 +253,36 @@ private class ObjectiveDeliverySceneCanvas(
         }
     }
 
+    init {
+        isClickable = true
+        contentDescription =
+            "Monde ouvert d’entreprise. Touche un lieu pour marcher, glisse pour explorer et pince pour zoomer."
+    }
+
+    fun focusPerson(index: Int) {
+        if (scene.people.isEmpty()) return
+        trackingIndex = index.coerceIn(scene.people.indices)
+        manualCamera = false
+        invalidate()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (w > 0 && h > 0) {
+            val start = zoneBounds(activeZoneIndex()).centerPoint()
+            managerX = start.x
+            managerY = start.y
+            cameraX = managerX
+            cameraY = managerY
+            cameraReady = true
+            clampCamera()
+        }
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         animationStart = SystemClock.uptimeMillis()
+        previousFrameAt = 0L
         removeCallbacks(animateFrame)
         post(animateFrame)
     }
@@ -219,61 +304,137 @@ private class ObjectiveDeliverySceneCanvas(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        canvas.drawColor(0xFFD8E9E6.toInt())
+        canvas.drawColor(0xFFB8CEC3.toInt())
         if (width <= 0 || height <= 0) return
 
-        val bounds = floorBounds()
-        drawRoom(canvas, bounds)
-        scene.fixtures.forEach { drawFixture(canvas, bounds, it) }
+        val now = SystemClock.uptimeMillis()
+        val elapsed = (now - animationStart) / 1000f
+        advanceWorld(now, elapsed)
 
-        val elapsed = (SystemClock.uptimeMillis() - animationStart) / 1000f
+        canvas.save()
+        canvas.clipRect(0f, 0f, width.toFloat(), height.toFloat())
+        canvas.translate(width / 2f - cameraX * zoomFactor, height / 2f - cameraY * zoomFactor)
+        canvas.scale(zoomFactor, zoomFactor)
+
+        val world = worldBounds()
+        drawRoom(canvas, world)
+        zones.indices.forEach { index ->
+            val bounds = zoneBounds(index)
+            drawWorldZone(canvas, bounds, zones[index])
+            if (index == activeZoneIndex()) {
+                scene.fixtures.forEach { drawFixture(canvas, bounds, it) }
+            } else {
+                drawGenericFixtures(canvas, bounds, index)
+            }
+        }
+
+        walkingTarget?.let { target ->
+            stroke.color = 0xFF2C8277.toInt()
+            stroke.strokeWidth = dp(2f)
+            canvas.drawCircle(target.x, target.y, dp(11f), stroke)
+            fill.color = 0xFF2C8277.toInt()
+            canvas.drawCircle(target.x, target.y, dp(2.5f), fill)
+        }
+
         scene.people.forEachIndexed { index, person ->
-            val point = characterPosition(index, elapsed, bounds)
+            val point = characterPosition(index, elapsed)
             val bob = sin((elapsed * 4.2f + index).toDouble()).toFloat() * dp(1.5f)
             drawPerson(canvas, point.first, point.second + bob, person, index == selectedIndex, elapsed, index)
         }
-        drawZonePill(canvas, bounds)
+        canvas.restore()
+        drawOpenWorldHud(canvas)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        scaleDetector.onTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = event.x
                 downY = event.y
+                downCameraX = cameraX
+                downCameraY = cameraY
+                isDragging = false
+                isPinching = false
                 return true
             }
-            MotionEvent.ACTION_UP -> {
-                val moved = sqrt(
-                    ((event.x - downX) * (event.x - downX) +
-                        (event.y - downY) * (event.y - downY)).toDouble()
-                )
-                if (moved <= dp(12f)) {
-                    val bounds = floorBounds()
-                    val elapsed = (SystemClock.uptimeMillis() - animationStart) / 1000f
-                    val hitRadius = dp(31f)
-                    var bestIndex = -1
-                    var bestDistance = Float.MAX_VALUE
-                    scene.people.indices.forEach { index ->
-                        val point = characterPosition(index, elapsed, bounds)
-                        val distance = sqrt(
-                            ((event.x - point.first) * (event.x - point.first) +
-                                (event.y - point.second) * (event.y - point.second)).toDouble()
-                        ).toFloat()
-                        if (distance < bestDistance) {
-                            bestDistance = distance
-                            bestIndex = index
-                        }
-                    }
-                    if (bestIndex >= 0 && bestDistance <= hitRadius) {
-                        onPersonSelected?.invoke(bestIndex)
-                        performClick()
-                    }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                isPinching = true
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (scaleDetector.isInProgress || event.pointerCount > 1) {
+                    isPinching = true
+                    return true
+                }
+                val dx = event.x - downX
+                val dy = event.y - downY
+                val distance = sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+                if (distance > dp(12f)) {
+                    isDragging = true
+                    manualCamera = true
+                    cameraX = downCameraX - dx / zoomFactor
+                    cameraY = downCameraY - dy / zoomFactor
+                    clampCamera()
+                    invalidate()
                 }
                 return true
             }
-            MotionEvent.ACTION_CANCEL -> return false
+            MotionEvent.ACTION_POINTER_UP -> {
+                isPinching = true
+                return true
+            }
+            MotionEvent.ACTION_UP -> {
+                val dx = event.x - downX
+                val dy = event.y - downY
+                val distance = sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+                if (!isPinching && !isDragging && distance <= dp(12f)) {
+                    handleWorldTap(event.x, event.y)
+                }
+                isDragging = false
+                isPinching = false
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                isDragging = false
+                isPinching = false
+                return false
+            }
         }
         return true
+    }
+
+    private fun handleWorldTap(screenX: Float, screenY: Float) {
+        val target = screenToWorld(screenX, screenY)
+        var bestIndex = -1
+        var bestDistance = Float.MAX_VALUE
+        scene.people.indices.forEach { index ->
+            val person = characterPosition(index, (SystemClock.uptimeMillis() - animationStart) / 1000f)
+            val personScreenX = width / 2f + (person.first - cameraX) * zoomFactor
+            val personScreenY = height / 2f + (person.second - cameraY) * zoomFactor
+            val distance = sqrt(
+                ((screenX - personScreenX) * (screenX - personScreenX) +
+                    (screenY - personScreenY) * (screenY - personScreenY)).toDouble()
+            ).toFloat()
+            if (distance < bestDistance) {
+                bestDistance = distance
+                bestIndex = index
+            }
+        }
+        if (bestIndex >= 0 && bestDistance <= dp(30f)) {
+            onPersonSelected?.invoke(bestIndex)
+            performClick()
+            return
+        }
+
+        val world = worldBounds()
+        walkingTarget = ObjectiveDeliveryScenePoint(
+            target.x.coerceIn(world.left + dp(12f), world.right - dp(12f)),
+            target.y.coerceIn(world.top + dp(12f), world.bottom - dp(12f))
+        )
+        trackingIndex = playerIndex
+        manualCamera = false
+        performClick()
+        invalidate()
     }
 
     override fun performClick(): Boolean {
@@ -281,48 +442,166 @@ private class ObjectiveDeliverySceneCanvas(
         return true
     }
 
-    private fun floorBounds(): RectF = RectF(
-        width * 0.035f,
-        height * 0.08f,
-        width * 0.965f,
-        height * 0.92f
+    private fun advanceWorld(now: Long, elapsed: Float) {
+        if (!cameraReady) {
+            val start = zoneBounds(activeZoneIndex()).centerPoint()
+            managerX = start.x
+            managerY = start.y
+            cameraX = managerX
+            cameraY = managerY
+            cameraReady = true
+        }
+        val delta = if (previousFrameAt == 0L) 0f else
+            ((now - previousFrameAt) / 1000f).coerceIn(0f, 0.12f)
+        previousFrameAt = now
+        walkingTarget?.let { target ->
+            val dx = target.x - managerX
+            val dy = target.y - managerY
+            val distance = sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+            val step = dp(82f) * delta
+            if (distance <= step || distance < dp(2f)) {
+                managerX = target.x
+                managerY = target.y
+                walkingTarget = null
+            } else if (step > 0f) {
+                managerX += dx / distance * step
+                managerY += dy / distance * step
+            }
+        }
+
+        if (!manualCamera) {
+            val focused = characterPosition(trackingIndex, elapsed)
+            cameraX += (focused.first - cameraX) * 0.16f
+            cameraY += (focused.second - cameraY) * 0.16f
+        }
+        clampCamera()
+    }
+
+    private fun activeZoneIndex(): Int = when (scene.chapter.coerceIn(1, 10)) {
+        1, 2 -> 0
+        3 -> 1
+        4, 8 -> 4
+        5 -> 2
+        6 -> 3
+        7, 9 -> 5
+        else -> 4
+    }
+
+    private fun characterZoneIndex(index: Int): Int {
+        if (index == playerIndex) return activeZoneIndex()
+        val role = scene.people[index].role.lowercase()
+        return when {
+            role.contains("client") && scene.chapter >= 7 -> 5
+            role.contains("client") || role.contains("commerce") || role.contains("vente") -> 0
+            role.contains("approvisionnement") || role.contains("fournisseur") -> 2
+            role.contains("logistique") -> 5
+            role.contains("production") || role.contains("qualité") || role.contains("atelier") -> 3
+            role.contains("équipe") || role.contains("manager") || role.contains("ressources humaines") -> 4
+            else -> activeZoneIndex()
+        }
+    }
+
+    private fun worldBounds(): RectF = RectF(0f, 0f, width * 3f, height * 2f)
+
+    private fun zoneBounds(index: Int): RectF {
+        val zone = zones[index]
+        return RectF(
+            zone.column * width + dp(16f),
+            zone.row * height + dp(16f),
+            (zone.column + 1) * width - dp(16f),
+            (zone.row + 1) * height - dp(16f)
+        )
+    }
+
+    private fun RectF.centerPoint() = ObjectiveDeliveryScenePoint(centerX(), centerY())
+
+    private fun clampCamera() {
+        if (width <= 0 || height <= 0) return
+        val world = worldBounds()
+        val halfWidth = width / (2f * zoomFactor)
+        val halfHeight = height / (2f * zoomFactor)
+        cameraX = cameraX.coerceIn(halfWidth, world.right - halfWidth)
+        cameraY = cameraY.coerceIn(halfHeight, world.bottom - halfHeight)
+    }
+
+    private fun screenToWorld(x: Float, y: Float) = ObjectiveDeliveryScenePoint(
+        cameraX + (x - width / 2f) / zoomFactor,
+        cameraY + (y - height / 2f) / zoomFactor
     )
 
     private fun drawRoom(canvas: Canvas, bounds: RectF) {
-        fill.color = 0xFFBED0CD.toInt()
-        canvas.drawRoundRect(
-            RectF(bounds.left + dp(2f), bounds.top + dp(6f), bounds.right + dp(2f), bounds.bottom + dp(6f)),
-            dp(13f), dp(13f), fill
-        )
+        fill.color = 0xFFB9CEC3.toInt()
+        canvas.drawRect(bounds, fill)
 
-        fill.color = 0xFFF4F7F2.toInt()
-        canvas.drawRoundRect(bounds, dp(13f), dp(13f), fill)
+        fill.color = 0xFFDDE5DE.toInt()
+        val horizontalRoad = bounds.centerY()
+        val verticalRoadOne = bounds.width() / 3f
+        val verticalRoadTwo = verticalRoadOne * 2f
+        val road = dp(18f)
+        canvas.drawRect(bounds.left, horizontalRoad - road, bounds.right, horizontalRoad + road, fill)
+        canvas.drawRect(verticalRoadOne - road, bounds.top, verticalRoadOne + road, bounds.bottom, fill)
+        canvas.drawRect(verticalRoadTwo - road, bounds.top, verticalRoadTwo + road, bounds.bottom, fill)
 
-        val wall = dp(8f)
-        fill.color = 0xFF4A7776.toInt()
-        canvas.drawRoundRect(
-            RectF(bounds.left, bounds.top, bounds.right, bounds.top + wall),
-            dp(12f), dp(12f), fill
-        )
-        fill.color = 0xFF739492.toInt()
-        canvas.drawRect(bounds.left, bounds.top + wall, bounds.left + dp(5f), bounds.bottom - dp(12f), fill)
-        canvas.drawRect(bounds.right - dp(5f), bounds.top + wall, bounds.right, bounds.bottom - dp(12f), fill)
-
-        stroke.color = 0xFFDDE7E3.toInt()
+        stroke.color = 0xFFB9C9C1.toInt()
         stroke.strokeWidth = dp(1f)
-        for (i in 1..5) {
-            val x = bounds.left + bounds.width() * i / 6f
-            canvas.drawLine(x, bounds.top + wall, x, bounds.bottom - dp(12f), stroke)
-        }
-        for (i in 1..3) {
-            val y = bounds.top + wall + (bounds.height() - wall - dp(12f)) * i / 4f
-            canvas.drawLine(bounds.left + dp(5f), y, bounds.right - dp(5f), y, stroke)
-        }
+        canvas.drawLine(bounds.left, horizontalRoad, bounds.right, horizontalRoad, stroke)
+        canvas.drawLine(verticalRoadOne, bounds.top, verticalRoadOne, bounds.bottom, stroke)
+        canvas.drawLine(verticalRoadTwo, bounds.top, verticalRoadTwo, bounds.bottom, stroke)
+    }
 
-        fill.color = 0xFFE5EEEA.toInt()
-        canvas.drawRect(bounds.left + dp(5f), bounds.bottom - dp(18f), bounds.right - dp(5f), bounds.bottom - dp(5f), fill)
-        fill.color = 0xFF9AAEAA.toInt()
-        canvas.drawRect(bounds.left + dp(5f), bounds.bottom - dp(18f), bounds.right - dp(5f), bounds.bottom - dp(15f), fill)
+    private fun drawWorldZone(canvas: Canvas, bounds: RectF, zone: WorldZone) {
+        fill.color = 0x33153639
+        canvas.drawRoundRect(
+            RectF(bounds.left + dp(3f), bounds.top + dp(6f), bounds.right + dp(3f), bounds.bottom + dp(6f)),
+            dp(15f), dp(15f), fill
+        )
+        fill.color = zone.floorColor
+        canvas.drawRoundRect(bounds, dp(14f), dp(14f), fill)
+        stroke.color = 0xFF9FB5AD.toInt()
+        stroke.strokeWidth = dp(1f)
+        canvas.drawRoundRect(bounds, dp(14f), dp(14f), stroke)
+
+        val inset = dp(12f)
+        stroke.color = 0xFFD8E3DD.toInt()
+        stroke.strokeWidth = dp(1f)
+        for (line in 1..4) {
+            val x = bounds.left + inset + (bounds.width() - inset * 2) * line / 5f
+            canvas.drawLine(x, bounds.top + dp(44f), x, bounds.bottom - dp(10f), stroke)
+        }
+        for (line in 1..2) {
+            val y = bounds.top + dp(44f) + (bounds.height() - dp(56f)) * line / 3f
+            canvas.drawLine(bounds.left + dp(7f), y, bounds.right - dp(7f), y, stroke)
+        }
+        drawZonePill(canvas, bounds, zone.label)
+    }
+
+    private fun drawGenericFixtures(canvas: Canvas, bounds: RectF, index: Int) {
+        fun fixture(
+            x: Float,
+            y: Float,
+            width: Float,
+            depth: Float,
+            height: Float,
+            label: String,
+            color: Int,
+            kind: ObjectiveDeliverySceneFixture.Kind = ObjectiveDeliverySceneFixture.Kind.BLOCK
+        ) = ObjectiveDeliverySceneFixture(x, y, width, depth, height, label, color, kind)
+
+        val decorations = when (index) {
+            0 -> listOf(fixture(0.14f, 0.30f, 0.28f, 0.16f, 18f, "ACCUEIL", 0xFF2D8B83.toInt(), ObjectiveDeliverySceneFixture.Kind.DESK))
+            1 -> listOf(
+                fixture(0.14f, 0.30f, 0.25f, 0.14f, 14f, "DEVIS", 0xFFE6AF48.toInt(), ObjectiveDeliverySceneFixture.Kind.DESK),
+                fixture(0.60f, 0.32f, 0.20f, 0.12f, 12f, "DOSSIERS", 0xFF8B72B4.toInt())
+            )
+            2 -> listOf(fixture(0.14f, 0.28f, 0.27f, 0.22f, 22f, "MATIÈRES", 0xFFE6AF48.toInt(), ObjectiveDeliverySceneFixture.Kind.RACK))
+            3 -> listOf(fixture(0.13f, 0.29f, 0.29f, 0.20f, 25f, "MACHINE", 0xFF4387B5.toInt(), ObjectiveDeliverySceneFixture.Kind.MACHINE))
+            4 -> listOf(fixture(0.16f, 0.32f, 0.30f, 0.16f, 10f, "ÉQUIPE", 0xFF8B72B4.toInt(), ObjectiveDeliverySceneFixture.Kind.DESK))
+            else -> listOf(
+                fixture(0.13f, 0.29f, 0.32f, 0.18f, 15f, "DÉPART", 0xFF4387B5.toInt(), ObjectiveDeliverySceneFixture.Kind.VAN),
+                fixture(0.59f, 0.28f, 0.20f, 0.14f, 13f, "CONTRÔLE", 0xFFE17B62.toInt(), ObjectiveDeliverySceneFixture.Kind.BARRIER)
+            )
+        }
+        decorations.forEach { drawFixture(canvas, bounds, it) }
     }
 
     private fun drawFixture(canvas: Canvas, bounds: RectF, fixture: ObjectiveDeliverySceneFixture) {
@@ -341,6 +620,85 @@ private class ObjectiveDeliverySceneCanvas(
             ObjectiveDeliverySceneFixture.Kind.DESK,
             ObjectiveDeliverySceneFixture.Kind.BLOCK -> drawBlock(canvas, body, fixture)
         }
+    }
+
+    private fun drawZonePill(canvas: Canvas, bounds: RectF, label: String) {
+        fill.color = 0xEFFFFFFF.toInt()
+        val width = dp(132f)
+        val pill = RectF(bounds.left + dp(7f), bounds.top + dp(7f), bounds.left + dp(7f) + width, bounds.top + dp(29f))
+        canvas.drawRoundRect(pill, dp(10f), dp(10f), fill)
+        text.color = 0xFF315C5D.toInt()
+        text.textSize = dp(7.2f)
+        canvas.drawText(label, pill.centerX(), pill.centerY() + dp(2.5f), text)
+    }
+
+    private fun drawOpenWorldHud(canvas: Canvas) {
+        val zone = zones[zoneIndexAt(managerX, managerY)]
+        fill.color = 0xEFFFFFFF.toInt()
+        val labelPill = RectF(dp(8f), dp(8f), dp(185f), dp(34f))
+        canvas.drawRoundRect(labelPill, dp(12f), dp(12f), fill)
+        text.color = 0xFF28545C.toInt()
+        text.textSize = dp(8f)
+        canvas.drawText("TU ES ICI • " + zone.label, labelPill.centerX(), labelPill.centerY() + dp(3f), text)
+        drawMiniMap(canvas)
+    }
+
+    private fun drawMiniMap(canvas: Canvas) {
+        val miniWidth = dp(72f)
+        val miniHeight = dp(48f)
+        val left = width - miniWidth - dp(8f)
+        val top = dp(8f)
+        fill.color = 0xEFFFFFFF.toInt()
+        canvas.drawRoundRect(RectF(left, top, left + miniWidth, top + miniHeight), dp(7f), dp(7f), fill)
+        val cellWidth = dp(19f)
+        val cellHeight = dp(12f)
+        val gap = dp(2f)
+        val startX = left + dp(5f)
+        val startY = top + dp(5f)
+        val current = zoneIndexAt(managerX, managerY)
+        zones.forEachIndexed { index, zone ->
+            val x = startX + zone.column * (cellWidth + gap)
+            val y = startY + zone.row * (cellHeight + gap)
+            fill.color = zone.floorColor
+            canvas.drawRoundRect(RectF(x, y, x + cellWidth, y + cellHeight), dp(2f), dp(2f), fill)
+            stroke.color = if (index == current) 0xFFE6AF48.toInt() else 0xFF93AAA2.toInt()
+            stroke.strokeWidth = if (index == current) dp(2f) else dp(0.7f)
+            canvas.drawRoundRect(RectF(x, y, x + cellWidth, y + cellHeight), dp(2f), dp(2f), stroke)
+            if (index == current) {
+                val area = zoneBounds(index)
+                val dotX = x + (managerX - area.left) / area.width() * cellWidth
+                val dotY = y + (managerY - area.top) / area.height() * cellHeight
+                fill.color = 0xFFE17B62.toInt()
+                canvas.drawCircle(dotX.coerceIn(x + dp(2f), x + cellWidth - dp(2f)), dotY.coerceIn(y + dp(2f), y + cellHeight - dp(2f)), dp(2f), fill)
+            }
+        }
+    }
+
+    private fun zoneIndexAt(x: Float, y: Float): Int {
+        val column = (x / width.coerceAtLeast(1)).toInt().coerceIn(0, 2)
+        val row = (y / height.coerceAtLeast(1)).toInt().coerceIn(0, 1)
+        return row * 3 + column
+    }
+
+    private fun characterPosition(index: Int, elapsed: Float): Pair<Float, Float> {
+        if (index == playerIndex) return managerX to managerY
+        val route = scene.people[index].route
+        val bounds = zoneBounds(characterZoneIndex(index))
+        if (route.isEmpty()) return bounds.centerX() to bounds.centerY()
+        if (route.size == 1) {
+            return (bounds.left + bounds.width() * route[0].x) to
+                (bounds.top + dp(18f) + (bounds.height() - dp(36f)) * route[0].y)
+        }
+
+        val phase = (elapsed / 7.5f + index * 0.37f) % route.size
+        val segment = floor(phase.toDouble()).toInt().coerceIn(0, route.lastIndex)
+        val next = (segment + 1) % route.size
+        val raw = phase - segment
+        val eased = raw * raw * (3f - 2f * raw)
+        val x = route[segment].x + (route[next].x - route[segment].x) * eased
+        val y = route[segment].y + (route[next].y - route[segment].y) * eased
+        return (bounds.left + bounds.width() * x) to
+            (bounds.top + dp(18f) + (bounds.height() - dp(36f)) * y)
     }
 
     private fun drawBlock(canvas: Canvas, body: RectF, fixture: ObjectiveDeliverySceneFixture) {
@@ -439,16 +797,6 @@ private class ObjectiveDeliverySceneCanvas(
         canvas.drawText("SÉCURITÉ", body.centerX(), body.centerY() + dp(2f), text)
     }
 
-    private fun drawZonePill(canvas: Canvas, bounds: RectF) {
-        val label = scene.zoneLabel
-        fill.color = 0xEEFFFFFF.toInt()
-        val pill = RectF(bounds.left + dp(8f), bounds.top + dp(13f), bounds.left + dp(8f) + dp(112f), bounds.top + dp(34f))
-        canvas.drawRoundRect(pill, dp(10f), dp(10f), fill)
-        text.color = 0xFF315C5D.toInt()
-        text.textSize = dp(7.5f)
-        canvas.drawText(label, pill.centerX(), pill.centerY() + dp(2.5f), text)
-    }
-
     private fun drawPerson(
         canvas: Canvas,
         cx: Float,
@@ -536,24 +884,6 @@ private class ObjectiveDeliverySceneCanvas(
         }
     }
 
-    private fun characterPosition(index: Int, elapsed: Float, bounds: RectF): Pair<Float, Float> {
-        val route = scene.people[index].route
-        if (route.isEmpty()) return bounds.centerX() to bounds.centerY()
-        if (route.size == 1) {
-            return (bounds.left + bounds.width() * route[0].x) to
-                (bounds.top + dp(24f) + (bounds.height() - dp(38f)) * route[0].y)
-        }
-
-        val phase = (elapsed / 7.5f + index * 0.37f) % route.size
-        val segment = floor(phase.toDouble()).toInt().coerceIn(0, route.lastIndex)
-        val next = (segment + 1) % route.size
-        val raw = phase - segment
-        val eased = raw * raw * (3f - 2f * raw)
-        val x = route[segment].x + (route[next].x - route[segment].x) * eased
-        val y = route[segment].y + (route[next].y - route[segment].y) * eased
-        return (bounds.left + bounds.width() * x) to
-            (bounds.top + dp(24f) + (bounds.height() - dp(38f)) * y)
-    }
 
     private fun darker(color: Int, factor: Float): Int = Color.rgb(
         (Color.red(color) * factor).toInt().coerceIn(0, 255),
@@ -569,3 +899,4 @@ private class ObjectiveDeliverySceneCanvas(
 
     private fun dp(value: Float): Float = value * density
 }
+
