@@ -355,8 +355,7 @@ object V2PayslipStore {
 
   val companyId=comparisonCompanyId(canonicalRecord)?:return null
   val company=confirmedCompany(SalaryCompanyStore.readConfirmed(context),companyId)?:return null
-  val prefs=SalaryCompanyStore.prefs(context,company.id)
-  val idcc=company.idcc.ifBlank{prefs.getString("company_idcc","").orEmpty()}.trim();if(idcc.isBlank())return null
+  val idcc=comparisonCompanyIdcc(company)?:return null
   val convention=ConventionCatalog.findByIdcc(context,idcc)?.takeIf{it.idcc.isNotBlank()}?:return null
   val salaryNet=runCatching{
    V2SalaryNetBridgeV2.calculateForCompany(
@@ -376,6 +375,9 @@ object V2PayslipStore {
 
  internal fun comparisonCompanyId(record:Record):String? =
   record.companyId.trim().takeIf{it.isNotBlank()}
+
+ internal fun comparisonCompanyIdcc(company:SalaryCompanyStore.Company):String? =
+  company.idcc.trim().takeIf{it.isNotBlank()}
 
  internal fun canonicalRecord(stored:ReadResult,recordId:String):Record?{
   if(!stored.reliable||recordId.isBlank())return null
