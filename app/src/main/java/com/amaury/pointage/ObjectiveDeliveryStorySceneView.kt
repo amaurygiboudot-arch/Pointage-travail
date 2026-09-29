@@ -349,6 +349,7 @@ private class ObjectiveDeliverySceneCanvas(
         scaleDetector.onTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                parent?.requestDisallowInterceptTouchEvent(true)
                 downX = event.x
                 downY = event.y
                 downCameraX = cameraX
@@ -392,11 +393,13 @@ private class ObjectiveDeliverySceneCanvas(
                 }
                 isDragging = false
                 isPinching = false
+                parent?.requestDisallowInterceptTouchEvent(false)
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
                 isDragging = false
                 isPinching = false
+                parent?.requestDisallowInterceptTouchEvent(false)
                 return false
             }
         }
