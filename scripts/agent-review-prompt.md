@@ -33,7 +33,7 @@ Tu es le chef d'orchestre d'une revue de PR HoraTrack. Cette tâche est une REVU
    - une CI verte seule ne suffit pas.
 
 6. La réponse finale doit respecter exactement le schéma `scripts/agent-review.schema.json`.
-   `head_sha` doit être le SHA complet de HEAD.
+   `base_sha` et `head_sha` doivent être les SHA complets de BASE et HEAD.
    `required_specialists` doit être exactement la liste du routeur.
    Chaque agent cité doit correspondre à une exécution réelle, jamais à une supposition.
 

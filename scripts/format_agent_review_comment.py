@@ -30,6 +30,7 @@ def main() -> int:
     print("## 🤖 Revue multi-agents HoraTrack")
     print()
     print(f"**HEAD :** `{report.get('head_sha', '')}`")
+    print(f"**BASE :** `{report.get('base_sha', '')}`")
     print(f"**Route :** {', '.join(route.get('specialists', []))}")
     print()
     print("### Spécialistes")
