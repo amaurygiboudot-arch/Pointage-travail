@@ -11,6 +11,7 @@ final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
         let net = net(cash, complete: false)
 
         let result = SalarySegmentedCanonicalOutputAssemblerV2.assemble(
+            period: YearMonthV2(year: 2026, month: 9)!,
             worked: worked,
             cash: cash,
             net: net
@@ -33,6 +34,7 @@ final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
         let worked = fixtureWorked()
         let cash = cash(worked, 1_100)
         let result = SalarySegmentedCanonicalOutputAssemblerV2.assemble(
+            period: YearMonthV2(year: 2026, month: 9)!,
             worked: worked,
             cash: cash,
             net: net(cash, complete: false)
@@ -53,6 +55,14 @@ final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
         XCTAssertTrue(workspace.sourceReady)
         XCTAssertNil(workspace.netBeforeIncomeTax)
         XCTAssertNil(workspace.netTaxable)
+        let wrongMonth = SalaryWorkspaceResolverV2.resolve(
+            period: YearMonthV2(year: 2026, month: 10)!,
+            segmented: result
+        )
+        XCTAssertFalse(wrongMonth.sourceReady)
+        XCTAssertNil(wrongMonth.socialGross)
+        XCTAssertNil(wrongMonth.netBeforeIncomeTax)
+        XCTAssertEqual(wrongMonth.warnings, [SalaryWorkspaceResolverV2.segmentedPeriodMismatchWarning])
         XCTAssertNil(
             SalaryPayslipComparisonEngineV2.compare(
                 snapshot: workspace,
@@ -72,6 +82,7 @@ final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
         let cashA = cash(worked, 1_100)
         let cashB = cash(worked, 1_200)
         let result = SalarySegmentedCanonicalOutputAssemblerV2.assemble(
+            period: YearMonthV2(year: 2026, month: 9)!,
             worked: worked,
             cash: cashA,
             net: net(cashB, complete: true)
@@ -101,6 +112,7 @@ final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
         )
 
         let result = SalarySegmentedCanonicalOutputAssemblerV2.assemble(
+            period: YearMonthV2(year: 2026, month: 4)!,
             worked: worked, cash: cash, net: inconsistent
         )
         XCTAssertTrue(result.cashGrossReliable)
@@ -126,6 +138,7 @@ final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
         )
 
         let result = SalarySegmentedCanonicalOutputAssemblerV2.assemble(
+            period: YearMonthV2(year: 2026, month: 4)!,
             worked: worked, cash: cash, net: inconsistent
         )
         XCTAssertFalse(result.netBeforeIncomeTaxComplete)

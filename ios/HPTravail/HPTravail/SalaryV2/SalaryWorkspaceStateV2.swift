@@ -24,6 +24,8 @@ enum SalaryWorkspaceResolverV2 {
         "Salaire V2 iOS : les sources canoniques amont ne sont pas encore raccordées pour ce mois ; aucun montant n'est inventé."
     static let segmentedSourceUnavailableWarning =
         "Salaire V2 iOS : une transition datée exige la chaîne segmentée canonique ; aucun montant issu du calcul mensuel unique n'est affiché."
+    static let segmentedPeriodMismatchWarning =
+        "Salaire V2 iOS : la sortie segmentée appartient à un autre mois ; aucun montant n'est affiché."
 
     static func resolve(
         period: YearMonthV2,
@@ -64,6 +66,19 @@ enum SalaryWorkspaceResolverV2 {
                 incomeTax: nil,
                 netAfterIncomeTax: nil,
                 warnings: [upstreamUnavailableWarning]
+            )
+        }
+
+        guard segmented.period == period else {
+            return SalaryWorkspaceSnapshotV2(
+                period: period,
+                sourceReady: false,
+                socialGross: nil,
+                netBeforeIncomeTax: nil,
+                netTaxable: nil,
+                incomeTax: nil,
+                netAfterIncomeTax: nil,
+                warnings: [segmentedPeriodMismatchWarning]
             )
         }
 
