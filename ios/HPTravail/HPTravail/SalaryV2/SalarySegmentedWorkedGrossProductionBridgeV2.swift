@@ -11,6 +11,9 @@ struct SalarySegmentedWorkedGrossDetailedBridgeResultV2 {
 /// Les preuves juridiques de primes sont fournies explicitement par la couche d'arbitrage.
 /// L'absence d'une règle n'est jamais transformée ici en preuve d'absence.
 enum SalarySegmentedWorkedGrossProductionBridgeV2 {
+    static let sourceMismatchWarning =
+        "Brut segmenté : entreprise ou mois incohérent entre la demande, les contrats et les règles."
+
     static func calculateFromStores(
         defaults: UserDefaults = .standard,
         companyId: String,
@@ -47,6 +50,9 @@ enum SalarySegmentedWorkedGrossProductionBridgeV2 {
         rules: SalaryConventionCoverageV2,
         now: Date
     ) -> SalarySegmentedWorkedGrossDetailedBridgeResultV2 {
+        guard sourcesMatch(
+            companyId: companyId, period: period, contracts: contracts, rules: rules
+        ) else { return detailedBlocked(sourceMismatchWarning) }
         let night = SalaryConventionNightRuleStoreV2.readConfirmed(defaults: defaults)
         let premiumContext = SalarySegmentedPayrollPremiumEvidenceBridgeV2.build(
             contracts: contracts,
@@ -107,6 +113,9 @@ enum SalarySegmentedWorkedGrossProductionBridgeV2 {
         premiums: [SalarySegmentedPayrollPremiumEvidenceV2],
         now: Date
     ) -> SalarySegmentedWorkedGrossDetailedBridgeResultV2 {
+        guard sourcesMatch(
+            companyId: companyId, period: period, contracts: contracts, rules: rules
+        ) else { return detailedBlocked(sourceMismatchWarning) }
         guard let bounds = coverageBounds(
             start: contracts.periodStartEpochDay,
             end: contracts.periodEndEpochDay
@@ -153,6 +162,25 @@ enum SalarySegmentedWorkedGrossProductionBridgeV2 {
         let addition = lastMonday.addingReportingOverflow(6)
         guard !addition.overflow else { return nil }
         return (firstMonday, addition.partialValue)
+    }
+
+    private static func sourcesMatch(
+        companyId: String,
+        period: YearMonthV2,
+        contracts: SalaryEmploymentContractPeriodResolutionV2,
+        rules: SalaryConventionCoverageV2
+    ) -> Bool {
+        let company = companyId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !company.isEmpty,
+              let month = SalaryConventionCoverageResolverV2.monthEpochDayRange(period) else {
+            return false
+        }
+        return contracts.companyId == company &&
+            rules.companyId == company &&
+            contracts.periodStartEpochDay == month.start &&
+            contracts.periodEndEpochDay == month.end &&
+            rules.periodStartEpochDay == month.start &&
+            rules.periodEndEpochDay == month.end
     }
 
     private static func detailedBlocked(
