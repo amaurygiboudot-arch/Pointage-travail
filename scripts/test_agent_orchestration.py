@@ -52,6 +52,7 @@ class AgentReviewValidatorTest(unittest.TestCase):
     def route(self):
         return {
             "base_sha": "base123",
+            "head_sha": "abc123",
             "specialists": ["celestial_system", "ui_ux"],
         }
 
@@ -83,6 +84,12 @@ class AgentReviewValidatorTest(unittest.TestCase):
     def test_stale_head_fails(self):
         errors = validator.validate(self.route(), self.valid_report(), "new456")
         self.assertTrue(any("head_sha" in error for error in errors))
+
+    def test_route_head_must_match_requested_head(self):
+        route = self.route()
+        route["head_sha"] = "other789"
+        errors = validator.validate(route, self.valid_report(), "abc123")
+        self.assertTrue(any("routeur" in error for error in errors))
 
     def test_retargeted_base_invalidates_report(self):
         route = self.route()

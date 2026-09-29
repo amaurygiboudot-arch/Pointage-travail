@@ -49,8 +49,10 @@ def report_from_comments(path: str, head: str, base: str | None = None):
 
 def validate(route: dict, report: dict, head: str) -> list[str]:
     errors = []
+    if route.get("head_sha") != head:
+        errors.append("head_sha du routeur différent du HEAD demandé")
     if report is None:
-        return ["aucun rapport d'agents valide trouvé pour ce HEAD"]
+        return errors + ["aucun rapport d'agents valide trouvé pour ce HEAD"]
 
     if report.get("schema_version") != 2:
         errors.append("schema_version != 2")
