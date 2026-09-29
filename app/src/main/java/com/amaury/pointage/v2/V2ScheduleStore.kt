@@ -152,6 +152,43 @@ object V2ScheduleStore {
             .commit()
     }
 
+    internal fun circularMinuteDistance(first: Int, second: Int): Int {
+        require(first in 0..1439 && second in 0..1439)
+        val direct = abs(first - second)
+        return minOf(direct, 1440 - direct)
+    }
+
+    internal fun nearestConfiguredShiftId(
+        entryMinute: Int,
+        starts: Map<String, Int?>
+    ): String? {
+        require(entryMinute in 0..1439)
+        val scored = starts.asSequence()
+            .filter { (id, minute) -> id in SHIFT_IDS && minute in 0..1439 }
+            .map { (id, minute) -> id to circularMinuteDistance(entryMinute, minute!!) }
+            .toList()
+        if (scored.isEmpty()) return null
+        val bestScore = scored.minOf { it.second }
+        return scored.filter { it.second == bestScore }
+            .map { it.first }
+            .distinct()
+            .singleOrNull()
+    }
+
+    /**
+     * En mode automatique V2, l'interface ne réutilise jamais la classification horaire V1.
+     * Un poste n'est proposé que s'il est le plus proche d'un début explicitement configuré
+     * pour l'entreprise. Une égalité ou l'absence d'horaire reste inconnue.
+     */
+    fun bestConfiguredShiftIdForEntry(context: Context, companyId: String, entryMs: Long): String? {
+        val company = companyId.trim()
+        if (company.isBlank() || entryMs <= 0L) return null
+        val calendar = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = entryMs }
+        val entryMinute = calendar.get(Calendar.HOUR_OF_DAY) * 60 + calendar.get(Calendar.MINUTE)
+        val starts = SHIFT_IDS.associateWith { id -> schedule(context, company, id).startMinute }
+        return nearestConfiguredShiftId(entryMinute, starts)
+    }
+
     /** Fin prévue utilisable dès l’entrée uniquement si le profil est choisi explicitement. */
     fun expectedEndForEntry(context: Context, companyId: String, entryMs: Long): Long? {
         val mode = selectedMode(context, companyId)
