@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import importlib.util
+import base64
 import json
 import tempfile
 import unittest
@@ -92,6 +93,34 @@ class AgentReviewValidatorTest(unittest.TestCase):
         report["specialist_reviews"][0]["status"] = "NOT_RUN"
         errors = validator.validate(self.route(), report, "abc123")
         self.assertTrue(any("NOT_RUN" in error for error in errors))
+
+    def test_comment_evidence_requires_trusted_author(self):
+        report = self.valid_report()
+        marker = base64.urlsafe_b64encode(json.dumps(report).encode()).decode().rstrip("=")
+        body = f"<!-- HORATRACK_AGENT_REVIEW_V1:{marker} -->"
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "comments.json"
+            comments = [{"body": body, "user": {"login": "pull-request-author"},
+                         "author_association": "CONTRIBUTOR"}]
+            path.write_text(json.dumps(comments), encoding="utf-8")
+            self.assertIsNone(validator.report_from_comments(str(path), "abc123"))
+            comments[0]["user"]["login"] = validator.OWNER_LOGIN
+            comments[0]["author_association"] = "OWNER"
+            path.write_text(json.dumps(comments), encoding="utf-8")
+            self.assertEqual(report, validator.report_from_comments(str(path), "abc123"))
+
+    def test_action_comment_requires_app_provenance(self):
+        report = self.valid_report()
+        marker = base64.urlsafe_b64encode(json.dumps(report).encode()).decode().rstrip("=")
+        comment = {"body": f"<!-- HORATRACK_AGENT_REVIEW_V1:{marker} -->",
+                   "user": {"login": validator.ACTION_LOGIN}}
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "comments.json"
+            path.write_text(json.dumps([comment]), encoding="utf-8")
+            self.assertIsNone(validator.report_from_comments(str(path), "abc123"))
+            comment["performed_via_github_app"] = {"slug": "github-actions"}
+            path.write_text(json.dumps([comment]), encoding="utf-8")
+            self.assertEqual(report, validator.report_from_comments(str(path), "abc123"))
 
 
 if __name__ == "__main__":

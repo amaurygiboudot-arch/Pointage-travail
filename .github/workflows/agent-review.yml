@@ -1,0 +1,140 @@
+name: Agent review gate
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review, edited]
+
+concurrency:
+  group: agent-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  agent-review-gate:
+    name: Agent review gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      fresh: ${{ steps.fresh.outputs.created }}
+    steps:
+      # pull_request_target loads this workflow from the default branch. Never
+      # execute scripts, actions metadata or prompts from the PR head.
+      - name: Checkout trusted default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Route PR to required agents
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$BASE_SHA" "$HEAD_SHA"
+          python3 scripts/agent_router.py --base "$BASE_SHA" --head "$HEAD_SHA" --output .agent-route.json --pretty
+          cat .agent-route.json
+
+      - name: Check trusted review evidence for exact head
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" > .agent-comments.json
+          if python3 scripts/validate_agent_review.py --route .agent-route.json --comments .agent-comments.json --head "$HEAD_SHA"; then
+            echo "valid=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Detect automatic Codex authentication
+        id: codex-auth
+        if: steps.existing.outputs.valid != 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -n "$OPENAI_API_KEY" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run required agents on trusted checkout
+        if: steps.existing.outputs.valid != 'true' && steps.codex-auth.outputs.configured == 'true'
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ":read-only"
+          effort: high
+          output-schema-file: scripts/agent-review.schema.json
+          output-file: .agent-review.json
+          prompt: |
+            Read scripts/agent-review-prompt.md and follow it exactly.
+            This is a review-only task. Do not modify tracked files.
+            BASE_SHA=${{ github.event.pull_request.base.sha }}
+            HEAD_SHA=${{ github.event.pull_request.head.sha }}
+            Review only the diff BASE_SHA...HEAD_SHA and the context strictly required to assess it.
+            The final response must satisfy scripts/agent-review.schema.json.
+
+      - name: Validate fresh multi-agent report
+        if: steps.existing.outputs.valid != 'true' && steps.codex-auth.outputs.configured == 'true'
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/validate_agent_review.py --route .agent-route.json --report .agent-review.json --head "$HEAD_SHA"
+
+      - name: Save validated report for publication
+        if: steps.existing.outputs.valid != 'true' && steps.codex-auth.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-review-${{ github.run_id }}
+          path: |
+            .agent-route.json
+            .agent-review.json
+          retention-days: 1
+
+      - name: Mark fresh report
+        id: fresh
+        if: steps.existing.outputs.valid != 'true' && steps.codex-auth.outputs.configured == 'true'
+        run: echo "created=true" >> "$GITHUB_OUTPUT"
+
+      - name: Require authenticated agent review
+        if: steps.existing.outputs.valid != 'true' && steps.codex-auth.outputs.configured != 'true'
+        run: |
+          echo "::error::Aucun rapport d'agents approuvé pour ce HEAD et aucune authentification Codex automatique."
+          echo "::error::Une revue réelle doit être publiée par le propriétaire puis le workflow relancé."
+          exit 1
+
+  publish-agent-review:
+    name: Publish verified agent review
+    needs: agent-review-gate
+    if: needs.agent-review-gate.outputs.fresh == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Download validated report
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-review-${{ github.run_id }}
+      - name: Revalidate and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/validate_agent_review.py --route .agent-route.json --report .agent-review.json --head "$HEAD_SHA"
+          python3 scripts/format_agent_review_comment.py --route .agent-route.json --report .agent-review.json > .agent-review-comment.md
+          gh pr comment "$PR_NUMBER" --body-file .agent-review-comment.md

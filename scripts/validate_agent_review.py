@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 
 MARKER = re.compile(r"<!-- HORATRACK_AGENT_REVIEW_V1:([A-Za-z0-9_-]+) -->")
+OWNER_LOGIN = "amaurygiboudot-arch"
+ACTION_LOGIN = "github-actions[bot]"
 
 
 def load_json(path: str):
@@ -30,7 +32,15 @@ def report_from_comments(path: str, head: str):
     comments = load_json(path)
     candidates = []
     for comment in comments:
-        body = comment.get("body", "") if isinstance(comment, dict) else ""
+        if not isinstance(comment, dict):
+            continue
+        author = comment.get("user", {}).get("login") if isinstance(comment.get("user"), dict) else None
+        owner = author == OWNER_LOGIN and comment.get("author_association") == "OWNER"
+        app = comment.get("performed_via_github_app")
+        action = author == ACTION_LOGIN and isinstance(app, dict) and app.get("slug") == "github-actions"
+        if not (owner or action):
+            continue
+        body = comment.get("body", "")
         for report in decode_marker(body):
             if report.get("head_sha") == head:
                 candidates.append(report)
