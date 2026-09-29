@@ -127,10 +127,9 @@ internal object ObjectiveDeliverySceneCatalog {
             )
         }
         val troubledPersonIndex = when (safeChapter) {
-            1, 2, 3, 7 -> 0
-            4, 6, 8 -> 1
-            5 -> 1
-            9 -> 1
+            1, 2, 3, 5, 10 -> 0
+            4, 6, 8, 9 -> 1
+            7 -> 1
             else -> 0
         }
         val expressivePeople = people.mapIndexed { index, person ->
