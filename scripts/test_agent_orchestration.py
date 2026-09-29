@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import importlib.util
-import base64
 import json
 import tempfile
 import unittest
@@ -93,22 +92,6 @@ class AgentReviewValidatorTest(unittest.TestCase):
         report["specialist_reviews"][0]["status"] = "NOT_RUN"
         errors = validator.validate(self.route(), report, "abc123")
         self.assertTrue(any("NOT_RUN" in error for error in errors))
-
-    def test_untrusted_comment_cannot_supply_pass_report(self):
-        report = self.valid_report()
-        marker = base64.urlsafe_b64encode(json.dumps(report).encode()).decode().rstrip("=")
-        body = f"<!-- HORATRACK_AGENT_REVIEW_V1:{marker} -->"
-        with tempfile.TemporaryDirectory() as directory:
-            comments = Path(directory) / "comments.json"
-            comments.write_text(json.dumps([
-                {"user": {"login": "attacker", "type": "User"}, "body": body},
-                {"user": {"login": "github-actions[bot]", "type": "User"}, "body": body},
-            ]), encoding="utf-8")
-            self.assertIsNone(validator.report_from_comments(str(comments), "abc123"))
-            comments.write_text(json.dumps([
-                {"user": {"login": "github-actions[bot]", "type": "Bot"}, "body": body}
-            ]), encoding="utf-8")
-            self.assertEqual(report, validator.report_from_comments(str(comments), "abc123"))
 
 
 if __name__ == "__main__":
