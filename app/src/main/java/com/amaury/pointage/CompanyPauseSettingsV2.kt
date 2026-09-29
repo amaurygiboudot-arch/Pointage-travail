@@ -50,7 +50,6 @@ object CompanyPauseSettingsV2 {
             get() {
                 if (startMinute !in 0..1439 || endMinute !in 0..1439 || startMinute == endMinute) return 0
                 return (if (endMinute > startMinute) endMinute - startMinute else 24 * 60 - startMinute + endMinute)
-                    .coerceIn(0, 240)
             }
     }
 
@@ -84,12 +83,12 @@ object CompanyPauseSettingsV2 {
         ).takeIf { it.durationMinutes > 0 }
 
     fun baseMinutes(context: Context, companyId: String): Int =
-        (1..2).sumOf { pause(context, companyId, it)?.durationMinutes ?: 0 }.coerceIn(0, 480)
+        (1..2).sumOf { pause(context, companyId, it)?.durationMinutes ?: 0 }
 
     fun unpaidMinutes(context: Context, companyId: String): Int =
         (1..2).sumOf { index ->
             pause(context, companyId, index)?.takeIf { !it.paid }?.durationMinutes ?: 0
-        }.coerceIn(0, 480)
+        }
 
     fun alarmEnabled(context: Context, companyId: String, pauseIndex: Int): Boolean {
         ensureMigrated(context, companyId)
