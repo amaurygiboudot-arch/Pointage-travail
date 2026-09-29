@@ -18,7 +18,7 @@ class CloudSettingsBackupTest {
 
     @Test fun validatesEveryFileBeforeImport() {
         val backup = JSONObject()
-            .put("company_settings", JSONObject().put("name", "Atelier"))
+            .put("appearance_settings", JSONObject().put("mode", "dark"))
             .put("gps_settings", JSONObject().put("zones", JSONArray().put("valid").put(42)))
         assertThrows(IllegalArgumentException::class.java) {
             CloudSettingsBackup.validateImport(backup)

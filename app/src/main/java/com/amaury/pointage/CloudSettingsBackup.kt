@@ -77,5 +77,5 @@ object CloudSettingsBackup {
         require(files.isNotEmpty()) { "Aucun réglage restaurable" }
         return files
     }
-    private fun shouldBackup(name:String):Boolean=BackupSecurityPolicy.canTransferPreferenceFile(name)
+    private fun shouldBackup(name:String):Boolean=CloudSettingsBackupPolicy.canTransferPreferenceFile(name)
 }
