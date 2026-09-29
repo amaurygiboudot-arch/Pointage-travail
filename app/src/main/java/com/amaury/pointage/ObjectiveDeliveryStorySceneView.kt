@@ -62,6 +62,9 @@ internal class ObjectiveDeliveryStorySceneView(
             contentDescription = "Monde ouvert d’entreprise en vue de dessus : ${scene.zoneLabel}. Touche le sol pour marcher, glisse pour explorer, pince pour zoomer. Sélectionne un personnage pour voir son rôle."
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
         }
+        sceneCanvas.onAgentStatusChanged = { index, _ ->
+            if (index == sceneCanvas.selectedIndex) updateSelectedPersonDetails(index)
+        }
         addView(FrameLayout(context).apply {
             background = roundedBackground(0xFFD8E9E6.toInt(), sceneDp(14).toFloat())
             clipToOutline = true
@@ -119,10 +122,7 @@ internal class ObjectiveDeliveryStorySceneView(
         sceneCanvas.selectedIndex = safeIndex
         sceneCanvas.focusPerson(safeIndex)
         val person = scene.people[safeIndex]
-        selectedPersonDetails.text =
-            "${moodFace(person.mood)} ${person.name} • ${person.role}\n${person.task}"
-        selectedPersonDetails.contentDescription =
-            "${person.name}, ${person.role}. ${person.task} Humeur : ${moodLabel(person.mood)}."
+        updateSelectedPersonDetails(safeIndex)
         characterChips.forEachIndexed { chipIndex, chip ->
             val selected = chipIndex == safeIndex
             chip.isSelected = selected
@@ -138,6 +138,16 @@ internal class ObjectiveDeliveryStorySceneView(
             "Monde ouvert de l’entreprise. " +
                 "${person.name}, ${person.role}, sélectionné. ${person.task} " +
                 "Touche un endroit pour déplacer la direction, glisse pour explorer et pince pour zoomer."
+    }
+
+    private fun updateSelectedPersonDetails(index: Int) {
+        if (index !in scene.people.indices) return
+        val person = scene.people[index]
+        val status = sceneCanvas.agentStatus(index)
+        selectedPersonDetails.text =
+            "${moodFace(person.mood)} ${person.name} • ${person.role}\n${person.task}\n$status"
+        selectedPersonDetails.contentDescription =
+            "${person.name}, ${person.role}. ${person.task} $status Humeur : ${moodLabel(person.mood)}."
     }
 
     private fun sceneText(
@@ -184,12 +194,22 @@ private class ObjectiveDeliverySceneCanvas(
         val floorColor: Int
     )
 
+    private data class NpcAgentState(
+        val plan: List<ObjectiveDeliveryNpcStep>,
+        var x: Float,
+        var y: Float,
+        var targetX: Float,
+        var targetY: Float,
+        var stepIndex: Int = 0,
+        var isMoving: Boolean = false,
+        var dwellRemaining: Float = 0f
+    )
+
     var selectedIndex: Int = 0
-    val playerIndex: Int = scene.people.indexOfFirst { person ->
-        person.name.equals("Direction", ignoreCase = true) ||
-            person.role.contains("direction", ignoreCase = true)
-    }.let { if (it >= 0) it else 0 }
+    val playerIndex: Int = ObjectiveDeliveryNpcBrain.directorIndex(scene)
     var onPersonSelected: ((Int) -> Unit)? = null
+    var onAgentStatusChanged: ((Int, String) -> Unit)? = null
+    private val npcAgents = mutableMapOf<Int, NpcAgentState>()
 
     private val zones = listOf(
         WorldZone("ACCUEIL CLIENT", 0, 0, 0xFFF7F2E8.toInt()),
@@ -275,6 +295,7 @@ private class ObjectiveDeliverySceneCanvas(
             cameraX = managerX
             cameraY = managerY
             cameraReady = true
+            initializeNpcBrains(0f)
             clampCamera()
         }
     }
@@ -340,6 +361,9 @@ private class ObjectiveDeliverySceneCanvas(
             val point = characterPosition(index, elapsed)
             val bob = sin((elapsed * 4.2f + index).toDouble()).toFloat() * dp(1.5f)
             drawPerson(canvas, point.first, point.second + bob, person, index == selectedIndex, elapsed, index)
+            npcAgents[index]?.let { agent ->
+                drawAgentMarker(canvas, point.first, point.second, agent)
+            }
         }
         canvas.restore()
         drawOpenWorldHud(canvas)
@@ -445,6 +469,120 @@ private class ObjectiveDeliverySceneCanvas(
         return true
     }
 
+    fun agentStatus(index: Int): String {
+        if (index == playerIndex) return "À toi de guider l’équipe et d’explorer le site."
+        val agent = npcAgents[index] ?: return "Se prépare à accomplir sa tâche."
+        val step = agent.plan.getOrNull(agent.stepIndex) ?: return "Attend la prochaine étape."
+        val partnerName = step.partnerIndex?.let { scene.people.getOrNull(it)?.name } ?: "l’équipe"
+        return when (step.action) {
+            ObjectiveDeliveryNpcAction.SEEK_DIRECTION ->
+                if (agent.isMoving) "Vient te parler après ce résultat." else "Attend ta décision."
+            ObjectiveDeliveryNpcAction.COLLABORATE ->
+                if (agent.isMoving) "Va retrouver " + partnerName + "." else "Échange avec " + partnerName + "."
+            ObjectiveDeliveryNpcAction.WAIT ->
+                if (agent.isMoving) "Se rend au point de réception." else "Attend la prochaine étape."
+            ObjectiveDeliveryNpcAction.WORK ->
+                if (agent.isMoving) "Se rend à son poste." else "En action : " + scene.people[index].task
+            else -> "Prépare sa prochaine action."
+        }
+    }
+
+    private fun initializeNpcBrains(elapsed: Float) {
+        npcAgents.clear()
+        scene.people.indices.forEach { index ->
+            if (index == playerIndex) return@forEach
+            val plan = ObjectiveDeliveryNpcBrain.routine(scene, index)
+            if (plan.isEmpty()) return@forEach
+            val initial = routePosition(
+                personIndex = index,
+                routeIndex = 0,
+                zoneIndex = ObjectiveDeliveryNpcBrain.homeZone(scene, index)
+            )
+            npcAgents[index] = NpcAgentState(
+                plan = plan,
+                x = initial.first,
+                y = initial.second,
+                targetX = initial.first,
+                targetY = initial.second
+            )
+        }
+        npcAgents.keys.toList().forEach { index ->
+            npcAgents[index]?.let { startNpcStep(index, it, elapsed) }
+        }
+    }
+
+    private fun startNpcStep(index: Int, agent: NpcAgentState, elapsed: Float) {
+        val step = agent.plan[agent.stepIndex]
+        val target = npcTarget(index, agent, step, elapsed)
+        agent.targetX = target.first
+        agent.targetY = target.second
+        val dx = target.first - agent.x
+        val dy = target.second - agent.y
+        agent.isMoving = sqrt((dx * dx + dy * dy).toDouble()).toFloat() > dp(4f)
+        agent.dwellRemaining = if (agent.isMoving) 0f else step.dwellSeconds
+        notifyAgentStatus(index)
+    }
+
+    private fun npcTarget(
+        index: Int,
+        agent: NpcAgentState,
+        step: ObjectiveDeliveryNpcStep,
+        elapsed: Float
+    ): Pair<Float, Float> = when (step.action) {
+        ObjectiveDeliveryNpcAction.SEEK_DIRECTION -> managerX to managerY
+        ObjectiveDeliveryNpcAction.COLLABORATE -> {
+            val partnerIndex = step.partnerIndex
+            if (partnerIndex != null && partnerIndex in scene.people.indices) {
+                val partner = characterPosition(partnerIndex, elapsed)
+                val side = if (index % 2 == 0) -1f else 1f
+                (partner.first + dp(22f) * side) to (partner.second + dp(7f))
+            } else {
+                val size = scene.people[index].route.size.coerceAtLeast(1)
+                routePosition(index, (agent.stepIndex + 1) % size, step.destinationZone)
+            }
+        }
+        else -> {
+            val size = scene.people[index].route.size.coerceAtLeast(1)
+            routePosition(index, (agent.stepIndex + 1) % size, step.destinationZone)
+        }
+    }
+
+    private fun advanceNpcBrains(delta: Float, elapsed: Float) {
+        if (delta <= 0f) return
+        npcAgents.forEach { (index, agent) ->
+            val step = agent.plan[agent.stepIndex]
+            if (agent.isMoving) {
+                val target = npcTarget(index, agent, step, elapsed)
+                agent.targetX = target.first
+                agent.targetY = target.second
+                val dx = target.first - agent.x
+                val dy = target.second - agent.y
+                val distance = sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+                val speed = dp(54f + (index % 3) * 6f) * delta
+                if (distance <= speed || distance <= dp(3f)) {
+                    agent.x = target.first
+                    agent.y = target.second
+                    agent.isMoving = false
+                    agent.dwellRemaining = step.dwellSeconds
+                    notifyAgentStatus(index)
+                } else {
+                    agent.x += dx / distance * speed
+                    agent.y += dy / distance * speed
+                }
+            } else {
+                agent.dwellRemaining -= delta
+                if (agent.dwellRemaining <= 0f) {
+                    agent.stepIndex = (agent.stepIndex + 1) % agent.plan.size
+                    startNpcStep(index, agent, elapsed)
+                }
+            }
+        }
+    }
+
+    private fun notifyAgentStatus(index: Int) {
+        onAgentStatusChanged?.invoke(index, agentStatus(index))
+    }
+
     private fun advanceWorld(now: Long, elapsed: Float) {
         if (!cameraReady) {
             val start = zoneBounds(activeZoneIndex()).centerPoint()
@@ -454,6 +592,8 @@ private class ObjectiveDeliverySceneCanvas(
             cameraY = managerY
             cameraReady = true
         }
+        if (npcAgents.isEmpty() && scene.people.size > 1) initializeNpcBrains(elapsed)
+
         val delta = if (previousFrameAt == 0L) 0f else
             ((now - previousFrameAt) / 1000f).coerceIn(0f, 0.12f)
         previousFrameAt = now
@@ -471,6 +611,7 @@ private class ObjectiveDeliverySceneCanvas(
                 managerY += dy / distance * step
             }
         }
+        advanceNpcBrains(delta, elapsed)
 
         if (!manualCamera) {
             val focused = characterPosition(trackingIndex, elapsed)
@@ -480,29 +621,10 @@ private class ObjectiveDeliverySceneCanvas(
         clampCamera()
     }
 
-    private fun activeZoneIndex(): Int = when (scene.chapter.coerceIn(1, 10)) {
-        1, 2 -> 0
-        3 -> 1
-        4, 8 -> 4
-        5 -> 2
-        6 -> 3
-        7, 9 -> 5
-        else -> 4
-    }
+    private fun activeZoneIndex(): Int = ObjectiveDeliveryNpcBrain.activeZone(scene.chapter)
 
-    private fun characterZoneIndex(index: Int): Int {
-        if (index == playerIndex) return activeZoneIndex()
-        val role = scene.people[index].role.lowercase()
-        return when {
-            role.contains("client") && scene.chapter >= 7 -> 5
-            role.contains("client") || role.contains("commerce") || role.contains("vente") -> 0
-            role.contains("approvisionnement") || role.contains("fournisseur") -> 2
-            role.contains("logistique") -> 5
-            role.contains("production") || role.contains("qualité") || role.contains("atelier") -> 3
-            role.contains("équipe") || role.contains("manager") || role.contains("ressources humaines") -> 4
-            else -> activeZoneIndex()
-        }
-    }
+    private fun characterZoneIndex(index: Int): Int =
+        ObjectiveDeliveryNpcBrain.homeZone(scene, index)
 
     private fun worldBounds(): RectF = RectF(0f, 0f, width * 3f, height * 2f)
 
@@ -685,23 +807,57 @@ private class ObjectiveDeliverySceneCanvas(
 
     private fun characterPosition(index: Int, elapsed: Float): Pair<Float, Float> {
         if (index == playerIndex) return managerX to managerY
-        val route = scene.people[index].route
-        val bounds = zoneBounds(characterZoneIndex(index))
-        if (route.isEmpty()) return bounds.centerX() to bounds.centerY()
-        if (route.size == 1) {
-            return (bounds.left + bounds.width() * route[0].x) to
-                (bounds.top + dp(18f) + (bounds.height() - dp(36f)) * route[0].y)
-        }
+        npcAgents[index]?.let { return it.x to it.y }
+        return routePosition(index, routeIndex = 0, zoneIndex = characterZoneIndex(index))
+    }
 
-        val phase = (elapsed / 7.5f + index * 0.37f) % route.size
-        val segment = floor(phase.toDouble()).toInt().coerceIn(0, route.lastIndex)
-        val next = (segment + 1) % route.size
-        val raw = phase - segment
-        val eased = raw * raw * (3f - 2f * raw)
-        val x = route[segment].x + (route[next].x - route[segment].x) * eased
-        val y = route[segment].y + (route[next].y - route[segment].y) * eased
-        return (bounds.left + bounds.width() * x) to
-            (bounds.top + dp(18f) + (bounds.height() - dp(36f)) * y)
+    private fun routePosition(personIndex: Int, routeIndex: Int, zoneIndex: Int): Pair<Float, Float> {
+        val route = scene.people[personIndex].route
+        val bounds = zoneBounds(zoneIndex)
+        if (route.isEmpty()) return bounds.centerX() to bounds.centerY()
+        val point = route[routeIndex.coerceIn(0, route.lastIndex)]
+        return (bounds.left + bounds.width() * point.x) to
+            (bounds.top + dp(18f) + (bounds.height() - dp(36f)) * point.y)
+    }
+
+    private fun drawAgentMarker(
+        canvas: Canvas,
+        x: Float,
+        y: Float,
+        agent: NpcAgentState
+    ) {
+        val step = agent.plan.getOrNull(agent.stepIndex) ?: return
+        val action = when {
+            step.action == ObjectiveDeliveryNpcAction.SEEK_DIRECTION -> ObjectiveDeliveryNpcAction.SEEK_DIRECTION
+            agent.isMoving && step.action == ObjectiveDeliveryNpcAction.COLLABORATE ->
+                ObjectiveDeliveryNpcAction.TRAVEL_TO_COLLEAGUE
+            agent.isMoving -> ObjectiveDeliveryNpcAction.TRAVEL_TO_TASK
+            else -> step.action
+        }
+        val symbol = when (action) {
+            ObjectiveDeliveryNpcAction.TRAVEL_TO_TASK -> "→"
+            ObjectiveDeliveryNpcAction.WORK -> "✓"
+            ObjectiveDeliveryNpcAction.TRAVEL_TO_COLLEAGUE -> "↗"
+            ObjectiveDeliveryNpcAction.COLLABORATE -> "↔"
+            ObjectiveDeliveryNpcAction.WAIT -> "…"
+            ObjectiveDeliveryNpcAction.SEEK_DIRECTION -> "!"
+        }
+        val badgeColor = when (action) {
+            ObjectiveDeliveryNpcAction.SEEK_DIRECTION -> 0xFFE17B62.toInt()
+            ObjectiveDeliveryNpcAction.WORK -> 0xFF2D8B83.toInt()
+            else -> 0xFF4387B5.toInt()
+        }
+        val badge = RectF(x + dp(7f), y - dp(39f), x + dp(25f), y - dp(22f))
+        fill.color = Color.WHITE
+        canvas.drawRoundRect(
+            RectF(badge.left - dp(1.5f), badge.top - dp(1.5f), badge.right + dp(1.5f), badge.bottom + dp(1.5f)),
+            dp(6f), dp(6f), fill
+        )
+        fill.color = badgeColor
+        canvas.drawRoundRect(badge, dp(5f), dp(5f), fill)
+        text.color = Color.WHITE
+        text.textSize = dp(8f)
+        canvas.drawText(symbol, badge.centerX(), badge.centerY() + dp(2.8f), text)
     }
 
     private fun drawBlock(canvas: Canvas, body: RectF, fixture: ObjectiveDeliverySceneFixture) {
