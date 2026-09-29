@@ -39,6 +39,7 @@ object V2BackupManager {
         "gps_settings",
         "shift_profiles",
         "appearance_settings",
+        "navigation_state",
         "widget_style",
         "place_names",
         "smart_setup",
