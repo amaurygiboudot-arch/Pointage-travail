@@ -17,7 +17,7 @@ import java.text.NumberFormat
 import java.util.Locale
 import kotlin.math.roundToInt
 
-/** Campagne 2D à progression explicite, sans horloge ni progression en arrière-plan. */
+/** Campagne à progression explicite, sans horloge ni progression en arrière-plan. */
 class ObjectiveDeliveryGameActivity : Activity() {
     private lateinit var store: ObjectiveDeliveryCampaignStore
     private lateinit var cloudSync: ObjectiveDeliveryCloudSync
@@ -127,6 +127,14 @@ class ObjectiveDeliveryGameActivity : Activity() {
     }
 
     private fun renderCampaign(current: ObjectiveDeliveryCampaign) {
+        content.addView(
+            ObjectiveDeliveryStorySceneView(this, ObjectiveDeliverySceneCatalog.forCampaign(current)),
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
         content.addView(actionButton("CHOISIR UNE AUTRE ENTREPRISE") {
             cloudSync.stop()
             campaign = null
