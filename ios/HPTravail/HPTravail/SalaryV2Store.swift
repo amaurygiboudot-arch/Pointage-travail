@@ -280,6 +280,7 @@ final class SalaryV2Store: ObservableObject {
                 contracts: contractResolution?.resolution,
                 absences: absenceSource,
                 work: workSource,
+                variableSource: segmentedWorkedGross?.worked?.variables,
                 calendar: calendar
             )
             : nil
@@ -964,6 +965,7 @@ final class SalaryV2Store: ObservableObject {
                     contracts: contractResolution?.resolution,
                     absences: absenceSource,
                     work: source,
+                    variableSource: segmentedWorkedGross?.worked?.variables,
                     calendar: calendar
                 )
                 : nil
@@ -1071,6 +1073,7 @@ final class SalaryV2Store: ObservableObject {
         contracts: SalaryEmploymentContractPeriodResolutionV2?,
         absences: SalaryAbsenceSourceV2?,
         work: SalaryWorkSessionSourceV2?,
+        variableSource: SalarySegmentedWorkedVariableGrossSourceResultV2?,
         calendar: Calendar
     ) -> SalarySegmentedSocialSecurityCeilingResultV2? {
         guard let companyId, let contracts, let absences, let work else { return nil }
@@ -1086,7 +1089,9 @@ final class SalaryV2Store: ObservableObject {
         let ceiling = SalarySegmentedSocialSecurityCeilingV2.resolve(
             period: period,
             contracts: contracts,
-            complementaryMinutes: nil,
+            complementaryMinutes: SalarySegmentedSocialSecurityCeilingV2.confirmedComplementaryMinutes(
+                from: variableSource
+            ),
             unpaidAbsenceDays: impact.requiresPayrollReview
                 ? nil : impact.unpaidFullCalendarDays
         )
