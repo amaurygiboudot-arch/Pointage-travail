@@ -103,6 +103,7 @@ targets:
       - path: HPTravail/SalaryV2/SalarySegmentedWorkedGrossProductionV2.swift
       - path: HPTravail/SalaryV2/SalarySegmentedCashGrossAssemblyV2.swift
       - path: HPTravail/SalaryV2/SalarySegmentedCashGrossNetProjectionV2.swift
+      - path: HPTravail/SalaryV2/SalarySegmentedSocialSecurityCeilingV2.swift
       - path: HPTravail/SalaryV2/SalarySegmentedCanonicalOutputV2.swift
       - path: HPTravail/SalaryV2/SalarySegmentedCanonicalProductionV2.swift
       - path: HPTravail/SalaryV2/SalarySegmentedWorkedGrossProductionBridgeV2.swift
