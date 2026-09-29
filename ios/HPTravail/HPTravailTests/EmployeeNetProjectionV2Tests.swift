@@ -137,6 +137,24 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
         XCTAssertNotNil(result.netTaxable)
     }
 
+    func testCeilingFromAnotherMonthBlocksCanonicalNet() {
+        let mayCeiling = SocialSecurityCeilingV2.calculate(
+            .init(
+                period: salaryPeriod(2026, 5),
+                contractType: .fullTime,
+                contractualWeeklyMinutes: 35 * 60,
+                entryDate: PayrollCivilDateV2(year: 2020, month: 1, day: 1)!
+            )
+        )
+        let result = EmployeeNetProjectionV2.calculate(input(ceiling: mayCeiling))
+
+        XCTAssertTrue(result.grossReliable)
+        XCTAssertFalse(result.netBeforeIncomeTaxComplete)
+        XCTAssertNil(result.netBeforeIncomeTax)
+        XCTAssertNil(result.netTaxable)
+        XCTAssertTrue(result.warnings.contains { $0.contains("plafond SS ou année de barème hors période de paie") })
+    }
+
     func testBenefitsIncreaseContributionGrossButNotCashGross() {
         let withoutBenefit = EmployeeNetProjectionV2.calculate(input())
         let withBenefit = EmployeeNetProjectionV2.calculate(input(benefits: benefits(total: 100)))

@@ -41,6 +41,9 @@ enum EmployeeNetProjectionV2 {
     }
 
     static func calculate(_ input: Input) -> Result {
+        let periodMatches = input.year == input.period.year &&
+            input.ceiling.period.year == input.period.year &&
+            input.ceiling.period.month == input.period.month
         let validCashGross = input.cashGross.isFinite && input.cashGross >= 0
         let safeCashGross = validCashGross ? input.cashGross : 0
         let validBenefits = input.benefits.totalGross.isFinite && input.benefits.totalGross >= 0
@@ -93,6 +96,7 @@ enum EmployeeNetProjectionV2 {
             employerProtectionCsgCrdsBase != nil
 
         var blockers: [String] = []
+        if !periodMatches { blockers.append("plafond SS ou année de barème hors période de paie") }
         if !supportedNationalTables { blockers.append("barèmes nationaux non intégrés pour \(input.year)") }
         if !input.upstreamGrossReliable { blockers.append("brut salarial amont incomplet") }
         if !validCashGross { blockers.append("brut en espèces invalide") }
@@ -111,6 +115,7 @@ enum EmployeeNetProjectionV2 {
         if !aniComplete { blockers.append("catégorie ANI conventionnelle à confirmer") }
 
         let beforeTaxComplete = supportedNationalTables &&
+            periodMatches &&
             grossReliable &&
             input.ceiling.complete &&
             statutoryInputsComplete &&
