@@ -21,6 +21,7 @@ class V2BackupManagerTest {
     @Test
     fun `les fichiers entreprises salaire v2 sont geres par le backup`() {
         assertTrue(V2BackupManager.isManagedPreferenceFileName("salary_companies_v2"))
+        assertTrue(V2BackupManager.isManagedPreferenceFileName("navigation_state"))
         assertTrue(V2BackupManager.isManagedPreferenceFileName("salary_company_siret_12345678901234"))
         assertTrue(V2BackupManager.isManagedPreferenceFileName("salary_company_name_entreprise_test"))
         assertFalse(V2BackupManager.isManagedPreferenceFileName("salary_company"))
