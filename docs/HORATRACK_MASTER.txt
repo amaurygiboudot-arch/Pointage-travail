@@ -1,3 +1,89 @@
+==============================================================================
+CHECKPOINT 32 — 26 SEPTEMBRE 2026 — SALAIRE V2 / SORTIES CANONIQUES
+==============================================================================
+
+32.1 REPERE GIT ET PRINCIPE DE REPRISE
+main de référence mis à jour : 80a33d56ee272251273e6b4e7fa0906af8e5d250. Le seul delta depuis 5d2997a8 au moment de cette mise à jour ajoute le pipeline Google Play interne et son trigger ; aucun fichier Salaire/runtime n'est modifié.
+Salaire V2 reste fail-closed : inconnu != zéro, corruption != absence, source partielle != résultat fiable.
+Même règle métier pour 100 % des utilisateurs concernés, tous métiers/classes/catégories et toutes plateformes Android/iOS compatibles. Les adaptateurs plateforme peuvent différer ; la vérité métier ne doit pas diverger.
+
+32.2 PREUVES REELLES B21 — CORRECTIF #528
+Le snapshot Firestore privé v2_complete utilisé pour l'audit contenait 6 sessions. Les données brutes ne doivent pas être publiées.
+Propriétés anonymisées exploitées :
+- une session historique sans employeur ;
+- une pause non payée incohérente par rapport aux bornes du pointage ;
+- une semaine partiellement observée.
+PR #528, HEAD d0a51f47d02e233195e956d43100e0f2cb7da0c8 :
+- Android/iOS bloquent une pause située hors des bornes du pointage ;
+- la pause n'est plus clippée silencieusement en zéro fiable ;
+- le test anonymisé de bout en bout confirme qu'une confirmation d'employeur ne suffit pas à rendre fiable une session dont la géométrie de pause reste incohérente.
+
+32.3 CHAINE CANONIQUE SALAIRE V2
+Pile métier courante :
+- #510 : minutes d'heures supplémentaires variables prouvées ;
+- #512 : résultat riche stores -> B21/B20, conservation evidence + variables + base + assembly ;
+- #516 : B20 riche -> cash gross -> net -> sortie canonique ;
+- #519 : réunion des résultats riches et de la production canonique ;
+- #522 : composantes cash fixes confirmées Android ;
+- #523 : point d'entrée Android entreprise+mois vers la sortie canonique ;
+- #548 : comparaison bulletin sur sortie canonique ;
+- #550 : PDF entreprise sur sortie canonique ;
+- #552 : annuel/historique sur sortie canonique ;
+- #554 : écran Fiche de salaire sur sortie canonique.
+
+La PR #560 a été fermée sans fusion après vérification : elle dupliquait la capacité déjà versionnée par #512/#519. Aucun doublon de propriétaire n'est conservé.
+
+32.4 AUDIT DES QUATRE CONSOMMATEURS ANDROID
+Dans le chemin entreprise V2 :
+- SalaryPayslipWorkspaceView utilise V2SegmentedSalaryCanonicalBridge ;
+- SalaryExamplePdfV2 utilise V2SegmentedSalaryCanonicalBridge ; V2SalaryAdapter reste uniquement pour le profil historique sans entreprise V2 ;
+- AnnualPdfReports utilise la sortie canonique pour l'entreprise V2 ; l'ancien chemin reste réservé au profil historique ;
+- V2PayslipStore.comparison utilise la sortie canonique segmentée.
+Les références V2SalaryAdapter / V2SalaryNetBridgeV2 restantes dans V2PayslipStore concernent notamment la reconstruction théorique maladie et des helpers historiques ; elles ne sont pas utilisées par la comparaison bulletin entreprise V2.
+
+32.5 VALIDATION COMPLETE COURANTE
+Ancien candidat #555 : iOS, V2 unit tests, Android/build, Google Play, CodeQL, Firebase Functions et dependency-review réussis. Agent review gate rouge faute de preuve multi-agents pour le HEAD et OPENAI_API_KEY non configurée.
+Nouveau candidat VALIDATION ONLY #562 :
+- base main courante : 80a33d56ee272251273e6b4e7fa0906af8e5d250 ;
+- HEAD courant : 7b279600ec79e400c0d3c0a0b8bd7505de3bad34 ;
+- contient #528 + toute la pile consommateurs jusqu'à #554 ;
+- ne jamais fusionner #562.
+Au moment de l'écriture, V2 unit tests, Firebase Functions et dependency-review sont déjà réussis ; les autres jobs sont encore à terminer. Aucun job en cours n'est compté comme PASS.
+
+32.6 ECART IOS ENCORE OUVERT
+Les adaptateurs iOS savent consommer SalarySegmentedCanonicalOutputV2, mais SalaryV2Store résout encore son snapshot de production via SalaryWorkspaceResolverV2.resolve(reference:incomeTaxRate:) et non via l'entrée segmented.
+La PR #542 ajoute le propriétaire iOS des primes contractuelles/personnelles avec confirmation mensuelle d'exhaustivité et fail-closed.
+Aucune PR antérieure ne fournissait encore un propriétaire iOS complet de prime d'ancienneté équivalent au bridge Android utilisé dans les composantes cash fixes. Un moteur pur iOS a été retrouvé localement, comparé au moteur Android puis versionné proprement dans #564, HEAD 20b3194d5f14b28d184173baa28c820ce2fbcce1, enfant de #542. Il reste volontairement non activé : aucun store/parser/bridge de production n'est encore ajouté par #564. Ne pas inventer ce montant ni déclarer la parité iOS end-to-end acquise tant que les sources officielles et le propriétaire de stockage/bridge ne sont pas construits et validés.
+Audit iOS complémentaire : le socle iOS courant expose la matière SENIORITY_PREMIUM dans la couverture conventionnelle, mais aucune source vérifiée dans le dépôt courant ne fournit encore l'équivalent complet du bridge Android pour (1) preuve ACCO d'absence de règle entreprise concurrente, (2) historique local confirmé des règles monétaires d'ancienneté, (3) date d'ancienneté conventionnelle confirmée et son propriétaire de stockage. Par conséquent #564 reste volontairement moteur pur non activé.
+
+32.7 REGLES SOURCES CHATGPT AJOUTEES
+Source projet « Mise à jours Play store.txt » :
+- toutes les mises à jour Android destinées aux utilisateurs passent désormais par Google Play Console ;
+- ne plus utiliser une GitHub Release, un APK direct ou un artefact CI comme canal normal de mise à jour publique.
+
+Source projet « Agent Projet Disponible en Cas de Besoin.txt » :
+- les agents du projet sont disponibles ;
+- ne les lancer que lorsqu'un besoin réel justifie leur consommation de tokens ;
+- privilégier tests, audit ciblé et revue spécialisée ; ne pas lancer systématiquement toute l'équipe.
+
+Le gate GitHub agents ne doit jamais être contourné ni transformé artificiellement en PASS. L'absence actuelle d'OPENAI_API_KEY dans le workflow n'autorise pas sa réintroduction automatique.
+
+32.8 ORDRE DE REPRISE
+1. Terminer la matrice #562 sur son HEAD exact.
+2. Corriger uniquement les échecs techniques démontrés.
+3. Fermer la parité iOS des propriétaires cash fixes, notamment ancienneté, sans inventer de store ou de montant.
+4. Raccorder SalaryV2Store iOS à la sortie segmentée canonique lorsque ses entrées sont réellement disponibles.
+5. Rejouer une validation complète Android/iOS sur main courant.
+6. Fusionner uniquement les PR métier dans l'ordre de dépendance lorsque les gates réellement requis sont satisfaits.
+7. Ne jamais fusionner les PR VALIDATION ONLY.
+8. Toute publication/mise à jour utilisateur Android doit ensuite passer par Google Play Console.
+
+Aucun déploiement Firebase Functions ni publication store n'est effectué par ce checkpoint.
+
+==============================================================================
+ARCHIVE PRECEDENTE — CONSERVEE INTEGRALEMENT
+==============================================================================
+
 AGKGMG / HORATRACK — DOCUMENT MAITRE V2.24 — CHECKPOINT 31
 MISE A JOUR DU 26 SEPTEMBRE 2026 — PARAMETRES V2 / PUBLICATION / TRAVAIL PARALLELE SALAIRE V2
 
