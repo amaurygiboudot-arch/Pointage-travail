@@ -25,6 +25,8 @@ struct SalarySegmentedCashGrossNetProjectionResultV2 {
 enum SalarySegmentedCashGrossNetProjectionV2 {
     static let cashWarning =
         "Projection nette segmentée : brut en espèces absent ou non fiable."
+    static let periodWarning =
+        "Projection nette segmentée : l'année du barème ne correspond pas à la période de paie."
 
     static func project(
         cash: SalarySegmentedCashGrossAssemblyResultV2,
@@ -40,6 +42,16 @@ enum SalarySegmentedCashGrossNetProjectionV2 {
                 cashGrossReliable: false,
                 netBeforeIncomeTaxComplete: false,
                 warnings: unique(cash.warnings + [cashWarning])
+            )
+        }
+
+        guard context.year == context.period.year else {
+            return .init(
+                cash: cash,
+                projection: nil,
+                cashGrossReliable: true,
+                netBeforeIncomeTaxComplete: false,
+                warnings: unique(cash.warnings + [periodWarning])
             )
         }
 
