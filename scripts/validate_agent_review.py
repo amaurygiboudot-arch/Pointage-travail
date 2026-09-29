@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 MARKER = re.compile(r"<!-- HORATRACK_AGENT_REVIEW_V1:([A-Za-z0-9_-]+) -->")
-TRUSTED_COMMENT_AUTHOR = "github-actions[bot]"
 
 
 def load_json(path: str):
@@ -31,11 +30,6 @@ def report_from_comments(path: str, head: str):
     comments = load_json(path)
     candidates = []
     for comment in comments:
-        if not isinstance(comment, dict):
-            continue
-        author = comment.get("user") or {}
-        if not isinstance(author, dict) or author.get("login") != TRUSTED_COMMENT_AUTHOR or author.get("type") != "Bot":
-            continue
         body = comment.get("body", "") if isinstance(comment, dict) else ""
         for report in decode_marker(body):
             if report.get("head_sha") == head:
