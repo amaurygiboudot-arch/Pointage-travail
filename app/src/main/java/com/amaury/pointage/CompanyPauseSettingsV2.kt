@@ -23,6 +23,23 @@ import android.widget.TextView
 import android.widget.Toast
 import java.util.Locale
 
+/** Intersections strictes sur une journée circulaire ; des pauses adjacentes sont autorisées. */
+internal object CompanyPauseOverlapV2 {
+    private fun segments(start: Int, end: Int): List<IntRange> =
+        if (end > start) listOf(start until end)
+        else listOf(start until 1440, 0 until end).filterNot { it.isEmpty() }
+
+    fun overlaps(firstStart: Int, firstEnd: Int, secondStart: Int, secondEnd: Int): Boolean {
+        require(listOf(firstStart, firstEnd, secondStart, secondEnd).all { it in 0..1439 })
+        require(firstStart != firstEnd && secondStart != secondEnd)
+        return segments(firstStart, firstEnd).any { first ->
+            segments(secondStart, secondEnd).any { second ->
+                first.first <= second.last && second.first <= first.last
+            }
+        }
+    }
+}
+
 /** Réglages de pauses propres à une entreprise V2, identifiée par son ID stable. */
 object CompanyPauseSettingsV2 {
     private const val MIGRATION_KEY = "base_pauses_v2_migrated"
@@ -33,7 +50,6 @@ object CompanyPauseSettingsV2 {
             get() {
                 if (startMinute !in 0..1439 || endMinute !in 0..1439 || startMinute == endMinute) return 0
                 return (if (endMinute > startMinute) endMinute - startMinute else 24 * 60 - startMinute + endMinute)
-                    .coerceIn(0, 240)
             }
     }
 
@@ -67,12 +83,12 @@ object CompanyPauseSettingsV2 {
         ).takeIf { it.durationMinutes > 0 }
 
     fun baseMinutes(context: Context, companyId: String): Int =
-        (1..2).sumOf { pause(context, companyId, it)?.durationMinutes ?: 0 }.coerceIn(0, 480)
+        (1..2).sumOf { pause(context, companyId, it)?.durationMinutes ?: 0 }
 
     fun unpaidMinutes(context: Context, companyId: String): Int =
         (1..2).sumOf { index ->
             pause(context, companyId, index)?.takeIf { !it.paid }?.durationMinutes ?: 0
-        }.coerceIn(0, 480)
+        }
 
     fun alarmEnabled(context: Context, companyId: String, pauseIndex: Int): Boolean {
         ensureMigrated(context, companyId)
@@ -207,6 +223,16 @@ class CompanyPauseSettingsV2View(
         var soundValue: String
     )
 
+    private data class PendingPause(
+        val index: Int,
+        val fields: PauseFields,
+        val start: Int?,
+        val end: Int?,
+        val clear: Boolean
+    ) {
+        val valid: Boolean get() = clear || (start != null && end != null && start != end)
+    }
+
     init {
         orientation = VERTICAL
         setPadding(0, dp(14), 0, dp(6))
@@ -323,26 +349,32 @@ class CompanyPauseSettingsV2View(
 
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val entries = listOf(1 to p1, 2 to p2)
-                var invalid = false
-                entries.forEach { (index, fields) ->
+                val pending = listOf(1 to p1, 2 to p2).map { (index, fields) ->
                     val rawStart = fields.start.text.toString()
                     val rawEnd = fields.end.text.toString()
-                    val bothBlank = rawStart.isBlank() && rawEnd.isBlank()
-                    val start = parse(rawStart)
-                    val end = parse(rawEnd)
-                    when {
-                        bothBlank -> CompanyPauseSettingsV2.clearPause(context, companyId, index)
-                        start == null || end == null || start == end -> invalid = true
-                        else -> {
-                            CompanyPauseSettingsV2.savePause(context, companyId, index, start, end, fields.paid.isChecked)
-                            CompanyPauseSettingsV2.saveAlarm(context, companyId, index, fields.alarm.isChecked, fields.soundValue)
+                    PendingPause(index, fields, parse(rawStart), parse(rawEnd), rawStart.isBlank() && rawEnd.isBlank())
+                }
+                if (pending.any { !it.valid }) {
+                    Toast.makeText(context, "Chaque pause renseignée doit avoir une heure de début et de fin valides", Toast.LENGTH_LONG).show()
+                } else if (pending.filterNot { it.clear }.let { configured ->
+                        configured.size == 2 && CompanyPauseOverlapV2.overlaps(
+                            configured[0].start!!, configured[0].end!!,
+                            configured[1].start!!, configured[1].end!!
+                        )
+                    }) {
+                    Toast.makeText(context, "Les deux pauses ne doivent pas se chevaucher", Toast.LENGTH_LONG).show()
+                } else {
+                    pending.forEach { entry ->
+                        if (entry.clear) CompanyPauseSettingsV2.clearPause(context, companyId, entry.index)
+                        else {
+                            CompanyPauseSettingsV2.savePause(
+                                context, companyId, entry.index, entry.start!!, entry.end!!, entry.fields.paid.isChecked
+                            )
+                            CompanyPauseSettingsV2.saveAlarm(
+                                context, companyId, entry.index, entry.fields.alarm.isChecked, entry.fields.soundValue
+                            )
                         }
                     }
-                }
-                if (invalid) {
-                    Toast.makeText(context, "Chaque pause renseignée doit avoir une heure de début et de fin valides", Toast.LENGTH_LONG).show()
-                } else {
                     PauseAlarmSoundCatalog.stopPreview()
                     CompanyPauseAlarmManager.scheduleAll(context)
                     if (p1.alarm.isChecked || p2.alarm.isChecked) requestAlarmPermissionsIfNeeded()
