@@ -64,6 +64,7 @@ final class SalaryV2Store: ObservableObject {
     @Published private(set) var segmentedProrationSource: SalarySegmentedProrationSourceV2?
     @Published private(set) var segmentedMonthlyBase: SegmentedMonthlyBaseResultV2?
     @Published private(set) var segmentedPayrollBoundary: SalarySegmentedPayrollBoundaryAssessmentV2?
+    @Published private(set) var segmentedSocialCeiling: SalarySegmentedSocialSecurityCeilingResultV2?
     @Published var segmentedProrationSourceText = ""
     @Published private(set) var segmentedProrationDraftSegments: [SalarySegmentedProrationDraftSegmentV2] = []
     @Published private(set) var segmentedProrationFeedback: String?
@@ -247,6 +248,16 @@ final class SalaryV2Store: ObservableObject {
             !(segmentedPayrollBoundary?.transitionEpochDays.isEmpty ?? true) ||
             ((contractResolution?.resolution?.calculationSegments.count ?? 0) > 1 &&
              contractResolution?.readyForSingleContractCalculation != true)
+        self.segmentedSocialCeiling = needsSegmentedSource
+            ? Self.resolveSegmentedCeiling(
+                companyId: companyId,
+                period: period,
+                contracts: contractResolution?.resolution,
+                absences: absenceSource,
+                work: workSource,
+                calendar: calendar
+            )
+            : nil
         self.snapshot = SalaryWorkspaceResolverV2.resolve(
             period: period,
             requiresSegmentedSource: needsSegmentedSource,
@@ -293,6 +304,7 @@ final class SalaryV2Store: ObservableObject {
         let segmentedBoundaryWarnings = hasMaterialSegmentedPayrollTransition
             ? (segmentedPayrollBoundary?.warnings ?? [])
             : []
+        let segmentedCeilingWarnings = segmentedSocialCeiling?.warnings ?? []
         let segmentedWorkWarnings = contractSegmentPaidWork?.warnings ?? []
         let workspaceWarnings = snapshot.warnings
         let workWarnings = paidWork?.warnings ?? []
@@ -309,6 +321,7 @@ final class SalaryV2Store: ObservableObject {
             + segmentedProrationWarnings
             + segmentedBaseWarnings
             + segmentedBoundaryWarnings
+            + segmentedCeilingWarnings
             + segmentedWorkWarnings
             + workspaceWarnings
             + workWarnings
@@ -898,6 +911,17 @@ final class SalaryV2Store: ObservableObject {
             } else {
                 segmentedPayrollBoundary = nil
             }
+            let needsSegmentedSource = hasMaterialSegmentedPayrollTransition || requiresSegmentedProration
+            segmentedSocialCeiling = needsSegmentedSource
+                ? Self.resolveSegmentedCeiling(
+                    companyId: companyId,
+                    period: selectedPeriod,
+                    contracts: contractResolution?.resolution,
+                    absences: absenceSource,
+                    work: source,
+                    calendar: calendar
+                )
+                : nil
             segmentedProrationSourceText = segmentedProrationSource?.proration?.sourceId ?? ""
             segmentedProrationDraftSegments = SalarySegmentedProrationDraftBuilderV2.make(
                 segments: contractResolution?.resolution?.calculationSegments ?? [],
@@ -925,6 +949,7 @@ final class SalaryV2Store: ObservableObject {
             segmentedProrationSource = nil
             segmentedMonthlyBase = nil
             segmentedPayrollBoundary = nil
+            segmentedSocialCeiling = nil
             segmentedProrationSourceText = ""
             segmentedProrationDraftSegments = []
         }
@@ -941,6 +966,37 @@ final class SalaryV2Store: ObservableObject {
         incomeTaxSource = taxRate?.source ?? ""
         hydrateContractForm(from: contractResolution?.resolution?.coverage?.singleSnapshotForWholePeriod)
         hydrateConventionClassification()
+    }
+
+    private static func resolveSegmentedCeiling(
+        companyId: String?,
+        period: YearMonthV2,
+        contracts: SalaryEmploymentContractPeriodResolutionV2?,
+        absences: SalaryAbsenceSourceV2?,
+        work: SalaryWorkSessionSourceV2?,
+        calendar: Calendar
+    ) -> SalarySegmentedSocialSecurityCeilingResultV2? {
+        guard let companyId, let contracts, let absences, let work else { return nil }
+        let impact = SalaryAbsencePayrollImpactV2.forMonth(
+            absences: absences.absences,
+            period: period,
+            acceptedEmployerIds: [companyId],
+            workSessions: work.sessions,
+            absenceSourceReliable: absences.reliable,
+            workSourceReliable: work.reliable,
+            calendar: calendar
+        )
+        let ceiling = SalarySegmentedSocialSecurityCeilingV2.resolve(
+            period: period,
+            contracts: contracts,
+            complementaryMinutes: nil,
+            unpaidAbsenceDays: impact.requiresPayrollReview
+                ? nil : impact.unpaidFullCalendarDays
+        )
+        return SalarySegmentedSocialSecurityCeilingResultV2(
+            ceiling: ceiling.ceiling,
+            warnings: Array(Set(impact.warnings + ceiling.warnings)).sorted()
+        )
     }
 
     private func localCivilDate(from raw: String) -> Date? {
