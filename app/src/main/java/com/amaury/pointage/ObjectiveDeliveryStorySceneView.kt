@@ -144,17 +144,23 @@ internal class ObjectiveDeliveryStorySceneView(
         if (index !in scene.people.indices) return
         val person = scene.people[index]
         val status = sceneCanvas.agentStatus(index)
+        val priority = ObjectiveDeliveryNpcBrain.priorityLabel(scene, index)
+        val initiative = ObjectiveDeliveryNpcBrain.initiative(scene, index)
         val dialogue = sceneCanvas.agentSpeechLine(index)
         val speechDescription = dialogue?.let { " Réplique : $it." }.orEmpty()
         selectedPersonDetails.text = buildString {
             append(moodFace(person.mood)).append(" ").append(person.name)
                 .append(" • ").append(person.role)
             append("\n").append(person.task)
+            append("\nPriorité : ").append(priority)
+            append("\nInitiative : ").append(initiative)
             append("\n").append(status)
             dialogue?.let { append("\n« ").append(it).append(" »") }
         }
         selectedPersonDetails.contentDescription =
-            "${person.name}, ${person.role}. ${person.task} $status Humeur : ${moodLabel(person.mood)}.$speechDescription"
+            "${person.name}, ${person.role}. ${person.task} " +
+                "Priorité : $priority. Initiative : $initiative. $status " +
+                "Humeur : ${moodLabel(person.mood)}.$speechDescription"
     }
 
     private fun sceneText(

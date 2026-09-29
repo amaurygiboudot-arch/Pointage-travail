@@ -11,6 +11,17 @@ internal enum class ObjectiveDeliveryNpcAction {
     SEEK_DIRECTION
 }
 
+internal enum class ObjectiveDeliveryNpcPriority(val label: String) {
+    CUSTOMER("Relation client"),
+    HANDOFF("Transmission"),
+    TEAM("Équipe"),
+    SUPPLY("Approvisionnement"),
+    QUALITY("Qualité"),
+    DELIVERY("Livraison"),
+    SAFETY("Sécurité"),
+    CASH("Trésorerie")
+}
+
 internal data class ObjectiveDeliveryNpcStep(
     val destinationZone: Int,
     val action: ObjectiveDeliveryNpcAction,
@@ -38,6 +49,80 @@ internal object ObjectiveDeliveryNpcBrain {
         7, 9 -> 5
         else -> 4
     }
+
+    fun priority(scene: ObjectiveDeliverySceneModel, personIndex: Int): ObjectiveDeliveryNpcPriority {
+        if (personIndex !in scene.people.indices) return chapterPriority(scene.chapter)
+        if (personIndex == directorIndex(scene)) return chapterPriority(scene.chapter)
+
+        val role = scene.people[personIndex].role.lowercase(Locale.ROOT)
+        return when {
+            scene.chapter == 9 -> ObjectiveDeliveryNpcPriority.SAFETY
+            scene.chapter == 10 -> ObjectiveDeliveryNpcPriority.CASH
+            role.contains("client") -> if (scene.chapter >= 7) {
+                ObjectiveDeliveryNpcPriority.DELIVERY
+            } else {
+                ObjectiveDeliveryNpcPriority.CUSTOMER
+            }
+            scene.chapter == 3 && (role.contains("commerce") || role.contains("vente")) ->
+                ObjectiveDeliveryNpcPriority.HANDOFF
+            role.contains("approvisionnement") || role.contains("fournisseur") ->
+                ObjectiveDeliveryNpcPriority.SUPPLY
+            scene.chapter == 6 && (role.contains("production") || role.contains("qualité") ||
+                role.contains("technique") || role.contains("atelier")) ->
+                ObjectiveDeliveryNpcPriority.QUALITY
+            scene.chapter >= 7 && role.contains("logistique") ->
+                ObjectiveDeliveryNpcPriority.DELIVERY
+            (scene.chapter == 4 || scene.chapter == 8) -> ObjectiveDeliveryNpcPriority.TEAM
+            else -> chapterPriority(scene.chapter)
+        }
+    }
+
+    fun priorityLabel(scene: ObjectiveDeliverySceneModel, personIndex: Int): String {
+        val base = priority(scene, personIndex).label
+        val urgent = scene.people.getOrNull(personIndex)?.mood == ObjectiveDeliverySceneMood.ANGRY
+        return if (urgent) "URGENT • $base" else base
+    }
+
+    fun initiative(scene: ObjectiveDeliverySceneModel, personIndex: Int): String {
+        val person = scene.people.getOrNull(personIndex)
+            ?: return "Attend une information fiable avant d’agir."
+        if (personIndex == directorIndex(scene)) {
+            return "Tu arbitres les priorités et donnes le cap à l’équipe."
+        }
+        if (person.mood == ObjectiveDeliverySceneMood.ANGRY) {
+            return "Demande un échange avant de reprendre sa mission."
+        }
+        return when (priority(scene, personIndex)) {
+            ObjectiveDeliveryNpcPriority.CUSTOMER ->
+                "Clarifie le besoin et évite une promesse floue."
+            ObjectiveDeliveryNpcPriority.HANDOFF ->
+                "Vérifie que les informations utiles suivent la commande."
+            ObjectiveDeliveryNpcPriority.TEAM ->
+                "Cherche le bon relais et protège l’équilibre de charge."
+            ObjectiveDeliveryNpcPriority.SUPPLY ->
+                "Surveille le stock et les délais fournisseur."
+            ObjectiveDeliveryNpcPriority.QUALITY ->
+                "Contrôle la conformité avant de laisser avancer la commande."
+            ObjectiveDeliveryNpcPriority.DELIVERY ->
+                "Prépare le passage suivant jusqu’au client."
+            ObjectiveDeliveryNpcPriority.SAFETY ->
+                "Sécurise le poste avant de poursuivre."
+            ObjectiveDeliveryNpcPriority.CASH ->
+                "Protège les échéances sans oublier les engagements client."
+        }
+    }
+
+    private fun chapterPriority(chapter: Int): ObjectiveDeliveryNpcPriority =
+        when (chapter.coerceIn(1, 10)) {
+            1, 2 -> ObjectiveDeliveryNpcPriority.CUSTOMER
+            3 -> ObjectiveDeliveryNpcPriority.HANDOFF
+            4, 8 -> ObjectiveDeliveryNpcPriority.TEAM
+            5 -> ObjectiveDeliveryNpcPriority.SUPPLY
+            6 -> ObjectiveDeliveryNpcPriority.QUALITY
+            7 -> ObjectiveDeliveryNpcPriority.DELIVERY
+            9 -> ObjectiveDeliveryNpcPriority.SAFETY
+            else -> ObjectiveDeliveryNpcPriority.CASH
+        }
 
     fun homeZone(scene: ObjectiveDeliverySceneModel, personIndex: Int): Int {
         if (personIndex !in scene.people.indices) return activeZone(scene.chapter)
@@ -175,13 +260,24 @@ internal object ObjectiveDeliveryNpcBrain {
                 partnerIndex = director
             )
         }
-        routine += ObjectiveDeliveryNpcStep(home, ObjectiveDeliveryNpcAction.WORK, 3.5f)
-        routine += ObjectiveDeliveryNpcStep(
+        val collaboration = ObjectiveDeliveryNpcStep(
             destinationZone = partnerZone,
             action = ObjectiveDeliveryNpcAction.COLLABORATE,
             dwellSeconds = 2.4f,
             partnerIndex = partner
         )
+        val work = ObjectiveDeliveryNpcStep(home, ObjectiveDeliveryNpcAction.WORK, 3.5f)
+        when (priority(scene, personIndex)) {
+            ObjectiveDeliveryNpcPriority.HANDOFF,
+            ObjectiveDeliveryNpcPriority.TEAM -> {
+                routine += collaboration
+                routine += work
+            }
+            else -> {
+                routine += work
+                routine += collaboration
+            }
+        }
         routine += ObjectiveDeliveryNpcStep(
             destinationZone = nextHandoffZone,
             action = if (waitsForInformation) {

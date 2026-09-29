@@ -118,4 +118,50 @@ class ObjectiveDeliveryNpcBrainTest {
             ObjectiveDeliveryNpcBrain.speechLine(scene, personIndex, step, isMoving = true)
         )
     }
+
+    @Test
+    fun prioritiesFollowChapterRoleAndOperationalRisk() {
+        val handoff = ObjectiveDeliverySceneCatalog.forChapter(3)
+        val sales = handoff.people.indexOfFirst { it.role == "Commerce" }
+        val supply = ObjectiveDeliverySceneCatalog.forChapter(5)
+        val supplier = supply.people.indexOfFirst { it.role == "Approvisionnement" }
+        val quality = ObjectiveDeliverySceneCatalog.forChapter(6)
+        val production = quality.people.indexOfFirst { it.role == "Production" }
+        val safety = ObjectiveDeliverySceneCatalog.forChapter(9)
+        val technical = safety.people.indexOfFirst { it.role == "Équipe technique" }
+
+        assertEquals(ObjectiveDeliveryNpcPriority.HANDOFF, ObjectiveDeliveryNpcBrain.priority(handoff, sales))
+        assertEquals(ObjectiveDeliveryNpcPriority.SUPPLY, ObjectiveDeliveryNpcBrain.priority(supply, supplier))
+        assertEquals(ObjectiveDeliveryNpcPriority.QUALITY, ObjectiveDeliveryNpcBrain.priority(quality, production))
+        assertEquals(ObjectiveDeliveryNpcPriority.SAFETY, ObjectiveDeliveryNpcBrain.priority(safety, technical))
+    }
+
+    @Test
+    fun handoffAndTeamCharactersCollaborateBeforeReturningToWork() {
+        val handoff = ObjectiveDeliverySceneCatalog.forChapter(3)
+        val sales = handoff.people.indexOfFirst { it.role == "Commerce" }
+        val production = ObjectiveDeliverySceneCatalog.forChapter(6)
+        val productionWorker = production.people.indexOfFirst { it.role == "Production" }
+
+        assertEquals(
+            ObjectiveDeliveryNpcAction.COLLABORATE,
+            ObjectiveDeliveryNpcBrain.routine(handoff, sales).first().action
+        )
+        assertEquals(
+            ObjectiveDeliveryNpcAction.WORK,
+            ObjectiveDeliveryNpcBrain.routine(production, productionWorker).first().action
+        )
+    }
+
+    @Test
+    fun troubledCharacterExposesUrgentPriorityAndSupportInitiative() {
+        val scene = ObjectiveDeliverySceneCatalog.forChapter(8, isTroubled = true)
+        val troubled = scene.troubledPersonIndex
+
+        assertTrue(ObjectiveDeliveryNpcBrain.priorityLabel(scene, troubled).startsWith("URGENT •"))
+        assertEquals(
+            "Demande un échange avant de reprendre sa mission.",
+            ObjectiveDeliveryNpcBrain.initiative(scene, troubled)
+        )
+    }
 }
