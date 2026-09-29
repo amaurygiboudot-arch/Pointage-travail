@@ -54,7 +54,7 @@ class ObjectiveDeliveryNpcBrainTest {
             }
 
             if (troubled == director) {
-                assertEquals(null, seekingStep)
+                assertTrue(seekingStep == null)
             } else {
                 assertEquals(director, seekingStep?.partnerIndex)
             }
