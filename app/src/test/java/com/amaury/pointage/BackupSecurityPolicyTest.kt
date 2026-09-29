@@ -14,8 +14,13 @@ class BackupSecurityPolicyTest {
             "update_download",
             "update_push",
             "app_check_status",
+            "diamond_lab",
             "firebase_device_registry",
+            "horatrack_v2_backup",
             "horatrack_v2_gps_state",
+            "horatrack_v2_test_policy",
+            "icon_switch_diagnostics",
+            "location_onboarding",
             "drive_backup",
             "pointage",
             " V2_APP_LOCK "
@@ -49,5 +54,59 @@ class BackupSecurityPolicyTest {
         ).forEach { name ->
             assertTrue(name, BackupSecurityPolicy.canTransferPreferenceFile(name))
         }
+    }
+}
+
+class BackupPreferenceKeyPolicyTest {
+    @Test
+    fun `smart setup learning state stays device local`() {
+        listOf(
+            "candidate_enter_zone-1",
+            "candidate_days_zone-1",
+            "pending_workplace_zone",
+            "pending_workplace_address",
+            "pending_workplace_company",
+            "proposal_dialog_visible"
+        ).forEach { key ->
+            assertFalse(key, BackupPreferenceKeyPolicy.canTransfer("smart_setup", key))
+        }
+
+        listOf(
+            "initialized",
+            "enabled",
+            "learn_workplace",
+            "learn_pauses",
+            "candidate_rejected_zone-1"
+        ).forEach { key ->
+            assertTrue(key, BackupPreferenceKeyPolicy.canTransfer("smart_setup", key))
+        }
+    }
+
+    @Test
+    fun `appearance navigation and backend device state do not cross devices`() {
+        assertFalse(BackupPreferenceKeyPolicy.canTransfer("appearance_settings", "custom_image_bg"))
+        assertFalse(BackupPreferenceKeyPolicy.canTransfer("appearance_settings", "celestial_night"))
+        assertTrue(BackupPreferenceKeyPolicy.canTransfer("appearance_settings", "visual_theme"))
+        assertTrue(BackupPreferenceKeyPolicy.canTransfer("appearance_settings", "app_bg"))
+
+        assertFalse(BackupPreferenceKeyPolicy.canTransfer("navigation_state", "active_tab"))
+        assertTrue(BackupPreferenceKeyPolicy.canTransfer("navigation_state", "report_month_ms"))
+
+        listOf(
+            "notification_permission_requested",
+            "last_server_check",
+            "known_revision",
+            "popup_revision"
+        ).forEach { key ->
+            assertFalse(key, BackupPreferenceKeyPolicy.canTransfer("firebase_backend_updates", key))
+        }
+    }
+
+    @Test
+    fun `existing gps ephemeral policy remains enforced`() {
+        GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach { key ->
+            assertFalse(key, BackupPreferenceKeyPolicy.canTransfer("gps_settings", key))
+        }
+        assertTrue(BackupPreferenceKeyPolicy.canTransfer("gps_settings", "zones"))
     }
 }

@@ -3,6 +3,7 @@ package com.amaury.pointage.v2
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
+import com.amaury.pointage.BackupPreferenceKeyPolicy
 import com.amaury.pointage.BackupSecurityPolicy
 import com.amaury.pointage.DriveBackupManager
 import com.amaury.pointage.GpsPresenceStateKeysV2
@@ -145,7 +146,7 @@ object V2BackupManager {
         }
         null
     }
-    private fun encodePreferences(context:Context,name:String):JSONObject { val out=JSONObject();context.applicationContext.getSharedPreferences(name,Context.MODE_PRIVATE).all.forEach{(k,v)->if(GpsPresenceStateKeysV2.isTransferablePreferenceKey(name,k))when(v){is String->out.put(k,JSONObject().put("t","s").put("v",v));is Boolean->out.put(k,JSONObject().put("t","b").put("v",v));is Int->out.put(k,JSONObject().put("t","i").put("v",v));is Long->out.put(k,JSONObject().put("t","l").put("v",v));is Float->out.put(k,JSONObject().put("t","f").put("v",v.toDouble()));is Set<*>->out.put(k,JSONObject().put("t","set").put("v",JSONArray(v.filterIsInstance<String>())))}};return out }
+    private fun encodePreferences(context:Context,name:String):JSONObject { val out=JSONObject();context.applicationContext.getSharedPreferences(name,Context.MODE_PRIVATE).all.forEach{(k,v)->if(BackupPreferenceKeyPolicy.canTransfer(name,k))when(v){is String->out.put(k,JSONObject().put("t","s").put("v",v));is Boolean->out.put(k,JSONObject().put("t","b").put("v",v));is Int->out.put(k,JSONObject().put("t","i").put("v",v));is Long->out.put(k,JSONObject().put("t","l").put("v",v));is Float->out.put(k,JSONObject().put("t","f").put("v",v.toDouble()));is Set<*>->out.put(k,JSONObject().put("t","set").put("v",JSONArray(v.filterIsInstance<String>())))}};return out }
     private fun mergePreferences(context:Context,name:String,saved:JSONObject){
         require(isValidTypedPreferencePayload(saved)){"Préférences $name invalides"}
         val editor=context.applicationContext.getSharedPreferences(name,Context.MODE_PRIVATE).edit()
@@ -153,7 +154,7 @@ object V2BackupManager {
         val keys=saved.keys()
         while(keys.hasNext()){
             val key=keys.next();val item=saved.getJSONObject(key);val value=item.get("v")
-            if(!GpsPresenceStateKeysV2.isTransferablePreferenceKey(name,key))continue
+            if(!BackupPreferenceKeyPolicy.canTransfer(name,key))continue
             when(item.getString("t")){
                 "s"->editor.putString(key,value as String)
                 "b"->editor.putBoolean(key,value as Boolean)
