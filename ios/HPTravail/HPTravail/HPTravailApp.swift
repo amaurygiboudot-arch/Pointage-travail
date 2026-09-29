@@ -157,6 +157,17 @@ struct HPTravailApp: App {
                         )
                     )
                 },
+                segmentedProvider: { companyId, period in
+                    let workSource = SalaryWorkSessionBridgeV2.source(
+                        from: workStore.sessions,
+                        storageReliable: workStore.storageReliable
+                    )
+                    return SalarySegmentedCanonicalReferenceProviderV2.build(
+                        companyId: companyId,
+                        period: period,
+                        work: workSource
+                    )
+                },
                 workSourceProvider: {
                     SalaryWorkSessionBridgeV2.source(
                         from: workStore.sessions,
