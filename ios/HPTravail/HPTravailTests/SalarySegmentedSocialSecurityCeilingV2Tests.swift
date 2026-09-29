@@ -23,6 +23,67 @@ final class SalarySegmentedSocialSecurityCeilingV2Tests: XCTestCase {
         XCTAssertEqual(result.ceiling?.applicableMonthly ?? -1, 4_005, accuracy: 0.001)
     }
 
+    func testReliableVariableEvidenceFeedsComplementaryMinutesIntoPartTimeCeiling() throws {
+        let source = SalarySegmentedWorkedVariableGrossSourceResultV2(
+            pieces: [],
+            reliable: true,
+            warnings: [],
+            breakdowns: [
+                .init(
+                    companyId: "company-a",
+                    versionId: "v1",
+                    startEpochDay: 1,
+                    endEpochDay: 15,
+                    overtimeGross: 0,
+                    complementaryGross: 12,
+                    premiumGross: 0,
+                    complementaryMinutes: 60
+                ),
+                .init(
+                    companyId: "company-a",
+                    versionId: "v2",
+                    startEpochDay: 16,
+                    endEpochDay: 30,
+                    overtimeGross: 0,
+                    complementaryGross: 18,
+                    premiumGross: 0,
+                    complementaryMinutes: 90
+                )
+            ]
+        )
+        let complementary = SalarySegmentedSocialSecurityCeilingV2.confirmedComplementaryMinutes(
+            from: source
+        )
+        XCTAssertEqual(complementary, 150)
+
+        let contracts = try resolution(
+            first: snapshot("v1", rate: 13.5, weekly: 1_050, type: .partTime),
+            second: snapshot("v2", rate: 14.0, weekly: 1_050, type: .partTime)
+        )
+        let result = SalarySegmentedSocialSecurityCeilingV2.resolve(
+            period: period,
+            contracts: contracts,
+            complementaryMinutes: complementary,
+            unpaidAbsenceDays: 0
+        )
+
+        XCTAssertTrue(result.reliable)
+        XCTAssertNotNil(result.ceiling)
+    }
+
+    func testUnreliableVariableEvidenceDoesNotInventComplementaryMinutes() {
+        let source = SalarySegmentedWorkedVariableGrossSourceResultV2(
+            pieces: [],
+            reliable: false,
+            warnings: ["Variables à confirmer"],
+            breakdowns: []
+        )
+
+        XCTAssertNil(
+            SalarySegmentedSocialSecurityCeilingV2.confirmedComplementaryMinutes(from: source)
+        )
+    }
+
     func testWorkDurationTransitionBlocksCeilingInsteadOfUsingLastContract() throws {
         let contracts = try resolution(
             first: snapshot("v1", rate: 13.5, weekly: 1_050, type: .partTime),
