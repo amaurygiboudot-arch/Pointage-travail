@@ -109,6 +109,36 @@ internal object ObjectiveDeliveryNpcBrain {
             ?: directorIndex(scene)
     }
 
+    fun speechLine(
+        scene: ObjectiveDeliverySceneModel,
+        personIndex: Int,
+        step: ObjectiveDeliveryNpcStep,
+        isMoving: Boolean
+    ): String? {
+        if (personIndex !in scene.people.indices || personIndex == directorIndex(scene)) {
+            return null
+        }
+
+        val person = scene.people[personIndex]
+        val partnerName = step.partnerIndex?.let { scene.people.getOrNull(it)?.name } ?: "un collègue"
+        return when (step.action) {
+            ObjectiveDeliveryNpcAction.SEEK_DIRECTION ->
+                if (person.mood == ObjectiveDeliverySceneMood.ANGRY) {
+                    "Je voudrais qu’on en parle."
+                } else {
+                    "Peux-tu m’aider un instant ?"
+                }
+            ObjectiveDeliveryNpcAction.WORK ->
+                if (isMoving) "Je rejoins mon poste !" else "Je m’occupe de ma mission 🙂"
+            ObjectiveDeliveryNpcAction.COLLABORATE ->
+                if (isMoving) "Je vais voir $partnerName !" else "On fait le point ensemble 🙂"
+            ObjectiveDeliveryNpcAction.WAIT ->
+                if (isMoving) "Je rejoins le point de réception." else "J’attends les informations avant d’avancer."
+            ObjectiveDeliveryNpcAction.TRAVEL_TO_TASK -> "Je rejoins mon poste !"
+            ObjectiveDeliveryNpcAction.TRAVEL_TO_COLLEAGUE -> "Je vais voir $partnerName !"
+        }
+    }
+
     fun routine(
         scene: ObjectiveDeliverySceneModel,
         personIndex: Int
