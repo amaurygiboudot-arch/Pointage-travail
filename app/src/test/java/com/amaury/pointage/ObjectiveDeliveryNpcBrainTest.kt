@@ -69,4 +69,53 @@ class ObjectiveDeliveryNpcBrainTest {
                 }
         }
     }
+    @Test
+    fun speechLinesExplainWorkCollaborationAndInformationWaits() {
+        val scene = ObjectiveDeliverySceneCatalog.forChapter(6)
+        val production = scene.people.indexOfFirst { it.role == "Production" }
+        val direction = ObjectiveDeliveryNpcBrain.directorIndex(scene)
+        val routine = ObjectiveDeliveryNpcBrain.routine(scene, production)
+        val work = routine.first()
+        val collaboration = routine.first {
+            it.action == ObjectiveDeliveryNpcAction.COLLABORATE
+        }
+        val waitingScene = ObjectiveDeliverySceneCatalog.forChapter(5)
+        val supplier = waitingScene.people.indexOfFirst { it.role == "Approvisionnement" }
+        val waiting = ObjectiveDeliveryNpcBrain.routine(waitingScene, supplier).first {
+            it.action == ObjectiveDeliveryNpcAction.WAIT
+        }
+
+        assertEquals(
+            "Je m’occupe de ma mission 🙂",
+            ObjectiveDeliveryNpcBrain.speechLine(scene, production, work, isMoving = false)
+        )
+        assertEquals(
+            "Je rejoins mon poste !",
+            ObjectiveDeliveryNpcBrain.speechLine(scene, production, work, isMoving = true)
+        )
+        assertEquals(
+            "On fait le point ensemble 🙂",
+            ObjectiveDeliveryNpcBrain.speechLine(scene, production, collaboration, isMoving = false)
+        )
+        assertEquals(
+            "J’attends les informations avant d’avancer.",
+            ObjectiveDeliveryNpcBrain.speechLine(waitingScene, supplier, waiting, isMoving = false)
+        )
+        assertTrue(
+            ObjectiveDeliveryNpcBrain.speechLine(scene, direction, work, isMoving = false) == null
+        )
+    }
+
+    @Test
+    fun storyAffectedAngryCharacterCanAskToTalkCalmly() {
+        val scene = ObjectiveDeliverySceneCatalog.forChapter(7, isTroubled = true)
+        val personIndex = scene.troubledPersonIndex
+        val step = ObjectiveDeliveryNpcBrain.routine(scene, personIndex).first()
+
+        assertEquals(ObjectiveDeliveryNpcAction.SEEK_DIRECTION, step.action)
+        assertEquals(
+            "Je voudrais qu’on en parle.",
+            ObjectiveDeliveryNpcBrain.speechLine(scene, personIndex, step, isMoving = true)
+        )
+    }
 }
