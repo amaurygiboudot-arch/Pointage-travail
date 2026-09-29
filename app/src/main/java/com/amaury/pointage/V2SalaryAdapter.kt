@@ -38,6 +38,7 @@ import com.amaury.pointage.v2.engine.PayrollPeriodV2
 import com.amaury.pointage.v2.engine.PayrollRulesV2
 import com.amaury.pointage.v2.engine.PayrollWeekV2
 import com.amaury.pointage.v2.engine.PublicHolidayPremiumPolicyV2
+import com.amaury.pointage.v2.engine.WeeklyThresholdMonthBoundaryGuardV2
 import com.amaury.pointage.v2.model.ContractTypeV2
 import com.amaury.pointage.v2.model.ContractV2
 import com.amaury.pointage.v2.model.ForfaitHoursPeriodV2
@@ -327,6 +328,21 @@ object V2SalaryAdapter {
   val regularLimit=when{isPartTime->contract.contractualWeeklyMinutes;isFullTime->fullTimeRegularReference?.minutes;else->hr?.weeklyRegularMinutes?:contract.contractualWeeklyMinutes?:tiers.firstOrNull()?.fromHour?.times(60)?.roundToInt()}
   if(regularLimit==null)return empty(warnings+"Durée hebdomadaire de référence absente")
   if(isFullTime&&fullTimeRegularReference?.reliable==false)warnings+="Temps plein : seuil hebdomadaire régulier non confirmé par une règle amont ; la durée contractuelle est utilisée comme seuil technique et le brut reste à confirmer."
+  val monthlyBoundaryThreshold=when{
+   isPartTime->regularLimit
+   isFullTime->contract.contractualWeeklyMinutes?:regularLimit
+   else->regularLimit
+  }
+  val weeklyBoundaryGuard=WeeklyThresholdMonthBoundaryGuardV2.assess(
+   sessions=sessions,
+   acceptedEmployerIds=ids,
+   rangeStartMs=monthStart,
+   rangeEndMs=monthEnd,
+   weeklyThresholdMinutes=monthlyBoundaryThreshold,
+   sourceReliable=runtimeReliable,
+   nowMs=nowMs
+  )
+  warnings+=weeklyBoundaryGuard.warnings
   val baseRules=(hr?.copy(weeklyRegularMinutes=regularLimit)?:PayrollRulesV2(weeklyRegularMinutes=regularLimit,overtimeTiers=tiers.map{OvertimeTierV2((it.fromHour*60).roundToInt(),it.toHour?.let{x->(x*60).roundToInt()},it.multiplier)})).copy(
    nightMultiplier=nightRule?.multiplier,saturdayMultiplier=saturdayRule?.multiplier,sundayMultiplier=sundayRule?.multiplier,publicHolidayMultiplier=publicHolidayRule?.multiplier
   )
@@ -370,7 +386,7 @@ object V2SalaryAdapter {
   val overtimeNeedsLegalArbitration=isFullTime&&fullTime!=null&&(fullTime.monthlyStructuralOvertimeMinutes>0.0||fullTime.variableTiers.any{it.minutes>0.0}||fullTime.unresolvedVariableOvertimeMinutes>0.0)
   val legalArbitrationResolved=overtimeArbitrationSnapshot?.let{it.resolution.state==PayrollLegalArbitratorV2.State.RESOLVED&&it.selectedSchedule!=null}==true
   val publicHolidayReliable=holidayMs==0L||publicHolidayRule!=null
-  val monthlyGrossReliable=monthlyGrossReliability(baseReliable=baseMonthlyGrossReliable,provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,arbitrationResolved=legalArbitrationResolved,cumulReviewRequired=cumulReviewRequired,runtimeReliable=runtimeReliable,provisionalComplementaryRateUsed=provisionalComplementaryRateUsed,genericOvertimeCoverageReliable=genericOvertimeCoverageReliable,fullTimeRegularReferenceReliable=fullTimeRegularReference?.reliable!=false)&&publicHolidayReliable&&mayFirstMs==0L&&unresolvedHolidayMs==0L
+  val monthlyGrossReliable=monthlyGrossReliability(baseReliable=baseMonthlyGrossReliable,provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,arbitrationResolved=legalArbitrationResolved,cumulReviewRequired=cumulReviewRequired,runtimeReliable=runtimeReliable,provisionalComplementaryRateUsed=provisionalComplementaryRateUsed,genericOvertimeCoverageReliable=genericOvertimeCoverageReliable,fullTimeRegularReferenceReliable=fullTimeRegularReference?.reliable!=false)&&weeklyBoundaryGuard.reliable&&publicHolidayReliable&&mayFirstMs==0L&&unresolvedHolidayMs==0L
 
   val monthlyMinutes=contract.contractualWeeklyMinutes?.let{it*52.0/12.0}
   val partTimeBase=if(isPartTime)monthlyMinutes?.div(60.0)?.times(rate)else null
