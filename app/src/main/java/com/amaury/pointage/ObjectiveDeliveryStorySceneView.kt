@@ -32,6 +32,7 @@ internal class ObjectiveDeliveryStorySceneView(
     private val scene: ObjectiveDeliverySceneModel
 ) : LinearLayout(context) {
     private val characterChips = mutableListOf<TextView>()
+    private val designColors = mutableMapOf<TextView, Int>()
     private lateinit var sceneCanvas: ObjectiveDeliverySceneCanvas
     private lateinit var selectedPersonDetails: TextView
 
@@ -100,6 +101,11 @@ internal class ObjectiveDeliveryStorySceneView(
         selectPerson(0)
     }
 
+    internal fun reapplySceneStyles() {
+        designColors.forEach { (view, color) -> view.setTextColor(color) }
+        selectPerson(sceneCanvas.selectedIndex)
+    }
+
     private fun selectPerson(index: Int) {
         if (scene.people.isEmpty()) return
         val safeIndex = index.coerceIn(scene.people.indices)
@@ -136,7 +142,7 @@ internal class ObjectiveDeliveryStorySceneView(
         setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp)
         if (bold) setTypeface(Typeface.DEFAULT, Typeface.BOLD)
         gravity = Gravity.START
-    }
+    }.also { designColors[it] = color }
 
     private fun sceneLayout(top: Int = 0, bottom: Int = 0) =
         LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
