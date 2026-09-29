@@ -1,0 +1,12 @@
+{
+  "name": "horatrack-firestore-rules-tests",
+  "private": true,
+  "scripts": {
+    "test": "firebase emulators:exec --config ../firebase.json --only firestore --project demo-horatrack \"node --test rules.test.cjs\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.0",
+    "firebase": "^12.19.0",
+    "firebase-tools": "^14.25.0"
+  }
+}

@@ -13,10 +13,14 @@ class SettingsExtrasTouchTargetsV2Test {
     @Test
     fun `public extras actions keep at least 48dp touch targets`() {
         val firstSteps = source("app/src/main/java/com/amaury/pointage/FirstStepsInitProvider.kt")
+        val delivery = source("app/src/main/java/com/amaury/pointage/ObjectiveDeliveryGameButtonView.kt")
         val snake = source("app/src/main/java/com/amaury/pointage/SnakeGameButtonView.kt")
 
         assertTrue(firstSteps.contains("minHeight = dp(activity, 48)"))
         assertTrue(firstSteps.contains("minimumHeight = dp(activity, 48)"))
+        assertTrue(delivery.contains("minHeight = minimumTouchTargetPx()"))
+        assertTrue(delivery.contains("minimumHeight = minimumTouchTargetPx()"))
+        assertTrue(delivery.contains("kotlin.math.ceil(48 * resources.displayMetrics.density.toDouble()).toInt()"))
         assertTrue(snake.contains("minHeight = minimumTouchTargetPx()"))
         assertTrue(snake.contains("minimumHeight = minimumTouchTargetPx()"))
         assertTrue(snake.contains("kotlin.math.ceil(48 * resources.displayMetrics.density.toDouble()).toInt()"))
