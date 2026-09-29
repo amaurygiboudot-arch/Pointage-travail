@@ -180,6 +180,7 @@ object V2PayslipStore {
    ContractTypeV2.PART_TIME,
    ContractTypeV2.FORFAIT_HOURS,
    ContractTypeV2.FORFAIT_DAYS -> regular
+   ContractTypeV2.FORFAIT,
    ContractTypeV2.OTHER -> null
   }
  }
