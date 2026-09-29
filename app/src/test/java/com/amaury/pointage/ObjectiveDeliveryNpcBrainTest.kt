@@ -43,16 +43,30 @@ class ObjectiveDeliveryNpcBrainTest {
     }
 
     @Test
-    fun onlyThePersonFlaggedByTheStorySeeksTheDirection() {
+    fun onlyAnAffectedNonPlayerCharacterSeeksTheDirection() {
         (1..10).forEach { chapter ->
             val scene = ObjectiveDeliverySceneCatalog.forChapter(chapter, isTroubled = true)
             val director = ObjectiveDeliveryNpcBrain.directorIndex(scene)
             val troubled = scene.troubledPersonIndex
-            val routine = ObjectiveDeliveryNpcBrain.routine(scene, troubled)
+            val troubledRoutine = ObjectiveDeliveryNpcBrain.routine(scene, troubled)
+            val seekingStep = troubledRoutine.firstOrNull {
+                it.action == ObjectiveDeliveryNpcAction.SEEK_DIRECTION
+            }
 
-            assertEquals(ObjectiveDeliveryNpcAction.SEEK_DIRECTION, routine.first().action)
-            assertEquals(director, routine.first().partnerIndex)
-            assertTrue(ObjectiveDeliveryNpcBrain.routine(scene, director).isEmpty())
+            if (troubled == director) {
+                assertEquals(null, seekingStep)
+            } else {
+                assertEquals(director, seekingStep?.partnerIndex)
+            }
+            scene.people.indices
+                .filter { it != troubled }
+                .forEach { personIndex ->
+                    assertFalse(
+                        ObjectiveDeliveryNpcBrain.routine(scene, personIndex).any {
+                            it.action == ObjectiveDeliveryNpcAction.SEEK_DIRECTION
+                        }
+                    )
+                }
         }
     }
 }
