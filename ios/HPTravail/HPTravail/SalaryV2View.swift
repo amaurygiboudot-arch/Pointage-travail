@@ -349,9 +349,23 @@ struct SalaryV2View: View {
                     )
                     .font(.footnote)
 
-                    Text("Cette preuve prépare le calcul segmenté des heures supplémentaires/complémentaires et majorations. Aucun montant variable n’est encore publié tant que ce calcul dédié n’est pas raccordé.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if let result = salaryStore.segmentedWorkedGross,
+                       result.reliable,
+                       let amount = result.worked?.workedGross {
+                        Label(
+                            "Brut de travail segmenté calculé : \(euros(amount))",
+                            systemImage: "checkmark.shield.fill"
+                        )
+                        .font(.footnote.bold())
+
+                        Text("Ce montant inclut la base et les variables de travail prouvées. Les primes fixes, avantages, cotisations et le net final restent à confirmer séparément.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Le brut de travail reste bloqué tant que les pointages, semaines complètes, règles de primes et proratas ne sont pas tous confirmés.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 } else {
                     Label(
                         "Un changement intervient en cours de semaine : les variables hebdomadaires restent bloquées.",
