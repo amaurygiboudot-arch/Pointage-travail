@@ -36,10 +36,12 @@ enum SalarySegmentedSocialSecurityCeilingV2 {
 
         let versions = contracts.calculationSegments.map { $0.snapshot.contract }
         guard let first = versions.first,
+              first.employerId.trimmingCharacters(in: .whitespacesAndNewlines) == contracts.companyId,
               versions.allSatisfy({ sameCeilingInputs($0, first) }) else {
             return .init(ceiling: nil, warnings: unique(contracts.warnings + [transitionWarning]))
         }
         guard let hireEpochDay = first.hireDateEpochDay,
+              hireEpochDay <= contracts.periodStartEpochDay,
               let hireDate = civilDate(epochDay: hireEpochDay) else {
             return .init(ceiling: nil, warnings: unique(contracts.warnings + [hireDateWarning]))
         }

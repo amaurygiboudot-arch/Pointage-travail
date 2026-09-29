@@ -59,6 +59,21 @@ final class SalarySegmentedSocialSecurityCeilingV2Tests: XCTestCase {
         XCTAssertTrue(result.warnings.contains { $0.contains("absence non rémunérée") })
     }
 
+    func testHireDateAfterFullyCoveredMonthStartIsRejected() throws {
+        let range = try XCTUnwrap(SalaryConventionCoverageResolverV2.monthEpochDayRange(period))
+        let contracts = try resolution(
+            first: snapshot("v1", rate: 13.5, weekly: 2_100, hireEpochDay: range.start + 1),
+            second: snapshot("v2", rate: 14.0, weekly: 2_100, hireEpochDay: range.start + 1)
+        )
+
+        let result = SalarySegmentedSocialSecurityCeilingV2.resolve(
+            period: period, contracts: contracts,
+            complementaryMinutes: 0, unpaidAbsenceDays: 0
+        )
+        XCTAssertNil(result.ceiling)
+        XCTAssertTrue(result.warnings.contains(SalarySegmentedSocialSecurityCeilingV2.hireDateWarning))
+    }
+
     private func resolution(
         first: SalaryEmploymentContractSnapshotV2,
         second: SalaryEmploymentContractSnapshotV2
@@ -100,7 +115,8 @@ final class SalarySegmentedSocialSecurityCeilingV2Tests: XCTestCase {
         _ version: String,
         rate: Double,
         weekly: Int,
-        type: ContractTypeV2 = .fullTime
+        type: ContractTypeV2 = .fullTime,
+        hireEpochDay: Int64 = 18_262
     ) -> SalaryEmploymentContractSnapshotV2 {
         .init(
             versionId: version,
@@ -113,7 +129,7 @@ final class SalarySegmentedSocialSecurityCeilingV2Tests: XCTestCase {
                 type: type,
                 contractualWeeklyMinutes: weekly,
                 grossHourlyRate: rate,
-                hireDateEpochDay: 18_262
+                hireDateEpochDay: hireEpochDay
             ),
             checkedAtMs: 1,
             note: nil
