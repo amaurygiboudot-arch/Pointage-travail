@@ -17,11 +17,12 @@ import java.text.NumberFormat
 import java.util.Locale
 import kotlin.math.roundToInt
 
-/** Campagne 2D à progression explicite, sans horloge ni progression en arrière-plan. */
+/** Campagne à progression explicite, sans horloge ni progression en arrière-plan. */
 class ObjectiveDeliveryGameActivity : Activity() {
     private lateinit var store: ObjectiveDeliveryCampaignStore
     private lateinit var cloudSync: ObjectiveDeliveryCloudSync
     private lateinit var content: LinearLayout
+    private var storySceneView: ObjectiveDeliveryStorySceneView? = null
 
     private var campaign: ObjectiveDeliveryCampaign? = null
     private var saveStatus = "La partie est enregistrée automatiquement sur cet appareil."
@@ -81,6 +82,7 @@ class ObjectiveDeliveryGameActivity : Activity() {
 
     private fun render() {
         content.removeAllViews()
+        storySceneView = null
         content.addView(text("OBJECTIF LIVRAISON", 25f, bold = true, centered = true).apply {
             setPadding(0, dp(8), 0, dp(4))
         })
@@ -99,6 +101,7 @@ class ObjectiveDeliveryGameActivity : Activity() {
             renderCampaign(current)
         }
         AppearanceManager.apply(this)
+        storySceneView?.reapplySceneStyles()
     }
 
     private fun renderCompanyPicker() {
@@ -127,6 +130,19 @@ class ObjectiveDeliveryGameActivity : Activity() {
     }
 
     private fun renderCampaign(current: ObjectiveDeliveryCampaign) {
+        val storyScene = ObjectiveDeliveryStorySceneView(
+            this,
+            ObjectiveDeliverySceneCatalog.forCampaign(current)
+        )
+        storySceneView = storyScene
+        content.addView(
+            storyScene,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
         content.addView(actionButton("CHOISIR UNE AUTRE ENTREPRISE") {
             cloudSync.stop()
             campaign = null
