@@ -92,6 +92,8 @@ Pour toute PR produit :
 - la revue doit produire un rapport conforme à `scripts/agent-review.schema.json` et lié au SHA exact de la PR ;
 - un spécialiste `NOT_RUN`, un FAIL, une anomalie bloquante, ou une fusion non autorisée par `control_gate` interdit de considérer le lot validé ;
 - une nouvelle modification du HEAD rend automatiquement obsolète le rapport précédent.
+- tout diff mobile `app/**` ou `ios/**` requiert `release_store` comme spécialiste de publication multi-plateforme ;
+- pour un lot mobile, Android et iOS doivent avoir des preuves de build/tests correspondant au même HEAD avant qu'un état « prêt » puisse être affirmé.
 
 Commande de référence dans un Codespace authentifié :
 `bash scripts/agent-toolbox.sh agent-review origin/main HEAD`.
@@ -129,7 +131,7 @@ Le Firebase MCP officiel est disponible en mode diagnostic restreint : état du 
 Responsabilités transverses supplémentaires :
 - security_privacy audite les changements sensibles, mais ne contourne jamais legal_compliance ni control_gate ;
 - performance_battery optimise uniquement avec des mesures reproductibles et ne dégrade jamais la fiabilité, la sécurité ou l'exactitude pour gagner des performances ;
-- release_store peut préparer une version, ses artefacts, sa checklist et son rollback, mais aucune publication store ou déploiement production n'est autorisé sans demande humaine explicite ;
+- release_store est le gardien de publication multi-plateforme : tout lot mobile doit être contrôlé sur Android ET iOS au HEAD exact ; un build/check rouge, en attente, NOT_RUN ou non vérifié sur l'une des plateformes interdit de considérer le lot prêt. Il vérifie APK/AAB, builds/tests iOS, signatures quand applicables, compatibilité des appareils officiellement supportés, provenance des artefacts et rollback ; aucune publication store ou déploiement production n'est autorisé sans demande humaine explicite ;
 - analytics_data applique la minimisation des données : aucune collecte de localisation brute, salaire, horaires détaillés ou autre donnée sensible par défaut. Toute télémétrie sensible exige une justification explicite et coordination avec security_privacy et legal_compliance.
 
 ## SERVICES HORS CHAÎNE DE FUSION

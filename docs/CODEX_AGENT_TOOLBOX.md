@@ -48,7 +48,7 @@ Cette stratégie est volontairement fail-closed : un agent non exécuté reste `
 | celestial_system | oui | oui | astronomie, capteurs d’orientation, globe GPS, tests V2, builds Android/iOS, sources scientifiques |
 | security_privacy | oui | oui | auth, stockage sensible, règles Firebase en lecture, dépendances, réseau, permissions, CodeQL/CI |
 | performance_battery | oui | oui | profilage, batterie, mémoire, réseau, GPS/capteurs, background, builds/tests |
-| release_store | oui | oui | versioning, APK/AAB, iOS, manifests, politiques stores, rollout/rollback sans publication autonome |
+| release_store | oui | oui | gardien publication Android/iOS : APK/AAB, builds/tests iOS, signatures, compatibilité appareils, checks exact-HEAD, rollout/rollback sans publication autonome |
 | analytics_data | oui | oui | schémas d’événements, métriques, Crashlytics en lecture, qualité/minimisation des données |
 | team_lead | oui | non par défaut | diff, tests, builds, coordination |
 | qa_reviewer | non | non par défaut | lecture code, tests, rapports |
@@ -93,7 +93,7 @@ Un connecteur externe ne doit jamais recevoir plus de droits que nécessaire.
 Les quatre nouveaux agents ne reçoivent aucun connecteur externe en écriture par défaut :
 - security_privacy peut consulter GitHub/Firebase en diagnostic et les sources officielles de sécurité ;
 - performance_battery travaille d'abord avec code, tests, mesures et documentation plateforme ;
-- release_store prépare les artefacts et vérifications mais ne publie ni sur Google Play ni sur l'App Store sans autorisation humaine explicite ;
+- release_store prépare et bloque la readiness multi-plateforme : aucun lot mobile n'est déclaré prêt si Android ou iOS est rouge, pending, NOT_RUN ou non vérifié au HEAD exact ; il contrôle artefacts, signatures quand applicables, compatibilité et rollback, mais ne publie ni sur Google Play ni sur l'App Store sans autorisation humaine explicite ;
 - analytics_data peut concevoir et auditer l'instrumentation, mais aucun accès à un fournisseur analytics réel n'est ajouté tant qu'il n'est pas nécessaire et explicitement autorisé.
 
 Pour `celestial_system`, la recherche web live sert à vérifier les hypothèses scientifiques et les références astronomiques/géodésiques avec des sources reconnues et datées. Elle ne remplace jamais les tests numériques du moteur ni la validation réelle des capteurs sur appareil.
@@ -151,3 +151,17 @@ Le script est conçu pour être utilisé comme **setup script** de l'environneme
 Le conteneur Codex Cloud Linux ne remplace pas le runner macOS. Les validations iOS restent exécutées par le workflow GitHub Actions `Build iOS`, sur un runner macOS avec Xcode.
 
 Une PR qui modifie `ios/**` ne doit pas être considérée prête tant que ce workflow n'est pas vert, même si les contrôles Android obligatoires sont déjà passés.
+
+
+## Gardien de publication multi-plateforme
+
+`release_store` est requis pour tout diff mobile sous `app/**` ou `ios/**`.
+
+Pour un lot mobile, son avis de readiness doit vérifier le même SHA sur les deux plateformes :
+- Android : tests V2, build Android, APK + AAB Google Play, manifeste, version et signature lorsque l'artefact de release existe ;
+- iOS : build Xcode, tests Swift, deployment target/architectures/entitlements et signature de distribution lorsqu'un artefact publiable est attendu ;
+- GitHub : ruleset/checks obligatoires du dépôt et workflows plateforme pertinents ;
+- compatibilité : classes d'appareils officiellement supportées et fallbacks lorsqu'un capteur/API n'existe pas ;
+- artefacts : provenance, version/hash lorsque disponibles et rollback.
+
+Un état `FAIL`, `PENDING`, `NOT_RUN` ou une preuve issue d'un autre HEAD interdit de conclure « prêt ». Un build simulateur iOS ne vaut pas preuve de signature App Store. Aucun secret de signature n'est lu ni affiché.
