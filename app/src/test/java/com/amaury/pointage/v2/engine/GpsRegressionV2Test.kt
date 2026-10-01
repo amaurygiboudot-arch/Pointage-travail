@@ -160,6 +160,34 @@ class GpsRegressionV2Test {
     }
 
     @Test
+    fun `retour au meme poste apres deux minutes annule aussi la sortie en attente`() {
+        val pending = pending(atMs = 10_000L)
+        val returnedLater = event(id = "return-later", atMs = 600_000L)
+
+        assertFalse(
+            GpsWorkStateCoordinatorV2.canApplyQuickReturn(
+                pending,
+                returnedLater,
+                session()
+            )
+        )
+        assertTrue(
+            GpsWorkStateCoordinatorV2.canApplyReturnToPoste(
+                pending,
+                returnedLater,
+                session()
+            )
+        )
+        assertFalse(
+            GpsWorkStateCoordinatorV2.canApplyReturnToPoste(
+                pending,
+                returnedLater.copy(placeId = "autre"),
+                session()
+            )
+        )
+    }
+
+    @Test
     fun `retour rapide exige meme poste et vraie entree`() {
         val pending = pending(atMs = 10_000L)
 
