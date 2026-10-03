@@ -85,7 +85,8 @@ class SalaryPayslipWorkspaceView(context:Context,private val company:SalaryCompa
    val calc=salaryNet.salary;val payroll=salaryNet.payroll;val netPresentation=V2SalaryNetPresentationV2.from(salaryNet);val mealCount=calc.mealBasketCount;val mealAmount=calc.mealBasketAmount;val mealTotal=calc.mealBasketTotal;val payrollPeriod=PayrollPeriodV2.month(year,month);val referenceDate=payrollPeriod.referenceDate;val agreementRules=CompanyAgreementPayrollBridgeV2.load(context,company.id,referenceDate,payrollPeriod)
    val conventionMinimum=calc.conventionMinimumMonthlyGross;val conventionClassification=calc.conventionClassificationLabel
    val lines=buildString{
-    append("Convention : ").append(convention?.displayName?:"Non renseignée").append('\n');if(conventionClassification!=null)append("Classification conventionnelle : ").append(conventionClassification).append('\n')if(conventionMinimum!=null){append("Minimum conventionnel mensuel : ").append(eur(conventionMinimum));if(!calc.monthlyGrossReliable)append(" (référence plein mois)")else append(" (base 151,67 h)");append('\n')}
+    append("Convention : ").append(convention?.displayName?:"Non renseignée").append('\n');if(conventionClassification!=null)append("Classification conventionnelle : ").append(conventionClassification).append('\n')
+    if(conventionMinimum!=null){append("Minimum conventionnel mensuel : ").append(eur(conventionMinimum));if(!calc.monthlyGrossReliable)append(" (référence plein mois)")else append(" (base 151,67 h)");append('\n')}
     if(calc.paidTimeReliable){
      append("Heures normales : ").append(hours(calc.regularMs));if(calc.monthlyGrossReliable)append(" — ").append(eur(calc.regularGross));append('\n')
      calc.overtimeTiers.filter{it.durationMs>0}.forEach{append(it.label).append(" : ").append(hours(it.durationMs)).append('\n')}
