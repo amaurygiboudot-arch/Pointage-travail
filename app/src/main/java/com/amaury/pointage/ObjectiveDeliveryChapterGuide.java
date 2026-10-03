@@ -33,7 +33,7 @@ final class ObjectiveDeliveryChapterGuide {
         }
     }
     private static Step step(String phase, String instruction) { return new Step(phase, instruction); }
-    private static Step result() { return step("RESULT", "Lis le bilan et les actions proposées. En entraînement, conserve le résultat réussi pour l’appliquer ; sinon, ajuste tes choix et réessaie."); }
+    private static Step result() { return step("RESULT", "Lis les critères du bilan et utilise les actions proposées sous le résultat."); }
     private static final Chapter[] CHAPTERS = {
         new Chapter(1, "Premier contact", "Comprendre la demande et obtenir une première commande.",
             "Un besoin incomplet fragilise le prix et le délai promis.",
