@@ -703,6 +703,26 @@ class ObjectiveDeliveryGameModelTest {
     }
 
     @Test
+    fun chapterEightMissingProfitShareConfirmationExplainsAnOtherwiseGoodPlan() {
+        val completed = completeChapterEight(startChapterEight(ObjectiveDeliveryCompanyModel.WORKSHOP))
+        val pending = completed.chapterEight.copy(equalProfitShareConfirmed = false)
+        val result = ObjectiveDeliveryGameRules.evaluateChapterEightState(completed.companyModel, pending)
+        assertTrue(result.staffingMatchesWorkload)
+        assertTrue(result.bonusCriteriaBalanced)
+        assertTrue(result.overtimeWasControlled)
+        assertTrue(result.absenceHandledFairly)
+        assertTrue(result.payrollWasCorrected)
+        assertTrue(result.conflictAddressed)
+        assertTrue(result.raisesWithinEnvelope)
+        assertFalse(result.profitShareConfirmed)
+        assertEquals(ObjectiveDeliveryChapterEightOutcome.TEAM_PLAN_NEEDS_REVIEW, result.outcome)
+        val confirmed = ObjectiveDeliveryGameRules.evaluateChapterEightState(
+            completed.companyModel, pending.copy(equalProfitShareConfirmed = true)
+        )
+        assertEquals(ObjectiveDeliveryChapterEightOutcome.TEAM_WEEK_SUCCESS, confirmed.outcome)
+    }
+
+    @Test
     fun chapterEightBalancesWeeklyGoalsFairTreatmentAndProfitSharing() {
         val successful = completeChapterEight(startChapterEight(ObjectiveDeliveryCompanyModel.WORKSHOP))
         val evaluation = ObjectiveDeliveryGameRules.evaluateChapterEight(successful)
