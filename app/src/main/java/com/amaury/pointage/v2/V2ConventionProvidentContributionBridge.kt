@@ -31,7 +31,7 @@ object V2ConventionProvidentContributionBridge {
         gross: Double,
         applicableMonthlyCeiling: Double?
     ): Snapshot {
-        val profile = ConventionLegalProfileV2.load(context, companyId)
+        val profile = ConventionLegalProfileV2.load(context, companyId, referenceDate)
             ?: return Snapshot(
                 result = blocked("Prévoyance conventionnelle : entreprise ou profil salarié introuvable."),
                 coverage = missingCoverage()

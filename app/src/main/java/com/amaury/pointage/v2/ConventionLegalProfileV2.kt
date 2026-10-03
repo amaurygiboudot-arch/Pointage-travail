@@ -4,6 +4,9 @@ import android.content.Context
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.engine.ConventionClassificationV2
 import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
+import com.amaury.pointage.v2.engine.EmploymentContractPeriodResolutionV2
+import com.amaury.pointage.v2.model.ContractV2
+import com.amaury.pointage.v2.model.ForfaitHoursPeriodV2
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -43,6 +46,34 @@ data class ConventionLegalProfileV2(
             if (!stored.reliable || id.isBlank()) return null
             return stored.companies.firstOrNull { it.id == id }
         }
+
+        /** Profil pour un calcul daté : aucun champ du contrat courant ne remplace l'historique. */
+        fun load(context: Context, companyId: String, referenceDate: LocalDate): ConventionLegalProfileV2? {
+            val profile = load(context, companyId) ?: return null
+            val resolution = V2EmploymentContractPayrollBridge.resolve(
+                context, profile.companyId, referenceDate.year, referenceDate.monthValue - 1
+            ).resolution
+            return withDatedResolution(profile, resolution)
+        }
+
+        internal fun withDatedResolution(
+            profile: ConventionLegalProfileV2,
+            resolution: EmploymentContractPeriodResolutionV2
+        ): ConventionLegalProfileV2 = withDatedContract(
+            profile, resolution.contract.takeIf { resolution.readyForSingleContractCalculation }
+        )
+
+        /** La date d'ancienneté conventionnelle explicitement saisie reste distincte de l'embauche. */
+        internal fun withDatedContract(
+            profile: ConventionLegalProfileV2,
+            contract: ContractV2?
+        ): ConventionLegalProfileV2 = profile.copy(
+            contractType = contract?.type?.name,
+            entryDate = contract?.hireDateEpochDay?.let { runCatching { LocalDate.ofEpochDay(it) }.getOrNull() },
+            weeklyHours = contract?.contractualWeeklyMinutes?.toDouble()?.div(60.0),
+            forfaitAnnualHours = contract?.forfaitHours?.takeIf { contract?.forfaitHoursPeriod == ForfaitHoursPeriodV2.YEAR },
+            forfaitAnnualDays = contract?.forfaitAnnualDays
+        )
 
         fun load(context: Context, companyId: String): ConventionLegalProfileV2? {
             val id = companyId.trim()

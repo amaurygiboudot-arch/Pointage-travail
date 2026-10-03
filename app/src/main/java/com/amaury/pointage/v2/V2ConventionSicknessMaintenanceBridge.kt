@@ -20,7 +20,8 @@ object V2ConventionSicknessMaintenanceBridge {
 
     fun load(context: Context, companyId: String, absence: AbsenceV2): Snapshot? {
         if (absence.type != AbsencePayrollImpactV2.TYPE_SICKNESS) return null
-        val profile = ConventionLegalProfileV2.load(context, companyId)
+        val referenceDate = Instant.ofEpochMilli(absence.startMs).atZone(ZoneId.systemDefault()).toLocalDate()
+        val profile = ConventionLegalProfileV2.load(context, companyId, referenceDate)
             ?: return unresolvedProfileSnapshot(
                 "Maintien maladie : entreprise ou profil juridique local non fiable ; aucun barème ni aucune absence de droit ne sont déduits automatiquement."
             )
@@ -33,7 +34,6 @@ object V2ConventionSicknessMaintenanceBridge {
         val classification = profile.classification
         val professionalStatus = profile.professionalStatus
         val entryDate = profile.entryDate
-        val referenceDate = Instant.ofEpochMilli(absence.startMs).atZone(ZoneId.systemDefault()).toLocalDate()
 
         val builtIn = PlasturgieSicknessRulesV2.rules().filter {
             ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalizedIdcc

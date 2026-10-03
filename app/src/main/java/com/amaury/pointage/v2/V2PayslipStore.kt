@@ -203,7 +203,7 @@ object V2PayslipStore {
   val zone=ZoneId.systemDefault()
   val start=Instant.ofEpochMilli(absence.startMs).atZone(zone).toLocalDate()
   val endExclusive=Instant.ofEpochMilli(absence.endMs).atZone(zone).toLocalDate()
-  val profile=ConventionLegalProfileV2.load(context,companyId)
+  val profile=ConventionLegalProfileV2.load(context,companyId,start)
       ?:return PlasturgieProvidentIncapacityV2.unresolved(
        "Prévoyance Plasturgie : profil juridique entreprise introuvable ou non fiable ; aucune applicabilité n'est déduite d'anciennes préférences locales."
       )
