@@ -28,6 +28,9 @@ internal data class AnnualSalaryGrossResolutionV2(
     val state: String
 )
 
+internal fun resolveAnnualCompanyIdccV2(company: SalaryCompanyStore.Company): String? =
+    company.idcc.trim().takeIf { it.isNotBlank() }
+
 internal fun resolveAnnualSalaryGrossV2(
     cashGross: Double,
     cashGrossReliable: Boolean,
@@ -333,19 +336,18 @@ object AnnualPdfReports {
         val reportNowMs = System.currentTimeMillis()
         val legacyPrefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
         val legacyProfile = if (company == null) V2ProfileStore.load(context, 1) else null
-        val companyPrefs = company?.let { SalaryCompanyStore.prefs(context, it.id) }
         val acceptedEmployerIds = when {
             company != null -> SalaryCompanyStore.acceptedEmployerIds(context, company.id)
             legacyProfile?.employer?.id != null -> setOf(legacyProfile.employer!!.id)
             else -> emptySet()
         }
-        val rate = if (company != null) {
-            SalaryNumericInputV2.positiveDecimal(companyPrefs?.getString("hourly_rate", "").orEmpty())
-        } else {
+        val rate = if (company == null) {
             legacyProfile?.contract?.grossHourlyRate ?: prefDouble(legacyPrefs.all["hourly_rate"])
+        } else {
+            null
         }
         val idcc = if (company != null) {
-            company.idcc.ifBlank { companyPrefs?.getString("company_idcc", "").orEmpty() }
+            resolveAnnualCompanyIdccV2(company).orEmpty()
         } else {
             legacyProfile?.employer?.collectiveAgreementId
                 ?: legacyPrefs.getString("company_idcc", "").orEmpty().ifBlank {

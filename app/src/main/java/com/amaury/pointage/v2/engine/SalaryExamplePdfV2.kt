@@ -15,8 +15,9 @@ import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.LegalPayrollSourceStoreV2
 import com.amaury.pointage.v2.NetSalaryReferencePolicyV2
 import com.amaury.pointage.v2.OfficialLegalCodeSourceV2
-import com.amaury.pointage.v2.SalaryNumericInputV2
+import com.amaury.pointage.v2.V2EmploymentContractPayrollBridge
 import com.amaury.pointage.v2.V2ProfileStore
+import com.amaury.pointage.v2.model.ContractV2
 import com.amaury.pointage.v2.V2RightsStore
 import java.io.OutputStream
 import java.text.DateFormatSymbols
@@ -36,6 +37,21 @@ object SalaryExamplePdfV2 {
         val summary: String,
         val references: String
     )
+
+    internal data class ContractDisplayValues(
+        val typeLabel: String?,
+        val contractualWeeklyMinutes: Int?,
+        val grossHourlyRate: Double?,
+        val monthlyGrossSalary: Double?
+    )
+
+    internal fun contractDisplayValues(contract: ContractV2?): ContractDisplayValues =
+        ContractDisplayValues(
+            typeLabel = contract?.type?.name,
+            contractualWeeklyMinutes = contract?.contractualWeeklyMinutes,
+            grossHourlyRate = contract?.grossHourlyRate,
+            monthlyGrossSalary = contract?.monthlyGrossSalary
+        )
 
     internal fun warningSections(
         salaryWarnings: List<String>,
@@ -144,20 +160,18 @@ object SalaryExamplePdfV2 {
         val legacyProfile = if (company == null) V2ProfileStore.load(context, 1) else null
         val legacyContract = legacyProfile?.contract
         val legacyEmployer = legacyProfile?.employer
-        val companyPrefs = company?.let { SalaryCompanyStore.prefs(context, it.id) }
-
-        val rawContractType = companyPrefs?.getString("contract_type", "").orEmpty().trim()
-        val contractualWeeklyMinutes = if (company != null) {
-            SalaryNumericInputV2.positiveMinutesFromHours(
-                companyPrefs?.getString("contract_weekly_hours", "").orEmpty()
-            )
-        } else legacyContract?.contractualWeeklyMinutes
-        val rate = if (company != null) {
-            SalaryNumericInputV2.positiveDecimal(companyPrefs?.getString("hourly_rate", "").orEmpty())
-        } else legacyContract?.grossHourlyRate
-        val monthlyGross = SalaryNumericInputV2.positiveDecimal(
-            companyPrefs?.getString("monthly_gross_salary", "").orEmpty()
-        )
+        val periodContract = if (company != null) {
+            V2EmploymentContractPayrollBridge.resolve(
+                context = context,
+                companyId = company.id,
+                year = year,
+                monthZeroBased = month
+            ).resolution.contract
+        } else {
+            legacyContract
+        }
+        val contractDisplay = contractDisplayValues(periodContract)
+        val rate = contractDisplay.grossHourlyRate
 
         val companyName = company?.name?.takeIf { it.isNotBlank() }
             ?: legacyEmployer?.name?.takeIf { it.isNotBlank() }
@@ -166,7 +180,7 @@ object SalaryExamplePdfV2 {
             ?: legacyEmployer?.siret?.takeIf { it.isNotBlank() }
             ?: "À compléter"
         val idcc = if (company != null) {
-            company.idcc.ifBlank { companyPrefs?.getString("company_idcc", "").orEmpty() }.trim()
+            company.idcc.trim()
         } else legacyEmployer?.collectiveAgreementId?.trim().orEmpty()
         val convention = idcc.takeIf { it.isNotBlank() }
             ?.let { ConventionCatalog.findByIdcc(context, it) }
@@ -223,10 +237,12 @@ object SalaryExamplePdfV2 {
 
             if (Field.CONTRACT in fields) {
                 add(PdfSection("CONTRAT", buildList {
-                    add("Type" to if (company != null) rawContractType.ifBlank { "À compléter" }.replace('_', ' ') else (legacyContract?.type?.name ?: "À compléter"))
-                    add("Durée hebdomadaire" to (contractualWeeklyMinutes?.let { "%dh%02d".format(Locale.FRANCE, it / 60, it % 60) } ?: "À confirmer"))
-                    add("Taux horaire brut" to (rate?.let { String.format(Locale.FRANCE, "%.2f €", it) } ?: "À compléter"))
-                    if (monthlyGross != null) add("Salaire brut mensuel convenu" to String.format(Locale.FRANCE, "%.2f €", monthlyGross))
+                    add("Type" to (contractDisplay.typeLabel?.replace('_', ' ') ?: "À confirmer"))
+                    add("Durée hebdomadaire" to (contractDisplay.contractualWeeklyMinutes?.let { "%dh%02d".format(Locale.FRANCE, it / 60, it % 60) } ?: "À confirmer"))
+                    add("Taux horaire brut" to (contractDisplay.grossHourlyRate?.let { String.format(Locale.FRANCE, "%.2f €", it) } ?: "À confirmer"))
+                    contractDisplay.monthlyGrossSalary?.let {
+                        add("Salaire brut mensuel convenu" to String.format(Locale.FRANCE, "%.2f €", it))
+                    }
                 }))
             }
 

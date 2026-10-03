@@ -19,6 +19,8 @@ import com.amaury.pointage.v2.engine.PlasturgieProvidentRelayControlV2
 import com.amaury.pointage.v2.engine.SicknessDailyAllowanceV2
 import com.amaury.pointage.v2.engine.SicknessTheoreticalNetV2
 import com.amaury.pointage.v2.model.AbsenceV2
+import com.amaury.pointage.v2.model.ContractTypeV2
+import com.amaury.pointage.v2.model.ContractV2
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
@@ -27,7 +29,6 @@ import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
-import java.util.Locale
 import java.util.UUID
 
 /** Stockage local des bulletins. Chaque nouveau bulletin peut être rattaché à une entreprise. */
@@ -159,6 +160,31 @@ object V2PayslipStore {
   return stored.companies.firstOrNull{it.id==id}
  }
 
+ internal fun sicknessContractualGross(
+  contract:ContractV2?,
+  regularGross:Double?,
+  overtimeTiers:List<V2SalaryAdapter.TierDuration>
+ ):Double?{
+  val resolvedContract=contract?:return null
+  val regular=regularGross?.takeIf{it.isFinite()&&it>0.0}?:return null
+  return when(resolvedContract.type){
+   ContractTypeV2.FULL_TIME -> {
+    val structural=overtimeTiers.filter{it.label.contains("structurelles",ignoreCase=true)}
+    if(structural.any{it.durationMs<0L||!it.multiplier.isFinite()||it.multiplier<=0.0})return null
+    val structuralGross=if(structural.isEmpty())0.0 else{
+     val rate=resolvedContract.grossHourlyRate?.takeIf{it.isFinite()&&it>0.0}?:return null
+     structural.sumOf{tier->tier.durationMs/3_600_000.0*rate*tier.multiplier}
+    }
+    (regular+structuralGross).takeIf{it.isFinite()&&it>0.0}
+   }
+   ContractTypeV2.PART_TIME,
+   ContractTypeV2.FORFAIT_HOURS,
+   ContractTypeV2.FORFAIT_DAYS -> regular
+   ContractTypeV2.FORFAIT,
+   ContractTypeV2.OTHER -> null
+  }
+ }
+
  /**
   * Résout le maintien maladie conventionnel à partir de l'IDCC, du statut,
   * de la classification et de la période. Aucune convention n'est supposée.
@@ -228,9 +254,8 @@ object V2PayslipStore {
   val maintenance=sicknessMaintenanceForAbsence(context,companyId,absence)?:return null
   val allowance=sicknessAllowanceForAbsence(context,companyId,absence)
   val company=confirmedCompany(SalaryCompanyStore.readConfirmed(context),companyId)?:return null
-  val prefs=SalaryCompanyStore.prefs(context,companyId)
-  val idcc=company.idcc.ifBlank{prefs.getString("company_idcc","").orEmpty()}.trim()
-  val convention=ConventionCatalog.findByIdcc(context,idcc)
+  val idcc=company.idcc.trim()
+  val convention=idcc.takeIf{it.isNotBlank()}?.let{ConventionCatalog.findByIdcc(context,it)}
   val zone=ZoneId.systemDefault()
   val start=Instant.ofEpochMilli(absence.startMs).atZone(zone).toLocalDate()
   val endExclusive=Instant.ofEpochMilli(absence.endMs).atZone(zone).toLocalDate()
@@ -238,10 +263,15 @@ object V2PayslipStore {
   val bridgeWarnings=mutableListOf<String>()
 
   if(convention==null){
+   val warning=if(idcc.isBlank()){
+    "Base nette maladie : IDCC confirmé absent ; aucune ancienne préférence entreprise n'est utilisée comme fallback."
+   }else{
+    "Base nette maladie : convention collective introuvable pour l'IDCC $idcc."
+   }
    return SicknessTheoreticalNetV2.calculate(
     start,endExclusive,maintenance,emptyMap(),allowance,
     absence.providentTreatment,absence.employerProvidentOverlapNetAmount
-   ).copy(warnings=listOf("Base nette maladie : convention collective introuvable pour l'IDCC $idcc."))
+   ).copy(warnings=listOf(warning))
   }
 
   var ym=YearMonth.from(start)
@@ -250,20 +280,18 @@ object V2PayslipStore {
    val calc=runCatching{
     V2SalaryAdapter.calculateForCompany(context,company,ym.year,ym.monthValue-1,convention)
    }.getOrNull()
-   val rawType=prefs.getString("contract_type","").orEmpty().trim().uppercase(Locale.ROOT)
-   val hourlyRate=SalaryNumericInputV2.positiveDecimal(prefs.getString("hourly_rate","").orEmpty())
-   val contractualGross=SalaryNumericInputV2.positiveDecimal(when(rawType){
-    "FULL_TIME" -> {
-     val structural=if(hourlyRate!=null){
-      calc?.overtimeTiers.orEmpty()
-       .filter{it.label.contains("structurelles",ignoreCase=true)}
-       .sumOf{tier->tier.durationMs/3_600_000.0*hourlyRate*tier.multiplier}
-     }else 0.0
-     calc?.regularGross?.plus(structural)
-    }
-    "PART_TIME","FORFAIT_HEURES","FORFAIT_JOURS" -> calc?.regularGross
-    else -> null
-   })
+   val contractSource=V2EmploymentContractPayrollBridge.resolve(
+    context=context,
+    companyId=company.id,
+    year=ym.year,
+    monthZeroBased=ym.monthValue-1
+   )
+   bridgeWarnings+=contractSource.warnings
+   val contractualGross=sicknessContractualGross(
+    contract=contractSource.resolution.contract,
+    regularGross=calc?.regularGross,
+    overtimeTiers=calc?.overtimeTiers.orEmpty()
+   )
 
    if(contractualGross==null){
     bridgeWarnings += "Base nette maladie : rémunération contractuelle théorique indisponible pour ${"%02d/%04d".format(ym.monthValue,ym.year)}."
@@ -327,8 +355,7 @@ object V2PayslipStore {
 
   val companyId=comparisonCompanyId(canonicalRecord)?:return null
   val company=confirmedCompany(SalaryCompanyStore.readConfirmed(context),companyId)?:return null
-  val prefs=SalaryCompanyStore.prefs(context,company.id)
-  val idcc=company.idcc.ifBlank{prefs.getString("company_idcc","").orEmpty()}.trim();if(idcc.isBlank())return null
+  val idcc=comparisonCompanyIdcc(company)?:return null
   val convention=ConventionCatalog.findByIdcc(context,idcc)?.takeIf{it.idcc.isNotBlank()}?:return null
   val salaryNet=runCatching{
    V2SalaryNetBridgeV2.calculateForCompany(
@@ -348,6 +375,9 @@ object V2PayslipStore {
 
  internal fun comparisonCompanyId(record:Record):String? =
   record.companyId.trim().takeIf{it.isNotBlank()}
+
+ internal fun comparisonCompanyIdcc(company:SalaryCompanyStore.Company):String? =
+  company.idcc.trim().takeIf{it.isNotBlank()}
 
  internal fun canonicalRecord(stored:ReadResult,recordId:String):Record?{
   if(!stored.reliable||recordId.isBlank())return null
