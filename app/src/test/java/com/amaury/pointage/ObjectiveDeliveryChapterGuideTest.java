@@ -22,6 +22,12 @@ public class ObjectiveDeliveryChapterGuideTest {
             }
         }
     }
+    @Test public void chapterOneReplayOnlyOffersReturningToTheCampaign() {
+        ObjectiveDeliveryChapterGuide.Chapter chapter = ObjectiveDeliveryChapterGuide.chapter(1);
+        String instruction = chapter.step(chapter.indexOf("RESULT")).instruction;
+        assertTrue(instruction.contains("RETOUR À LA CAMPAGNE"));
+        assertFalse(instruction.contains("conserve"));
+    }
     @Test public void allTenChaptersHaveDistinctGoalsAndTitles() {
         java.util.Set<String> titles = new java.util.HashSet<>();
         java.util.Set<String> goals = new java.util.HashSet<>();

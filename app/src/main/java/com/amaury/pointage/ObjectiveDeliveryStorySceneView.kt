@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -15,6 +16,7 @@ import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
@@ -228,6 +230,11 @@ private class ObjectiveDeliverySceneCanvas(
     )
     private val density = resources.displayMetrics.density
     private val animationClock = ObjectiveDeliveryAnimationClock()
+    private val visibleRect = Rect()
+    private var animationScheduled = false
+    private var observedTree: ViewTreeObserver? = null
+    private val scrollVisibilityListener = ViewTreeObserver.OnScrollChangedListener { refreshAnimation() }
+    private val layoutVisibilityListener = ViewTreeObserver.OnGlobalLayoutListener { refreshAnimation() }
     private var downX = 0f
     private var downY = 0f
     private var downCameraX = 0f
@@ -273,8 +280,13 @@ private class ObjectiveDeliverySceneCanvas(
 
     private val animateFrame = object : Runnable {
         override fun run() {
-            if (!isAttachedToWindow || !isShown || windowVisibility != VISIBLE) return
+            animationScheduled = false
+            if (!isSceneVisible()) {
+                animationClock.pause()
+                return
+            }
             invalidate()
+            animationScheduled = true
             postOnAnimation(this)
         }
     }
@@ -306,21 +318,41 @@ private class ObjectiveDeliverySceneCanvas(
         }
     }
 
+    private fun isSceneVisible(): Boolean =
+        isAttachedToWindow && isShown && windowVisibility == VISIBLE &&
+            getGlobalVisibleRect(visibleRect) && !visibleRect.isEmpty
+
     private fun refreshAnimation() {
-        removeCallbacks(animateFrame)
-        animationClock.pause()
-        if (isAttachedToWindow && isShown && windowVisibility == VISIBLE) {
-            postOnAnimation(animateFrame)
+        if (isSceneVisible()) {
+            if (!animationScheduled) {
+                animationClock.pause()
+                animationScheduled = true
+                postOnAnimation(animateFrame)
+            }
+        } else {
+            removeCallbacks(animateFrame)
+            animationScheduled = false
+            animationClock.pause()
         }
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        observedTree = viewTreeObserver.also {
+            it.addOnScrollChangedListener(scrollVisibilityListener)
+            it.addOnGlobalLayoutListener(layoutVisibilityListener)
+        }
         refreshAnimation()
     }
 
     override fun onDetachedFromWindow() {
+        observedTree?.takeIf { it.isAlive }?.let {
+            it.removeOnScrollChangedListener(scrollVisibilityListener)
+            it.removeOnGlobalLayoutListener(layoutVisibilityListener)
+        }
+        observedTree = null
         removeCallbacks(animateFrame)
+        animationScheduled = false
         animationClock.pause()
         super.onDetachedFromWindow()
     }
@@ -339,7 +371,7 @@ private class ObjectiveDeliverySceneCanvas(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         canvas.drawColor(0xFFB8CEC3.toInt())
-        if (width <= 0 || height <= 0 || !isShown || windowVisibility != VISIBLE) return
+        if (width <= 0 || height <= 0 || !isSceneVisible()) return
 
         val now = SystemClock.uptimeMillis()
         val delta = animationClock.tick(now)
