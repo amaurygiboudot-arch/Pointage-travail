@@ -53,7 +53,7 @@ data class ConventionLegalProfileV2(
                 fun number(key: String): Double? = text(key)?.replace(',', '.')?.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 }
                 fun date(key: String): LocalDate? = text(key)?.let { raw -> runCatching { LocalDate.parse(raw, DATE_FORMAT) }.getOrNull() }
 
-                val rawIdcc = company.idcc.ifBlank { text("company_idcc").orEmpty() }
+                val rawIdcc = company.idcc
                 val status = text("professional_status")?.uppercase(Locale.ROOT)?.takeIf { it == "CADRE" || it == "NON_CADRE" }
                 ConventionLegalProfileV2(
                     companyId = company.id,
