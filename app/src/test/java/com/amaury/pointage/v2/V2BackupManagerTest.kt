@@ -90,6 +90,17 @@ class V2BackupManagerTest {
         assertTrue(runCatching { V2BackupManager.mergeHistories(JSONArray(), malformed) }.isFailure)
     }
 
+    @Test
+    fun `restauration refuse les nombres qui debordent leur type cible`() {
+        for (value in listOf(1e100, Long.MAX_VALUE.toDouble(), -1e100)) {
+            assertFalse(V2BackupManager.isValidTypedPreferencePayload(JSONObject().put("timestamp", typed("l", value))))
+        }
+        assertTrue(V2BackupManager.isValidTypedPreferencePayload(JSONObject().put("timestamp", typed("l", Long.MAX_VALUE))))
+        assertTrue(V2BackupManager.isValidTypedPreferencePayload(JSONObject().put("timestamp", typed("l", Long.MIN_VALUE.toDouble()))))
+        assertFalse(V2BackupManager.isValidTypedPreferencePayload(JSONObject().put("ratio", typed("f", 1e100))))
+        assertTrue(V2BackupManager.isValidTypedPreferencePayload(JSONObject().put("ratio", typed("f", Float.MAX_VALUE.toDouble()))))
+    }
+
     private fun typed(type: String, value: Any) = JSONObject().put("t", type).put("v", value)
 
     private fun session(id: String, entry: Long, exit: Long) = JSONObject()

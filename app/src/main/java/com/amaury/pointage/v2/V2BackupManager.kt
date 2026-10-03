@@ -187,7 +187,7 @@ object V2BackupManager {
                 "b"->value is Boolean
                 "i"->strictLong(value)?.let{it in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()}==true
                 "l"->strictLong(value)!=null
-                "f"->(value as? Number)?.toDouble()?.isFinite()==true
+                "f"->(value as? Number)?.let { it.toDouble().isFinite() && it.toFloat().isFinite() }==true
                 "set"->{val array=value as? JSONArray?:return false;(0 until array.length()).all{array.opt(it) is String}}
                 else->false
             }
@@ -254,7 +254,7 @@ object V2BackupManager {
     }
     private fun strictLong(value:Any?):Long?=when(value){
         is Byte,is Short,is Int,is Long->(value as Number).toLong()
-        is Float,is Double->{val number=(value as Number).toDouble();number.takeIf{it.isFinite()&&it%1.0==0.0}?.toLong()}
+        is Float,is Double->{val number=(value as Number).toDouble();number.takeIf{it.isFinite()&&it%1.0==0.0&&it>=Long.MIN_VALUE.toDouble()&&it<Long.MAX_VALUE.toDouble()}?.toLong()}
         is String->value.trim().toLongOrNull()
         else->null
     }
