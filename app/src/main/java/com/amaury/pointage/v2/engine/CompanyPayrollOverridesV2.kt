@@ -183,7 +183,7 @@ object CompanyPayrollOverridesV2 {
         val p=SalaryCompanyStore.prefs(context,companyId)
         fun number(key:String)=SalaryNumericInputV2.nonNegativeDecimal(p.getString(key,"").orEmpty())
         fun normalizeIdcc(raw:String?)=raw.orEmpty().filter(Char::isDigit).trimStart('0').ifBlank{null}
-        val idcc=normalizeIdcc(company.idcc) ?: normalizeIdcc(p.getString("company_idcc",""))
+        val idcc=normalizeIdcc(company.idcc)
         val entryDate=runCatching {
             p.getString("entry_date","").orEmpty().trim().takeIf{it.isNotBlank()}?.let {
                 LocalDate.parse(it,DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE))
