@@ -7,6 +7,22 @@ import org.junit.Test
 
 class ObjectiveDeliveryNpcBrainTest {
     @Test
+    fun everyChapterKeepsThePlayerAsDirectorAndDeliveryStaffAutonomous() {
+        (1..10).forEach { chapter ->
+            val scene = ObjectiveDeliverySceneCatalog.forChapter(chapter)
+            val director = ObjectiveDeliveryNpcBrain.directorIndex(scene)
+            assertEquals("Direction", scene.people[director].name)
+            assertTrue(ObjectiveDeliveryNpcBrain.routine(scene, director).isEmpty())
+            scene.people.indices.filter { it != director }.forEach { staff ->
+                assertTrue(ObjectiveDeliveryNpcBrain.routine(scene, staff).isNotEmpty())
+            }
+        }
+        val delivery = ObjectiveDeliverySceneCatalog.forChapter(7)
+        val logistics = delivery.people.indexOfFirst { it.role == "Logistique" }
+        assertFalse(logistics == ObjectiveDeliveryNpcBrain.directorIndex(delivery))
+    }
+
+    @Test
     fun staffRoutinesMatchRolesTasksAndTheirWorkAreas() {
         val scene = ObjectiveDeliverySceneCatalog.forChapter(6)
         val production = scene.people.indexOfFirst { it.role == "Production" }
