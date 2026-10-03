@@ -210,7 +210,7 @@ object CompanyPayrollOverridesV2 {
         val conventionCoefficient=p.getString("convention_coefficient","").orEmpty().trim().toIntOrNull()
         val protectionCategory=PlasturgieProtectionCategoryV2.classify(idcc,referenceDate,conventionCoefficient)
         val verifiedProtectionCategory=VerifiedProtectionCategoryProviderV2.resolve(context,companyId,referenceDate)
-        val legalProfile=ConventionLegalProfileV2.load(context,companyId)
+        val legalProfile=ConventionLegalProfileV2.load(context,companyId,referenceDate)
         val verifiedProvidentClassification=legalProfile?.classification ?: ConventionClassificationV2()
         val verifiedProvidentSeniorityMonths=legalProfile?.let {
             V2ConventionProvidentContributionBridge.seniorityMonths(it,referenceDate)
