@@ -214,6 +214,14 @@ class V2PayslipStoreTest {
     }
 
     @Test
+    fun `le zero sentinel du calcul indisponible ne devient pas une base maladie connue`() {
+        for (type in listOf(ContractTypeV2.FULL_TIME, ContractTypeV2.PART_TIME, ContractTypeV2.FORFAIT_HOURS, ContractTypeV2.FORFAIT_DAYS)) {
+            val contract = ContractV2("date", "company-a", type, 35 * 60, 20.0, 0L)
+            assertNull(V2PayslipStore.sicknessContractualGross(contract, 0.0, emptyList()))
+        }
+    }
+
+    @Test
     fun `la base maladie utilise le taux du contrat date pour les heures structurelles`() {
         val contract = ContractV2(
             id = "contract-v2",

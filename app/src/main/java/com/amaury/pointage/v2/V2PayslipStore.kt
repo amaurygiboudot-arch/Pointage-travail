@@ -166,7 +166,7 @@ object V2PayslipStore {
   overtimeTiers:List<V2SalaryAdapter.TierDuration>
  ):Double?{
   val resolvedContract=contract?:return null
-  val regular=regularGross?.takeIf{it.isFinite()&&it>=0.0}?:return null
+  val regular=regularGross?.takeIf{it.isFinite()&&it>0.0}?:return null
   return when(resolvedContract.type){
    ContractTypeV2.FULL_TIME -> {
     val structural=overtimeTiers.filter{it.label.contains("structurelles",ignoreCase=true)}
@@ -175,7 +175,7 @@ object V2PayslipStore {
      val rate=resolvedContract.grossHourlyRate?.takeIf{it.isFinite()&&it>0.0}?:return null
      structural.sumOf{tier->tier.durationMs/3_600_000.0*rate*tier.multiplier}
     }
-    (regular+structuralGross).takeIf{it.isFinite()&&it>=0.0}
+    (regular+structuralGross).takeIf{it.isFinite()&&it>0.0}
    }
    ContractTypeV2.PART_TIME,
    ContractTypeV2.FORFAIT_HOURS,
