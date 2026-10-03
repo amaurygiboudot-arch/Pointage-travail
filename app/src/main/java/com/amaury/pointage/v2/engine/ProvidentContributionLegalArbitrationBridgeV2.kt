@@ -36,7 +36,7 @@ object ProvidentContributionLegalArbitrationBridgeV2 {
         companyGuaranteesEquivalent: Boolean? = null,
         sourceKnowledge: Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> = emptyMap()
     ): Snapshot {
-        val profile = ConventionLegalProfileV2.load(context, companyId)
+        val profile = ConventionLegalProfileV2.load(context, companyId, referenceDate)
             ?: return unavailable("Prévoyance ACCO/KALI : profil juridique local introuvable.")
         val branch = V2ConventionProvidentContributionBridge.load(
             context = context,

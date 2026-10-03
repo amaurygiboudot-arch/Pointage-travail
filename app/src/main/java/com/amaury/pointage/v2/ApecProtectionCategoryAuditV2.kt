@@ -47,7 +47,7 @@ object ApecProtectionCategoryAuditV2 {
     )
 
     fun audit(context: Context, companyId: String, referenceDate: LocalDate): Task<Summary> {
-        val profile = ConventionLegalProfileV2.load(context, companyId)
+        val profile = ConventionLegalProfileV2.load(context, companyId, referenceDate)
             ?: return Tasks.forResult(
                 Summary("", referenceDate, 0, 0, 0, 0, 0, false, false,
                     listOf("APEC catégorie ANI : entreprise ou profil salarié introuvable."))

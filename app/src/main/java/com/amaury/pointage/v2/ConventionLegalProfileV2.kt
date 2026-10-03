@@ -7,6 +7,7 @@ import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
 import com.amaury.pointage.v2.engine.EmploymentContractPeriodResolutionV2
 import com.amaury.pointage.v2.model.ContractV2
 import com.amaury.pointage.v2.model.ForfaitHoursPeriodV2
+import java.time.YearMonth
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -53,8 +54,14 @@ data class ConventionLegalProfileV2(
             val resolution = V2EmploymentContractPayrollBridge.resolve(
                 context, profile.companyId, referenceDate.year, referenceDate.monthValue - 1
             ).resolution
-            return withDatedResolution(profile, resolution)
+            val status = CompanyProfessionalStatusStoreV2.resolve(context, profile.companyId, YearMonth.from(referenceDate))
+            return withDatedProfessionalStatus(withDatedResolution(profile, resolution), status)
         }
+
+        internal fun withDatedProfessionalStatus(
+            profile: ConventionLegalProfileV2,
+            snapshot: com.amaury.pointage.v2.engine.CompanyProfessionalStatusResolverV2.Snapshot
+        ): ConventionLegalProfileV2 = profile.copy(professionalStatus = snapshot.status.takeIf { snapshot.reliable })
 
         internal fun withDatedResolution(
             profile: ConventionLegalProfileV2,
