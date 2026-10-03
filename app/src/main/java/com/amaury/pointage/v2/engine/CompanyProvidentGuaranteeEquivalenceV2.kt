@@ -31,7 +31,7 @@ object CompanyProvidentGuaranteeEquivalenceV2 {
         contributionAgreementIds: Set<String>
     ): Result {
         if (contributionAgreementIds.isEmpty()) return unresolved("aucun ACCOTEXT de cotisation candidat")
-        val profile = ConventionLegalProfileV2.load(context, companyId)
+        val profile = ConventionLegalProfileV2.load(context, companyId, referenceDate)
             ?: return unresolved("profil juridique local introuvable")
         val seniority = V2ConventionProvidentContributionBridge.seniorityMonths(profile, referenceDate)
             ?: return unresolved("ancienneté conventionnelle non déterminable")

@@ -16,6 +16,8 @@ import com.amaury.pointage.v2.OfficialAccoProvidentContributionParserV2
 import com.amaury.pointage.v2.PayrollLegalSourceKnowledgeStoreV2
 import com.amaury.pointage.v2.SalaryNumericInputV2
 import com.amaury.pointage.v2.V2EmploymentContractPayrollBridge
+import com.amaury.pointage.v2.CompanyAtMpRateStoreV2
+import com.amaury.pointage.v2.CompanyProfessionalStatusStoreV2
 import com.amaury.pointage.v2.model.ContractV2
 import com.amaury.pointage.v2.V2CompanyProvidentContributionStore
 import com.amaury.pointage.v2.V2ConventionMatterCoverageStore
@@ -205,8 +207,10 @@ object CompanyPayrollOverridesV2 {
         val legacyEmployerProtectionTaxable=number("employer_protection_taxable_amount")
         val legacyEmployeeProvidentNonDeductible=number("employee_provident_nondeductible_amount")
         val legacyTaxPercent=number("income_tax_rate_percent")?.takeIf{it<=100.0}
-        val atMpEmployerRate=number("atmp_employer_rate_percent")?.takeIf{it<=100.0}?.div(100.0)
-        val professionalStatus=p.getString("professional_status","").orEmpty().trim().uppercase().takeIf{it=="CADRE"||it=="NON_CADRE"}
+        val atMpSource=CompanyAtMpRateStoreV2.resolve(context,companyId,java.time.YearMonth.from(referenceDate))
+        val atMpEmployerRate=atMpSource.rate.takeIf{atMpSource.reliable}
+        val professionalSource=CompanyProfessionalStatusStoreV2.resolve(context,companyId,java.time.YearMonth.from(referenceDate))
+        val professionalStatus=professionalSource.status.takeIf{professionalSource.reliable}
         val conventionCoefficient=p.getString("convention_coefficient","").orEmpty().trim().toIntOrNull()
         val protectionCategory=PlasturgieProtectionCategoryV2.classify(idcc,referenceDate,conventionCoefficient)
         val verifiedProtectionCategory=VerifiedProtectionCategoryProviderV2.resolve(context,companyId,referenceDate)
@@ -313,6 +317,8 @@ object CompanyPayrollOverridesV2 {
         }else observedAbsenceImpact
         val warnings=buildList {
             addAll(contractSource.warnings)
+            addAll(atMpSource.warnings)
+            addAll(professionalSource.warnings)
             if(entryDate==null)add("Date d’entrée : à confirmer pour les règles liées à l’ancienneté et au plafond social")
             if(legalProfile!=null && verifiedProvidentSeniorityMonths==null)add("Ancienneté conventionnelle vérifiée : à confirmer")
             addAll(absenceImpact.warnings)
