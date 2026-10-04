@@ -15,3 +15,9 @@ Déclenchement DEV après audit Salaire V2 — 2026-10-03.
 Lots #655, #657, #658, #659 et #660 : sources contractuelles et sociales datées, interfaces et PDF cohérents.
 Utiliser uniquement le workflow DEV existant et dev-latest ; confirmer les dates et sources de statut/AT-MP dans la fiche de renseignements avant calcul.
 La validation sur téléphone reste à effectuer après génération et vérification des artefacts signés.
+
+Déclenchement DEV après fusion #661 — fiabilité du pointage — 2026-10-04.
+Source : main ff0b8970e7bf1de91c56b15ad9fa6f55bd8e5c20.
+Sorties courtes, archivage des pauses, actions périmées, confirmations GPS et persistance iOS corrigés.
+Publier les APK/AAB signés uniquement vers dev-latest via le workflow existant.
+Contrôles Android et 511 tests iOS validés ; validation sur téléphone à effectuer après installation.
