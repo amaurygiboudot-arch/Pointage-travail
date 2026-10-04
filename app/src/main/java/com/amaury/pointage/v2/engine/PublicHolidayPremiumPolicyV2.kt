@@ -4,6 +4,7 @@ import com.amaury.pointage.v2.model.WorkSessionV2
 import java.time.LocalDate
 import java.util.Calendar
 import java.util.Locale
+import java.util.TimeZone
 
 /** Calcule uniquement le temps PAYÉ d'une session qui tombe sur des dates fériées déjà déterminées. */
 object PublicHolidayPremiumPolicyV2 {
@@ -11,12 +12,13 @@ object PublicHolidayPremiumPolicyV2 {
         session: WorkSessionV2,
         rangeStartMs: Long,
         rangeEndMs: Long,
-        holidayDates: Set<LocalDate>
+        holidayDates: Set<LocalDate>,
+        timeZone: TimeZone = TimeZone.getDefault()
     ): Long {
         if (rangeEndMs <= rangeStartMs || holidayDates.isEmpty()) return 0L
         var total = 0L
-        val day = midnight(rangeStartMs)
-        val last = midnight(rangeEndMs)
+        val day = midnight(rangeStartMs, timeZone)
+        val last = midnight(rangeEndMs, timeZone)
         while (day.timeInMillis <= last.timeInMillis) {
             val date = LocalDate.of(
                 day.get(Calendar.YEAR),
@@ -34,7 +36,7 @@ object PublicHolidayPremiumPolicyV2 {
         return total
     }
 
-    private fun midnight(ms: Long): Calendar = Calendar.getInstance(Locale.FRANCE).apply {
+    private fun midnight(ms: Long, timeZone: TimeZone): Calendar = Calendar.getInstance(timeZone, Locale.FRANCE).apply {
         timeInMillis = ms
         set(Calendar.HOUR_OF_DAY, 0)
         set(Calendar.MINUTE, 0)

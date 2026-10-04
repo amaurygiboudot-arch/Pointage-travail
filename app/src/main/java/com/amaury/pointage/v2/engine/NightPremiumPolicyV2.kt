@@ -3,6 +3,7 @@ package com.amaury.pointage.v2.engine
 import com.amaury.pointage.v2.model.WorkSessionV2
 import java.util.Calendar
 import java.util.Locale
+import java.util.TimeZone
 
 /**
  * Règle de majoration de nuit suffisamment structurée pour être calculée :
@@ -34,12 +35,13 @@ object NightPremiumPolicyV2 {
         session: WorkSessionV2,
         rangeStartMs: Long,
         rangeEndMs: Long,
-        rule: NightPremiumRuleV2
+        rule: NightPremiumRuleV2,
+        timeZone: TimeZone = TimeZone.getDefault()
     ): Long {
         if (rangeEndMs <= rangeStartMs) return 0L
 
         var total = 0L
-        val day = Calendar.getInstance(Locale.FRANCE).apply {
+        val day = Calendar.getInstance(timeZone, Locale.FRANCE).apply {
             timeInMillis = rangeStartMs
             set(Calendar.HOUR_OF_DAY, 0)
             set(Calendar.MINUTE, 0)
@@ -47,7 +49,7 @@ object NightPremiumPolicyV2 {
             set(Calendar.MILLISECOND, 0)
             add(Calendar.DAY_OF_YEAR, -1)
         }
-        val last = Calendar.getInstance(Locale.FRANCE).apply {
+        val last = Calendar.getInstance(timeZone, Locale.FRANCE).apply {
             timeInMillis = rangeEndMs
             set(Calendar.HOUR_OF_DAY, 0)
             set(Calendar.MINUTE, 0)
