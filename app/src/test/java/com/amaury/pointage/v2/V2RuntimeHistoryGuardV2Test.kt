@@ -78,6 +78,19 @@ class V2RuntimeHistoryGuardV2Test {
     }
 
     @Test
+    fun `sessions chevauchees sont non fiables et sessions contigues restent fiables`() {
+        val overlapping = JSONArray()
+            .put(session(id = "session-1", realEntry = 10_000L, realExit = 20_000L))
+            .put(session(id = "session-2", realEntry = 19_000L, realExit = 30_000L))
+        assertFalse(V2RuntimeHistoryGuardV2.inspect(overlapping).reliable)
+
+        val adjacent = JSONArray()
+            .put(session(id = "session-1", realEntry = 10_000L, realExit = 20_000L))
+            .put(session(id = "session-2", realEntry = 20_000L, realExit = 30_000L))
+        assertTrue(V2RuntimeHistoryGuardV2.inspect(adjacent).reliable)
+    }
+
+    @Test
     fun `dates de session incoherentes sont refusees`() {
         val invalidReal = session(realEntry = 20_000L, realExit = 10_000L)
         val invalidCounted = session(id = "session-2", countedEntry = 19_000L, countedExit = 11_000L)
