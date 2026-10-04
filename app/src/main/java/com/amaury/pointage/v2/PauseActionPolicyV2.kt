@@ -7,7 +7,13 @@ package com.amaury.pointage.v2
  * explicitement choisi. Une pause déjà ouverte est seulement refermée : son statut canonique
  * reste celui enregistré au démarrage.
  */
-internal object PauseActionPolicyV2 {
+object PauseActionPolicyV2 {
+    /** Identité de la session et de la pause vues avant une confirmation utilisateur. */
+    data class Target(val sessionId: String, val pauseStartMs: Long?)
+
+    fun matches(target: Target, currentSessionId: String, currentPauseStartMs: Long?): Boolean =
+        target.sessionId == currentSessionId && target.pauseStartMs == currentPauseStartMs
+
     enum class Next {
         NO_OPEN_SESSION,
         CLOSE_EXISTING,

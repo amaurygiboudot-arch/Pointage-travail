@@ -46,14 +46,14 @@ object V2ManualSessionWriter {
         if (!migration.reliable) return false
         val countedEntry = HoraTrackV2.time.countedEntryFromRealArrival(realStartMs)
         val expectedEnd = employerId?.let { V2ScheduleStore.expectedEnd(context, it, realStartMs, realEndMs) }
-        val countedExit = HoraTrackV2.time.countedExitFromRealExit(realEndMs, expectedEnd)
+        val countedExit = V2RuntimeStore.countedExitForClosure(realEndMs, expectedEnd, countedEntry)
         val placeLabel = place?.trim()?.takeIf { it.isNotBlank() }
 
         val stored = V2RuntimeHistoryGuardV2.read(context)
         if (!stored.reliable) return false
         val history = stored.history
         val employerKey = employerKey(employerId, legacySlot)
-        val signature = "$realStartMs:$realEndMs:$countedEntry:$countedExit:$employerKey"
+        val signature = "$realStartMs:$realEndMs:$countedEntry:${countedExit ?: 0L}:$employerKey"
         for (i in 0 until history.length()) {
             val o = history.optJSONObject(i) ?: return false
             val existingEmployer = employerKey(
@@ -86,7 +86,7 @@ object V2ManualSessionWriter {
         realStartMs: Long,
         realEndMs: Long,
         countedEntryMs: Long,
-        countedExitMs: Long,
+        countedExitMs: Long?,
         employerId: String?,
         legacySlot: Int?,
         placeLabel: String?
@@ -97,7 +97,7 @@ object V2ManualSessionWriter {
         .put("realEntry", realStartMs)
         .put("countedEntry", countedEntryMs)
         .put("realExit", realEndMs)
-        .put("countedExit", countedExitMs)
+        .put("countedExit", countedExitMs ?: JSONObject.NULL)
         .put("pauses", JSONArray())
         .put("source", "MANUAL")
         .put("placeId", JSONObject.NULL)
