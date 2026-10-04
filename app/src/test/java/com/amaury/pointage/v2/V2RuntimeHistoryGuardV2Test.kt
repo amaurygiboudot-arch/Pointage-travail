@@ -139,6 +139,19 @@ class V2RuntimeHistoryGuardV2Test {
     }
 
     @Test
+    fun `pauses chevauchees sont refusees et pauses contigues restent fiables`() {
+        val overlapping = JSONArray()
+            .put(pause(start = 1_000L, end = 2_000L, paid = true))
+            .put(pause(start = 1_500L, end = 2_500L, paid = false))
+        assertFalse(V2RuntimeHistoryGuardV2.validPauseArray(overlapping))
+
+        val adjacent = JSONArray()
+            .put(pause(start = 1_000L, end = 2_000L, paid = true))
+            .put(pause(start = 2_000L, end = 3_000L, paid = false))
+        assertTrue(V2RuntimeHistoryGuardV2.validPauseArray(adjacent))
+    }
+
+    @Test
     fun `pause dupliquee rend le paquet ambigu`() {
         val p = pause()
 
