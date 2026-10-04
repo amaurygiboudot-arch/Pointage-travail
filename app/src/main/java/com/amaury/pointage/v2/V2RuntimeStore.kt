@@ -363,7 +363,6 @@ object V2RuntimeStore {
         fun currentContains(start: Long, end: Long): Boolean {
             if (currentEntry <= 0L || start < currentEntry) return false
             val limit = currentExit ?: maxOf(
-                dayEnd,
                 currentExpectedEnd ?: dayEnd,
                 System.currentTimeMillis()
             )
