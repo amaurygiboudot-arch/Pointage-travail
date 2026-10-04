@@ -37,6 +37,8 @@ class PauseActionActivity : Activity() {
         }
 
         val session = read.snapshot.session
+        val openPause = session?.pauses?.lastOrNull { it.endMs == null }
+        val target = session?.let { PauseActionPolicyV2.Target(it.id, openPause?.startMs) }
         val openPauseCount = session?.pauses?.count { it.endMs == null } ?: 0
         val next = PauseActionPolicyV2.next(
             hasOpenSession = session != null && session.realExitMs == null,
@@ -48,8 +50,11 @@ class PauseActionActivity : Activity() {
                 Toast.makeText(this, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
                 finish()
             }
-            PauseActionPolicyV2.Next.CLOSE_EXISTING -> closeExistingPause()
-            PauseActionPolicyV2.Next.SELECT_PAID_STATUS -> showPaidStatusChoice()
+            PauseActionPolicyV2.Next.CLOSE_EXISTING -> {
+                if (openPause?.paid == null) showPaidStatusChoice(requireNotNull(target))
+                else closeExistingPause(requireNotNull(target))
+            }
+            PauseActionPolicyV2.Next.SELECT_PAID_STATUS -> showPaidStatusChoice(requireNotNull(target))
             PauseActionPolicyV2.Next.INVALID_MULTIPLE_OPEN_PAUSES -> {
                 Toast.makeText(this, "Pause bloquée : état HoraTrack incohérent", Toast.LENGTH_LONG).show()
                 finish()
@@ -57,8 +62,8 @@ class PauseActionActivity : Activity() {
         }
     }
 
-    private fun closeExistingPause() {
-        val changed = V2RuntimeStore.togglePause(this)
+    private fun closeExistingPause(target: PauseActionPolicyV2.Target) {
+        val changed = V2RuntimeStore.togglePause(this, expectedTarget = target)
         Toast.makeText(
             this,
             if (changed) "Travail repris" else "Pause non modifiée : statut à vérifier",
@@ -68,25 +73,26 @@ class PauseActionActivity : Activity() {
         finish()
     }
 
-    private fun showPaidStatusChoice() {
+    private fun showPaidStatusChoice(target: PauseActionPolicyV2.Target) {
         if (dialogVisible || isFinishing || isDestroyed) return
         dialogVisible = true
         AlertDialog.Builder(this)
-            .setTitle("Démarrer une pause")
+            .setTitle(if (target.pauseStartMs == null) "Démarrer une pause" else "Confirmer la pause avant de reprendre")
             .setMessage("Cette pause est-elle rémunérée ?")
-            .setPositiveButton("PAYÉE") { _, _ -> startPause(paid = true) }
-            .setNegativeButton("NON PAYÉE") { _, _ -> startPause(paid = false) }
+            .setPositiveButton("PAYÉE") { _, _ -> confirmPause(target, paid = true) }
+            .setNegativeButton("NON PAYÉE") { _, _ -> confirmPause(target, paid = false) }
             .setNeutralButton("ANNULER") { _, _ -> finish() }
             .setOnCancelListener { finish() }
             .setOnDismissListener { dialogVisible = false }
             .show()
     }
 
-    private fun startPause(paid: Boolean) {
-        val changed = V2RuntimeStore.togglePause(this, paid = paid)
+    private fun confirmPause(target: PauseActionPolicyV2.Target, paid: Boolean) {
+        val changed = V2RuntimeStore.togglePause(this, paid = paid, expectedTarget = target)
         Toast.makeText(
             this,
-            if (changed) "Pause démarrée" else "Impossible de démarrer la pause",
+            if (!changed) "Pause non modifiée : vérifie la session en cours"
+            else if (target.pauseStartMs == null) "Pause démarrée" else "Travail repris",
             if (changed) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
         ).show()
         if (changed) refreshWidgets()

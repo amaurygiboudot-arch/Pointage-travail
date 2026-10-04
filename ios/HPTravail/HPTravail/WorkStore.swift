@@ -61,7 +61,8 @@ final class WorkStoreV2: ObservableObject {
         employerId: String?,
         placeLabel: String?
     ) -> Bool {
-        guard entryDate <= Date().addingTimeInterval(300),
+        guard entryDate.timeIntervalSinceReferenceDate.isFinite,
+              entryDate <= Date().addingTimeInterval(300),
               sessions.allSatisfy({ session in
                   guard let exit = session.exit else { return false }
                   return exit <= entryDate
@@ -87,20 +88,23 @@ final class WorkStoreV2: ObservableObject {
         return true
     }
 
-    func togglePause(paid: Bool? = nil) {
-        guard storageReliable else { return }
-        guard let index = sessions.lastIndex(where: { $0.exit == nil }) else { return }
-        if let pauseIndex = sessions[index].pauses.lastIndex(where: { $0.end == nil }) {
-            guard let resolvedPaid = sessions[index].pauses[pauseIndex].paid ?? paid else { return }
-            sessions[index].pauses[pauseIndex].paid = resolvedPaid
-            sessions[index].pauses[pauseIndex].end = Date()
-        } else {
-            guard let paid else { return }
-            sessions[index].pauses.append(
-                PausePeriod(id: UUID(), start: Date(), end: nil, paid: paid)
-            )
+    @discardableResult
+    func togglePause(paid: Bool? = nil, at date: Date = Date()) -> Bool {
+        guard storageReliable,
+              date <= Date().addingTimeInterval(300),
+              let updated = WorkSessionMutationV2.togglingPause(
+                  in: sessions,
+                  at: date,
+                  paid: paid
+              ) else {
+            return false
         }
-        save()
+        guard persistCanonical(updated) else {
+            storageReliable = false
+            return false
+        }
+        sessions = updated
+        return true
     }
 
     @discardableResult
@@ -108,20 +112,15 @@ final class WorkStoreV2: ObservableObject {
         at exitDate: Date = Date(),
         expectedSessionId: UUID? = nil
     ) -> Bool {
-        guard storageReliable else { return false }
-        guard let index = sessions.lastIndex(where: { $0.exit == nil }) else { return false }
-        guard expectedSessionId == nil || sessions[index].id == expectedSessionId,
+        guard storageReliable,
               exitDate <= Date().addingTimeInterval(300),
-              exitDate > sessions[index].entry,
-              sessions[index].pauses.allSatisfy({ $0.paid != nil }) else {
+              let updated = WorkSessionMutationV2.closingSession(
+                  in: sessions,
+                  at: exitDate,
+                  expectedSessionId: expectedSessionId
+              ) else {
             return false
         }
-        var updated = sessions
-        if let pauseIndex = updated[index].pauses.lastIndex(where: { $0.end == nil }) {
-            guard exitDate > updated[index].pauses[pauseIndex].start else { return false }
-            updated[index].pauses[pauseIndex].end = exitDate
-        }
-        updated[index].exit = exitDate
         guard persistCanonical(updated) else {
             storageReliable = false
             return false
@@ -180,9 +179,12 @@ final class WorkStoreV2: ObservableObject {
         ) else {
             return false
         }
+        guard persistCanonical(updated) else {
+            storageReliable = false
+            return false
+        }
         sessions = updated
-        save()
-        return storageReliable
+        return true
     }
 
     func paidTimeAssessment(for session: WorkSession, until endDate: Date = Date()) -> PaidTimeAssessmentV2 {
@@ -196,20 +198,8 @@ final class WorkStoreV2: ObservableObject {
         )
     }
 
-    private func save() {
-        guard storageReliable, persistCanonical(sessions) else {
-            storageReliable = false
-            return
-        }
-    }
-
     private func persistCanonical(_ decoded: [WorkSession]) -> Bool {
-        guard let data = try? JSONEncoder().encode(decoded) else { return false }
-
-        defaults.set(data, forKey: WorkSessionStorageV2.primaryKey)
-        return WorkSessionPersistenceV2.read(
-            defaults.data(forKey: WorkSessionStorageV2.primaryKey)
-        ) == .valid(decoded)
+        WorkSessionPersistenceV2.write(decoded, defaults: defaults)
     }
 
     private func load() {
