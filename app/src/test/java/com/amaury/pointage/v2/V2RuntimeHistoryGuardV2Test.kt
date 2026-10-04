@@ -159,6 +159,21 @@ class V2RuntimeHistoryGuardV2Test {
     }
 
     @Test
+    fun `pause hors des bornes de sa session rend l historique non fiable`() {
+        val beforeEntry = session(
+            id = "before",
+            pauses = JSONArray().put(pause(start = 9_000L, end = 11_000L))
+        )
+        val afterExit = session(
+            id = "after",
+            pauses = JSONArray().put(pause(start = 19_000L, end = 21_000L))
+        )
+
+        assertFalse(V2RuntimeHistoryGuardV2.inspect(JSONArray().put(beforeEntry)).reliable)
+        assertFalse(V2RuntimeHistoryGuardV2.inspect(JSONArray().put(afterExit)).reliable)
+    }
+
+    @Test
     fun `session valide avec pause valide reste fiable`() {
         val raw = JSONArray().put(session(pauses = JSONArray().put(pause()))).toString()
 
