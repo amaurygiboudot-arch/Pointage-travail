@@ -52,6 +52,18 @@ object V2ManualSessionWriter {
         val stored = V2RuntimeHistoryGuardV2.read(context)
         if (!stored.reliable) return false
         val history = stored.history
+        if (V2RuntimeStore.historyOverlapsRange(history, realStartMs, realEndMs) != false) return false
+
+        // Une session ouverte n'est pas encore dans l'historique : elle doit elle aussi empêcher
+        // l'ajout d'une plage manuelle qui recouvrirait son temps réel.
+        val current = V2RuntimeStore.snapshot(context).session
+        if (!V2RuntimeHistoryGuardV2.sourceState().reliable) return false
+        if (current != null) {
+            val currentStart = current.realArrivalMs ?: return false
+            val currentEnd = current.realExitMs ?: Long.MAX_VALUE
+            if (realStartMs < currentEnd && currentStart < realEndMs) return false
+        }
+
         val employerKey = employerKey(employerId, legacySlot)
         val signature = "$realStartMs:$realEndMs:$countedEntry:${countedExit ?: 0L}:$employerKey"
         for (i in 0 until history.length()) {
