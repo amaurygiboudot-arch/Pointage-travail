@@ -87,6 +87,12 @@ object V2RuntimeStore {
         if (nowMs <= 0L) return false
         val current = readForWrite(context, nowMs)
         if (!current.reliable || current.session?.status == SessionStatusV2.OPEN) return false
+        val storedHistory = V2RuntimeHistoryGuardV2.read(context)
+        if (!storedHistory.reliable) return false
+        // Une nouvelle session est ouverte sans fin connue. Elle ne peut donc commencer avant
+        // une session déjà archivée (y compris une saisie manuelle future), sinon deux vérités
+        // temporelles coexisteraient jusqu'à sa fermeture.
+        if (historyOverlapsRange(storedHistory.history, nowMs, Long.MAX_VALUE) != false) return false
         val prefs = prefs(context)
 
         // Les anciens appels peuvent encore imposer un slot 1/2. Le flux normal utilise désormais
