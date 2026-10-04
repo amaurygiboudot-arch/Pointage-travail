@@ -60,6 +60,24 @@ class V2RuntimeAtomicCloseTest {
     }
 
     @Test
+    fun `une nouvelle entree ouverte ne peut pas commencer avant une session archivee`() {
+        val existing = V2RuntimeStore.historyWithClosedSession(
+            sourceHistory = JSONArray(),
+            session = closedSession("future"),
+            companySlot = null
+        )!!
+
+        assertEquals(
+            true,
+            V2RuntimeStore.historyOverlapsRange(existing, 5_000L, Long.MAX_VALUE)
+        )
+        assertEquals(
+            false,
+            V2RuntimeStore.historyOverlapsRange(existing, 20_000L, Long.MAX_VALUE)
+        )
+    }
+
+    @Test
     fun `une session qui chevauche une session historique est refusee`() {
         val first = V2RuntimeStore.historyWithClosedSession(
             sourceHistory = JSONArray(),
