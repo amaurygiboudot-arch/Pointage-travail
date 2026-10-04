@@ -60,6 +60,43 @@ class V2RuntimeAtomicCloseTest {
     }
 
     @Test
+    fun `une session qui chevauche une session historique est refusee`() {
+        val first = V2RuntimeStore.historyWithClosedSession(
+            sourceHistory = JSONArray(),
+            session = closedSession("first"),
+            companySlot = null
+        )!!
+
+        val overlapping = closedSession("overlap").copy(
+            realArrivalMs = 15_000L,
+            countedEntryMs = 16_000L,
+            countedExitMs = 24_000L,
+            realExitMs = 25_000L
+        )
+        assertNull(
+            V2RuntimeStore.historyWithClosedSession(
+                sourceHistory = first,
+                session = overlapping,
+                companySlot = null
+            )
+        )
+
+        val adjacent = closedSession("adjacent").copy(
+            realArrivalMs = 20_000L,
+            countedEntryMs = 21_000L,
+            countedExitMs = 29_000L,
+            realExitMs = 30_000L
+        )
+        assertNotNull(
+            V2RuntimeStore.historyWithClosedSession(
+                sourceHistory = first,
+                session = adjacent,
+                companySlot = null
+            )
+        )
+    }
+
+    @Test
     fun `une session encore ouverte ne peut jamais etre injectee dans historique`() {
         val open = closedSession().copy(
             countedExitMs = null,
