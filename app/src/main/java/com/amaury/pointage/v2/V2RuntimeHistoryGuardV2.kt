@@ -123,6 +123,20 @@ object V2RuntimeHistoryGuardV2 {
                 malformed = true
             } else if (!validPauseArray(pauses)) {
                 malformed = true
+            } else if (realEntry != null) {
+                for (pauseIndex in 0 until pauses.length()) {
+                    val pause = pauses.optJSONObject(pauseIndex)
+                    val pauseStart = pause?.let { positiveLong(it, "start") }
+                    val pauseEnd = pause?.let { positiveLong(it, "end") }
+                    if (
+                        pauseStart == null ||
+                        pauseEnd == null ||
+                        pauseStart < realEntry ||
+                        (realExit.value != null && pauseEnd > realExit.value)
+                    ) {
+                        malformed = true
+                    }
+                }
             }
         }
 
