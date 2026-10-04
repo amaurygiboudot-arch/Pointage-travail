@@ -149,9 +149,11 @@ enum WorkSessionPersistenceV2 {
             }
 
             let orderedPauses = session.pauses.sorted { $0.start < $1.start }
-            for index in 1..<orderedPauses.count {
-                let previousEnd = orderedPauses[index - 1].end ?? .distantFuture
-                if orderedPauses[index].start < previousEnd { return false }
+            if orderedPauses.count > 1 {
+                for index in 1..<orderedPauses.count {
+                    let previousEnd = orderedPauses[index - 1].end ?? .distantFuture
+                    if orderedPauses[index].start < previousEnd { return false }
+                }
             }
         }
         for firstIndex in sessions.indices {
