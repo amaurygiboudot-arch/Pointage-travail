@@ -28,6 +28,7 @@ class V2RuntimeShortSessionCloseTest {
 
         val closed = WorkSessionV2(
             id = "short-shift",
+            employerId = null,
             realArrivalMs = entry,
             countedEntryMs = countedEntry,
             realExitMs = exit,
@@ -66,6 +67,7 @@ class V2RuntimeShortSessionCloseTest {
     fun `chronologically invalid real checkout is still refused by archive guard`() {
         val closed = WorkSessionV2(
             id = "invalid-real-order",
+            employerId = null,
             realArrivalMs = at(5, 11),
             countedEntryMs = at(5, 30),
             realExitMs = at(5, 10),
@@ -79,6 +81,7 @@ class V2RuntimeShortSessionCloseTest {
     fun `checkout before an already recorded pause end cannot corrupt runtime or history`() {
         val closed = WorkSessionV2(
             id = "clock-moved-backwards",
+            employerId = null,
             realArrivalMs = at(5, 0),
             countedEntryMs = at(5, 0),
             realExitMs = at(8, 20),
