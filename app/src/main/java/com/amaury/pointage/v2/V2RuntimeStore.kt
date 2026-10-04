@@ -337,9 +337,9 @@ object V2RuntimeStore {
         val clean = ManualPauseQualificationV2.qualify(
             pauses.map { ManualPauseDraftV2(it.startMs, it.endMs, it.paid) }
         ) ?: return false
-        if (clean.any { pause ->
-                pause.startMs !in dayStart until dayEnd || pause.endMs > dayEnd
-            }) return false
+        // La journée d'édition est déterminée par le début de la pause. Une pause de nuit
+        // peut donc se terminer après minuit si elle reste entièrement dans sa session de travail.
+        if (clean.any { pause -> pause.startMs !in dayStart until dayEnd }) return false
 
         val p = prefs(context)
         val storedHistory = V2RuntimeHistoryGuardV2.read(context)
@@ -362,7 +362,11 @@ object V2RuntimeStore {
 
         fun currentContains(start: Long, end: Long): Boolean {
             if (currentEntry <= 0L || start < currentEntry) return false
-            val limit = currentExit ?: currentExpectedEnd ?: dayEnd
+            val limit = currentExit ?: maxOf(
+                dayEnd,
+                currentExpectedEnd ?: dayEnd,
+                System.currentTimeMillis()
+            )
             return end <= limit
         }
 
@@ -651,6 +655,32 @@ object V2RuntimeStore {
         return history.distinctBy { it.id }.sortedBy { it.realArrivalMs ?: Long.MAX_VALUE }
     }
 
+    /**
+     * Vérifie qu'une nouvelle plage réelle ne recouvre aucune session déjà archivée.
+     *
+     * Une session historique ouverte est traitée comme allant jusqu'à l'infini : on refuse
+     * d'ajouter une seconde vérité plutôt que de risquer un double comptage.
+     * Null signifie que la vérification elle-même n'est pas fiable.
+     */
+    internal fun historyOverlapsRange(
+        sourceHistory: JSONArray,
+        startMs: Long,
+        endMs: Long,
+        ignoredSessionId: String? = null
+    ): Boolean? {
+        if (startMs <= 0L || endMs <= startMs) return null
+        if (!V2RuntimeHistoryGuardV2.inspect(sourceHistory).reliable) return null
+        for (index in 0 until sourceHistory.length()) {
+            val item = sourceHistory.optJSONObject(index) ?: return null
+            val id = item.optString("id").trim()
+            if (!ignoredSessionId.isNullOrBlank() && id == ignoredSessionId) continue
+            val existingStart = positive(item, "realEntry") ?: return null
+            val existingEnd = positive(item, "realExit") ?: Long.MAX_VALUE
+            if (startMs < existingEnd && existingStart < endMs) return true
+        }
+        return false
+    }
+
     internal fun historyWithClosedSession(
         sourceHistory: JSONArray,
         session: WorkSessionV2,
@@ -664,6 +694,7 @@ object V2RuntimeStore {
                 end <= pause.startMs || pause.paid == null || pause.startMs < entry || end > exit
             }) return null
         if (!V2RuntimeHistoryGuardV2.inspect(sourceHistory).reliable) return null
+        if (historyOverlapsRange(sourceHistory, entry, exit, ignoredSessionId = session.id) != false) return null
         val history = runCatching { JSONArray(sourceHistory.toString()) }.getOrNull() ?: return null
         for (i in 0 until history.length()) {
             val item = history.optJSONObject(i) ?: return null
