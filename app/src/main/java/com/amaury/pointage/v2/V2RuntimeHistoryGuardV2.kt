@@ -168,6 +168,7 @@ object V2RuntimeHistoryGuardV2 {
 
     internal fun validPauseArray(array: JSONArray): Boolean {
         val identities = mutableSetOf<String>()
+        val ranges = mutableListOf<Pair<Long, Long>>()
         for (index in 0 until array.length()) {
             val item = array.optJSONObject(index) ?: return false
             val start = positiveLong(item, "start") ?: return false
@@ -181,6 +182,11 @@ object V2RuntimeHistoryGuardV2 {
             if (!item.has("paid") || item.opt("paid") !is Boolean) return false
             val identity = "$start:$end:$source:${item.optBoolean("paid")}" 
             if (!identities.add(identity)) return false
+            ranges += start to end
+        }
+        val sorted = ranges.sortedBy { it.first }
+        for (index in 1 until sorted.size) {
+            if (sorted[index].first < sorted[index - 1].second) return false
         }
         return true
     }
