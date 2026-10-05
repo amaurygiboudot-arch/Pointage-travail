@@ -39,21 +39,24 @@ class LocationManagementView @JvmOverloads constructor(
     fun refresh() {
         removeAllViews()
         addView(TextView(context).apply { text = "MES LIEUX DE TRAVAIL"; textSize = 16f; setTextColor(accentText()); setPadding(0, dp(18), 0, dp(8)) })
-        val entries = resolveGpsLocationEntries(readPersistedGpsZones(prefs), savedAddresses())
+        val groups = groupGpsZonesByPlace(readPersistedGpsZones(prefs), savedAddresses())
         when {
-            entries == null -> addView(TextView(context).apply {
+            groups == null -> addView(TextView(context).apply {
                 text = "Configuration GPS à vérifier"
                 textSize = 14f
                 setTextColor(secondaryText())
                 setPadding(0, dp(10), 0, dp(12))
             })
-            entries.isEmpty() -> addView(TextView(context).apply {
+            groups.isEmpty() -> addView(TextView(context).apply {
                 text = "Aucun lieu enregistré"
                 textSize = 14f
                 setTextColor(secondaryText())
                 setPadding(0, dp(10), 0, dp(12))
             })
-            else -> entries.forEach { addView(createPlaceCard(it)) }
+            else -> groups.forEach { group ->
+                val entry = GpsLocationEntry(representativeGpsZoneId(group), group.address)
+                addView(createPlaceCard(entry, group))
+            }
         }
     }
 
@@ -65,11 +68,13 @@ class LocationManagementView @JvmOverloads constructor(
             address
         )
 
-    private fun createPlaceCard(entry: GpsLocationEntry): LinearLayout {
+    private fun createPlaceCard(entry: GpsLocationEntry, group: GpsPlaceGroup): LinearLayout {
         val zoneId = entry.zoneId
         val address = entry.address
-        val name = PlaceNames.get(context, zoneId, address)?.takeIf { it.isNotBlank() } ?: "Lieu sans nom"
-        val contact = arrivalContact(zoneId, address)
+        val name = uniqueGpsPlaceLabel(group)
+            ?: PlaceNames.get(context, zoneId, address)?.takeIf { it.isNotBlank() }
+            ?: address
+        val contact = if (group.zones.size <= 1) arrivalContact(zoneId, address) else null
         val contactName = contact?.optString("contactName")?.takeIf { it.isNotBlank() }
         val radius = zoneRadiusText(entry)
         val total = totalWorkedAtText(address)
@@ -81,12 +86,23 @@ class LocationManagementView @JvmOverloads constructor(
             setBackgroundColor(Color.TRANSPARENT)
             isClickable = true
             isFocusable = true
-            setOnClickListener { showDetails(entry) }
+            setOnClickListener { showDetails(entry, group) }
             addView(TextView(context).apply { text = "📍 $name"; textSize = 16f; setTextColor(accentText()) })
             addView(TextView(context).apply { text = address; textSize = 14f; setTextColor(primaryText()); setPadding(0, dp(5), 0, 0) })
             if (contactName != null) addView(TextView(context).apply { text = "Contact : $contactName"; textSize = 14f; setTextColor(secondaryText()); setPadding(0, dp(7), 0, 0) })
             addView(TextView(context).apply {
-                text = "Rayon GPS : $radius   •   ${if (sharedAddress) "Temps à cette adresse" else "Temps travaillé"} : $total"
+                val roles = summarizeGpsPlaceTypes(group)
+                val zoneSummary = if (group.legacyOnly) {
+                    "Zone GPS à configurer"
+                } else {
+                    val roleParts = buildList {
+                        if (roles.workZones > 0) add("${roles.workZones} travail")
+                        if (roles.parkingZones > 0) add("${roles.parkingZones} parking")
+                        if (roles.otherZones > 0) add("${roles.otherZones} autre")
+                    }
+                    "${group.zones.size} zone${if (group.zones.size > 1) "s" else ""} GPS • ${roleParts.joinToString(" / ")}"
+                }
+                text = "$zoneSummary   •   ${if (sharedAddress) "Rayons multiples" else "Rayon GPS : $radius"}   •   ${if (sharedAddress) "Temps à cette adresse" else "Temps travaillé"} : $total"
                 textSize = 14f
                 setTextColor(secondaryText())
                 setPadding(0, dp(5), 0, 0)
@@ -101,11 +117,13 @@ class LocationManagementView @JvmOverloads constructor(
         dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(accentText()); dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(accentText()); dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setTextColor(accentText())
     }
 
-    private fun showDetails(entry: GpsLocationEntry) {
+    private fun showDetails(entry: GpsLocationEntry, group: GpsPlaceGroup) {
         val zoneId = entry.zoneId
         val address = entry.address
-        val contact = arrivalContact(zoneId, address)
-        val name = PlaceNames.get(context, zoneId, address) ?: "Lieu sans nom"
+        val contact = if (group.zones.size <= 1) arrivalContact(zoneId, address) else null
+        val name = uniqueGpsPlaceLabel(group)
+            ?: PlaceNames.get(context, zoneId, address)?.takeIf { it.isNotBlank() }
+            ?: address
         val contactName = contact?.optString("contactName")?.takeIf { it.isNotBlank() } ?: "Non renseigné"
         val phone = contact?.optString("phone")?.takeIf { it.isNotBlank() } ?: "Non renseigné"
         val notify = if (contact?.optBoolean("enabled", false) == true) "Oui" else "Non"
@@ -120,6 +138,16 @@ class LocationManagementView @JvmOverloads constructor(
         line("Téléphone", phone)
         line("Prévenir à l’arrivée", notify)
         line("Rayon GPS", radius)
+        if (group.zones.isEmpty()) {
+            line("Zones GPS", "Aucune zone canonique — configuration à terminer")
+        } else {
+            line("Zones GPS", group.zones.size.toString())
+            group.zones.forEachIndexed { index, zone ->
+                val type = zone.pointTypeToken?.trim()?.uppercase(Locale.ROOT)?.takeIf { it.isNotBlank() } ?: "POSTE"
+                val zoneName = zone.label?.takeIf { it.isNotBlank() } ?: "Zone ${index + 1}"
+                line(zoneName, "$type • ${formatRadius(zone.radius)} • ID ${zone.id}")
+            }
+        }
         val totalLabel = if (zonesAtAddressCount(address) > 1) "Temps total à cette adresse" else "Temps total travaillé"
         val totalText = line(totalLabel, totalWorkedAtText(address))
         val dialog = AlertDialog.Builder(context)
@@ -177,13 +205,11 @@ class LocationManagementView @JvmOverloads constructor(
                 if (newAddress.isBlank()) return@setPositiveButton
                 val addressChanged = !newAddress.equals(oldAddress, ignoreCase = true)
 
-                if (targetZoneId != null) {
-                    val mutableTarget = findZoneById(zones, targetZoneId)
-                    if (mutableTarget == null) {
-                        Toast.makeText(context, "Zone GPS introuvable : aucune modification effectuée", Toast.LENGTH_LONG).show()
+                if (addressChanged) {
+                    if (!moveGpsPlaceAddress(zones, oldAddress, newAddress) && targetZoneId != null) {
+                        Toast.makeText(context, "Lieu GPS introuvable : aucune modification effectuée", Toast.LENGTH_LONG).show()
                         return@setPositiveButton
                     }
-                    mutableTarget.put("address", newAddress)
                 }
 
                 val contacts = jsonObjectPreference("arrival_contacts")
@@ -276,17 +302,12 @@ class LocationManagementView @JvmOverloads constructor(
         }
 
         val targetZoneId = entry.zoneId
-        val remainingZones = JSONArray()
-        var removed = targetZoneId == null
-        for (index in 0 until zones.length()) {
-            val zone = zones.optJSONObject(index) ?: continue
-            if (targetZoneId != null && zone.optString("id").trim() == targetZoneId) {
-                removed = true
-                continue
-            }
-            remainingZones.put(JSONObject(zone.toString()))
+        val remainingZones = if (targetZoneId == null) {
+            zones
+        } else {
+            removeGpsZoneById(zones, targetZoneId)
         }
-        if (!removed) {
+        if (remainingZones == null) {
             Toast.makeText(context, "Zone GPS introuvable : aucune suppression effectuée", Toast.LENGTH_LONG).show()
             return
         }
