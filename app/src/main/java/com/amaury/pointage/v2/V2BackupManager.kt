@@ -109,30 +109,33 @@ object V2BackupManager {
             require(isRestorablePreferencePayload(name, saved)){"Préférences $name invalides"}
             saved
         }
-        val runtimePlan=payloads[RUNTIME_PREFS]?.let{prepareRuntimeMerge(context,it)}
-        val coveragePlan=payloads[V2PayrollCoverageStore.PREFS]
-            ?.let{prepareCoverageMerge(context,it)}
-        clearEphemeralGpsPresenceState(context)
-        var restored=0;var merged=0
-        savedNames.forEach{name->
-            val saved=payloads.getValue(name)
-            when(name){
-                RUNTIME_PREFS->{
-                    val plan=runtimePlan?:error("Historique de sauvegarde indisponible")
-                    merged=applyRuntimeMerge(context,plan)
+        val restoredResult = V2RuntimeStore.withTransaction {
+            val runtimePlan=payloads[RUNTIME_PREFS]?.let{prepareRuntimeMerge(context,it)}
+            val coveragePlan=payloads[V2PayrollCoverageStore.PREFS]
+                ?.let{prepareCoverageMerge(context,it)}
+            clearEphemeralGpsPresenceState(context)
+            var restored=0;var merged=0
+            savedNames.forEach{name->
+                val saved=payloads.getValue(name)
+                when(name){
+                    RUNTIME_PREFS->{
+                        val plan=runtimePlan?:error("Historique de sauvegarde indisponible")
+                        merged=applyRuntimeMerge(context,plan)
+                    }
+                    V2PayrollCoverageStore.PREFS->{
+                        val plan=coveragePlan?:error("Couverture paie de sauvegarde indisponible")
+                        applyCoverageMerge(context,plan)
+                    }
+                    else->mergePreferences(context,name,saved)
                 }
-                V2PayrollCoverageStore.PREFS->{
-                    val plan=coveragePlan?:error("Couverture paie de sauvegarde indisponible")
-                    applyCoverageMerge(context,plan)
-                }
-                else->mergePreferences(context,name,saved)
+                restored++
             }
-            restored++
+            RestoreResult(restored,merged)
         }
         V2ProfileStore.bind(context)
         V2MigrationManager.ensureMigrated(context)
         GeofenceManager.reconfigureStoredZones(context)
-        RestoreResult(restored,merged)
+        restoredResult
     }
 
     /** Importe un ancien cloud directement dans le moteur actuel, sans toucher au stockage legacy local. */

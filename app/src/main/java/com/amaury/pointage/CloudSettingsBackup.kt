@@ -35,10 +35,12 @@ object CloudSettingsBackup {
                     is Boolean -> editor.putBoolean(key, value)
                     is Int -> editor.putInt(key, value)
                     is Long -> editor.putLong(key, value)
-                    is Double -> {
-                        val longValue = value.toLong()
-                        if (value == longValue.toDouble()) editor.putLong(key, longValue)
-                        else editor.putFloat(key, value.toFloat())
+                    is Double, is Float, is java.math.BigDecimal, is java.math.BigInteger -> {
+                        when (val converted = transferableNumber(value as Number)) {
+                            is Long -> editor.putLong(key, converted)
+                            is Float -> editor.putFloat(key, converted)
+                            else -> error("Nombre de réglage invalide : $name/$key")
+                        }
                     }
                     is String -> editor.putString(key, value)
                     is JSONArray -> {
@@ -63,7 +65,10 @@ object CloudSettingsBackup {
                 if (!BackupPreferenceKeyPolicy.canTransfer(name, key)) continue
                 val value = values.opt(key)
                 when (value) {
-                    is Boolean, is Int, is Long, is Double, is String -> Unit
+                    is Boolean, is Int, is Long, is String -> Unit
+                    is Double, is Float, is java.math.BigDecimal, is java.math.BigInteger -> require(transferableNumber(value as Number) != null) {
+                        "Nombre de réglage invalide : $name/$key"
+                    }
                     is JSONArray -> {
                         for (index in 0 until value.length()) {
                             require(value.opt(index) is String) { "Liste de réglages invalide : $name/$key" }
@@ -77,5 +82,29 @@ object CloudSettingsBackup {
         require(files.isNotEmpty()) { "Aucun réglage restaurable" }
         return files
     }
-    private fun shouldBackup(name:String):Boolean=BackupSecurityPolicy.canTransferPreferenceFile(name)
+    /** Accepte uniquement les représentations numériques connues des parseurs JSON. */
+    internal fun transferableNumber(value: Number): Number? = when (value) {
+        is Int, is Long -> value
+        is Float, is Double -> transferableDouble(value.toDouble())
+        is java.math.BigInteger -> value.toString().toLongOrNull()
+        is java.math.BigDecimal -> {
+            if (value.stripTrailingZeros().scale() <= 0) {
+                runCatching { value.longValueExact() }.getOrNull()
+            } else value.toFloat().takeIf { it.isFinite() }
+        }
+        else -> null
+    }
+
+    /** Même conversion contrôlée avant toute mutation et au moment de l'écriture. */
+    internal fun transferableDouble(value: Double): Number? {
+        if (!value.isFinite()) return null
+        if (value % 1.0 == 0.0) {
+            // La borne positive exclusive évite l'arrondi de Long.MAX_VALUE vers 2^63.
+            if (value < Long.MIN_VALUE.toDouble() || value >= Long.MAX_VALUE.toDouble()) return null
+            return value.toLong()
+        }
+        return value.toFloat().takeIf { it.isFinite() }
+    }
+
+    private fun shouldBackup(name:String):Boolean=CloudSettingsBackupPolicy.canTransferPreferenceFile(name)
 }
