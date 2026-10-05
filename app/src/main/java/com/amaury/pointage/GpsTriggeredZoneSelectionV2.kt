@@ -31,6 +31,23 @@ internal object GpsTriggeredZoneSelectionV2 {
         data class Blocked(val reason: String) : Result()
     }
 
+    fun selectAllTriggered(
+        triggeredZoneIds: List<String>,
+        candidates: List<Candidate>,
+        preferredZoneId: String? = null
+    ): Result {
+        val expected = triggeredZoneIds.map(String::trim)
+        if (expected.any(String::isBlank)) {
+            return Result.Blocked("Une zone GPS déclenchée possède un identifiant invalide")
+        }
+        if (expected.toSet() != candidates.map { it.zoneId }.toSet()) {
+            return Result.Blocked(
+                "Toutes les zones GPS déclenchées doivent être résolues avant le pointage"
+            )
+        }
+        return select(candidates, preferredZoneId)
+    }
+
     fun select(candidates: List<Candidate>, preferredZoneId: String? = null): Result {
         val distinct = candidates
             .filter { it.zoneId.isNotBlank() }
