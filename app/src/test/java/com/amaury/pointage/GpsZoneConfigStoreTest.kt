@@ -575,4 +575,53 @@ class GpsZoneConfigStoreTest {
         assertEquals(1, summary.otherZones)
     }
 
+
+    @Test
+    fun `deux entreprises a la meme adresse restent deux lieux distincts`() {
+        val zones = parsePersistedGpsZones(
+            """[
+                {"id":"a-poste","latitude":46.7,"longitude":-1.4,"radius":120,"address":"1 rue A","companyId":"company-a"},
+                {"id":"a-parking","latitude":46.7001,"longitude":-1.4001,"radius":90,"address":"1 rue A","companyId":"company-a","pointType":"PARKING"},
+                {"id":"b-poste","latitude":46.7002,"longitude":-1.4002,"radius":120,"address":"1 rue A","companyId":"company-b"}
+            ]""".trimIndent()
+        )
+
+        val groups = groupGpsZonesByPlace(zones, emptyList())
+
+        assertEquals(2, groups?.size)
+        assertEquals(2, groups?.first { it.companyId == "company-a" }?.zones?.size)
+        assertEquals(1, groups?.first { it.companyId == "company-b" }?.zones?.size)
+    }
+
+    @Test
+    fun `deplacer un lieu ne deplace jamais l autre entreprise a la meme adresse`() {
+        val zones = org.json.JSONArray(
+            """[
+                {"id":"a1","latitude":46.7,"longitude":-1.4,"radius":120,"address":"Site partagé","companyId":"company-a"},
+                {"id":"a2","latitude":46.7001,"longitude":-1.4001,"radius":90,"address":"Site partagé","companyId":"company-a"},
+                {"id":"b1","latitude":46.7002,"longitude":-1.4002,"radius":120,"address":"Site partagé","companyId":"company-b"}
+            ]""".trimIndent()
+        )
+
+        assertTrue(moveGpsPlaceAddress(zones, "Site partagé", "Nouveau A", companyId = "company-a"))
+        assertEquals("Nouveau A", zones.getJSONObject(0).getString("address"))
+        assertEquals("Nouveau A", zones.getJSONObject(1).getString("address"))
+        assertEquals("Site partagé", zones.getJSONObject(2).getString("address"))
+    }
+
+    @Test
+    fun `un ancien slot entreprise reste cloisonne des autres slots`() {
+        val zones = parsePersistedGpsZones(
+            """[
+                {"id":"slot1","latitude":46.7,"longitude":-1.4,"radius":120,"address":"Même site","companySlot":1},
+                {"id":"slot2","latitude":46.7002,"longitude":-1.4002,"radius":120,"address":"Même site","companySlot":2}
+            ]""".trimIndent()
+        )
+
+        val groups = groupGpsZonesByPlace(zones, emptyList())
+
+        assertEquals(2, groups?.size)
+        assertEquals(setOf(1, 2), groups?.mapNotNull { it.companySlot }?.toSet())
+    }
+
 }
