@@ -334,7 +334,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
             .setTitle("Lieu de travail détecté ?")
             .setMessage(
                 "Tu as passé au moins 7 heures à cette adresse pendant 3 jours consécutifs :\n\n$address\n\n" +
-                    "Est-ce bien un lieu de travail pour $companyDescription ? HoraTrack ne l'activera jamais sans ta confirmation."
+                    "Est-ce bien un lieu de travail pour $companyDescription ? AGKGMG ne l'activera jamais sans ta confirmation."
             )
             .setPositiveButton("OUI, C'EST MON TRAVAIL") { _, _ ->
                 confirmCandidate(activity, zoneId)
