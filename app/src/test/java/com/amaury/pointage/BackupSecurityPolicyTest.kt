@@ -110,3 +110,35 @@ class BackupPreferenceKeyPolicyTest {
         assertTrue(BackupPreferenceKeyPolicy.canTransfer("gps_settings", "zones"))
     }
 }
+
+class CloudSettingsBackupPolicyTest {
+    @Test
+    fun `Firebase settings backup only accepts explicitly reviewed settings files`() {
+        listOf(
+            "appearance_settings",
+            "gps_settings",
+            "navigation_state",
+            "place_names",
+            "shift_profiles",
+            "smart_setup",
+            "widget_style"
+        ).forEach { name ->
+            assertTrue(name, CloudSettingsBackupPolicy.canTransferPreferenceFile(name))
+        }
+    }
+
+    @Test
+    fun `employee facts salary stores and unknown files stay local by default`() {
+        listOf(
+            "horatrack_v2_meal_fact_journal",
+            "horatrack_v2_test_runtime",
+            "salary_settings",
+            "salary_companies_v2",
+            "salary_company_siret_12345678901234",
+            "welcome_preview",
+            "future_unreviewed_preferences"
+        ).forEach { name ->
+            assertFalse(name, CloudSettingsBackupPolicy.canTransferPreferenceFile(name))
+        }
+    }
+}

@@ -32,6 +32,30 @@ object BackupSecurityPolicy {
     }
 }
 
+/**
+ * Périmètre fermé de la sauvegarde Firebase des réglages.
+ *
+ * Cette sauvegarde n'est pas une sauvegarde générale des SharedPreferences : tout nouveau fichier
+ * reste local tant qu'il n'a pas été explicitement classé comme réglage transférable.
+ */
+object CloudSettingsBackupPolicy {
+    private val transferablePreferenceFiles = setOf(
+        "appearance_settings",
+        "gps_settings",
+        "navigation_state",
+        "place_names",
+        "shift_profiles",
+        "smart_setup",
+        "widget_style"
+    )
+
+    fun canTransferPreferenceFile(name: String): Boolean {
+        val normalized = name.trim().lowercase(Locale.ROOT)
+        return normalized in transferablePreferenceFiles &&
+            BackupSecurityPolicy.canTransferPreferenceFile(normalized)
+    }
+}
+
 /** Source unique des clés de préférences qui peuvent suivre l'utilisateur entre appareils. */
 object BackupPreferenceKeyPolicy {
     private val appearanceDeviceLocalKeys = setOf(
