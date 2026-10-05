@@ -454,7 +454,7 @@ struct ContentView: View {
                             HStack {
                                 VStack(alignment: .leading) {
                                     Text(zone.label)
-                                    Text("Poste • rayon \(Int(zone.radius)) m")
+                                    Text("\(zone.kind.title) • rayon \(Int(zone.radius)) m")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
@@ -466,7 +466,7 @@ struct ContentView: View {
                                 }
                             }
                         }
-                        Button("Ajouter une zone Poste ici") {
+                        Button("Ajouter une zone ici") {
                             locationManager.requestCurrentLocation()
                             showGpsZoneEditor = true
                         }
@@ -474,7 +474,7 @@ struct ContentView: View {
                             !locationManager.configurationReliable
                                 || locationManager.zones.count >= GpsZoneConfigurationV2.maximumZoneCount
                         )
-                        Text("Maximum 10 zones. Les parkings, pauses et zones candidates ne sont pas encore automatisés sur iPhone.")
+                        Text("Maximum 10 zones. Seules les zones Travail pilotent l’entrée/sortie automatique. Parking, Pause et Autre restent des contextes et ne créent jamais de temps payé à eux seuls.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -681,14 +681,20 @@ private struct GpsZoneEditorSheetV2: View {
     @State private var label = ""
     @State private var radius = 150.0
     @State private var selectedCompanyId = ""
+    @State private var selectedKind: GpsZoneKindV2 = .worksite
     @State private var companies = SalaryCompanyStoreV2.readConfirmed()
     @State private var errorMessage: String?
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Zone Poste") {
+                Section("Zone GPS") {
                     TextField("Nom du lieu", text: $label)
+                    Picker("Rôle", selection: $selectedKind) {
+                        ForEach(GpsZoneKindV2.allCases) { kind in
+                            Text(kind.title).tag(kind)
+                        }
+                    }
                     Slider(value: $radius, in: 50 ... 1_000, step: 10)
                     Text("Rayon : \(Int(radius)) m")
                         .foregroundStyle(.secondary)
@@ -709,6 +715,13 @@ private struct GpsZoneEditorSheetV2: View {
                         Label("Position actuelle en attente", systemImage: "location")
                             .foregroundStyle(.orange)
                     }
+                    Text(
+                        selectedKind.drivesAutomaticPointage
+                            ? "Cette zone peut participer au pointage automatique."
+                            : "Cette zone reste contextuelle : elle ne crée pas automatiquement du temps travaillé ou payé."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     if !locationManager.hasFullAccuracy {
                         Label(
                             "Active la localisation précise dans Réglages iOS pour créer la zone.",
@@ -770,7 +783,8 @@ private struct GpsZoneEditorSheetV2: View {
         guard locationManager.addZoneAtCurrentLocation(
             label: label,
             radius: radius,
-            employerId: employerId
+            employerId: employerId,
+            kind: selectedKind
         ) else {
             errorMessage = "Zone non enregistrée : position ou configuration à vérifier."
             return
