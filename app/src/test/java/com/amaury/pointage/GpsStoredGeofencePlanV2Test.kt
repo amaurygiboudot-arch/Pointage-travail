@@ -139,6 +139,24 @@ class GpsStoredGeofencePlanV2Test {
     }
 
     @Test
+    fun `l empreinte canonique ne confond pas les separateurs saisis par l utilisateur`() {
+        val first = storedGpsAutomaticFingerprintV2(
+            true,
+            GpsZonesReadResult.Valid(
+                listOf(zone("work", address = "A|B", companyId = "C"))
+            )
+        )
+        val second = storedGpsAutomaticFingerprintV2(
+            true,
+            GpsZonesReadResult.Valid(
+                listOf(zone("work", address = "A", companyId = "B|C"))
+            )
+        )
+
+        assertTrue(first != second)
+    }
+
+    @Test
     fun `un callback exige une inscription valide pour l empreinte courante`() {
         assertTrue(isCurrentStoredGeofenceRegistrationV2(true, "config-b", "config-b"))
         assertTrue(!isCurrentStoredGeofenceRegistrationV2(false, "config-b", "config-b"))
@@ -150,7 +168,9 @@ class GpsStoredGeofencePlanV2Test {
         id: String,
         pointType: String? = "POSTE",
         smartCandidate: Boolean = false,
-        latitude: Double = 46.7
+        latitude: Double = 46.7,
+        address: String = "Atelier $id",
+        companyId: String? = null
     ): StoredGpsZone {
         val source = org.json.JSONObject()
             .put("id", id)
@@ -164,8 +184,8 @@ class GpsStoredGeofencePlanV2Test {
             latitude = latitude,
             longitude = -1.4,
             radius = 150f,
-            address = "Atelier $id",
-            companyId = null,
+            address = address,
+            companyId = companyId,
             companySlot = null,
             pointTypeToken = pointType,
             label = null,
