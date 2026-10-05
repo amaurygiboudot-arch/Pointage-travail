@@ -435,13 +435,13 @@ struct ContentView: View {
                             locationManager.requestAlways()
                         }
                         .disabled(
-                            !locationManager.automaticEnabled || locationManager.zones.isEmpty
+                            !locationManager.automaticEnabled || !locationManager.hasAutomaticWorkZone
                         )
                         Button("Réessayer l'activation GPS") {
                             locationManager.retryRegistration()
                         }
                         .disabled(
-                            !locationManager.automaticEnabled || locationManager.zones.isEmpty
+                            !locationManager.automaticEnabled || !locationManager.hasAutomaticWorkZone
                         )
                         if !locationManager.configurationReliable {
                             Button("Réinitialiser la configuration GPS", role: .destructive) {
