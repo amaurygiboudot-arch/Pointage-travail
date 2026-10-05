@@ -214,6 +214,55 @@ class GpsZoneEditorV2Test {
         assertEquals(0, prefs.commits)
         assertEquals("conserver", prefs.data["runtime_history"])
     }
+    @Test fun `modifier une zone contextuelle preserve letat de presence automatique`() {
+        val parking = zone("parking").put("pointType", "PARKING")
+        val before = snapshot(parking)
+        val prefs = MemoryPrefs(
+            before.values.filterValues { it != null } + mapOf(
+                "enabled" to true,
+                "active_zones" to setOf("work-active"),
+                "entry_resolution_pending" to true,
+                "entry_resolution_token" to "token",
+                "pending_exit_zones" to setOf("work-active"),
+                "geofence_registration_valid" to true,
+                "geofence_registration_fingerprint" to "stable"
+            )
+        )
+        val change = GpsZoneEditorStoreV2.setPoint(before, "parking", 47.2, -1.9, "map")!!
+
+        assertTrue(GpsZoneEditorStoreV2.commit(prefs, change))
+        assertEquals(setOf("work-active"), prefs.data["active_zones"])
+        assertEquals(true, prefs.data["entry_resolution_pending"])
+        assertEquals("token", prefs.data["entry_resolution_token"])
+        assertEquals(setOf("work-active"), prefs.data["pending_exit_zones"])
+        assertEquals(true, prefs.data["geofence_registration_valid"])
+        assertEquals("stable", prefs.data["geofence_registration_fingerprint"])
+    }
+
+    @Test fun `modifier une zone travail invalide letat de presence automatique`() {
+        val before = snapshot(zone("work").put("pointType", "POSTE"))
+        val prefs = MemoryPrefs(
+            before.values.filterValues { it != null } + mapOf(
+                "enabled" to true,
+                "active_zones" to setOf("work"),
+                "entry_resolution_pending" to true,
+                "entry_resolution_token" to "token",
+                "pending_exit_zones" to setOf("work"),
+                "geofence_registration_valid" to true,
+                "geofence_registration_fingerprint" to "old"
+            )
+        )
+        val change = GpsZoneEditorStoreV2.setPoint(before, "work", 47.2, -1.9, "map")!!
+
+        assertTrue(GpsZoneEditorStoreV2.commit(prefs, change))
+        assertFalse(prefs.data.containsKey("active_zones"))
+        assertFalse(prefs.data.containsKey("entry_resolution_pending"))
+        assertFalse(prefs.data.containsKey("entry_resolution_token"))
+        assertFalse(prefs.data.containsKey("pending_exit_zones"))
+        assertFalse(prefs.data.containsKey("geofence_registration_valid"))
+        assertFalse(prefs.data.containsKey("geofence_registration_fingerprint"))
+    }
+
     @Test fun `premier point confirme sur carte conserve sa provenance`() {
         val before = GpsZoneEditorStoreV2.decode(mapOf("address" to "Ancien dépôt"))!!
         val change = GpsZoneEditorStoreV2.saveZone(before, before.groups().single(), null, "first",
