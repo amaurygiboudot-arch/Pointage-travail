@@ -175,7 +175,7 @@ class V2RuntimeHistoryGuardV2Test {
 
     @Test
     fun `session valide avec pause valide reste fiable`() {
-        val raw = JSONArray().put(session(pauses = JSONArray().put(pause()))).toString()
+        val raw = JSONArray().put(\n            session(pauses = JSONArray().put(pause(start = 12_000L, end = 13_000L)))\n        ).toString()
 
         assertTrue(V2RuntimeHistoryGuardV2.decode(raw).reliable)
     }
