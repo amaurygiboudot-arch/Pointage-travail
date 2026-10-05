@@ -155,7 +155,7 @@ class LocationManagementView @JvmOverloads constructor(
             .setView(content)
             .setPositiveButton("Fermer", null)
             .setNeutralButton("Modifier") { _, _ -> showEdit(entry, group) }
-            .setNegativeButton("Supprimer") { _, _ -> confirmDelete(entry, name) }
+            .setNegativeButton("Supprimer") { _, _ -> confirmDelete(entry, group, name) }
             .create()
         val handler = Handler(Looper.getMainLooper())
         val updater = object : Runnable {
@@ -286,18 +286,23 @@ class LocationManagementView @JvmOverloads constructor(
     }
 
     private fun dialogInput(hintText: String, value: String): EditText = EditText(context).apply { hint = hintText; setText(value); setTextColor(primaryText()); setHintTextColor(secondaryText()) }
-    private fun confirmDelete(entry: GpsLocationEntry, name: String) {
+    private fun confirmDelete(entry: GpsLocationEntry, group: GpsPlaceGroup, name: String) {
         val dialog = AlertDialog.Builder(context)
             .setTitle("Supprimer $name ?")
-            .setMessage("Cette zone sera retirée du pointage GPS et de ses contacts. L’historique déjà enregistré sera conservé.")
-            .setPositiveButton("Supprimer") { _, _ -> delete(entry) }
+            .setMessage(
+                if (group.zones.size > 1)
+                    "Toutes les zones GPS de ce lieu seront retirées. Les autres lieux et l’historique déjà enregistré seront conservés."
+                else
+                    "Cette zone sera retirée du pointage GPS et de ses contacts. L’historique déjà enregistré sera conservé."
+            )
+            .setPositiveButton("Supprimer") { _, _ -> delete(entry, group) }
             .setNegativeButton("Annuler", null)
             .create()
         dialog.setOnShowListener { styleDialog(dialog) }
         dialog.show()
     }
 
-    private fun delete(entry: GpsLocationEntry) {
+    private fun delete(entry: GpsLocationEntry, group: GpsPlaceGroup) {
         val oldAddress = entry.address
         val read = readPersistedGpsZones(prefs)
         val zones = read.toMutableJsonArrayOrNull()
@@ -308,10 +313,15 @@ class LocationManagementView @JvmOverloads constructor(
         }
 
         val targetZoneId = entry.zoneId
-        val remainingZones = if (targetZoneId == null) {
-            zones
-        } else {
-            removeGpsZoneById(zones, targetZoneId)
+        val remainingZones = when {
+            group.zones.size > 1 -> removeGpsPlaceZones(
+                zones,
+                oldAddress,
+                companyId = group.companyId,
+                companySlot = group.companySlot
+            )
+            targetZoneId != null -> removeGpsZoneById(zones, targetZoneId)
+            else -> zones
         }
         if (remainingZones == null) {
             Toast.makeText(context, "Zone GPS introuvable : aucune suppression effectuée", Toast.LENGTH_LONG).show()
@@ -356,7 +366,11 @@ class LocationManagementView @JvmOverloads constructor(
         refresh()
         PointageWidgetProvider.updateAll(context)
         QuickActionsWidgetProvider.updateAll(context)
-        Toast.makeText(context, "Zone supprimée. Historique conservé.", Toast.LENGTH_LONG).show()
+        Toast.makeText(
+            context,
+            if (group.zones.size > 1) "Lieu et zones supprimés. Historique conservé." else "Zone supprimée. Historique conservé.",
+            Toast.LENGTH_LONG
+        ).show()
     }
 
     private fun findZoneById(zones: JSONArray, zoneId: String): JSONObject? {
