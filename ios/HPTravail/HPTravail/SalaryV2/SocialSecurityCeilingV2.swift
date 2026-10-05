@@ -82,6 +82,7 @@ enum SocialSecurityCeilingV2 {
     }
 
     struct Snapshot: Equatable {
+        let period: YearMonthV2
         let fullMonthly: Double
         let applicableMonthly: Double
         let fourTimesApplicable: Double
@@ -99,6 +100,7 @@ enum SocialSecurityCeilingV2 {
     static func calculate(_ input: Input) -> Snapshot {
         guard let fullMonthly = fullMonthly(year: input.period.year) else {
             return Snapshot(
+                period: input.period,
                 fullMonthly: 0,
                 applicableMonthly: 0,
                 fourTimesApplicable: 0,
@@ -115,6 +117,7 @@ enum SocialSecurityCeilingV2 {
             month: input.period.month
         ) else {
             return Snapshot(
+                period: input.period,
                 fullMonthly: fullMonthly,
                 applicableMonthly: 0,
                 fourTimesApplicable: 0,
@@ -250,6 +253,7 @@ enum SocialSecurityCeilingV2 {
         }
 
         return Snapshot(
+            period: input.period,
             fullMonthly: fullMonthly,
             applicableMonthly: applicable,
             fourTimesApplicable: applicable * 4,

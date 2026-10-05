@@ -64,39 +64,8 @@ targets:
       - path: HPTravail/CelestialV2/Core/AtmosphericRefractionV2.swift
       - path: HPTravail/CelestialV2/Core/SolarEclipseGeometryV2.swift
       - path: HPTravail/RuntimeV2/WorkSessionPersistenceV2.swift
-      - path: HPTravail/SalaryV2/SalaryReferenceContractV2.swift
-      - path: HPTravail/SalaryV2/SalaryWorkspaceStateV2.swift
-      - path: HPTravail/SalaryV2/SalaryCompanyStoreV2.swift
-      - path: HPTravail/SalaryV2/SalaryCompanySelectionV2.swift
-      - path: HPTravail/SalaryV2/SalaryConventionRuleStoreV2.swift
-      - path: HPTravail/SalaryV2/SalaryConventionCoverageV2.swift
-      - path: HPTravail/SalaryV2/SalaryEmploymentContractStoreV2.swift
-      - path: HPTravail/SalaryV2/SalaryEmploymentContractHistoryV2.swift
-      - path: HPTravail/SalaryV2/SalaryEmploymentContractHistoryStoreV2.swift
-      - path: HPTravail/SalaryV2/SalaryEmploymentContractTimelineV2.swift
-      - path: HPTravail/SalaryV2/SalaryEmploymentContractPeriodResolverV2.swift
-      - path: HPTravail/SalaryV2/SalaryEmploymentContractVersionInputV2.swift
-      - path: HPTravail/SalaryV2/SalaryEmploymentContractPayrollBridgeV2.swift
-      - path: HPTravail/SalaryV2/SalaryContractSegmentPayrollCompatibilityV2.swift
-      - path: HPTravail/SalaryV2/ConfirmedSegmentedMonthlyProrationV2.swift
-      - path: HPTravail/SalaryV2/SalaryPayrollCalculationTimelineV2.swift
-      - path: HPTravail/SalaryV2/CompanyBenefitInKindStoreV2.swift
-      - path: HPTravail/SalaryV2/EmployerHealthFamilyV2.swift
-      - path: HPTravail/SalaryV2/PayrollEngineV2.swift
-      - path: HPTravail/SalaryV2/PaidTimePolicyV2.swift
-      - path: HPTravail/SalaryV2/SalaryPaidWorkAggregatorV2.swift
-      - path: HPTravail/SalaryV2/SalaryContractSegmentPaidWorkV2.swift
-      - path: HPTravail/SalaryV2/SalaryWorkSessionBridgeV2.swift
-      - path: HPTravail/SalaryV2/PartTimeComplementaryHoursV2.swift
-      - path: HPTravail/SalaryV2/FullTimeStructuralOvertimeV2.swift
-      - path: HPTravail/SalaryV2/EmployerUnemploymentAgsV2.swift
-      - path: HPTravail/SalaryV2/EmployerWorkforceContributionsV2.swift
-      - path: HPTravail/SalaryV2/EmployerMobilityContributionV2.swift
-      - path: HPTravail/SalaryV2/EmployerApprenticeshipTaxV2.swift
-      - path: HPTravail/SalaryV2/OvertimeCoverageV2.swift
-      - path: HPTravail/SalaryV2/SalaryReferencePayrollBridgeV2.swift
-      - path: HPTravail/SalaryV2/EmployerAtMpContributionV2.swift
-      - path: HPTravail/SalaryV2/ClockInEmployerResolverV2.swift
+      # Même module canonique complet que la cible Swift Package SalaryV2Contract.
+      - path: HPTravail/SalaryV2
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.amaury.hptravail.tests
