@@ -373,6 +373,37 @@ internal fun removeGpsZoneById(zones: JSONArray, zoneId: String): JSONArray? {
     return result.takeIf { removed }
 }
 
+
+internal fun removeGpsPlaceZones(
+    zones: JSONArray,
+    address: String,
+    companyId: String? = null,
+    companySlot: Int? = null
+): JSONArray? {
+    val targetAddress = address.trim()
+    val targetCompanyId = companyId?.trim()?.takeIf { it.isNotBlank() }
+    if (targetAddress.isBlank()) return null
+    val result = JSONArray()
+    var removed = false
+    for (index in 0 until zones.length()) {
+        val zone = zones.optJSONObject(index) ?: return null
+        val sameAddress = zone.optString("address").trim().equals(targetAddress, ignoreCase = true)
+        val storedCompanyId = zone.optString("companyId").trim().takeIf { it.isNotBlank() }
+        val storedSlot = if (zone.has("companySlot") && !zone.isNull("companySlot")) zone.optInt("companySlot") else null
+        val sameCompany = when {
+            targetCompanyId != null -> storedCompanyId == targetCompanyId
+            companySlot != null -> storedCompanyId == null && storedSlot == companySlot
+            else -> storedCompanyId == null && storedSlot == null
+        }
+        if (sameAddress && sameCompany) {
+            removed = true
+        } else {
+            result.put(JSONObject(zone.toString()))
+        }
+    }
+    return result.takeIf { removed }
+}
+
 internal fun moveGpsPlaceAddress(
     zones: JSONArray,
     oldAddress: String,
