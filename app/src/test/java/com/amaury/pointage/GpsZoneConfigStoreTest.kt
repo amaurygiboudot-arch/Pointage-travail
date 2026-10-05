@@ -624,4 +624,21 @@ class GpsZoneConfigStoreTest {
         assertEquals(setOf(1, 2), groups?.mapNotNull { it.companySlot }?.toSet())
     }
 
+
+    @Test
+    fun `supprimer un lieu multizone retire toutes ses zones mais pas l autre entreprise`() {
+        val zones = org.json.JSONArray(
+            """[
+                {"id":"a1","latitude":46.7,"longitude":-1.4,"radius":120,"address":"Site partagé","companyId":"company-a"},
+                {"id":"a2","latitude":46.7001,"longitude":-1.4001,"radius":90,"address":"Site partagé","companyId":"company-a"},
+                {"id":"b1","latitude":46.7002,"longitude":-1.4002,"radius":120,"address":"Site partagé","companyId":"company-b"}
+            ]""".trimIndent()
+        )
+
+        val remaining = removeGpsPlaceZones(zones, "Site partagé", companyId = "company-a")
+
+        assertEquals(1, remaining?.length())
+        assertEquals("b1", remaining?.getJSONObject(0)?.getString("id"))
+    }
+
 }
