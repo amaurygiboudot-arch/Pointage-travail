@@ -903,7 +903,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
               ) else {
             return false
         }
-        return zones.contains(where: { $0.id == zoneId })
+        return zones.contains(where: { $0.id == zoneId && $0.kind.drivesAutomaticPointage })
     }
 
     private func invalidateRegistration(clearBusinessState: Bool) {
