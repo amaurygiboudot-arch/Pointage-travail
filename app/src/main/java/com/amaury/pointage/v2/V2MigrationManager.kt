@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2
 
 import android.content.Context
+import android.content.SharedPreferences
 import com.amaury.pointage.v2.engine.WorkTimePolicyV2
 import com.amaury.pointage.v2.model.EventSourceV2
 import org.json.JSONArray
@@ -31,131 +32,170 @@ object V2MigrationManager {
     )
 
     fun ensureMigrated(context: Context): Result {
-        if (!HoraTrackV2.ENABLED) return Result(0, 0, 0, 0)
-        val app = context.applicationContext
-        val meta = app.getSharedPreferences(META_PREFS, Context.MODE_PRIVATE)
-        val completedVersion = meta.getInt("version", 0)
+        return V2RuntimeStore.withTransaction {
+            if (!HoraTrackV2.ENABLED) return Result(0, 0, 0, 0)
+            val app = context.applicationContext
+            val meta = app.getSharedPreferences(META_PREFS, Context.MODE_PRIVATE)
+            val completedVersion = meta.getInt("version", 0)
 
-        // Une migration legacy validée pour la version courante devient immuable : les démarrages
-        // et mutations V2 suivants ne doivent plus relire l'ancienne base ni enrichir l'historique
-        // canonique avec une seconde vérité. On continue toutefois à valider l'historique V2.
-        if (!migrationRequired(completedVersion)) {
-            val storedHistory = V2RuntimeHistoryGuardV2.read(app)
-            return Result(
-                imported = 0,
-                skipped = 0,
-                legacyCount = meta.getInt("legacy_count", 0).coerceAtLeast(0),
-                v2Count = storedHistory.history.length(),
-                reliable = storedHistory.reliable,
-                warnings = storedHistory.warnings
-            )
+            // Une migration legacy validée pour la version courante devient immuable : les démarrages
+            // et mutations V2 suivants ne doivent plus relire l'ancienne base ni enrichir l'historique
+            // canonique avec une seconde vérité. On continue toutefois à valider l'historique V2.
+            if (!migrationRequired(completedVersion)) {
+                val storedHistory = V2RuntimeHistoryGuardV2.read(app)
+                return Result(
+                    imported = 0,
+                    skipped = 0,
+                    legacyCount = meta.getInt("legacy_count", 0).coerceAtLeast(0),
+                    v2Count = storedHistory.history.length(),
+                    reliable = storedHistory.reliable,
+                    warnings = storedHistory.warnings
+                )
+            }
+
+            val prefs = app.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
+            if (!prefs.contains(LEGACY_KEY)) return importLegacyArray(app, JSONArray())
+            val raw = runCatching { prefs.getString(LEGACY_KEY, null) }.getOrNull()
+            if (raw == null) return migrationFailure()
+            if (raw.isBlank()) return migrationFailure()
+            val legacy = runCatching { JSONArray(raw) }.getOrNull() ?: return migrationFailure()
+            return importLegacyArray(app, legacy)
         }
-
-        val prefs = app.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
-        if (!prefs.contains(LEGACY_KEY)) return importLegacyArray(app, JSONArray())
-        val raw = runCatching { prefs.getString(LEGACY_KEY, null) }.getOrNull()
-        if (raw == null) return migrationFailure()
-        if (raw.isBlank()) return migrationFailure()
-        val legacy = runCatching { JSONArray(raw) }.getOrNull() ?: return migrationFailure()
-        return importLegacyArray(app, legacy)
     }
 
     internal fun migrationRequired(completedVersion: Int): Boolean = completedVersion < VERSION
 
     fun importLegacyArray(context: Context, legacy: JSONArray): Result {
-        if (!HoraTrackV2.ENABLED) return Result(0, 0, legacy.length(), 0)
-        val app = context.applicationContext
-        val runtime = app.getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
-        val storedHistory = V2RuntimeHistoryGuardV2.read(app, allowLegacyMissingIds = true)
-        if (!storedHistory.reliable) {
-            return Result(
-                imported = 0,
-                skipped = legacy.length(),
-                legacyCount = legacy.length(),
-                v2Count = storedHistory.history.length(),
-                reliable = false,
-                warnings = storedHistory.warnings
-            )
+        return V2RuntimeStore.withTransaction {
+            if (!HoraTrackV2.ENABLED) return Result(0, 0, legacy.length(), 0)
+            val app = context.applicationContext
+            val runtime = app.getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
+            val storedHistory = V2RuntimeHistoryGuardV2.read(app, allowLegacyMissingIds = true)
+            if (!storedHistory.reliable) {
+                return Result(
+                    imported = 0,
+                    skipped = legacy.length(),
+                    legacyCount = legacy.length(),
+                    v2Count = storedHistory.history.length(),
+                    reliable = false,
+                    warnings = storedHistory.warnings
+                )
+            }
+            val history = storedHistory.history
+
+            // Les toutes premières versions V2 pouvaient contenir un historique sans identifiant de
+            // session. Les faits SESSION ont besoin d'une identité durable : on répare donc ces rares
+            // entrées avant toute lecture et on persiste l'identifiant dans le même historique local.
+            ensureStableHistoryIds(history)
+
+            // Réparation strictement ciblée de la régression 15 min / 5 min. Les valeurs
+            // manuelles ou historiques qui ne correspondent pas exactement à ce bug restent intactes.
+            repairKnownCountedEntries(runtime, history)
+
+            val signatures = mutableSetOf<String>()
+            for (i in 0 until history.length()) history.optJSONObject(i)?.let { signatures += signatureV2(it) }
+
+            var imported = 0
+            var skipped = 0
+            for (i in 0 until legacy.length()) {
+                val old = legacy.optJSONObject(i)
+                if (old == null) {
+                    skipped++
+                    continue
+                }
+                val realEntry = positive(old, "arrivalTime") ?: positive(old, "entry")
+                if (realEntry == null) {
+                    skipped++
+                    continue
+                }
+                val countedEntry = positive(old, "countedEntryTime") ?: positive(old, "entry") ?: realEntry
+                val realExit = positive(old, "exitTime") ?: positive(old, "exit")
+                val countedExit = positive(old, "countedExitTime") ?: positive(old, "exit")
+                val sig = migrationSignature(realEntry, realExit, countedEntry, countedExit)
+                if (sig in signatures) {
+                    enrichExisting(history, sig, old)
+                    skipped++
+                    continue
+                }
+
+                val basePauseMinutes = old.optInt("autoPauseMinutes", 0).coerceIn(0, 480)
+                val placeLabel = legacyPlace(old)
+                history.put(
+                    JSONObject()
+                        .put("id", old.optString("id").ifBlank { "legacy-${UUID.randomUUID()}" })
+                        .put("realEntry", realEntry)
+                        .put("countedEntry", countedEntry)
+                        .put("realExit", realExit ?: JSONObject.NULL)
+                        .put("countedExit", countedExit ?: JSONObject.NULL)
+                        .put("pauses", migratePauses(old, basePauseMinutes))
+                        .put("legacyFixedUnpaidPauseMs", basePauseMinutes * 60_000L)
+                        .put("migratedFromLegacy", true)
+                        .put("companySlot", old.optInt("companySlot", 1).coerceIn(1, 2))
+                        .put("placeId", JSONObject.NULL)
+                        .put("placeLabel", placeLabel ?: JSONObject.NULL)
+                )
+                signatures += sig
+                imported++
+            }
+
+            val inspected = V2RuntimeHistoryGuardV2.inspect(history)
+            if (!inspected.reliable || !V2RuntimeHistoryGuardV2.save(app, history)) {
+                val warnings = inspected.warnings.ifEmpty {
+                    listOf("Historique V2 : sauvegarde de migration impossible ; données précédentes conservées.")
+                }
+                V2RuntimeHistoryGuardV2.publishSourceState(false, warnings)
+                return Result(
+                    imported = 0,
+                    skipped = legacy.length(),
+                    legacyCount = legacy.length(),
+                    v2Count = storedHistory.history.length(),
+                    reliable = false,
+                    warnings = warnings
+                )
+            }
+            if (!persistCompletion(
+                    app.getSharedPreferences(META_PREFS, Context.MODE_PRIVATE),
+                    legacy.length(), history.length(), System.currentTimeMillis()
+                )) {
+                val warnings = listOf("Historique V2 enregistré, mais confirmation de migration non sauvegardée : nouvelle vérification requise.")
+                V2RuntimeHistoryGuardV2.publishSourceState(false, warnings)
+                return Result(imported, skipped, legacy.length(), history.length(), false, warnings)
+            }
+            return Result(imported, skipped, legacy.length(), history.length())
         }
-        val history = storedHistory.history
+    }
 
-        // Les toutes premières versions V2 pouvaient contenir un historique sans identifiant de
-        // session. Les faits SESSION ont besoin d'une identité durable : on répare donc ces rares
-        // entrées avant toute lecture et on persiste l'identifiant dans le même historique local.
-        ensureStableHistoryIds(history)
-
-        // Réparation strictement ciblée de la régression 15 min / 5 min. Les valeurs
-        // manuelles ou historiques qui ne correspondent pas exactement à ce bug restent intactes.
-        repairKnownCountedEntries(runtime, history)
-
-        val signatures = mutableSetOf<String>()
-        for (i in 0 until history.length()) history.optJSONObject(i)?.let { signatures += signatureV2(it) }
-
-        var imported = 0
-        var skipped = 0
-        for (i in 0 until legacy.length()) {
-            val old = legacy.optJSONObject(i)
-            if (old == null) {
-                skipped++
-                continue
-            }
-            val realEntry = positive(old, "arrivalTime") ?: positive(old, "entry")
-            if (realEntry == null) {
-                skipped++
-                continue
-            }
-            val countedEntry = positive(old, "countedEntryTime") ?: positive(old, "entry") ?: realEntry
-            val realExit = positive(old, "exitTime") ?: positive(old, "exit")
-            val countedExit = positive(old, "countedExitTime") ?: positive(old, "exit")
-            val sig = "$realEntry:${realExit ?: 0L}:$countedEntry:${countedExit ?: 0L}"
-            if (sig in signatures) {
-                enrichExisting(history, sig, old)
-                skipped++
-                continue
-            }
-
-            val basePauseMinutes = old.optInt("autoPauseMinutes", 0).coerceIn(0, 480)
-            val placeLabel = legacyPlace(old)
-            history.put(
-                JSONObject()
-                    .put("id", old.optString("id").ifBlank { "legacy-${UUID.randomUUID()}" })
-                    .put("realEntry", realEntry)
-                    .put("countedEntry", countedEntry)
-                    .put("realExit", realExit ?: JSONObject.NULL)
-                    .put("countedExit", countedExit ?: JSONObject.NULL)
-                    .put("pauses", migratePauses(old, basePauseMinutes))
-                    .put("legacyFixedUnpaidPauseMs", basePauseMinutes * 60_000L)
-                    .put("migratedFromLegacy", true)
-                    .put("companySlot", old.optInt("companySlot", 1).coerceIn(1, 2))
-                    .put("placeId", JSONObject.NULL)
-                    .put("placeLabel", placeLabel ?: JSONObject.NULL)
-            )
-            signatures += sig
-            imported++
-        }
-
-        val inspected = V2RuntimeHistoryGuardV2.inspect(history)
-        if (!inspected.reliable || !V2RuntimeHistoryGuardV2.save(app, history)) {
-            val warnings = inspected.warnings.ifEmpty {
-                listOf("Historique V2 : sauvegarde de migration impossible ; données précédentes conservées.")
-            }
-            V2RuntimeHistoryGuardV2.publishSourceState(false, warnings)
-            return Result(
-                imported = 0,
-                skipped = legacy.length(),
-                legacyCount = legacy.length(),
-                v2Count = storedHistory.history.length(),
-                reliable = false,
-                warnings = warnings
-            )
-        }
-        app.getSharedPreferences(META_PREFS, Context.MODE_PRIVATE).edit()
+    /** Un commit false a déjà pu modifier la mémoire SharedPreferences : rétablir les valeurs exactes. */
+    internal fun persistCompletion(
+        meta: SharedPreferences,
+        legacyCount: Int,
+        v2Count: Int,
+        checkedAt: Long
+    ): Boolean {
+        val keys = setOf("version", "legacy_count", "v2_count", "checked_at")
+        val previous = meta.all.filterKeys { it in keys }
+        if (previous.any { (key, value) -> if (key == "checked_at") value !is Long else value !is Int }) return false
+        val saved = meta.edit()
             .putInt("version", VERSION)
-            .putInt("legacy_count", legacy.length())
-            .putInt("v2_count", history.length())
-            .putLong("checked_at", System.currentTimeMillis())
+            .putInt("legacy_count", legacyCount)
+            .putInt("v2_count", v2Count)
+            .putLong("checked_at", checkedAt)
             .commit()
-        return Result(imported, skipped, legacy.length(), history.length())
+        if (saved) return true
+
+        // Ne jamais annuler l'historique déjà durable. Seul le marqueur est remis à son état précédent.
+        // Même si ce second commit échoue sur disque, Android restaure ces valeurs en mémoire ;
+        // le prochain appel retente alors la migration idempotente au lieu de croire à son succès.
+        val rollback = meta.edit()
+        keys.forEach { key ->
+            when (val value = previous[key]) {
+                is Int -> rollback.putInt(key, value)
+                is Long -> rollback.putLong(key, value)
+                else -> rollback.remove(key)
+            }
+        }
+        rollback.commit()
+        return false
     }
 
     private fun migrationFailure(): Result {
@@ -254,6 +294,13 @@ object V2MigrationManager {
         val rx = positive(o, "realExit") ?: 0L
         val ce = positive(o, "countedEntry") ?: 0L
         val cx = positive(o, "countedExit") ?: 0L
-        return "$re:$rx:$ce:$cx"
+        return migrationSignature(re, rx, ce, cx)
     }
+
+    /** Identité stable avant/après la réparation historique ciblée, pour les reprises après échec. */
+    internal fun migrationSignature(realEntry: Long, realExit: Long?, countedEntry: Long, countedExit: Long?): String {
+        val repairedEntry = WorkTimePolicyV2.repairKnownCountedEntry(realEntry, countedEntry) ?: countedEntry
+        return "$realEntry:${realExit ?: 0L}:$repairedEntry:${countedExit ?: 0L}"
+    }
+
 }
