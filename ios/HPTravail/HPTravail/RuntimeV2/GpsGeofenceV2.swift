@@ -141,7 +141,6 @@ struct GpsPendingEventV2: Codable, Equatable, Identifiable {
 }
 
 enum GpsPresenceTransitionV2 {
-    static let rapidReturnInterval: TimeInterval = 120
     static let maximumPendingEventCount = 32
 
     enum Transition {
@@ -171,23 +170,22 @@ enum GpsPresenceTransitionV2 {
             next.pendingExitZoneIds.remove(zoneId)
 
             if wasEmpty {
+                // Une entrée antérieure au départ ne peut réordonner la file, même dans une autre zone.
+                if let pending = next.pendingEvents.last,
+                   pending.kind == .departure, occurredAt < pending.occurredAt { return state }
                 if let confirmedSessionId = next.confirmedSessionId,
                    let pending = next.pendingEvents.last,
                    pending.kind == .departure,
-                   pending.expectedSessionId == confirmedSessionId {
+                   pending.expectedSessionId == confirmedSessionId,
+                   pending.zoneIds.contains(zoneId) {
                     guard occurredAt >= pending.occurredAt else { return state }
-                    if occurredAt.timeIntervalSince(pending.occurredAt) <= rapidReturnInterval {
-                        next.pendingEvents.removeLast()
-                    } else {
-                        next.confirmedSessionId = nil
-                        appendEvent(GpsPendingEventV2(
-                            id: UUID(),
-                            kind: .arrival,
-                            zoneIds: [zoneId],
-                            occurredAt: occurredAt
-                        ), to: &next)
-                    }
+                    // Tant que la même session reste ouverte, revenir dans une zone qui avait
+                    // déclenché la demande de départ invalide cette demande de fin de journée.
+                    // La durée d'absence ne transforme pas un ancien EXIT non confirmé en vérité.
+                    next.pendingEvents.removeLast()
                 } else {
+                    // Nouvelle visite : son départ éventuel ne doit pas être attribué à la session précédente.
+                    next.confirmedSessionId = nil
                     appendEvent(GpsPendingEventV2(
                         id: UUID(),
                         kind: .arrival,
@@ -259,6 +257,28 @@ struct GpsPersistedStateV2: Codable, Equatable {
     var pendingEvents: [GpsPendingEventV2]
     var confirmedSessionId: UUID?
     var eventQueueOverflowed: Bool
+}
+
+/// Effets des confirmations explicites ; l'événement a été retiré de la file par le gestionnaire.
+enum GpsVisitConfirmationV2 {
+    static func arrival(state: inout GpsPersistedStateV2, event: GpsPendingEventV2, sessionId: UUID) -> Bool {
+        guard event.kind == .arrival else { return false }
+        state.confirmedSessionId = sessionId
+        if let nextDeparture = state.pendingEvents.firstIndex(where: {
+            $0.kind == .departure && $0.expectedSessionId == nil
+        }) {
+            state.pendingEvents[nextDeparture].expectedSessionId = sessionId
+        }
+        return true
+    }
+
+    static func departure(state: inout GpsPersistedStateV2, event: GpsPendingEventV2, sessionId: UUID) -> Bool {
+        guard event.kind == .departure,
+              event.expectedSessionId == sessionId,
+              state.confirmedSessionId == nil || state.confirmedSessionId == sessionId else { return false }
+        state.confirmedSessionId = nil
+        return true
+    }
 }
 
 enum GpsStateReadV2: Equatable {

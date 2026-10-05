@@ -226,6 +226,20 @@ class V2BackupManagerTest {
         assertTrue(V2BackupManager.isStructurallyRestorableBackup(root("f", Float.MAX_VALUE.toDouble())))
     }
 
+    @Test
+    fun `recovery et restauration refusent les nouveaux stores salaire corrompus`() {
+        val cases = listOf(
+            V2PayrollCoverageStore.PREFS to JSONObject().put(V2PayrollCoverageStore.KEY_ITEMS, typed("s", "not-json")),
+            V2SegmentedProrationStore.PREFS to JSONObject().put("salary_segmented_proration_v2.company.2026-09", typed("s", "not-json"))
+        )
+        cases.forEach { (name, saved) ->
+            assertFalse(V2BackupManager.isRestorablePreferencePayload(name, saved))
+            val backup = JSONObject().put("formatVersion", 4).put("preferences", JSONObject().put(name, saved))
+            assertFalse(V2BackupManager.isStructurallyRestorableBackup(backup))
+            assertTrue(V2BackupManager.isRestorablePreferencePayload(name, JSONObject()))
+        }
+    }
+
     private fun typed(type: String, value: Any) = JSONObject().put("t", type).put("v", value)
 
     private fun session(id: String, entry: Long, exit: Long) = JSONObject()

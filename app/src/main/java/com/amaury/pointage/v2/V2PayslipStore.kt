@@ -355,6 +355,38 @@ object V2PayslipStore {
 
   val companyId=comparisonCompanyId(canonicalRecord)?:return null
   val company=confirmedCompany(SalaryCompanyStore.readConfirmed(context),companyId)?:return null
+  when(V2SalaryCalculationRoute.resolve(context,company,canonicalRecord.year,canonicalRecord.month)){
+   V2SalaryCalculationRoute.Route.MONTHLY -> return comparisonMonthly(context,canonicalRecord)
+   V2SalaryCalculationRoute.Route.BLOCKED -> return null
+   V2SalaryCalculationRoute.Route.SEGMENTED -> Unit
+  }
+  val idcc=comparisonCompanyIdcc(company)?:return null
+  if(ConventionCatalog.findByIdcc(context,idcc)?.idcc.isNullOrBlank())return null
+  val canonical=runCatching{
+   V2SegmentedSalaryCanonicalBridge.calculateForCompany(
+    context=context,
+    company=company,
+    year=canonicalRecord.year,
+    monthZeroBased=canonicalRecord.month,
+    timeZoneId=ZoneId.systemDefault().id
+   )
+  }.getOrNull()?.output?:return null
+  val expectedValues=SegmentedPayslipComparisonValuesV2.expected(canonical)?:return null
+
+  // Une valeur observée reste conservée même si le moteur ne sait pas encore la recalculer.
+  // Elle n'est jamais comparée tant que le bulletin n'est pas rattaché à une entreprise V2 confirmée.
+  return compareKnownPayslipValues(expectedValues,stored)
+ }
+
+ private fun comparisonMonthly(context:Context,record:Record):PayslipComparisonV2?{
+  val source=readResult(context)
+  val canonicalRecord=canonicalRecord(source,record.id)?:return null
+  val observedSource=PayslipObservedValuesStoreV2.readResult(context)
+  val stored=observedComparisonValues(observedSource,canonicalRecord)?.toMutableMap()?:return null
+  if(stored.isEmpty())return null
+
+  val companyId=comparisonCompanyId(canonicalRecord)?:return null
+  val company=confirmedCompany(SalaryCompanyStore.readConfirmed(context),companyId)?:return null
   val idcc=comparisonCompanyIdcc(company)?:return null
   val convention=ConventionCatalog.findByIdcc(context,idcc)?.takeIf{it.idcc.isNotBlank()}?:return null
   val salaryNet=runCatching{

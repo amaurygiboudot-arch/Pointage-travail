@@ -167,6 +167,47 @@ struct PayrollResultV2: Equatable {
     let traces: [String]
 }
 
+/// Preuve explicite que les nombres transmis au moteur peuvent être utilisés comme base de brut.
+///
+/// Les montants restent calculables pour audit même si cette preuve est incomplète, mais
+/// `grossReliable` doit alors rester faux. Un zéro technique ne vaut jamais confirmation
+/// de l'absence d'une majoration.
+struct PayrollInputEvidenceV2: Equatable {
+    let paidTimeReliable: Bool
+    let premiumTimeBreakdownReliable: Bool
+    let payrollRulesReliable: Bool
+
+    var grossInputsReliable: Bool {
+        paidTimeReliable && premiumTimeBreakdownReliable && payrollRulesReliable
+    }
+
+    var warnings: [String] {
+        var values: [String] = []
+        if !paidTimeReliable {
+            values.append("Brut salarial : temps payé amont non fiable ; le montant calculé reste indicatif.")
+        }
+        if !premiumTimeBreakdownReliable {
+            values.append("Brut salarial : ventilation nuit / samedi / dimanche / jour férié non prouvée ; aucune absence de majoration n'est déduite d'un zéro technique.")
+        }
+        if !payrollRulesReliable {
+            values.append("Brut salarial : règles de majoration amont non prouvées complètes pour la période.")
+        }
+        return values
+    }
+
+    static let fullyConfirmed = PayrollInputEvidenceV2(
+        paidTimeReliable: true,
+        premiumTimeBreakdownReliable: true,
+        payrollRulesReliable: true
+    )
+
+    static let unconfirmed = PayrollInputEvidenceV2(
+        paidTimeReliable: false,
+        premiumTimeBreakdownReliable: false,
+        payrollRulesReliable: false
+    )
+}
+
 enum PayrollEngineErrorV2: Error, Equatable {
     case missingHourlyRate
     case invalidHourlyRate
@@ -198,7 +239,8 @@ enum PayrollEngineV2 {
         rules: PayrollRulesV2,
         premiums: [PremiumV2] = [],
         baskets: [BasketV2] = [],
-        deductions: [DeductionV2] = []
+        deductions: [DeductionV2] = [],
+        evidence: PayrollInputEvidenceV2 = .unconfirmed
     ) throws -> PayrollResultV2 {
         try weeks.forEach(validateWeek)
 
@@ -207,7 +249,8 @@ enum PayrollEngineV2 {
                 contract: contract,
                 premiums: premiums,
                 baskets: baskets,
-                deductions: deductions
+                deductions: deductions,
+                evidence: evidence
             )
         }
 
@@ -242,7 +285,8 @@ enum PayrollEngineV2 {
                 regularLimit: regularLimit,
                 premiums: premiums,
                 baskets: baskets,
-                deductions: deductions
+                deductions: deductions,
+                evidence: evidence
             )
         }
 
@@ -256,7 +300,8 @@ enum PayrollEngineV2 {
                 regularReferenceReliable: confirmedRegularLimit != nil,
                 premiums: premiums,
                 baskets: baskets,
-                deductions: deductions
+                deductions: deductions,
+                evidence: evidence
             )
         }
 
@@ -320,8 +365,8 @@ enum PayrollEngineV2 {
             deductions: deductionsTotal,
             netBeforeUnknownContributions: max(0, gross - deductionsTotal),
             complementaryMinutes: 0,
-            grossReliable: overtimeCoverageReliable,
-            traces: traces
+            grossReliable: overtimeCoverageReliable && evidence.grossInputsReliable,
+            traces: unique(traces + evidence.warnings)
         )
     }
 
@@ -334,7 +379,8 @@ enum PayrollEngineV2 {
         regularReferenceReliable: Bool,
         premiums: [PremiumV2],
         baskets: [BasketV2],
-        deductions: [DeductionV2]
+        deductions: [DeductionV2],
+        evidence: PayrollInputEvidenceV2
     ) throws -> PayrollResultV2 {
         let contractualWeeklyMinutes = contract.contractualWeeklyMinutes ?? regularLimit
         guard contractualWeeklyMinutes > 0 else { throw PayrollEngineErrorV2.invalidWeeklyDuration }
@@ -378,8 +424,8 @@ enum PayrollEngineV2 {
             deductions: deductionsTotal,
             netBeforeUnknownContributions: max(0, gross - deductionsTotal),
             complementaryMinutes: 0,
-            grossReliable: regularReferenceReliable && !fullTime.provisionalRateUsed,
-            traces: unique(traces)
+            grossReliable: regularReferenceReliable && !fullTime.provisionalRateUsed && evidence.grossInputsReliable,
+            traces: unique(traces + evidence.warnings)
         )
     }
 
@@ -391,7 +437,8 @@ enum PayrollEngineV2 {
         regularLimit: Int,
         premiums: [PremiumV2],
         baskets: [BasketV2],
-        deductions: [DeductionV2]
+        deductions: [DeductionV2],
+        evidence: PayrollInputEvidenceV2
     ) throws -> PayrollResultV2 {
         guard let contractualWeeklyMinutes = contract.contractualWeeklyMinutes,
               contractualWeeklyMinutes > 0 else {
@@ -441,8 +488,8 @@ enum PayrollEngineV2 {
             deductions: deductionsTotal,
             netBeforeUnknownContributions: max(0, gross - deductionsTotal),
             complementaryMinutes: complementaryMinutes,
-            grossReliable: !provisionalComplementaryRateUsed,
-            traces: unique(traces)
+            grossReliable: !provisionalComplementaryRateUsed && evidence.grossInputsReliable,
+            traces: unique(traces + evidence.warnings)
         )
     }
 
@@ -450,7 +497,8 @@ enum PayrollEngineV2 {
         contract: ContractV2,
         premiums: [PremiumV2],
         baskets: [BasketV2],
-        deductions: [DeductionV2]
+        deductions: [DeductionV2],
+        evidence: PayrollInputEvidenceV2
     ) throws -> PayrollResultV2 {
         guard let monthlyGross = contract.monthlyGrossSalary else {
             throw PayrollEngineErrorV2.missingMonthlyGross
@@ -510,8 +558,8 @@ enum PayrollEngineV2 {
             deductions: deductionsTotal,
             netBeforeUnknownContributions: max(0, gross - deductionsTotal),
             complementaryMinutes: 0,
-            grossReliable: true,
-            traces: traces
+            grossReliable: evidence.grossInputsReliable,
+            traces: unique(traces + evidence.warnings)
         )
     }
 
@@ -520,32 +568,11 @@ enum PayrollEngineV2 {
         rate: Double,
         rules: PayrollRulesV2
     ) throws -> Double {
-        var extras = 0.0
-        if let multiplier = rules.nightMultiplier {
-            try validateMultiplier(multiplier)
-            if week.nightMinutes > 0 {
-                extras += Double(week.nightMinutes) / 60.0 * rate * (multiplier - 1.0)
-            }
-        }
-        if let multiplier = rules.saturdayMultiplier {
-            try validateMultiplier(multiplier)
-            if week.saturdayMinutes > 0 {
-                extras += Double(week.saturdayMinutes) / 60.0 * rate * (multiplier - 1.0)
-            }
-        }
-        if let multiplier = rules.sundayMultiplier {
-            try validateMultiplier(multiplier)
-            if week.sundayMinutes > 0 {
-                extras += Double(week.sundayMinutes) / 60.0 * rate * (multiplier - 1.0)
-            }
-        }
-        if let multiplier = rules.publicHolidayMultiplier {
-            try validateMultiplier(multiplier)
-            if week.publicHolidayMinutes > 0 {
-                extras += Double(week.publicHolidayMinutes) / 60.0 * rate * (multiplier - 1.0)
-            }
-        }
-        return extras
+        try SalaryPayrollPremiumGrossV2.calculate(
+            week: week,
+            grossHourlyRate: rate,
+            rules: rules
+        )
     }
 
     private static func validateWeek(_ week: PayrollWeekV2) throws {
