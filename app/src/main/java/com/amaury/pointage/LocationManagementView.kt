@@ -100,7 +100,7 @@ class LocationManagementView @JvmOverloads constructor(
         val dialog = AlertDialog.Builder(context).setTitle(groupTitle(group)).setView(scroll(content))
             .setPositiveButton("Fermer", null).create()
         group.zones.forEach { zone ->
-            content.addView(action("${zone.label ?: "Zone sans nom"}\n${GpsZoneRoleV2.fromToken(zone.pointTypeToken).title} • ${zone.radius} m") {
+            content.addView(action("${zone.label ?: "Zone sans nom"}\n${zone.roleForContextV2().title} • ${zone.radius} m") {
                 dialog.dismiss(); editZone(snapshot, group, zone.id)
             })
             content.addView(action("Ajuster sur la carte — ${zone.label ?: "cette zone"}") {
@@ -163,7 +163,7 @@ class LocationManagementView @JvmOverloads constructor(
         val roles = GpsZoneRoleV2.values()
         val role = Spinner(context).apply {
             adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, roles.map { it.title })
-            setSelection(roles.indexOf(GpsZoneRoleV2.fromToken(zone?.pointTypeToken)))
+            setSelection(roles.indexOf(zone?.roleForContextV2() ?: GpsZoneRoleV2.OTHER))
         }
         content.addView(role)
         content.addView(text("Une zone Pause reste une observation à confirmer : sa présence ne crée pas automatiquement une pause rémunérée."))

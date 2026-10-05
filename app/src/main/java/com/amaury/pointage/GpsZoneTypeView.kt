@@ -40,7 +40,7 @@ class GpsZoneTypeView @JvmOverloads constructor(context: Context, attrs: Attribu
         if (zones.isEmpty()) addView(TextView(context).apply { text = "Ajoute d'abord une zone GPS." })
         zones.forEach { zone ->
             addView(Button(context).apply {
-                text = "${zone.label ?: zone.address} • ${GpsZoneRoleV2.fromToken(zone.pointTypeToken).title}"
+                text = "${zone.label ?: zone.address} • ${zone.roleForContextV2().title}"
                 isAllCaps = false; textSize = 14f; minHeight = dp(48)
                 setBackgroundResource(R.drawable.hp_panel)
                 setOnClickListener { chooseType(zone.id) }

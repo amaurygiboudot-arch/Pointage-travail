@@ -149,16 +149,11 @@ internal object GpsTriggeredZoneSelectionV2 {
         }
     }
 
-    internal fun pointType(zone: StoredGpsZone): GpsPointTypeV2 {
-        val explicit = zone.pointTypeToken?.trim()?.takeIf { it.isNotBlank() }
-            ?: return GpsPointTypeV2.POSTE
-        val raw = explicit.uppercase(Locale.ROOT)
-        return when {
-            raw.contains("PARK") -> GpsPointTypeV2.PARKING
-            raw.contains("OTHER") || raw.contains("AUTRE") -> GpsPointTypeV2.OTHER
-            raw.contains("POSTE") || raw.contains("WORKPLACE") || raw.contains("WORK") -> GpsPointTypeV2.POSTE
-            else -> GpsPointTypeV2.OTHER
-        }
+    internal fun pointType(zone: StoredGpsZone): GpsPointTypeV2 = when (zone.roleForContextV2()) {
+        GpsZoneRoleV2.WORK -> GpsPointTypeV2.POSTE
+        GpsZoneRoleV2.PARKING -> GpsPointTypeV2.PARKING
+        // Le rôle Pause reste une observation à confirmer, pas une pause payée automatique.
+        GpsZoneRoleV2.BREAK, GpsZoneRoleV2.OTHER -> GpsPointTypeV2.OTHER
     }
 
     private data class Signature(

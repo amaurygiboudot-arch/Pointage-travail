@@ -122,6 +122,10 @@ internal fun StoredGpsZone.isGpsCandidate(): Boolean =
 internal fun StoredGpsZone.placeScope(): GpsPlaceScopeV2 =
     GpsPlaceScopeV2.of(companyId, companySlot, address.orEmpty())
 
+/** Les anciens points sans type étaient des postes ; tous les nouveaux brouillons ont un rôle explicite. */
+internal fun StoredGpsZone.roleForContextV2(): GpsZoneRoleV2 =
+    if (pointTypeToken.isNullOrBlank()) GpsZoneRoleV2.WORK else GpsZoneRoleV2.fromToken(pointTypeToken)
+
 internal data class GpsPlaceGroup(
     val address: String,
     val companyId: String?,
@@ -162,7 +166,7 @@ internal fun groupGpsZonesByPlace(zonesResult: GpsZonesReadResult, savedAddresse
 internal data class GpsPlaceTypeSummary(val workZones: Int, val parkingZones: Int, val pauseZones: Int, val otherZones: Int)
 
 internal fun summarizeGpsPlaceTypes(group: GpsPlaceGroup): GpsPlaceTypeSummary {
-    val roles = group.zones.map { GpsZoneRoleV2.fromToken(it.pointTypeToken) }
+    val roles = group.zones.map { it.roleForContextV2() }
     return GpsPlaceTypeSummary(roles.count { it == GpsZoneRoleV2.WORK },
         roles.count { it == GpsZoneRoleV2.PARKING }, roles.count { it == GpsZoneRoleV2.BREAK },
         roles.count { it == GpsZoneRoleV2.OTHER })
