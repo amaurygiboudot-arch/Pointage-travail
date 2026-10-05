@@ -67,11 +67,12 @@ ROLE_RULES = OrderedDict([
     }),
     ("release_store", {
         "patterns": [
+            "app/**", "ios/**",
             ".github/workflows/**", ".github/icon-build-trigger.txt",
             "app/build.gradle.kts", "build.gradle.kts", "gradle/**",
             "*Release*", "*Update*", "*Signing*", "app/src/main/AndroidManifest.xml",
         ],
-        "reason": "CI/CD, version, dépendances, publication, signature ou distribution",
+        "reason": "gardien publication multi-plateforme : Android/iOS, CI/CD, artefacts, compatibilité, signature ou distribution",
     }),
     ("analytics_data", {
         "patterns": ["*Analytics*", "*Metric*", "*Telemetry*", "*EventStore*"],
@@ -134,6 +135,7 @@ def route(files: list[str], base: str, head: str) -> dict:
     tests = ["codex-config"]
     android_touched = any(path.startswith("app/") or path.endswith(".kt") for path in files)
     ios_touched = any(path.startswith("ios/") for path in files)
+    mobile_product_touched = android_touched or ios_touched
     functions_touched = any(path.startswith("functions/") for path in files)
     release_touched = any(
         path.startswith(".github/workflows/")
@@ -142,14 +144,14 @@ def route(files: list[str], base: str, head: str) -> dict:
         for path in files
     )
 
-    if android_touched:
-        tests += ["v2-tests", "android-build"]
-    if release_touched:
+    if mobile_product_touched:
+        # HoraTrack vise Android + iOS : un lot mobile doit avoir une preuve
+        # multi-plateforme au même HEAD avant d'être déclaré prêt.
+        tests += ["v2-tests", "android-build", "play-build", "ios-tests", "ios-build"]
+    elif release_touched:
         tests.append("play-build")
     if functions_touched:
         tests.append("functions-tests")
-    if ios_touched:
-        tests += ["ios-tests", "ios-build"]
 
     seen = set()
     tests = [item for item in tests if not (item in seen or seen.add(item))]
