@@ -49,6 +49,7 @@ object DriveBackupManager {
     fun clear(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
         DriveBackupScheduler.cancel(context)
+        DriveBackupWorker.cancel(context)
     }
 
     fun syncCurrentMonthAsync(context: Context) {
@@ -70,28 +71,31 @@ object DriveBackupManager {
 
     fun syncAllAsync(context: Context, onDone: ((Boolean, String) -> Unit)? = null) {
         val app = context.applicationContext
-        if (syncOwner(HoraTrackV2.ENABLED) == SyncOwner.V2_SNAPSHOT) {
-            executor.execute {
-                val result = V2BackupManager.backupToConfiguredDrive(app)
-                onDone?.invoke(
-                    result.isSuccess,
-                    result.fold(
-                        onSuccess = { "sauvegarde AGKGMG V2 à jour" },
-                        onFailure = { it.message ?: "Erreur Drive" }
-                    )
-                )
-            }
-            return
-        }
         executor.execute {
-            val result = runCatching {
-                withStorageAccess {
-                    syncCompletedDays(app)
-                    syncClosedMonths(app)
-                }
+            val result = syncAllBlocking(app)
+            onDone?.invoke(result.isSuccess, result.getOrElse { it.message ?: "Erreur Drive" })
+        }
+    }
+
+    /** Le Worker possède son exécution : aucun executor détaché ni attente de callback. */
+    internal fun syncAllBlocking(
+        context: Context,
+        stopped: () -> Boolean = { false }
+    ): Result<String> = runCatching {
+        withStorageAccess {
+            // Recontrôler après l'attente du verrou : une annulation ou déconnexion
+            // peut arriver pendant qu'une autre sauvegarde utilise le dossier.
+            if (stopped()) throw java.util.concurrent.CancellationException("Sauvegarde arrêtée")
+            if (!isConfigured(context)) return@withStorageAccess "Sauvegarde Drive désactivée"
+            if (syncOwner(HoraTrackV2.ENABLED) == SyncOwner.V2_SNAPSHOT) {
+                V2BackupManager.backupToConfiguredDrive(context).getOrThrow()
+                "sauvegarde AGKGMG V2 à jour"
+            } else {
+                syncCompletedDays(context)
+                if (stopped()) throw java.util.concurrent.CancellationException("Sauvegarde arrêtée")
+                syncClosedMonths(context)
                 "sauvegarde quotidienne et mensuelle à jour"
             }
-            onDone?.invoke(result.isSuccess, result.getOrElse { it.message ?: "Erreur Drive" })
         }
     }
 
