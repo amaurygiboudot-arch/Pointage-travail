@@ -65,6 +65,43 @@ final class GpsGeofenceV2Tests: XCTestCase {
     }
 
 
+    func testContextOnlyGeometryChangeKeepsAutomaticFingerprintStable() throws {
+        let work = zone(first, kind: .worksite)
+        var parking = zone(second, kind: .parking)
+        let before = try XCTUnwrap(
+            GpsZoneConfigurationV2.fingerprint(
+                enabled: true,
+                zones: [work, parking]
+            )
+        )
+
+        parking.latitude += 0.25
+        parking.radius = 500
+        let after = try XCTUnwrap(
+            GpsZoneConfigurationV2.fingerprint(
+                enabled: true,
+                zones: [work, parking]
+            )
+        )
+
+        XCTAssertEqual(before, after)
+    }
+
+    func testWorkGeometryChangeInvalidatesAutomaticFingerprint() throws {
+        var work = zone(first, kind: .worksite)
+        let before = try XCTUnwrap(
+            GpsZoneConfigurationV2.fingerprint(enabled: true, zones: [work])
+        )
+
+        work.latitude += 0.25
+        let after = try XCTUnwrap(
+            GpsZoneConfigurationV2.fingerprint(enabled: true, zones: [work])
+        )
+
+        XCTAssertNotEqual(before, after)
+    }
+
+
     func testOnlyWorkZoneProducesClockInFacts() {
         var work = zone(first, kind: .worksite)
         work.label = "  Atelier Nord  "
