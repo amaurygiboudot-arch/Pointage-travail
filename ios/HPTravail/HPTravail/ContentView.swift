@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var showManualEntry = false
     @State private var showGpsZoneEditor = false
     @State private var editingGpsZone: GpsZoneV2?
+    @State private var gpsZonePendingDeletion: GpsZoneV2?
     @State private var showGpsConfirmation = false
     @State private var clockCompanies = SalaryCompanyStoreV2.readConfirmed()
     @State private var clockEmployerChoice: ClockEmployerChoice = .unresolved
@@ -51,6 +52,23 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showGpsZoneEditor) {
             GpsZoneEditorSheetV2(existingZone: editingGpsZone)
+        }
+        .confirmationDialog(
+            "Supprimer cette zone GPS ?",
+            isPresented: Binding(
+                get: { gpsZonePendingDeletion != nil },
+                set: { if !$0 { gpsZonePendingDeletion = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: gpsZonePendingDeletion
+        ) { zone in
+            Button("Supprimer \(zone.label)", role: .destructive) {
+                locationManager.removeZone(id: zone.id)
+                gpsZonePendingDeletion = nil
+            }
+            Button("Annuler", role: .cancel) { gpsZonePendingDeletion = nil }
+        } message: { zone in
+            Text("Seule la zone « \(zone.label) » sera retirée. Les autres zones et l'historique seront conservés.")
         }
         .confirmationDialog(
             gpsConfirmationTitle,
@@ -465,12 +483,18 @@ struct ContentView: View {
                                     showGpsZoneEditor = true
                                 } label: {
                                     Image(systemName: "pencil")
+                                        .frame(minWidth: 44, minHeight: 44)
                                 }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Modifier la zone \(zone.label)")
                                 Button(role: .destructive) {
-                                    locationManager.removeZone(id: zone.id)
+                                    gpsZonePendingDeletion = zone
                                 } label: {
                                     Image(systemName: "trash")
+                                        .frame(minWidth: 44, minHeight: 44)
                                 }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Supprimer la zone \(zone.label)")
                             }
                         }
                         Button("Ajouter une zone ici") {

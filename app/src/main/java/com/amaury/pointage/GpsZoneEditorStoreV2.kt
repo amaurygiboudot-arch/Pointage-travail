@@ -283,8 +283,43 @@ internal object GpsZoneEditorStoreV2 {
         val ids = members.map { it.id }.toSet()
         val zones = snapshot.zones.map { JSONObject(it.sourceJson) }
         val values = snapshot.values.toMutableMap()
+        // Les anciennes associations peuvent être indexées par adresse OU identifiant.
+        // Les figer sur les zones avant de changer leur adresse évite de perdre leur
+        // employeur ou d'hériter de celui de l'adresse de destination.
+        val companyLinks = snapshot.json("address_company_slots")
+        fun slotsFor(key: String): Set<Int> = companyLinks.keys().asSequence()
+            .filter { it.equals(key, ignoreCase = true) }
+            .map { companyLinks.getInt(it) }.toSet()
+        val sourceSlots = slotsFor(group.address)
+        val destinationSlots = slotsFor(address)
+        if (sourceSlots.size > 1 || destinationSlots.size > 1) return null
+        if (group.legacyOnly) {
+            // Une adresse sans zone ne dispose pas d'un ID sur lequel conserver le lien.
+            if (destinationSlots.isNotEmpty() && destinationSlots != sourceSlots) return null
+            val aliases = companyLinks.keys().asSequence()
+                .filter { it.equals(group.address, ignoreCase = true) }.toList()
+            if (aliases.any { key -> snapshot.zones.any { it.id.equals(key, ignoreCase = true) } }) return null
+            aliases.forEach(companyLinks::remove)
+            sourceSlots.singleOrNull()?.let { companyLinks.put(address, it) }
+            values["address_company_slots"] = companyLinks.toString()
+        } else {
+            for (zone in members) {
+                if (zone.companyId != null || zone.companySlot != null) continue
+                val originalSlots = sourceSlots + slotsFor(zone.id)
+                if (originalSlots.size > 1) return null
+                val originalSlot = originalSlots.singleOrNull()
+                if (originalSlot == null && destinationSlots.isNotEmpty()) return null
+                originalSlot?.let { slot ->
+                    zones.single { it.optString("id").trim() == zone.id }.put("companySlot", slot)
+                }
+            }
+        }
         preserveAddressMetadata(snapshot, zones, values, members.map { it.id }.toSet())
         zones.filter { it.optString("id").trim() in ids }.forEach { it.put("address", address) }
+        val renamed = (parsePersistedGpsZones(JSONArray().apply { zones.forEach { put(it) } }.toString())
+            as? GpsZonesReadResult.Valid)?.zones ?: return null
+        val renamedScopes = renamed.filter { it.id in ids }.map { it.placeScope() }.toSet()
+        if (renamed.any { it.id !in ids && !it.isGpsCandidate() && it.placeScope() in renamedScopes }) return null
         val oldStillUsed = zones.any { it.optString("address").trim().equals(group.address, ignoreCase = true) }
         for (key in objectKeys) {
             val map = JSONObject(values[key] ?: "{}")

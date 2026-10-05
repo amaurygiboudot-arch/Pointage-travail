@@ -16,8 +16,25 @@ import android.widget.*
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.engine.AnalyticsEngineV2
+import com.amaury.pointage.v2.engine.TimeEngineV2
+import com.amaury.pointage.v2.model.WorkSessionV2
 import java.util.Locale
 import java.util.UUID
+
+/** Valide l'ensemble de l'employeur avant de réduire le total aux zones affichées. */
+internal fun gpsPlacePaidTimeV2(
+    sessions: List<WorkSessionV2>, companyId: String, zoneIds: Set<String>,
+    timeEngine: TimeEngineV2, nowMs: Long
+): Long? {
+    val employerSessions = sessions.filter { it.employerId == companyId }
+    if (employerSessions.any { it.placeId.isNullOrBlank() } ||
+        sessions.any { it.placeId in zoneIds && it.employerId != companyId }) return null
+    // Un chevauchement entre deux lieux du même employeur invalide aussi leurs sous-totaux.
+    if (!AnalyticsEngineV2.summarize(employerSessions, timeEngine, nowMs).timeTotalsReliable) return null
+    return AnalyticsEngineV2.summarize(
+        employerSessions.filter { it.placeId in zoneIds }, timeEngine, nowMs
+    ).takeIf { it.timeTotalsReliable }?.totalPaidMs
+}
 
 /** Les actions de zone utilisent exclusivement le store GPS V2 et un instantané vérifié. */
 class LocationManagementView @JvmOverloads constructor(
@@ -268,10 +285,9 @@ class LocationManagementView @JvmOverloads constructor(
         // Une session non rattachée ne permet pas de certifier un total complet pour ce lieu.
         if (runtime.sessions.any { it.employerId == group.companyId && it.placeId.isNullOrBlank() }) return "À confirmer"
         if (runtime.sessions.any { it.placeId in ids && it.employerId != group.companyId }) return "À vérifier"
-        val sessions = runtime.sessions.filter { it.employerId == group.companyId && it.placeId in ids }
-        val total = AnalyticsEngineV2.summarize(sessions, HoraTrackV2.time, now)
-        if (!total.timeTotalsReliable) return "À confirmer"
-        val minutes = total.totalPaidMs / 60_000L
+        val paidMs = gpsPlacePaidTimeV2(runtime.sessions, group.companyId, ids, HoraTrackV2.time, now)
+            ?: return "À confirmer"
+        val minutes = paidMs / 60_000L
         return String.format(Locale.FRANCE, "%dh %02d", minutes / 60L, minutes % 60L)
     }
 }

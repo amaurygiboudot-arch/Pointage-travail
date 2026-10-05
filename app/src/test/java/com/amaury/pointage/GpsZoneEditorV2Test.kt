@@ -128,6 +128,73 @@ class GpsZoneEditorV2Test {
         assertEquals(46.7, next.zones.first().latitude, 0.0)
         assertEquals(before.zones.last().sourceJson, next.zones.last().sourceJson)
     }
+    @Test fun `renommer conserve le slot legacy de chaque zone avant de retirer ladresse`() {
+        val before = snapshot(zone("a", null), zone("b", null), extra = mapOf(
+            "address_company_slots" to """{"Site partagé":1}"""))
+        val next = after(GpsZoneEditorStoreV2.renameAddress(before, before.groups().single(), "Nouveau dépôt")!!)
+        assertEquals(listOf(1, 1), next.zones.map { it.companySlot })
+        assertTrue(next.zones.all { it.companyId == null && it.address == "Nouveau dépôt" })
+        assertFalse(next.json("address_company_slots").has("Site partagé"))
+    }
+    @Test fun `renommer conserve les liens legacy par alias de casse ou identifiant`() {
+        for (key in listOf("SITE PARTAGÉ", "A")) {
+            val before = snapshot(zone("a", null), extra = mapOf(
+                "address_company_slots" to JSONObject().put(key, 2).toString()))
+            val next = after(GpsZoneEditorStoreV2.renameAddress(before, before.groups().single(), "Nouveau dépôt")!!)
+            assertEquals(2, next.zones.single().companySlot)
+        }
+    }
+    @Test fun `renommer adresse partagee conserve le lien du voisin et ignore le slot destination`() {
+        val before = snapshot(zone("a", null), zone("b", "Company-B"), extra = mapOf(
+            "address_company_slots" to """{"Site partagé":1,"Nouveau dépôt":2}"""))
+        val next = after(GpsZoneEditorStoreV2.renameAddress(before, before.groups().first(), "Nouveau dépôt")!!)
+        assertEquals(1, next.zones.first().companySlot)
+        assertEquals(before.zones.last().sourceJson, next.zones.last().sourceJson)
+        assertEquals(1, next.json("address_company_slots").getInt("Site partagé"))
+        assertEquals(2, next.json("address_company_slots").getInt("Nouveau dépôt"))
+    }
+    @Test fun `renommer une zone non associee refuse de prendre le slot de destination`() {
+        val before = snapshot(zone("a", null), extra = mapOf(
+            "address_company_slots" to """{"NOUVEAU DÉPÔT":2}"""))
+        assertNull(GpsZoneEditorStoreV2.renameAddress(before, before.groups().single(), "Nouveau dépôt"))
+        assertNull(before.zones.single().companySlot)
+    }
+    @Test fun `renommer refuse une collision de lieu revelee par le slot legacy`() {
+        val before = snapshot(zone("a", null),
+            zone("b", null, "Nouveau dépôt").put("companySlot", 1), extra = mapOf(
+                "address_company_slots" to """{"Site partagé":1}"""))
+        assertNull(GpsZoneEditorStoreV2.renameAddress(before, before.groups().first(), "Nouveau dépôt"))
+    }
+    @Test fun `renommer refuse les associations legacy contradictoires`() {
+        for (links in listOf(
+            """{"Site partagé":1,"SITE PARTAGÉ":2}""",
+            """{"Site partagé":1,"a":2}""",
+            """{"a":1,"A":2}""",
+            """{"Nouveau dépôt":1,"NOUVEAU DÉPÔT":2}"""
+        )) {
+            val before = snapshot(zone("a", null), extra = mapOf("address_company_slots" to links))
+            assertNull(GpsZoneEditorStoreV2.renameAddress(before, before.groups().single(), "Nouveau dépôt"))
+        }
+    }
+    @Test fun `renommer conserve les associations explicites prioritaires`() {
+        for (original in listOf(zone("a", "Company-A"), zone("a", null).put("companySlot", 1))) {
+            val before = snapshot(original, extra = mapOf(
+                "address_company_slots" to """{"Site partagé":2,"Nouveau dépôt":2}"""))
+            val next = after(GpsZoneEditorStoreV2.renameAddress(before, before.groups().single(), "Nouveau dépôt")!!)
+            assertEquals(before.zones.single().companyId, next.zones.single().companyId)
+            assertEquals(before.zones.single().companySlot, next.zones.single().companySlot)
+        }
+    }
+    @Test fun `renommer une adresse sans zone transfere son alias legacy sans heritage`() {
+        val before = GpsZoneEditorStoreV2.decode(mapOf("address" to "Ancien dépôt",
+            "address_company_slots" to """{"ANCIEN DÉPÔT":1}"""))!!
+        val next = after(GpsZoneEditorStoreV2.renameAddress(before, before.groups().single(), "Nouveau dépôt")!!)
+        assertEquals(1, next.json("address_company_slots").getInt("Nouveau dépôt"))
+        assertFalse(next.json("address_company_slots").has("ANCIEN DÉPÔT"))
+        val unbound = GpsZoneEditorStoreV2.decode(mapOf("address" to "Ancien dépôt",
+            "address_company_slots" to """{"Nouveau dépôt":2}"""))!!
+        assertNull(GpsZoneEditorStoreV2.renameAddress(unbound, unbound.groups().single(), "Nouveau dépôt"))
+    }
     @Test fun `absence cible doublon et limite sont refuses sans perte`() {
         val before = snapshot(zone("a"))
         val group = before.groups().single()

@@ -278,22 +278,41 @@ class GpsPointPickerView @JvmOverloads constructor(
         val labels = ArrayList<String>()
         val items = ArrayList<JSONObject>()
         val coveredAddresses = mutableSetOf<String>()
+        val companies = SalaryCompanyStore.readConfirmed(context)
+        val zonesById = snapshot.zones.associateBy { it.id }
 
         for (index in 0 until list.length()) {
             val item = list.optJSONObject(index) ?: continue
             val address = item.optString("address").trim()
             if (address.isBlank()) continue
             if (item.optBoolean("smartCandidate", false)) continue
-            val zoneId = item.optString("id").trim().takeIf { it.isNotBlank() }
-            val placeName = PlaceNames.get(context, zoneId, address)?.takeIf { it.isNotBlank() }
-            val type = item.optString("pointType").trim().takeIf { it.isNotBlank() }
+            val zoneId = item.optString("id").trim().takeIf { it.isNotBlank() } ?: continue
+            val storedZone = zonesById[zoneId] ?: continue
+            val companyId = storedZone.companyId
+            val companyLabel = if (companyId == null) {
+                storedZone.companySlot?.let { "Ancienne entreprise $it — à confirmer" }
+                    ?: "Sans association automatique"
+            } else if (companies.reliable) {
+                companies.companies.firstOrNull { it.id == companyId }?.name?.takeIf { it.isNotBlank() }
+                    ?: "Entreprise à confirmer ($companyId)"
+            } else "Entreprise à vérifier ($companyId)"
+            val placeName = storedZone.label?.takeIf { it.isNotBlank() }
+                ?: PlaceNames.get(context, zoneId, address)?.takeIf { it.isNotBlank() }
             labels += buildString {
+                append(companyLabel).append("\n")
                 append(placeName ?: address)
                 if (placeName != null) append(" — ").append(address)
-                if (type != null) append(" • ").append(type)
+                append(" • ").append(storedZone.roleForContextV2().title)
             }
             items += JSONObject(item.toString())
             coveredAddresses += address.lowercase(Locale.FRANCE)
+        }
+        // Même entreprise, adresse, nom et rôle : l'identifiant exact distingue les zones.
+        val duplicateLabels = labels.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
+        labels.indices.forEach { index ->
+            if (labels[index] in duplicateLabels) {
+                labels[index] += "\nZone ${items[index].optString("id")}"
+            }
         }
 
         addresses
