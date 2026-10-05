@@ -12,13 +12,11 @@ import android.location.Location
 import android.location.LocationManager
 import android.util.AttributeSet
 import android.view.Gravity
-import android.view.View
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
-import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -40,6 +38,7 @@ class GpsPointPickerView @JvmOverloads constructor(
     private val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
     private var promptScheduled = false
     private var applyingOverride = false
+    private var activeMapDialog: AlertDialog? = null
 
     init {
         orientation = VERTICAL
@@ -91,6 +90,8 @@ class GpsPointPickerView @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         prefs.unregisterOnSharedPreferenceChangeListener(this)
+        activeMapDialog?.dismiss()
+        activeMapDialog = null
         super.onDetachedFromWindow()
     }
 
@@ -227,7 +228,7 @@ class GpsPointPickerView @JvmOverloads constructor(
      * afin que l'utilisateur puisse poser lui-même le point exact.
      */
     private fun maybePromptForPendingPoint() {
-        if (promptScheduled || !isShown) return
+        if (promptScheduled || !isShown || activeMapDialog?.isShowing == true) return
         val pending = prefs.getString("pending_point_address", "").orEmpty().trim()
         if (pending.isBlank()) return
         if (savedAddresses().none { it.equals(pending, ignoreCase = true) }) {
@@ -331,25 +332,40 @@ class GpsPointPickerView @JvmOverloads constructor(
         showMapPicker(JSONObject(zone.sourceJson), automatic = false)
     }
 
-    private fun showMapPicker(requestedZone: JSONObject, automatic: Boolean) {
+    /** Sélection de formulaire : le callback ne sauvegarde rien dans gps_settings. */
+    internal fun selectDraftPoint(title: String, latitude: Double?, longitude: Double?,
+                                  onChosen: (Double, Double) -> Unit) {
+        val specified = latitude != null && latitude.isFinite() && latitude in -90.0..90.0 &&
+            longitude != null && longitude.isFinite() && longitude in -180.0..180.0
+        val draft = JSONObject().put("id", UUID.randomUUID().toString()).put("address", title)
+            .put("latitude", if (specified) latitude else 46.603354)
+            .put("longitude", if (specified) longitude else 1.888334)
+            .put("pointSource", "provisional").put("draftPointSpecified", specified)
+        showMapPicker(draft, automatic = false, pointConsumer = onChosen)
+    }
+
+    private fun showMapPicker(requestedZone: JSONObject, automatic: Boolean,
+                              pointConsumer: ((Double, Double) -> Unit)? = null) {
         val snapshot = GpsZoneEditorStoreV2.read(prefs)
         if (snapshot == null) {
             Toast.makeText(context, "Configuration GPS à vérifier : aucun point ne peut être enregistré", Toast.LENGTH_LONG).show()
             return
         }
-        val known = snapshot.zones.singleOrNull { it.id == requestedZone.optString("id").trim() && !it.isGpsCandidate() }
+        val known = if (pointConsumer == null) snapshot.zones.singleOrNull {
+            it.id == requestedZone.optString("id").trim() && !it.isGpsCandidate()
+        } else null
         val zone = known?.let { JSONObject(it.sourceJson) } ?: requestedZone
         val address = zone.optString("address").trim()
         if (address.isBlank()) return
-        val creating = known == null && zone.optString("pointSource") == "provisional" &&
-            snapshot.groups().any { it.legacyOnly && it.address.equals(address, ignoreCase = true) }
+        val creating = pointConsumer != null || (known == null && zone.optString("pointSource") == "provisional" &&
+            snapshot.groups().any { it.legacyOnly && it.address.equals(address, ignoreCase = true) })
         if (known == null && !creating) {
             Toast.makeText(context, "Cette zone a changé ou a été supprimée. Rouvre sa fiche.", Toast.LENGTH_LONG).show()
             return
         }
-        var pointChosen = !creating
+        var pointChosen = !creating || (pointConsumer != null && zone.optBoolean("draftPointSpecified", false))
         val zoneId = zone.optString("id").trim()
-        val customPoint = pointOverrideFor(zoneId, address)
+        val customPoint = if (pointConsumer == null) pointOverrideFor(zoneId, address) else null
         val savedLat = customPoint?.optDouble("latitude", Double.NaN)?.takeIf { it.isFinite() }
             ?: zone.optDouble("latitude", Double.NaN)
         val savedLon = customPoint?.optDouble("longitude", Double.NaN)?.takeIf { it.isFinite() }
@@ -390,7 +406,9 @@ class GpsPointPickerView @JvmOverloads constructor(
             this.text = if (automatic)
                 "Place le repère au centre réel de ta zone de travail. Tu peux déplacer la carte, zoomer et déplacer le repère."
             else "Déplace le repère sur le centre réel de la zone GPS. L'adresse postale ne changera pas."
-            if (creating) this.text = "Choisis explicitement le point sur la carte. Nouvelle zone sans association automatique, rôle à confirmer. Rayon : ${zone.optInt("radius", 150)} m."
+            if (creating) this.text = if (pointConsumer != null)
+                "Choisis le centre de cette zone. La carte remplit seulement le formulaire ; rien n'est enregistré avant sa validation."
+                else "Choisis explicitement le point sur la carte. Nouvelle zone sans association automatique, rôle à confirmer. Rayon : ${zone.optInt("radius", 150)} m."
             textSize = 14f
             setTextColor(text)
             setPadding(0, 0, 0, dp(10))
@@ -497,14 +515,21 @@ class GpsPointPickerView @JvmOverloads constructor(
             val width = (resources.displayMetrics.widthPixels * .95f).toInt()
             dialog.window?.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
-        dialog.setOnDismissListener { webView.destroy() }
+        dialog.setOnDismissListener {
+            if (activeMapDialog === dialog) activeMapDialog = null
+            webView.removeJavascriptInterface("Android")
+            webView.destroy()
+        }
 
         save.setOnClickListener {
             if (!pointChosen) {
                 Toast.makeText(context, "Choisis le centre réel en touchant la carte ou avec Ma position", Toast.LENGTH_LONG).show()
                 return@setOnClickListener
             }
-            if (savePoint(snapshot, zone, selectedLat, selectedLon, "map", creating)) dialog.dismiss()
+            if (pointConsumer != null) {
+                pointConsumer(selectedLat, selectedLon)
+                dialog.dismiss()
+            } else if (savePoint(snapshot, zone, selectedLat, selectedLon, "map", creating)) dialog.dismiss()
         }
         later.setOnClickListener {
             if (automatic && GpsZoneEditorStoreV2.read(prefs)?.values == snapshot.values &&
@@ -513,56 +538,8 @@ class GpsPointPickerView @JvmOverloads constructor(
             }
             dialog.dismiss()
         }
-        dialog.show()
-    }
-
-    private fun showCoordinateEntry(zone: JSONObject) {
-        val snapshot = GpsZoneEditorStoreV2.read(prefs) ?: return
-        val dark = AppThemeCatalog.useDarkPalette(context)
-        val theme = AppThemeCatalog.current(context)
-        val panel = if (dark) theme.darkPanel else theme.lightPanel
-        val text = if (dark) theme.darkText else theme.lightText
-        val hint = if (dark) theme.darkHint else theme.lightHint
-        val accent = if (dark) theme.accentLight else theme.accent
-
-        val latInput = EditText(context).apply {
-            this.hint = "Latitude"
-            setText(zone.optDouble("latitude", 0.0).toString())
-            setTextColor(text)
-            setHintTextColor(hint)
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
-        }
-        val lonInput = EditText(context).apply {
-            this.hint = "Longitude"
-            setText(zone.optDouble("longitude", 0.0).toString())
-            setTextColor(text)
-            setHintTextColor(hint)
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
-        }
-        val box = LinearLayout(context).apply {
-            orientation = VERTICAL
-            setPadding(dp(20), dp(8), dp(20), 0)
-            setBackgroundColor(panel)
-            addView(latInput)
-            addView(lonInput)
-        }
-        val dialog = AlertDialog.Builder(context)
-            .setTitle("Coordonnées précises")
-            .setView(box)
-            .setPositiveButton("Enregistrer") { _, _ ->
-                val lat = latInput.text.toString().replace(',', '.').toDoubleOrNull()
-                val lon = lonInput.text.toString().replace(',', '.').toDoubleOrNull()
-                if (lat == null || lon == null || lat !in -90.0..90.0 || lon !in -180.0..180.0) {
-                    Toast.makeText(context, "Coordonnées invalides", Toast.LENGTH_LONG).show()
-                } else savePoint(snapshot, zone, lat, lon, "manual_coordinates", false)
-            }
-            .setNegativeButton("Annuler", null)
-            .create()
-        dialog.setOnShowListener {
-            dialog.window?.setBackgroundDrawable(rounded(panel, 18, accent))
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(accent)
-            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(accent)
-        }
+        activeMapDialog?.dismiss()
+        activeMapDialog = dialog
         dialog.show()
     }
 

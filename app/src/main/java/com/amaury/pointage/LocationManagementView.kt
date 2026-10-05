@@ -150,6 +150,15 @@ class LocationManagementView @JvmOverloads constructor(
             if (location == null) notice("Position précise récente indisponible. Les coordonnées restent inchangées.")
             else { lat.setText(location.latitude.toString()); lon.setText(location.longitude.toString()) }
         })
+        content.addView(action("Choisir le centre sur la carte") {
+            val picker = rootView.findViewById<GpsPointPickerView>(R.id.gpsPointPickerView)
+            if (picker == null) notice("Carte indisponible ici. Saisis les coordonnées ou utilise Ma position.")
+            else picker.selectDraftPoint("${name.text.toString().ifBlank { "Nouvelle zone" }} — ${group.address}",
+                lat.text.toString().replace(',', '.').toDoubleOrNull(),
+                lon.text.toString().replace(',', '.').toDoubleOrNull()) { latitude, longitude ->
+                    lat.setText(latitude.toString()); lon.setText(longitude.toString())
+                }
+        })
         content.addView(text("Rôle de la zone"))
         val roles = GpsZoneRoleV2.values()
         val role = Spinner(context).apply {

@@ -12,19 +12,13 @@ import android.os.Looper
 import android.text.InputType
 import android.util.AttributeSet
 import android.view.View
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RadioGroup
-import android.widget.Switch
-import android.widget.TextView
-import android.widget.Toast
+import android.view.ViewGroup
+import android.widget.*
 import com.amaury.pointage.v2.HoraTrackV2
-import org.json.JSONObject
 import java.util.Locale
 import java.util.UUID
 
+/** Création du premier point d'un lieu ; l'association ne dépend jamais de l'adresse seule. */
 class AddAddressButton @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : Button(context, attrs) {
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -32,62 +26,47 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
     }
 
     private fun showAddressDialog() {
-        val addressList = rootView.findViewById<EditText>(R.id.workplaceAddress)
-        val existing = addressList.text.toString().lines().map { it.trim() }.filter { it.isNotBlank() }
-        if (existing.size >= 10) {
-            Toast.makeText(context, "10 adresses maximum", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        val density = resources.displayMetrics.density
-        fun dp(value: Int) = (value * density).toInt()
+        val gpsPrefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        fun notice(message: String) = Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+        val initial = GpsZoneEditorStoreV2.read(gpsPrefs)
+        if (initial == null) { notice("Configuration GPS à vérifier : aucun lieu ne sera ajouté"); return }
+        if (initial.zones.size >= 10) { notice("10 zones GPS maximum. Modifie ou retire une zone existante avant d'en ajouter."); return }
+        fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), 0)
+            setPadding(dp(20), dp(8), dp(20), dp(16))
         }
-
+        fun label(value: String) = TextView(context).apply { text = value; textSize = 14f; setPadding(0, dp(6), 0, dp(4)) }
+        fun field(hint: String, type: Int = InputType.TYPE_CLASS_TEXT): EditText = EditText(context).apply {
+            this.hint = hint; inputType = type; isSingleLine = true; minHeight = dp(48)
+        }
         val useV2EmployerBinding = HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)
-        val companyLabel = TextView(context).apply {
-            text = "Entreprise associée"
-            textSize = 14f
-            setPadding(0, dp(6), 0, dp(4))
-        }
         val companyGroup = RadioGroup(context).apply { orientation = RadioGroup.VERTICAL }
         val companyByButtonId = linkedMapOf<Int, String?>()
         val legacySlotByButtonId = linkedMapOf<Int, Int>()
         val companyDisplayByButtonId = linkedMapOf<Int, String>()
-
         if (useV2EmployerBinding) {
             val none = RadioButton(context).apply {
-                id = View.generateViewId()
+                id = View.generateViewId(); minHeight = dp(48); textSize = 15f
                 text = "Aucune association automatique — garder l'entreprise choisie au pointage"
-                textSize = 15f
             }
             companyGroup.addView(none)
             companyByButtonId[none.id] = null
             companyDisplayByButtonId[none.id] = "sans association automatique"
-
             val stored = SalaryCompanyStore.readConfirmed(context)
             if (!stored.reliable) {
-                container.addView(TextView(context).apply {
-                    text = "Entreprises V2 à vérifier : ce lieu peut être enregistré sans association automatique."
-                    textSize = 13f
-                    setPadding(0, 0, 0, dp(4))
-                })
-            } else {
-                stored.companies.forEach { company ->
-                    val button = RadioButton(context).apply {
-                        id = View.generateViewId()
-                        text = buildString {
-                            append(company.name.ifBlank { "Entreprise" })
-                            if (company.siret.isNotBlank()) append(" — SIRET ${company.siret}")
-                        }
-                        textSize = 15f
+                container.addView(label("Entreprises V2 à vérifier : ce lieu peut être enregistré sans association automatique."))
+            } else stored.companies.forEach { company ->
+                val button = RadioButton(context).apply {
+                    id = View.generateViewId(); minHeight = dp(48); textSize = 15f
+                    text = buildString {
+                        append(company.name.ifBlank { "Entreprise" })
+                        if (company.siret.isNotBlank()) append(" — SIRET ${company.siret}")
                     }
-                    companyGroup.addView(button)
-                    companyByButtonId[button.id] = company.id
-                    companyDisplayByButtonId[button.id] = company.name.ifBlank { "Entreprise" }
                 }
+                companyGroup.addView(button)
+                companyByButtonId[button.id] = company.id
+                companyDisplayByButtonId[button.id] = company.name.ifBlank { "Entreprise" }
             }
         } else {
             val salaryPrefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
@@ -95,209 +74,160 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
             val company2Name = salaryPrefs.getString("company2_name", "").orEmpty().ifBlank { "Entreprise 2" }
             listOf(1 to company1Name, 2 to company2Name).forEach { (slot, name) ->
                 val button = RadioButton(context).apply {
-                    id = View.generateViewId()
-                    text = "Entreprise $slot — $name"
-                    textSize = 15f
+                    id = View.generateViewId(); text = "Entreprise $slot — $name"; minHeight = dp(48); textSize = 15f
                 }
                 companyGroup.addView(button)
                 legacySlotByButtonId[button.id] = slot
                 companyDisplayByButtonId[button.id] = name
             }
         }
-
-        val placeName = EditText(context).apply {
-            hint = "Nom du lieu / client"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
-            isSingleLine = true
+        val placeName = field("Nom du lieu / client", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS)
+        val contactName = field("Nom du contact", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS)
+        val phone = field("Téléphone du contact", InputType.TYPE_CLASS_PHONE)
+        val notifyOnArrival = Switch(context).apply { text = "Proposer de prévenir ce contact à l'arrivée"; minHeight = dp(48) }
+        val street = field("N° et rue — ex. 12 rue des Lilas", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_POSTAL_ADDRESS)
+        val postalCode = field("Code postal — ex. 50400", InputType.TYPE_CLASS_NUMBER)
+        val city = field("Ville — ex. Granville", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS)
+        val decimalType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+        val latitude = field("Latitude (facultative avant recherche de l'adresse)", decimalType)
+        val longitude = field("Longitude (facultative avant recherche de l'adresse)", decimalType)
+        val radius = field("Rayon GPS, en mètres (50–1 000)", decimalType).apply {
+            val prior = (gpsPrefs.all["radius"] as? Number)?.toDouble()?.takeIf { it.isFinite() && it in 50.0..1000.0 }
+            setText((prior ?: 150.0).toString())
         }
-        val contactName = EditText(context).apply {
-            hint = "Nom du contact"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
-            isSingleLine = true
+        val roles = GpsZoneRoleV2.values()
+        val role = Spinner(context).apply {
+            adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, roles.map { it.title })
+            setSelection(roles.indexOf(GpsZoneRoleV2.OTHER))
         }
-        val phone = EditText(context).apply {
-            hint = "Téléphone du contact"
-            inputType = InputType.TYPE_CLASS_PHONE
-            isSingleLine = true
+        var selectedMapPoint: Pair<Double, Double>? = null
+        val mapButton = Button(context).apply {
+            text = "Choisir le centre sur la carte"; isAllCaps = false; minHeight = dp(48)
+            setOnClickListener {
+                val picker = rootView.findViewById<GpsPointPickerView>(R.id.gpsPointPickerView)
+                if (picker == null) notice("Carte indisponible ici. Saisis les coordonnées ou utilise la recherche d'adresse.")
+                else picker.selectDraftPoint(placeName.text.toString().trim().ifBlank { "Nouveau lieu" },
+                    latitude.text.toString().replace(',', '.').toDoubleOrNull(),
+                    longitude.text.toString().replace(',', '.').toDoubleOrNull()) { lat, lon ->
+                        selectedMapPoint = lat to lon
+                        latitude.setText(lat.toString()); longitude.setText(lon.toString())
+                    }
+            }
         }
-        val notifyOnArrival = Switch(context).apply { text = "Proposer de prévenir ce contact à l'arrivée" }
-        val street = EditText(context).apply {
-            hint = "N° et rue — ex. 12 rue des Lilas"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_POSTAL_ADDRESS
-            isSingleLine = true
+        listOf(label("Entreprise associée"), companyGroup, placeName, contactName, phone, notifyOnArrival,
+            street, postalCode, city, label("Rôle de la première zone"), role,
+            label("Chaque lieu peut ensuite contenir plusieurs zones. Une pause GPS ne décide pas de sa rémunération."),
+            radius, label("Centre GPS : carte, coordonnées ou recherche de l'adresse"), latitude, longitude, mapButton)
+            .forEach(container::addView)
+        val dialog = AlertDialog.Builder(context).setTitle("Ajouter un lieu et sa première zone")
+            .setView(ScrollView(context).apply { addView(container) })
+            .setNegativeButton("Annuler", null).setPositiveButton("Ajouter", null).create()
+        val generatedId = UUID.randomUUID().toString()
+        fun setControls(view: View, enabled: Boolean) {
+            view.isEnabled = enabled
+            if (view is ViewGroup) for (i in 0 until view.childCount) setControls(view.getChildAt(i), enabled)
         }
-        val postalCode = EditText(context).apply {
-            hint = "Code postal — ex. 50400"
-            inputType = InputType.TYPE_CLASS_NUMBER
-            isSingleLine = true
+        fun busy(value: Boolean) {
+            setControls(container, !value)
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).apply {
+                isEnabled = !value; text = if (value) "LOCALISATION…" else "Ajouter"
+            }
         }
-        val city = EditText(context).apply {
-            hint = "Ville — ex. Granville"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
-            isSingleLine = true
-        }
-
-        listOf(companyLabel, companyGroup, placeName, contactName, phone, notifyOnArrival, street, postalCode, city)
-            .forEach { container.addView(it) }
-
-        val dialog = AlertDialog.Builder(context)
-            .setTitle("Ajouter un lieu de travail")
-            .setView(container)
-            .setNegativeButton("Annuler", null)
-            .setPositiveButton("Ajouter", null)
-            .create()
-
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val nameValue = placeName.text.toString().trim()
-                val contactValue = contactName.text.toString().trim()
-                val phoneValue = phone.text.toString().trim()
-                val streetValue = street.text.toString().trim()
-                val postalValue = postalCode.text.toString().trim()
-                val cityValue = city.text.toString().trim()
-                val checkedCompanyButtonId = companyGroup.checkedRadioButtonId
-
-                if (checkedCompanyButtonId == -1 ||
-                    (useV2EmployerBinding && !companyByButtonId.containsKey(checkedCompanyButtonId)) ||
-                    (!useV2EmployerBinding && !legacySlotByButtonId.containsKey(checkedCompanyButtonId))
-                ) {
-                    Toast.makeText(
-                        context,
-                        if (useV2EmployerBinding) "Choisis une entreprise ou Aucune association automatique" else "Choisis Entreprise 1 ou Entreprise 2",
-                        Toast.LENGTH_LONG
-                    ).show()
+                val selected = companyGroup.checkedRadioButtonId
+                if (selected == -1 || (useV2EmployerBinding && !companyByButtonId.containsKey(selected)) ||
+                    (!useV2EmployerBinding && !legacySlotByButtonId.containsKey(selected))) {
+                    notice(if (useV2EmployerBinding) "Choisis une entreprise ou Aucune association automatique" else "Choisis Entreprise 1 ou Entreprise 2")
                     return@setOnClickListener
                 }
-                val selectedCompanyId = companyByButtonId[checkedCompanyButtonId]
-                val legacyCompanySlot = legacySlotByButtonId[checkedCompanyButtonId]
-                val selectedCompanyLabel = companyDisplayByButtonId[checkedCompanyButtonId] ?: "sans association automatique"
-
-                if (nameValue.isBlank()) {
-                    placeName.error = "Donne un nom à ce lieu"
+                val companyId = companyByButtonId[selected]
+                val companySlot = legacySlotByButtonId[selected]
+                val companyName = companyDisplayByButtonId[selected] ?: "sans association automatique"
+                val name = placeName.text.toString().trim()
+                val road = street.text.toString().trim()
+                val postal = postalCode.text.toString().trim()
+                val town = city.text.toString().trim()
+                if (name.isBlank()) { placeName.error = "Donne un nom à ce lieu"; return@setOnClickListener }
+                if (road.isBlank()) { street.error = "Indique le numéro et la rue"; return@setOnClickListener }
+                if (postal.isBlank() && town.isBlank()) { city.error = "Indique la ville ou le code postal"; return@setOnClickListener }
+                val locality = listOf(postal, town).filter(String::isNotBlank).joinToString(" ")
+                val address = listOf(road, locality).joinToString(", ")
+                val draft = GpsZoneDraftV2(name, Double.NaN, Double.NaN,
+                    radius.text.toString().replace(',', '.').toDoubleOrNull() ?: Double.NaN,
+                    roles[role.selectedItemPosition], contactName.text.toString().trim(), phone.text.toString().trim(), notifyOnArrival.isChecked)
+                if (!draft.radius.isFinite() || draft.radius !in 50.0..1000.0) {
+                    notice("Rayon attendu : de 50 à 1 000 mètres"); return@setOnClickListener
+                }
+                if (draft.notifyOnArrival && draft.phone.isBlank()) {
+                    phone.error = "Ajoute un numéro pour prévenir à l'arrivée"; return@setOnClickListener
+                }
+                val snapshot = GpsZoneEditorStoreV2.read(gpsPrefs)
+                if (snapshot == null) { notice("Configuration GPS à vérifier : aucun lieu ajouté"); return@setOnClickListener }
+                val latText = latitude.text.toString().trim()
+                val lonText = longitude.text.toString().trim()
+                val typedLat = latText.replace(',', '.').toDoubleOrNull()
+                val typedLon = lonText.replace(',', '.').toDoubleOrNull()
+                val hasCoordinates = latText.isNotBlank() || lonText.isNotBlank()
+                if (hasCoordinates && (typedLat == null || typedLon == null ||
+                    !typedLat.isFinite() || typedLat !in -90.0..90.0 || !typedLon.isFinite() || typedLon !in -180.0..180.0)) {
+                    notice("Renseigne deux coordonnées valides, ou laisse les deux champs vides pour rechercher l'adresse.")
                     return@setOnClickListener
                 }
-                if (streetValue.isBlank()) {
-                    street.error = "Indique le numéro et la rue"
-                    return@setOnClickListener
-                }
-                if (postalValue.isBlank() && cityValue.isBlank()) {
-                    city.error = "Indique la ville ou le code postal"
-                    return@setOnClickListener
-                }
-                if (notifyOnArrival.isChecked && phoneValue.isBlank()) {
-                    phone.error = "Ajoute un numéro pour prévenir à l'arrivée"
-                    return@setOnClickListener
-                }
-
-                val locality = listOf(postalValue, cityValue).filter { it.isNotBlank() }.joinToString(" ")
-                val formatted = listOf(streetValue, locality).filter { it.isNotBlank() }.joinToString(", ")
-                val duplicate = existing.any { it.equals(formatted, ignoreCase = true) }
-                if (duplicate) {
-                    Toast.makeText(context, "Ce lieu est déjà enregistré", Toast.LENGTH_LONG).show()
-                    return@setOnClickListener
-                }
-                val positiveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-                positiveButton.isEnabled = false
-                positiveButton.text = "LOCALISATION…"
-                val notifyOnArrivalValue = notifyOnArrival.isChecked
-                val appContext = context.applicationContext
-
-                // Le géocodage peut interroger un service distant et ne doit jamais bloquer l'écran.
-                Thread {
-                    val geocoded = runCatching {
-                        Geocoder(appContext, Locale.FRANCE).getFromLocationName(formatted, 1)?.firstOrNull()
-                    }.getOrNull()
-
-                    Handler(Looper.getMainLooper()).post finishGeocoding@{
-                        if (!dialog.isShowing || !isAttachedToWindow) return@finishGeocoding
-
-                        val latestAddresses = addressList.text.toString().lines()
-                            .map { it.trim() }
-                            .filter { it.isNotBlank() }
-                        if (latestAddresses.any { it.equals(formatted, ignoreCase = true) }) {
-                            positiveButton.isEnabled = true
-                            positiveButton.text = "Ajouter"
-                            Toast.makeText(context, "Ce lieu est déjà enregistré", Toast.LENGTH_LONG).show()
-                            return@finishGeocoding
-                        }
-                        val gpsPrefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
-                        val zones = readPersistedGpsZones(gpsPrefs).toMutableJsonArrayOrNull()
-                        if (zones == null) {
-                            GeofenceManager.reconfigureStoredZones(context)
-                            positiveButton.isEnabled = true
-                            positiveButton.text = "Ajouter"
-                            Toast.makeText(context, "Configuration GPS illisible : le lieu n'a pas été ajouté", Toast.LENGTH_LONG).show()
-                            return@finishGeocoding
-                        }
-                        val updated = (latestAddresses + formatted).distinctBy { it.lowercase() }.take(10)
-                        addressList.setText(updated.joinToString("\n"))
-
-
-                        val contacts = runCatching {
-                            JSONObject(gpsPrefs.getString("arrival_contacts", "{}") ?: "{}")
-                        }.getOrElse { JSONObject() }
-                        val newZoneId = if (geocoded != null) UUID.randomUUID().toString() else null
-                        val arrivalContact = JSONObject()
-                            .put("contactName", contactValue)
-                            .put("phone", phoneValue)
-                            .put("enabled", notifyOnArrivalValue)
-                        if (!putGpsZoneScopedObject(contacts, newZoneId, formatted, arrivalContact)) {
-                            contacts.put(formatted, arrivalContact)
-                        }
-
-                        val companyMap = runCatching {
-                            JSONObject(gpsPrefs.getString("address_company_slots", "{}") ?: "{}")
-                        }.getOrElse { JSONObject() }
-                        if (!useV2EmployerBinding && legacyCompanySlot != null) {
-                            companyMap.put(formatted, legacyCompanySlot)
-                        }
-
-                        if (geocoded != null) {
-                            val zone = JSONObject()
-                                .put("id", requireNotNull(newZoneId))
-                                .put("address", formatted)
-                                .put("label", nameValue)
-                                .put("latitude", geocoded.latitude)
-                                .put("longitude", geocoded.longitude)
-                                .put("radius", gpsPrefs.getInt("radius", 150).coerceIn(50, 1000))
-                                .put("pointType", "POSTE")
-                                .put("pointSource", "geocoder")
-                            selectedCompanyId?.let { zone.put("companyId", it) }
-                            if (!useV2EmployerBinding && legacyCompanySlot != null) zone.put("companySlot", legacyCompanySlot)
-                            zones.put(zone)
-                        }
-
-                        val editor = gpsPrefs.edit()
-                            .putString("address", updated.joinToString("\n"))
-                            .putString("arrival_contacts", contacts.toString())
-                            .putString("zones", zones.toString())
-                            .remove("active_zones")
-                            .remove("entry_resolution_pending")
-                            .remove("entry_resolution_token")
-                            .remove("pending_exit_zones")
-                            .putString("pending_point_address", formatted)
-                        if (!useV2EmployerBinding) editor.putString("address_company_slots", companyMap.toString())
-                        editor.apply()
-                        if (geocoded == null) {
-                            PlaceNames.put(context, formatted, nameValue)
-                        }
-                        GeofenceManager.reconfigureStoredZones(context)
-
-                        if (notifyOnArrivalValue && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                        ) {
-                            (context as? Activity)?.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1102)
-                        }
-
-                        rootView.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
-                        val message = if (geocoded != null)
-                            "$nameValue ajouté — $selectedCompanyLabel — la carte va s'ouvrir sur l'adresse"
-                        else
-                            "$nameValue ajouté — $selectedCompanyLabel — adresse introuvable automatiquement, place le point manuellement"
-                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-                        dialog.dismiss()
+                fun finish(lat: Double?, lon: Double?, source: String) {
+                    if (!dialog.isShowing || !isAttachedToWindow) return
+                    busy(false)
+                    if (lat == null || lon == null || !lat.isFinite() || lat !in -90.0..90.0 || !lon.isFinite() || lon !in -180.0..180.0) {
+                        notice("Adresse introuvable automatiquement. Choisis un point sur la carte ou saisis ses coordonnées ; ton formulaire et l'entreprise choisie sont conservés.")
+                        return
                     }
-                }.start()
+                    if (companyId != null) {
+                        val currentCompanies = SalaryCompanyStore.readConfirmed(context)
+                        if (!currentCompanies.reliable || currentCompanies.companies.none { it.id == companyId }) {
+                            notice("L'entreprise choisie n'est plus confirmée. Aucune nouvelle zone enregistrée."); return
+                        }
+                    }
+                    val change = GpsZoneEditorStoreV2.addPlace(snapshot, address, companyId, companySlot,
+                        generatedId, draft.copy(latitude = lat, longitude = lon), 10, source)
+                    if (change == null) {
+                        notice("Lieu déjà présent pour cette entreprise, ancien lien ambigu, données invalides ou limite de 10 zones atteinte."); return
+                    }
+                    if (!GpsZoneEditorStoreV2.commit(gpsPrefs, change)) {
+                        notice("Configuration modifiée pendant la saisie ou écriture non confirmée. Vérifie les lieux avant de réessayer."); return
+                    }
+                    GpsZoneEditorStoreV2.read(gpsPrefs)?.let { saved ->
+                        rootView.findViewById<EditText>(R.id.workplaceAddress)?.setText(saved.addresses().joinToString("\n"))
+                    }
+                    rootView.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
+                    PointageWidgetProvider.updateAll(context)
+                    QuickActionsWidgetProvider.updateAll(context)
+                    GeofenceManager.reconfigureStoredZones(context) { success, detail ->
+                        post { notice(if (success) "$name ajouté — $companyName" else "$name enregistré — $companyName. $detail") }
+                    }
+                    if (draft.notifyOnArrival && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                        (context as? Activity)?.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1102)
+                    }
+                    dialog.dismiss()
+                    if (source == "geocoder") post {
+                        rootView.findViewById<GpsPointPickerView>(R.id.gpsPointPickerView)?.adjustZone(generatedId)
+                    }
+                }
+                if (hasCoordinates) {
+                    val source = if (selectedMapPoint == (typedLat to typedLon)) "map" else "manual_coordinates"
+                    finish(typedLat, typedLon, source)
+                } else {
+                    busy(true)
+                    val app = context.applicationContext
+                    // Une adresse non résolue n'est jamais transformée en zone sans propriétaire.
+                    Thread {
+                        val found = runCatching {
+                            Geocoder(app, Locale.FRANCE).getFromLocationName(address, 1)
+                                ?.firstOrNull { it.hasLatitude() && it.hasLongitude() }
+                        }.getOrNull()
+                        Handler(Looper.getMainLooper()).post { finish(found?.latitude, found?.longitude, "geocoder") }
+                    }.start()
+                }
             }
         }
         dialog.show()

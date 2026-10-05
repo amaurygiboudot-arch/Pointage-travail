@@ -102,6 +102,31 @@ internal object GpsZoneEditorStoreV2 {
         }
     }
 
+    /**
+     * L'ancien lien adresse -> slot doit rester porté par les anciennes zones, jamais par
+     * une nouvelle zone dont l'utilisateur a explicitement choisi l'absence d'association.
+     * Une collision de clé avec un ID ou des variantes contradictoires bloque l'opération.
+     */
+    private fun preserveLegacyCompanyLinksBeforeUnboundAddition(
+        snapshot: Snapshot, zones: List<JSONObject>, values: MutableMap<String, String?>,
+        address: String
+    ): Boolean {
+        val map = JSONObject(values["address_company_slots"] ?: "{}")
+        val aliases = map.keys().asSequence().filter { it.equals(address.trim(), ignoreCase = true) }.toList()
+        if (aliases.isEmpty()) return true
+        val slots = aliases.map { map.getInt(it) }.distinct()
+        if (slots.size != 1 || aliases.any { key -> snapshot.zones.any { it.id.equals(key, ignoreCase = true) } }) return false
+        snapshot.zones.filter {
+            it.address?.equals(address.trim(), ignoreCase = true) == true &&
+                it.companyId == null && it.companySlot == null
+        }.forEach { old ->
+            zones.single { it.optString("id").trim() == old.id }.put("companySlot", slots.single())
+        }
+        aliases.forEach(map::remove)
+        values["address_company_slots"] = map.toString()
+        return true
+    }
+
     fun saveZone(snapshot: Snapshot, group: GpsPlaceGroup, zoneId: String?, newZoneId: String,
                  draft: GpsZoneDraftV2, maximumZones: Int, pointSource: String = "manual_coordinates"): Change? {
         if (draft.error() != null || pointSource !in setOf("manual_coordinates", "map")) return null
@@ -116,6 +141,8 @@ internal object GpsZoneEditorStoreV2 {
         val zones = snapshot.zones.map { JSONObject(it.sourceJson) }.toMutableList()
         val values = snapshot.values.toMutableMap()
         preserveAddressMetadata(snapshot, zones, values, members.map { it.id }.toSet())
+        if (existing == null && group.companyId == null &&
+            !preserveLegacyCompanyLinksBeforeUnboundAddition(snapshot, zones, values, group.address)) return null
         val target = if (existing != null) zones.single { it.getString("id").trim() == id } else {
             JSONObject().put("id", id).put("address", group.address)
                 .apply { group.companyId?.let { put("companyId", it) } }
@@ -133,6 +160,51 @@ internal object GpsZoneEditorStoreV2 {
         overrides.put(id, JSONObject().put("latitude", draft.latitude).put("longitude", draft.longitude).put("source", pointSource))
         values["zone_point_overrides"] = overrides.toString()
         values["zone_point_confirmed"] = JSONObject(values["zone_point_confirmed"] ?: "{}").put(id, true).toString()
+        return finish(snapshot, zones, values)
+    }
+
+    /** Crée le premier point d'un lieu, sans confondre une adresse partagée avec une identité. */
+    fun addPlace(snapshot: Snapshot, address: String, companyId: String?, companySlot: Int?,
+                 newZoneId: String, draft: GpsZoneDraftV2, maximumZones: Int,
+                 pointSource: String): Change? {
+        val cleanAddress = address.trim()
+        val id = newZoneId.trim()
+        if (cleanAddress.isBlank() || id.isBlank() || draft.error() != null ||
+            pointSource !in setOf("geocoder", "map", "manual_coordinates")) return null
+        if (companyId != null && companyId.trim().isEmpty()) return null
+        if (companySlot != null && (companySlot !in 1..2 || companyId != null)) return null
+        val scope = GpsPlaceScopeV2.of(companyId, companySlot, cleanAddress)
+        if (snapshot.zones.size >= maximumZones || snapshot.zones.any { it.id == id } ||
+            objectKeys.any { snapshot.json(it).has(id) }) return null
+        val zones = snapshot.zones.map { JSONObject(it.sourceJson) }.toMutableList()
+        val values = snapshot.values.toMutableMap()
+        // Une ancienne métadonnée d'adresse reste attachée à son premier propriétaire,
+        // même quand une autre entreprise ajoute maintenant une zone à cette adresse.
+        val previousIds = snapshot.zones.filter {
+            it.address?.equals(cleanAddress, ignoreCase = true) == true
+        }.map { it.id }.toSet()
+        preserveAddressMetadata(snapshot, zones, values, previousIds)
+        if (scope.companyId == null && scope.companySlot == null &&
+            !preserveLegacyCompanyLinksBeforeUnboundAddition(snapshot, zones, values, cleanAddress)) return null
+        val projected = parsePersistedGpsZones(JSONArray().apply { zones.forEach { put(it) } }.toString())
+        val existingGroups = groupGpsZonesByPlace(projected, snapshot.addresses()) ?: return null
+        if (existingGroups.any { it.scope() == scope && it.zones.isNotEmpty() }) return null
+        zones += JSONObject().put("id", id).put("address", cleanAddress)
+            .put("label", draft.label.trim()).put("latitude", draft.latitude).put("longitude", draft.longitude)
+            .put("radius", draft.radius).put("pointType", draft.role.token).put("pointSource", pointSource)
+            .apply {
+                scope.companyId?.let { put("companyId", it) }
+                scope.companySlot?.let { put("companySlot", it) }
+            }
+        values["arrival_contacts"] = JSONObject(values["arrival_contacts"] ?: "{}")
+            .put(id, JSONObject().put("contactName", draft.contactName.trim()).put("phone", draft.phone.trim())
+                .put("enabled", draft.notifyOnArrival)).toString()
+        val confirmed = pointSource != "geocoder"
+        values["zone_point_confirmed"] = JSONObject(values["zone_point_confirmed"] ?: "{}").put(id, confirmed).toString()
+        if (confirmed) values["zone_point_overrides"] = JSONObject(values["zone_point_overrides"] ?: "{}")
+            .put(id, JSONObject().put("latitude", draft.latitude).put("longitude", draft.longitude).put("source", pointSource)).toString()
+        values["address"] = (snapshot.addresses() + cleanAddress)
+            .distinctBy { it.lowercase(Locale.ROOT) }.joinToString("\n")
         return finish(snapshot, zones, values)
     }
 
