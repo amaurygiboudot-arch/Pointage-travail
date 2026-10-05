@@ -98,6 +98,7 @@ class LocationManagementView @JvmOverloads constructor(
                     val roleParts = buildList {
                         if (roles.workZones > 0) add("${roles.workZones} travail")
                         if (roles.parkingZones > 0) add("${roles.parkingZones} parking")
+                        if (roles.pauseZones > 0) add("${roles.pauseZones} pause")
                         if (roles.otherZones > 0) add("${roles.otherZones} autre")
                     }
                     "${group.zones.size} zone${if (group.zones.size > 1) "s" else ""} GPS • ${roleParts.joinToString(" / ")}"
