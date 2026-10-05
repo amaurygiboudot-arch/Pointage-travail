@@ -79,6 +79,14 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         manager.accuracyAuthorization == .fullAccuracy
     }
 
+    var automaticWorkZones: [GpsZoneV2] {
+        GpsZoneConfigurationV2.automaticZones(zones)
+    }
+
+    var hasAutomaticWorkZone: Bool {
+        !automaticWorkZones.isEmpty
+    }
+
     deinit {
         refreshTimer?.invalidate()
         motionManager.stopDeviceMotionUpdates()
@@ -149,8 +157,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     func requestAlways() {
-        guard automaticEnabled, configurationReliable, !zones.isEmpty else {
-            statusMessage = "Active le pointage GPS et ajoute une zone avant cette autorisation"
+        guard automaticEnabled, configurationReliable, hasAutomaticWorkZone else {
+            statusMessage = "Active le pointage GPS et ajoute une zone Travail avant cette autorisation"
             return
         }
         switch manager.authorizationStatus {
@@ -176,7 +184,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     func addZoneAtCurrentLocation(
         label: String,
         radius: Double,
-        employerId: String?
+        employerId: String?,
+        kind: GpsZoneKindV2
     ) -> Bool {
         let cleanLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
         guard configurationReliable,
@@ -198,9 +207,50 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             longitude: location.coordinate.longitude,
             radius: radius,
             employerId: employerId,
-            kind: .worksite
+            kind: kind
         )
         return persistZones(zones + [zone])
+    }
+
+    @discardableResult
+    func updateZone(
+        id: UUID,
+        label: String,
+        radius: Double,
+        employerId: String?,
+        kind: GpsZoneKindV2,
+        moveToCurrentLocation: Bool
+    ) -> Bool {
+        let cleanLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard configurationReliable,
+              !cleanLabel.isEmpty,
+              radius.isFinite,
+              (50 ... 1_000).contains(radius),
+              let index = zones.firstIndex(where: { $0.id == id }) else {
+            return false
+        }
+
+        var updated = zones
+        var zone = updated[index]
+        if moveToCurrentLocation {
+            guard let location,
+                  Date().timeIntervalSince(location.timestamp) >= 0,
+                  Date().timeIntervalSince(location.timestamp) <= 60,
+                  manager.accuracyAuthorization == .fullAccuracy,
+                  location.horizontalAccuracy >= 0,
+                  location.horizontalAccuracy <= min(radius, 100) else {
+                requestCurrentLocation()
+                return false
+            }
+            zone.latitude = location.coordinate.latitude
+            zone.longitude = location.coordinate.longitude
+        }
+        zone.label = cleanLabel
+        zone.radius = radius
+        zone.employerId = employerId
+        zone.kind = kind
+        updated[index] = zone
+        return persistZones(updated)
     }
 
     func removeZone(id: UUID) {
@@ -369,9 +419,9 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
         guard let fingerprint else {
             invalidateRegistration(clearBusinessState: false)
-            statusMessage = zones.isEmpty
-                ? "Ajoute une zone pour activer le pointage GPS"
-                : "Pointage GPS désactivé"
+            statusMessage = automaticEnabled && !hasAutomaticWorkZone
+                ? "Ajoute une zone Travail pour activer le pointage GPS"
+                : (zones.isEmpty ? "Ajoute une zone pour activer le pointage GPS" : "Pointage GPS désactivé")
             return
         }
         guard manager.authorizationStatus == .authorizedAlways else {
@@ -570,7 +620,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             return
         }
         clearInFlightRegistration()
-        statusMessage = "Pointage GPS actif — \(zones.count) zone(s)"
+        statusMessage = "Pointage GPS actif — \(registeredRegions.count) zone(s) Travail"
         registeredRegions.forEach { manager.requestState(for: $0) }
     }
 
@@ -605,6 +655,14 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
               let data = try? JSONEncoder().encode(updated) else {
             return false
         }
+        let previousAutomaticFingerprint = GpsZoneConfigurationV2.fingerprint(
+            enabled: automaticEnabled,
+            zones: zones
+        )
+        let nextAutomaticFingerprint = GpsZoneConfigurationV2.fingerprint(
+            enabled: automaticEnabled,
+            zones: updated
+        )
         defaults.set(data, forKey: GpsZoneConfigurationV2.zonesKey)
         guard GpsZoneConfigurationV2.read(
             defaults.data(forKey: GpsZoneConfigurationV2.zonesKey)
@@ -613,11 +671,14 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             return false
         }
         registrationSuspended = false
-        reloadAndReconcile(configurationChanged: true)
+        reloadAndReconcile(
+            configurationChanged: previousAutomaticFingerprint != nextAutomaticFingerprint
+        )
         return true
     }
 
     private func reconcileRegions(fingerprint: String) {
+        let automaticZones = automaticWorkZones
         let monitored = manager.monitoredRegions.filter {
             $0.identifier.hasPrefix(Self.regionPrefix)
         }
@@ -626,7 +687,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             UUID(uuidString: $0)
         }
         let expectedRegisteredIdentifiers = registeredId.map { registrationId in
-            Set(zones.map {
+            Set(automaticZones.map {
                 GpsZoneConfigurationV2.regionIdentifier(
                     zoneId: $0.id,
                     fingerprint: fingerprint,
@@ -647,11 +708,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
            monitoredIdentifiers == expectedRegisteredIdentifiers,
            registeredFingerprint == fingerprint,
            state != nil {
-            statusMessage = "Pointage GPS actif — \(zones.count) zone(s)"
+            statusMessage = "Pointage GPS actif — \(automaticZones.count) zone(s) Travail"
             return
         }
         if registrationFingerprintInFlight == fingerprint {
-            statusMessage = "Activation de \(zones.count) zone(s) GPS"
+            statusMessage = "Activation de \(automaticZones.count) zone(s) Travail"
             return
         }
         guard !registrationSuspended else {
@@ -683,7 +744,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         pendingEvent = reconciledState.pendingEvents.first
 
         let registrationId = UUID()
-        let expectedIdentifiers = Set(zones.map {
+        let expectedIdentifiers = Set(automaticZones.map {
             GpsZoneConfigurationV2.regionIdentifier(
                 zoneId: $0.id,
                 fingerprint: fingerprint,
@@ -695,7 +756,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         registrationExpectedIdentifiers = expectedIdentifiers
         registrationStartedIdentifiers = []
 
-        for zone in zones {
+        for zone in automaticZones {
             let maximum = manager.maximumRegionMonitoringDistance
             let radius = maximum > 0 ? min(zone.radius, maximum) : zone.radius
             let region = CLCircularRegion(
@@ -714,7 +775,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             region.notifyOnExit = true
             manager.startMonitoring(for: region)
         }
-        statusMessage = "Activation de \(zones.count) zone(s) GPS"
+        statusMessage = "Activation de \(automaticZones.count) zone(s) Travail"
     }
 
     private func handle(
@@ -739,7 +800,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
                 fingerprint: fingerprint,
                 registrationId: registrationId
               ),
-              zones.contains(where: { $0.id == zoneId }),
+              let zone = zones.first(where: { $0.id == zoneId }),
+              zone.kind.drivesAutomaticPointage,
               let stored = validatedState(fingerprint: fingerprint) else {
             return
         }
@@ -772,7 +834,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         let startup = GpsStateValidationV2.startupState(
             read: GpsStateStoreV2.read(defaults.data(forKey: GpsStateStoreV2.key)),
             expectedFingerprint: expectedFingerprint,
-            configuredZoneIds: Set(zones.map(\.id))
+            configuredZoneIds: GpsZoneConfigurationV2.automaticZoneIds(zones)
         )
         switch startup {
         case .resume(let state):
@@ -804,7 +866,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         GpsStateValidationV2.startupState(
             read: .valid(state),
             expectedFingerprint: fingerprint,
-            configuredZoneIds: Set(zones.map(\.id))
+            configuredZoneIds: GpsZoneConfigurationV2.automaticZoneIds(zones)
         ) == .resume(state)
     }
 
@@ -851,7 +913,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
               ) else {
             return false
         }
-        return zones.contains(where: { $0.id == zoneId })
+        return zones.contains(where: { $0.id == zoneId && $0.kind.drivesAutomaticPointage })
     }
 
     private func invalidateRegistration(clearBusinessState: Bool) {

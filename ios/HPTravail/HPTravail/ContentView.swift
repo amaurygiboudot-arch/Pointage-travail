@@ -16,6 +16,8 @@ struct ContentView: View {
     @State private var showPausePaymentChoice = false
     @State private var showManualEntry = false
     @State private var showGpsZoneEditor = false
+    @State private var editingGpsZone: GpsZoneV2?
+    @State private var gpsZonePendingDeletion: GpsZoneV2?
     @State private var showGpsConfirmation = false
     @State private var clockCompanies = SalaryCompanyStoreV2.readConfirmed()
     @State private var clockEmployerChoice: ClockEmployerChoice = .unresolved
@@ -49,7 +51,24 @@ struct ContentView: View {
             ManualEntrySheetV2()
         }
         .sheet(isPresented: $showGpsZoneEditor) {
-            GpsZoneEditorSheetV2()
+            GpsZoneEditorSheetV2(existingZone: editingGpsZone)
+        }
+        .confirmationDialog(
+            "Supprimer cette zone GPS ?",
+            isPresented: Binding(
+                get: { gpsZonePendingDeletion != nil },
+                set: { if !$0 { gpsZonePendingDeletion = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: gpsZonePendingDeletion
+        ) { zone in
+            Button("Supprimer \(zone.label)", role: .destructive) {
+                locationManager.removeZone(id: zone.id)
+                gpsZonePendingDeletion = nil
+            }
+            Button("Annuler", role: .cancel) { gpsZonePendingDeletion = nil }
+        } message: { zone in
+            Text("Seule la zone « \(zone.label) » sera retirée. Les autres zones et l'historique seront conservés.")
         }
         .confirmationDialog(
             gpsConfirmationTitle,
@@ -434,13 +453,13 @@ struct ContentView: View {
                             locationManager.requestAlways()
                         }
                         .disabled(
-                            !locationManager.automaticEnabled || locationManager.zones.isEmpty
+                            !locationManager.automaticEnabled || !locationManager.hasAutomaticWorkZone
                         )
                         Button("Réessayer l'activation GPS") {
                             locationManager.retryRegistration()
                         }
                         .disabled(
-                            !locationManager.automaticEnabled || locationManager.zones.isEmpty
+                            !locationManager.automaticEnabled || !locationManager.hasAutomaticWorkZone
                         )
                         if !locationManager.configurationReliable {
                             Button("Réinitialiser la configuration GPS", role: .destructive) {
@@ -454,19 +473,32 @@ struct ContentView: View {
                             HStack {
                                 VStack(alignment: .leading) {
                                     Text(zone.label)
-                                    Text("Poste • rayon \(Int(zone.radius)) m")
+                                    Text("\(zone.kind.title) • rayon \(Int(zone.radius)) m")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
+                                Button {
+                                    editingGpsZone = zone
+                                    showGpsZoneEditor = true
+                                } label: {
+                                    Image(systemName: "pencil")
+                                        .frame(minWidth: 44, minHeight: 44)
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Modifier la zone \(zone.label)")
                                 Button(role: .destructive) {
-                                    locationManager.removeZone(id: zone.id)
+                                    gpsZonePendingDeletion = zone
                                 } label: {
                                     Image(systemName: "trash")
+                                        .frame(minWidth: 44, minHeight: 44)
                                 }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Supprimer la zone \(zone.label)")
                             }
                         }
-                        Button("Ajouter une zone Poste ici") {
+                        Button("Ajouter une zone ici") {
+                            editingGpsZone = nil
                             locationManager.requestCurrentLocation()
                             showGpsZoneEditor = true
                         }
@@ -474,7 +506,7 @@ struct ContentView: View {
                             !locationManager.configurationReliable
                                 || locationManager.zones.count >= GpsZoneConfigurationV2.maximumZoneCount
                         )
-                        Text("Maximum 10 zones. Les parkings, pauses et zones candidates ne sont pas encore automatisés sur iPhone.")
+                        Text("Maximum 10 zones. Seules les zones Travail pilotent l’entrée/sortie automatique. Parking, Pause et Autre restent des contextes et ne créent jamais de temps payé à eux seuls.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -597,10 +629,15 @@ struct ContentView: View {
             locationManager.clearPendingEvent()
             return
         }
+        guard let clockInFacts = GpsClockInFactsPolicyV2.facts(for: zone) else {
+            gpsFeedback = "Cette zone n'est pas une zone Travail confirmée : aucune entrée n'a été créée."
+            locationManager.clearPendingEvent()
+            return
+        }
         if store.clockIn(
             at: event.occurredAt,
-            employerId: zone.employerId,
-            placeLabel: zone.label
+            employerId: clockInFacts.employerId,
+            placeLabel: clockInFacts.placeLabel
         ), let sessionId = store.currentSession?.id {
             if locationManager.confirmArrival(eventId: event.id, sessionId: sessionId) {
                 gpsFeedback = nil
@@ -678,40 +715,92 @@ private func salaryCompanyLabel(_ company: SalaryCompanyV2) -> String {
 private struct GpsZoneEditorSheetV2: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var locationManager: LocationManager
-    @State private var label = ""
-    @State private var radius = 150.0
-    @State private var selectedCompanyId = ""
+
+    let existingZone: GpsZoneV2?
+
+    @State private var label: String
+    @State private var radius: Double
+    @State private var selectedCompanyId: String
+    @State private var selectedKind: GpsZoneKindV2
+    @State private var moveToCurrentLocation = false
     @State private var companies = SalaryCompanyStoreV2.readConfirmed()
     @State private var errorMessage: String?
+
+    init(existingZone: GpsZoneV2? = nil) {
+        self.existingZone = existingZone
+        _label = State(initialValue: existingZone?.label ?? "")
+        _radius = State(initialValue: existingZone?.radius ?? 150)
+        _selectedCompanyId = State(initialValue: existingZone?.employerId ?? "")
+        _selectedKind = State(initialValue: existingZone?.kind ?? .worksite)
+    }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Zone Poste") {
+                Section("Zone GPS") {
                     TextField("Nom du lieu", text: $label)
+                    Picker("Rôle", selection: $selectedKind) {
+                        ForEach(GpsZoneKindV2.allCases) { kind in
+                            Text(kind.title).tag(kind)
+                        }
+                    }
                     Slider(value: $radius, in: 50 ... 1_000, step: 10)
                     Text("Rayon : \(Int(radius)) m")
                         .foregroundStyle(.secondary)
-                    if let location = locationManager.location {
-                        Text(
-                            String(
-                                format: "Position prête : %.5f, %.5f",
-                                location.coordinate.latitude,
-                                location.coordinate.longitude
+
+                    if existingZone != nil {
+                        Button(
+                            moveToCurrentLocation
+                                ? "Position actuelle demandée"
+                                : "Replacer cette zone sur ma position actuelle"
+                        ) {
+                            moveToCurrentLocation = true
+                            locationManager.requestCurrentLocation()
+                        }
+                        if !moveToCurrentLocation, let zone = existingZone {
+                            Text(
+                                String(
+                                    format: "Centre conservé : %.5f, %.5f",
+                                    zone.latitude,
+                                    zone.longitude
+                                )
                             )
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        Text("Précision estimée : \(Int(location.horizontalAccuracy)) m")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                    } else {
-                        Label("Position actuelle en attente", systemImage: "location")
-                            .foregroundStyle(.orange)
+                        }
                     }
-                    if !locationManager.hasFullAccuracy {
+
+                    if existingZone == nil || moveToCurrentLocation {
+                        if let location = locationManager.location {
+                            Text(
+                                String(
+                                    format: "Position prête : %.5f, %.5f",
+                                    location.coordinate.latitude,
+                                    location.coordinate.longitude
+                                )
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            Text("Précision estimée : \(Int(location.horizontalAccuracy)) m")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Label("Position actuelle en attente", systemImage: "location")
+                                .foregroundStyle(.orange)
+                        }
+                    }
+
+                    Text(
+                        selectedKind.drivesAutomaticPointage
+                            ? "Cette zone peut participer au pointage automatique."
+                            : "Cette zone reste contextuelle : elle ne crée pas automatiquement du temps travaillé ou payé."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                    if (existingZone == nil || moveToCurrentLocation) && !locationManager.hasFullAccuracy {
                         Label(
-                            "Active la localisation précise dans Réglages iOS pour créer la zone.",
+                            "Active la localisation précise dans Réglages iOS pour placer la zone.",
                             systemImage: "scope"
                         )
                         .font(.caption)
@@ -739,39 +828,58 @@ private struct GpsZoneEditorSheetV2: View {
                     }
                 }
             }
-            .navigationTitle("Nouvelle zone GPS")
+            .navigationTitle(existingZone == nil ? "Nouvelle zone GPS" : "Modifier la zone GPS")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 companies = SalaryCompanyStoreV2.readConfirmed()
-                locationManager.requestCurrentLocation()
+                if existingZone == nil {
+                    locationManager.requestCurrentLocation()
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Annuler") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Ajouter") { add() }
+                    Button(existingZone == nil ? "Ajouter" : "Enregistrer") { save() }
                         .disabled(
                             label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                || locationManager.location == nil
                                 || !companies.reliable
+                                || ((existingZone == nil || moveToCurrentLocation)
+                                    && locationManager.location == nil)
                         )
                 }
             }
         }
     }
 
-    private func add() {
+    private func save() {
         let employerId = selectedCompanyId.isEmpty ? nil : selectedCompanyId
         guard employerId == nil || companies.companies.contains(where: { $0.id == employerId }) else {
             errorMessage = "L'entreprise sélectionnée n'est plus disponible."
             return
         }
-        guard locationManager.addZoneAtCurrentLocation(
-            label: label,
-            radius: radius,
-            employerId: employerId
-        ) else {
+
+        let saved: Bool
+        if let existingZone {
+            saved = locationManager.updateZone(
+                id: existingZone.id,
+                label: label,
+                radius: radius,
+                employerId: employerId,
+                kind: selectedKind,
+                moveToCurrentLocation: moveToCurrentLocation
+            )
+        } else {
+            saved = locationManager.addZoneAtCurrentLocation(
+                label: label,
+                radius: radius,
+                employerId: employerId,
+                kind: selectedKind
+            )
+        }
+
+        guard saved else {
             errorMessage = "Zone non enregistrée : position ou configuration à vérifier."
             return
         }

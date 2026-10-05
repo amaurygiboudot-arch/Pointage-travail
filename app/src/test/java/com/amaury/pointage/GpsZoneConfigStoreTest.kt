@@ -438,4 +438,227 @@ class GpsZoneConfigStoreTest {
     }
 
 
+    @Test
+    fun `le multipoint regroupe plusieurs zones sous un seul lieu`() {
+        val zones = parsePersistedGpsZones(
+            """[
+                {"id":"portail","latitude":46.7,"longitude":-1.4,"radius":120,"address":"1 rue A","pointType":"POSTE"},
+                {"id":"atelier","latitude":46.7002,"longitude":-1.4002,"radius":160,"address":"1 rue A","pointType":"POSTE"},
+                {"id":"pause","latitude":46.7004,"longitude":-1.4004,"radius":90,"address":"1 rue A","pointType":"PAUSE"}
+            ]""".trimIndent()
+        )
+
+        val groups = groupGpsZonesByPlace(zones, listOf("1 rue A"))
+
+        assertEquals(1, groups?.size)
+        assertEquals(listOf("portail", "atelier", "pause"), groups?.single()?.zones?.map { it.id })
+        assertTrue(groups?.single()?.legacyOnly == false)
+    }
+
+    @Test
+    fun `deux lieux restent distincts avec plusieurs zones chacun`() {
+        val zones = parsePersistedGpsZones(
+            """[
+                {"id":"a1","latitude":46.7,"longitude":-1.4,"radius":120,"address":"Site A"},
+                {"id":"a2","latitude":46.7002,"longitude":-1.4002,"radius":160,"address":"Site A"},
+                {"id":"b1","latitude":46.8,"longitude":-1.5,"radius":140,"address":"Site B"}
+            ]""".trimIndent()
+        )
+
+        val groups = groupGpsZonesByPlace(zones, listOf("Site A", "Site B"))
+
+        assertEquals(2, groups?.size)
+        assertEquals(2, groups?.first { it.address == "Site A" }?.zones?.size)
+        assertEquals(1, groups?.first { it.address == "Site B" }?.zones?.size)
+    }
+
+    @Test
+    fun `une adresse legacy reste un lieu sans inventer de zone`() {
+        val groups = groupGpsZonesByPlace(parsePersistedGpsZones("[]"), listOf("Ancien dépôt"))
+
+        assertEquals(1, groups?.size)
+        assertTrue(groups?.single()?.legacyOnly == true)
+        assertTrue(groups?.single()?.zones?.isEmpty() == true)
+    }
+
+    @Test
+    fun `une configuration corrompue ne produit aucun groupe multizone`() {
+        assertNull(groupGpsZonesByPlace(parsePersistedGpsZones("{invalide}"), listOf("Site A")))
+    }
+
+
+
+    @Test
+    fun `supprimer une zone par id conserve les autres zones du meme lieu`() {
+        val zones = org.json.JSONArray(
+            """[
+                {"id":"portail","latitude":46.7,"longitude":-1.4,"radius":120,"address":"Site A"},
+                {"id":"pause","latitude":46.7002,"longitude":-1.4002,"radius":90,"address":"Site A"}
+            ]""".trimIndent()
+        )
+
+        val remaining = removeGpsZoneById(zones, "pause")
+
+        assertEquals(1, remaining?.length())
+        assertEquals("portail", remaining?.getJSONObject(0)?.getString("id"))
+    }
+
+    @Test
+    fun `un id absent ne produit jamais une fausse suppression`() {
+        val zones = org.json.JSONArray(
+            """[{"id":"portail","latitude":46.7,"longitude":-1.4,"radius":120,"address":"Site A"}]"""
+        )
+
+        assertNull(removeGpsZoneById(zones, "inconnue"))
+        assertEquals(1, zones.length())
+    }
+
+    @Test
+    fun `renommer un lieu deplace toutes ses zones sans toucher aux autres lieux`() {
+        val zones = org.json.JSONArray(
+            """[
+                {"id":"a1","latitude":46.7,"longitude":-1.4,"radius":120,"address":"Site A"},
+                {"id":"a2","latitude":46.7002,"longitude":-1.4002,"radius":90,"address":"site a"},
+                {"id":"b1","latitude":46.8,"longitude":-1.5,"radius":150,"address":"Site B"}
+            ]""".trimIndent()
+        )
+
+        assertTrue(moveGpsPlaceAddress(zones, "SITE A", "Nouveau site"))
+        assertEquals("Nouveau site", zones.getJSONObject(0).getString("address"))
+        assertEquals("Nouveau site", zones.getJSONObject(1).getString("address"))
+        assertEquals("Site B", zones.getJSONObject(2).getString("address"))
+    }
+
+
+    @Test
+    fun `un lieu multizone ne choisit jamais un id representatif arbitraire`() {
+        val zones = parsePersistedGpsZones(
+            """[
+                {"id":"a1","latitude":46.7,"longitude":-1.4,"radius":120,"address":"Site A","label":"Atelier"},
+                {"id":"a2","latitude":46.7002,"longitude":-1.4002,"radius":90,"address":"Site A","label":"Atelier"}
+            ]""".trimIndent()
+        )
+        val group = groupGpsZonesByPlace(zones, emptyList())!!.single()
+
+        assertNull(representativeGpsZoneId(group))
+        assertEquals("Atelier", uniqueGpsPlaceLabel(group))
+    }
+
+    @Test
+    fun `des noms de zones differents ne deviennent pas un faux nom de lieu`() {
+        val zones = parsePersistedGpsZones(
+            """[
+                {"id":"portail","latitude":46.7,"longitude":-1.4,"radius":120,"address":"Site A","label":"Portail"},
+                {"id":"parking","latitude":46.7002,"longitude":-1.4002,"radius":90,"address":"Site A","label":"Parking"}
+            ]""".trimIndent()
+        )
+        val group = groupGpsZonesByPlace(zones, emptyList())!!.single()
+
+        assertNull(uniqueGpsPlaceLabel(group))
+    }
+
+
+    @Test
+    fun `un lieu expose la repartition de ses zones sans requalifier le temps`() {
+        val zones = parsePersistedGpsZones(
+            """[
+                {"id":"poste1","latitude":46.7,"longitude":-1.4,"radius":120,"address":"Site A","pointType":"POSTE"},
+                {"id":"poste2","latitude":46.7001,"longitude":-1.4001,"radius":120,"address":"Site A","pointType":"POSTE"},
+                {"id":"parking","latitude":46.7002,"longitude":-1.4002,"radius":90,"address":"Site A","pointType":"PARKING"},
+                {"id":"autre","latitude":46.7003,"longitude":-1.4003,"radius":90,"address":"Site A","pointType":"OTHER"}
+            ]""".trimIndent()
+        )
+        val summary = summarizeGpsPlaceTypes(groupGpsZonesByPlace(zones, emptyList())!!.single())
+
+        assertEquals(2, summary.workZones)
+        assertEquals(1, summary.parkingZones)
+        assertEquals(0, summary.pauseZones)
+        assertEquals(1, summary.otherZones)
+    }
+
+
+    @Test
+    fun `deux entreprises a la meme adresse restent deux lieux distincts`() {
+        val zones = parsePersistedGpsZones(
+            """[
+                {"id":"a-poste","latitude":46.7,"longitude":-1.4,"radius":120,"address":"1 rue A","companyId":"company-a"},
+                {"id":"a-parking","latitude":46.7001,"longitude":-1.4001,"radius":90,"address":"1 rue A","companyId":"company-a","pointType":"PARKING"},
+                {"id":"b-poste","latitude":46.7002,"longitude":-1.4002,"radius":120,"address":"1 rue A","companyId":"company-b"}
+            ]""".trimIndent()
+        )
+
+        val groups = groupGpsZonesByPlace(zones, emptyList())
+
+        assertEquals(2, groups?.size)
+        assertEquals(2, groups?.first { it.companyId == "company-a" }?.zones?.size)
+        assertEquals(1, groups?.first { it.companyId == "company-b" }?.zones?.size)
+    }
+
+    @Test
+    fun `deplacer un lieu ne deplace jamais l autre entreprise a la meme adresse`() {
+        val zones = org.json.JSONArray(
+            """[
+                {"id":"a1","latitude":46.7,"longitude":-1.4,"radius":120,"address":"Site partagé","companyId":"company-a"},
+                {"id":"a2","latitude":46.7001,"longitude":-1.4001,"radius":90,"address":"Site partagé","companyId":"company-a"},
+                {"id":"b1","latitude":46.7002,"longitude":-1.4002,"radius":120,"address":"Site partagé","companyId":"company-b"}
+            ]""".trimIndent()
+        )
+
+        assertTrue(moveGpsPlaceAddress(zones, "Site partagé", "Nouveau A", companyId = "company-a"))
+        assertEquals("Nouveau A", zones.getJSONObject(0).getString("address"))
+        assertEquals("Nouveau A", zones.getJSONObject(1).getString("address"))
+        assertEquals("Site partagé", zones.getJSONObject(2).getString("address"))
+    }
+
+    @Test
+    fun `un ancien slot entreprise reste cloisonne des autres slots`() {
+        val zones = parsePersistedGpsZones(
+            """[
+                {"id":"slot1","latitude":46.7,"longitude":-1.4,"radius":120,"address":"Même site","companySlot":1},
+                {"id":"slot2","latitude":46.7002,"longitude":-1.4002,"radius":120,"address":"Même site","companySlot":2}
+            ]""".trimIndent()
+        )
+
+        val groups = groupGpsZonesByPlace(zones, emptyList())
+
+        assertEquals(2, groups?.size)
+        assertEquals(setOf(1, 2), groups?.mapNotNull { it.companySlot }?.toSet())
+    }
+
+
+    @Test
+    fun `supprimer un lieu multizone retire toutes ses zones mais pas l autre entreprise`() {
+        val zones = org.json.JSONArray(
+            """[
+                {"id":"a1","latitude":46.7,"longitude":-1.4,"radius":120,"address":"Site partagé","companyId":"company-a"},
+                {"id":"a2","latitude":46.7001,"longitude":-1.4001,"radius":90,"address":"Site partagé","companyId":"company-a"},
+                {"id":"b1","latitude":46.7002,"longitude":-1.4002,"radius":120,"address":"Site partagé","companyId":"company-b"}
+            ]""".trimIndent()
+        )
+
+        val remaining = removeGpsPlaceZones(zones, "Site partagé", companyId = "company-a")
+
+        assertEquals(1, remaining?.length())
+        assertEquals("b1", remaining?.getJSONObject(0)?.getString("id"))
+    }
+
+
+    @Test
+    fun `pause et type inconnu ne deviennent jamais du temps de travail par defaut`() {
+        val zones = parsePersistedGpsZones(
+            """[
+                {"id":"poste","latitude":46.7,"longitude":-1.4,"radius":120,"address":"Site A","pointType":"POSTE"},
+                {"id":"pause","latitude":46.7001,"longitude":-1.4001,"radius":90,"address":"Site A","pointType":"PAUSE"},
+                {"id":"futur","latitude":46.7002,"longitude":-1.4002,"radius":90,"address":"Site A","pointType":"TYPE_FUTUR"}
+            ]""".trimIndent()
+        )
+
+        val summary = summarizeGpsPlaceTypes(groupGpsZonesByPlace(zones, emptyList())!!.single())
+
+        assertEquals(1, summary.workZones)
+        assertEquals(0, summary.parkingZones)
+        assertEquals(1, summary.pauseZones)
+        assertEquals(1, summary.otherZones)
+    }
+
 }

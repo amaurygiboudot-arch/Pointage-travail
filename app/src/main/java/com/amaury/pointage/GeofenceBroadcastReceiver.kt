@@ -228,9 +228,10 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             ?.takeIf { it.kind == GpsWorkStateCoordinatorV2.Pending.Kind.EXIT_WORKSITE }
             ?.placeId
         return when (
-            val selected = GpsTriggeredZoneSelectionV2.select(
-                resolved.map { it.second },
-                preferredZoneId
+            val selected = GpsTriggeredZoneSelectionV2.selectAllTriggered(
+                triggeredZoneIds = zoneIds,
+                candidates = resolved.map { it.second },
+                preferredZoneId = preferredZoneId
             )
         ) {
             is GpsTriggeredZoneSelectionV2.Result.Blocked -> null
