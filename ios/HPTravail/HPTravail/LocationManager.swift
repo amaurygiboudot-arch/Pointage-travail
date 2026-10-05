@@ -620,7 +620,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             return
         }
         clearInFlightRegistration()
-        statusMessage = "Pointage GPS actif — \(automaticZones.count) zone(s) Travail"
+        statusMessage = "Pointage GPS actif — \(registeredRegions.count) zone(s) Travail"
         registeredRegions.forEach { manager.requestState(for: $0) }
     }
 
