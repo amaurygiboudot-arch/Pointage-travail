@@ -78,6 +78,19 @@ class V2RuntimeHistoryGuardV2Test {
     }
 
     @Test
+    fun `sessions chevauchees sont non fiables et sessions contigues restent fiables`() {
+        val overlapping = JSONArray()
+            .put(session(id = "session-1", realEntry = 10_000L, realExit = 20_000L))
+            .put(session(id = "session-2", realEntry = 19_000L, realExit = 30_000L))
+        assertFalse(V2RuntimeHistoryGuardV2.inspect(overlapping).reliable)
+
+        val adjacent = JSONArray()
+            .put(session(id = "session-1", realEntry = 10_000L, realExit = 20_000L))
+            .put(session(id = "session-2", realEntry = 20_000L, realExit = 30_000L))
+        assertTrue(V2RuntimeHistoryGuardV2.inspect(adjacent).reliable)
+    }
+
+    @Test
     fun `dates de session incoherentes sont refusees`() {
         val invalidReal = session(realEntry = 20_000L, realExit = 10_000L)
         val invalidCounted = session(id = "session-2", countedEntry = 19_000L, countedExit = 11_000L)
@@ -126,6 +139,19 @@ class V2RuntimeHistoryGuardV2Test {
     }
 
     @Test
+    fun `pauses chevauchees sont refusees et pauses contigues restent fiables`() {
+        val overlapping = JSONArray()
+            .put(pause(start = 1_000L, end = 2_000L, paid = true))
+            .put(pause(start = 1_500L, end = 2_500L, paid = false))
+        assertFalse(V2RuntimeHistoryGuardV2.validPauseArray(overlapping))
+
+        val adjacent = JSONArray()
+            .put(pause(start = 1_000L, end = 2_000L, paid = true))
+            .put(pause(start = 2_000L, end = 3_000L, paid = false))
+        assertTrue(V2RuntimeHistoryGuardV2.validPauseArray(adjacent))
+    }
+
+    @Test
     fun `pause dupliquee rend le paquet ambigu`() {
         val p = pause()
 
@@ -133,8 +159,25 @@ class V2RuntimeHistoryGuardV2Test {
     }
 
     @Test
+    fun `pause hors des bornes de sa session rend l historique non fiable`() {
+        val beforeEntry = session(
+            id = "before",
+            pauses = JSONArray().put(pause(start = 9_000L, end = 11_000L))
+        )
+        val afterExit = session(
+            id = "after",
+            pauses = JSONArray().put(pause(start = 19_000L, end = 21_000L))
+        )
+
+        assertFalse(V2RuntimeHistoryGuardV2.inspect(JSONArray().put(beforeEntry)).reliable)
+        assertFalse(V2RuntimeHistoryGuardV2.inspect(JSONArray().put(afterExit)).reliable)
+    }
+
+    @Test
     fun `session valide avec pause valide reste fiable`() {
-        val raw = JSONArray().put(session(pauses = JSONArray().put(pause()))).toString()
+        val raw = JSONArray()
+            .put(session(pauses = JSONArray().put(pause(start = 12_000L, end = 13_000L))))
+            .toString()
 
         assertTrue(V2RuntimeHistoryGuardV2.decode(raw).reliable)
     }

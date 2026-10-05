@@ -52,7 +52,14 @@ class V2RuntimePauseArchiveTest {
 
     @Test
     fun `archive update selects session identity and preserves other sessions`() {
-        val source = history(closedSession("other"))
+        val source = history(
+            closedSession("other").copy(
+                realArrivalMs = 1_000L,
+                countedEntryMs = 1_000L,
+                countedExitMs = 9_000L,
+                realExitMs = 9_000L
+            )
+        )
         source.put(history().getJSONObject(0))
         val previous = source.getJSONObject(0).toString()
         val pauses = JSONArray().put(pause(12_000L, 13_000L, paid = false))

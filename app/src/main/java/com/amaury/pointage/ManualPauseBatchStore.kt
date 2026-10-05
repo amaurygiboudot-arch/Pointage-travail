@@ -85,9 +85,9 @@ object ManualPauseBatchStore {
         val valid = ManualPauseQualificationV2.qualify(
             pauses.map { ManualPauseDraftV2(it.startMs, it.endMs, it.paid) }
         ) ?: return false
-        if (valid.any { pause ->
-                pause.startMs !in dayStart until dayEnd || pause.endMs > dayEnd
-            }) return false
+        // Une pause appartient à la journée où elle commence. Sa fin peut être le lendemain
+        // (travail de nuit) si la session de travail qui la contient est elle-même valide.
+        if (valid.any { pause -> pause.startMs !in dayStart until dayEnd }) return false
 
         val changed = if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.TIME)) {
             V2RuntimeStore.replaceQualifiedEditablePausesForDay(context, dayStart, dayEnd, valid)

@@ -186,14 +186,19 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
             val initialStart = if (existing != null) startCal.get(Calendar.HOUR_OF_DAY) * 60 + startCal.get(Calendar.MINUTE) else 10 * 60
             pickMinute(initialStart, startPick@{ startMinute ->
                 val endCal = Calendar.getInstance(Locale.FRANCE).apply { if (existing != null) timeInMillis = existing.endMs }
-                val initialEnd = if (existing != null) endCal.get(Calendar.HOUR_OF_DAY) * 60 + endCal.get(Calendar.MINUTE) else (startMinute + 15).coerceAtMost(23 * 60 + 59)
+                val initialEnd = if (existing != null) {
+                    endCal.get(Calendar.HOUR_OF_DAY) * 60 + endCal.get(Calendar.MINUTE)
+                } else {
+                    (startMinute + 15) % (24 * 60)
+                }
                 pickMinute(initialEnd, endPick@{ endMinute ->
-                    if (endMinute <= startMinute) {
-                        Toast.makeText(context, "La fin doit être après le début de la pause", Toast.LENGTH_LONG).show()
+                    val startMs = millisForMinute(startMinute)
+                    val rawEndMs = millisForMinute(endMinute)
+                    val endMs = V2ManualEntryInstaller.normalizeEnd(startMs, rawEndMs)
+                    if (endMs == null) {
+                        Toast.makeText(context, "Le début et la fin ne peuvent pas être identiques", Toast.LENGTH_LONG).show()
                         return@endPick
                     }
-                    val startMs = millisForMinute(startMinute)
-                    val endMs = millisForMinute(endMinute)
                     if (overlaps(startMs, endMs, index)) {
                         Toast.makeText(context, "Cette pause chevauche déjà une autre pause", Toast.LENGTH_LONG).show()
                         return@endPick
