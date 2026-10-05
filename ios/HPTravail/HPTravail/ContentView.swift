@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var showPausePaymentChoice = false
     @State private var showManualEntry = false
     @State private var showGpsZoneEditor = false
+    @State private var editingGpsZone: GpsZoneV2?
     @State private var showGpsConfirmation = false
     @State private var clockCompanies = SalaryCompanyStoreV2.readConfirmed()
     @State private var clockEmployerChoice: ClockEmployerChoice = .unresolved
@@ -49,7 +50,7 @@ struct ContentView: View {
             ManualEntrySheetV2()
         }
         .sheet(isPresented: $showGpsZoneEditor) {
-            GpsZoneEditorSheetV2()
+            GpsZoneEditorSheetV2(existingZone: editingGpsZone)
         }
         .confirmationDialog(
             gpsConfirmationTitle,
@@ -459,6 +460,12 @@ struct ContentView: View {
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
+                                Button {
+                                    editingGpsZone = zone
+                                    showGpsZoneEditor = true
+                                } label: {
+                                    Image(systemName: "pencil")
+                                }
                                 Button(role: .destructive) {
                                     locationManager.removeZone(id: zone.id)
                                 } label: {
@@ -467,6 +474,7 @@ struct ContentView: View {
                             }
                         }
                         Button("Ajouter une zone ici") {
+                            editingGpsZone = nil
                             locationManager.requestCurrentLocation()
                             showGpsZoneEditor = true
                         }
@@ -678,12 +686,24 @@ private func salaryCompanyLabel(_ company: SalaryCompanyV2) -> String {
 private struct GpsZoneEditorSheetV2: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var locationManager: LocationManager
-    @State private var label = ""
-    @State private var radius = 150.0
-    @State private var selectedCompanyId = ""
-    @State private var selectedKind: GpsZoneKindV2 = .worksite
+
+    let existingZone: GpsZoneV2?
+
+    @State private var label: String
+    @State private var radius: Double
+    @State private var selectedCompanyId: String
+    @State private var selectedKind: GpsZoneKindV2
+    @State private var moveToCurrentLocation = false
     @State private var companies = SalaryCompanyStoreV2.readConfirmed()
     @State private var errorMessage: String?
+
+    init(existingZone: GpsZoneV2? = nil) {
+        self.existingZone = existingZone
+        _label = State(initialValue: existingZone?.label ?? "")
+        _radius = State(initialValue: existingZone?.radius ?? 150)
+        _selectedCompanyId = State(initialValue: existingZone?.employerId ?? "")
+        _selectedKind = State(initialValue: existingZone?.kind ?? .worksite)
+    }
 
     var body: some View {
         NavigationStack {
@@ -698,23 +718,49 @@ private struct GpsZoneEditorSheetV2: View {
                     Slider(value: $radius, in: 50 ... 1_000, step: 10)
                     Text("Rayon : \(Int(radius)) m")
                         .foregroundStyle(.secondary)
-                    if let location = locationManager.location {
-                        Text(
-                            String(
-                                format: "Position prête : %.5f, %.5f",
-                                location.coordinate.latitude,
-                                location.coordinate.longitude
+
+                    if existingZone != nil {
+                        Button(
+                            moveToCurrentLocation
+                                ? "Position actuelle demandée"
+                                : "Replacer cette zone sur ma position actuelle"
+                        ) {
+                            moveToCurrentLocation = true
+                            locationManager.requestCurrentLocation()
+                        }
+                        if !moveToCurrentLocation, let zone = existingZone {
+                            Text(
+                                String(
+                                    format: "Centre conservé : %.5f, %.5f",
+                                    zone.latitude,
+                                    zone.longitude
+                                )
                             )
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        Text("Précision estimée : \(Int(location.horizontalAccuracy)) m")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                    } else {
-                        Label("Position actuelle en attente", systemImage: "location")
-                            .foregroundStyle(.orange)
+                        }
                     }
+
+                    if existingZone == nil || moveToCurrentLocation {
+                        if let location = locationManager.location {
+                            Text(
+                                String(
+                                    format: "Position prête : %.5f, %.5f",
+                                    location.coordinate.latitude,
+                                    location.coordinate.longitude
+                                )
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            Text("Précision estimée : \(Int(location.horizontalAccuracy)) m")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Label("Position actuelle en attente", systemImage: "location")
+                                .foregroundStyle(.orange)
+                        }
+                    }
+
                     Text(
                         selectedKind.drivesAutomaticPointage
                             ? "Cette zone peut participer au pointage automatique."
@@ -722,9 +768,10 @@ private struct GpsZoneEditorSheetV2: View {
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    if !locationManager.hasFullAccuracy {
+
+                    if (existingZone == nil || moveToCurrentLocation) && !locationManager.hasFullAccuracy {
                         Label(
-                            "Active la localisation précise dans Réglages iOS pour créer la zone.",
+                            "Active la localisation précise dans Réglages iOS pour placer la zone.",
                             systemImage: "scope"
                         )
                         .font(.caption)
@@ -752,40 +799,58 @@ private struct GpsZoneEditorSheetV2: View {
                     }
                 }
             }
-            .navigationTitle("Nouvelle zone GPS")
+            .navigationTitle(existingZone == nil ? "Nouvelle zone GPS" : "Modifier la zone GPS")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 companies = SalaryCompanyStoreV2.readConfirmed()
-                locationManager.requestCurrentLocation()
+                if existingZone == nil {
+                    locationManager.requestCurrentLocation()
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Annuler") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Ajouter") { add() }
+                    Button(existingZone == nil ? "Ajouter" : "Enregistrer") { save() }
                         .disabled(
                             label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                || locationManager.location == nil
                                 || !companies.reliable
+                                || ((existingZone == nil || moveToCurrentLocation)
+                                    && locationManager.location == nil)
                         )
                 }
             }
         }
     }
 
-    private func add() {
+    private func save() {
         let employerId = selectedCompanyId.isEmpty ? nil : selectedCompanyId
         guard employerId == nil || companies.companies.contains(where: { $0.id == employerId }) else {
             errorMessage = "L'entreprise sélectionnée n'est plus disponible."
             return
         }
-        guard locationManager.addZoneAtCurrentLocation(
-            label: label,
-            radius: radius,
-            employerId: employerId,
-            kind: selectedKind
-        ) else {
+
+        let saved: Bool
+        if let existingZone {
+            saved = locationManager.updateZone(
+                id: existingZone.id,
+                label: label,
+                radius: radius,
+                employerId: employerId,
+                kind: selectedKind,
+                moveToCurrentLocation: moveToCurrentLocation
+            )
+        } else {
+            saved = locationManager.addZoneAtCurrentLocation(
+                label: label,
+                radius: radius,
+                employerId: employerId,
+                kind: selectedKind
+            )
+        }
+
+        guard saved else {
             errorMessage = "Zone non enregistrée : position ou configuration à vérifier."
             return
         }
