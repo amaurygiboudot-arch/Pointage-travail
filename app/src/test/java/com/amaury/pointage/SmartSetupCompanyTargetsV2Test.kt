@@ -51,6 +51,15 @@ class SmartSetupCompanyTargetsV2Test {
     }
 
     @Test
+    fun `lapprentissage intelligent respecte la limite globale de dix zones`() {
+        assertTrue(canAppendSmartCandidateZone(0))
+        assertTrue(canAppendSmartCandidateZone(9))
+        assertFalse(canAppendSmartCandidateZone(10))
+        assertFalse(canAppendSmartCandidateZone(11))
+        assertFalse(canAppendSmartCandidateZone(-1))
+    }
+
+    @Test
     fun `une zone candidate v2 porte le company id sans recreer de company slot`() {
         val zone = smartCandidateZoneJson(
             id = "candidate-a",
