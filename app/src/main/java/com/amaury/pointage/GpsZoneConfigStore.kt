@@ -195,6 +195,8 @@ internal fun resolveGpsLocationEntries(
 
 internal data class GpsPlaceGroup(
     val address: String,
+    val companyId: String?,
+    val companySlot: Int?,
     val zones: List<StoredGpsZone>,
     val legacyOnly: Boolean
 )
@@ -204,23 +206,49 @@ internal fun groupGpsZonesByPlace(
     savedAddresses: List<String>
 ): List<GpsPlaceGroup>? {
     if (zonesResult is GpsZonesReadResult.Corrupt) return null
-    val groups = linkedMapOf<String, Pair<String, MutableList<StoredGpsZone>>>()
+    data class GroupBuilder(
+        val address: String,
+        val companyId: String?,
+        val companySlot: Int?,
+        val zones: MutableList<StoredGpsZone>
+    )
+    fun companyKey(zone: StoredGpsZone): String = when {
+        !zone.companyId.isNullOrBlank() -> "id:${zone.companyId.trim().lowercase()}"
+        zone.companySlot != null -> "slot:${zone.companySlot}"
+        else -> "legacy"
+    }
+    val groups = linkedMapOf<String, GroupBuilder>()
     if (zonesResult is GpsZonesReadResult.Valid) {
         zonesResult.zones.forEach { zone ->
             val source = runCatching { JSONObject(zone.sourceJson) }.getOrNull()
             if (source?.optBoolean("smartCandidate", false) == true) return@forEach
             val address = zone.address?.trim().orEmpty()
             if (address.isBlank()) return@forEach
-            val key = address.lowercase()
-            val pair = groups.getOrPut(key) { address to mutableListOf() }
-            pair.second += zone
+            val key = "${companyKey(zone)}|${address.lowercase()}"
+            val builder = groups.getOrPut(key) {
+                GroupBuilder(address, zone.companyId, zone.companySlot, mutableListOf())
+            }
+            builder.zones += zone
         }
     }
     savedAddresses.map(String::trim).filter(String::isNotBlank).forEach { address ->
-        groups.getOrPut(address.lowercase()) { address to mutableListOf() }
+        val covered = groups.values.any {
+            it.address.equals(address, ignoreCase = true) &&
+                it.companyId == null && it.companySlot == null
+        }
+        if (!covered) {
+            groups["legacy|${address.lowercase()}"] =
+                GroupBuilder(address, null, null, mutableListOf())
+        }
     }
-    return groups.values.map { (address, zones) ->
-        GpsPlaceGroup(address, zones.toList(), legacyOnly = zones.isEmpty())
+    return groups.values.map { builder ->
+        GpsPlaceGroup(
+            address = builder.address,
+            companyId = builder.companyId,
+            companySlot = builder.companySlot,
+            zones = builder.zones.toList(),
+            legacyOnly = builder.zones.isEmpty()
+        )
     }
 }
 
@@ -348,15 +376,26 @@ internal fun removeGpsZoneById(zones: JSONArray, zoneId: String): JSONArray? {
 internal fun moveGpsPlaceAddress(
     zones: JSONArray,
     oldAddress: String,
-    newAddress: String
+    newAddress: String,
+    companyId: String? = null,
+    companySlot: Int? = null
 ): Boolean {
     val oldValue = oldAddress.trim()
     val newValue = newAddress.trim()
+    val targetCompanyId = companyId?.trim()?.takeIf { it.isNotBlank() }
     if (oldValue.isBlank() || newValue.isBlank()) return false
     var changed = false
     for (index in 0 until zones.length()) {
         val zone = zones.optJSONObject(index) ?: return false
-        if (zone.optString("address").trim().equals(oldValue, ignoreCase = true)) {
+        val sameAddress = zone.optString("address").trim().equals(oldValue, ignoreCase = true)
+        val storedCompanyId = zone.optString("companyId").trim().takeIf { it.isNotBlank() }
+        val storedSlot = if (zone.has("companySlot") && !zone.isNull("companySlot")) zone.optInt("companySlot") else null
+        val sameCompany = when {
+            targetCompanyId != null -> storedCompanyId == targetCompanyId
+            companySlot != null -> storedCompanyId == null && storedSlot == companySlot
+            else -> storedCompanyId == null && storedSlot == null
+        }
+        if (sameAddress && sameCompany) {
             zone.put("address", newValue)
             changed = true
         }
