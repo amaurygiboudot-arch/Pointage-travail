@@ -184,6 +184,8 @@ enum GpsPresenceTransitionV2 {
                     // La durée d'absence ne transforme pas un ancien EXIT non confirmé en vérité.
                     next.pendingEvents.removeLast()
                 } else {
+                    // Nouvelle visite : son départ éventuel ne doit pas être attribué à la session précédente.
+                    next.confirmedSessionId = nil
                     appendEvent(GpsPendingEventV2(
                         id: UUID(),
                         kind: .arrival,
@@ -255,6 +257,28 @@ struct GpsPersistedStateV2: Codable, Equatable {
     var pendingEvents: [GpsPendingEventV2]
     var confirmedSessionId: UUID?
     var eventQueueOverflowed: Bool
+}
+
+/// Effets des confirmations explicites ; l'événement a été retiré de la file par le gestionnaire.
+enum GpsVisitConfirmationV2 {
+    static func arrival(state: inout GpsPersistedStateV2, event: GpsPendingEventV2, sessionId: UUID) -> Bool {
+        guard event.kind == .arrival else { return false }
+        state.confirmedSessionId = sessionId
+        if let nextDeparture = state.pendingEvents.firstIndex(where: {
+            $0.kind == .departure && $0.expectedSessionId == nil
+        }) {
+            state.pendingEvents[nextDeparture].expectedSessionId = sessionId
+        }
+        return true
+    }
+
+    static func departure(state: inout GpsPersistedStateV2, event: GpsPendingEventV2, sessionId: UUID) -> Bool {
+        guard event.kind == .departure,
+              event.expectedSessionId == sessionId,
+              state.confirmedSessionId == nil || state.confirmedSessionId == sessionId else { return false }
+        state.confirmedSessionId = nil
+        return true
+    }
 }
 
 enum GpsStateReadV2: Equatable {
