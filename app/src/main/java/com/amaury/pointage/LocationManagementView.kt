@@ -103,6 +103,11 @@ class LocationManagementView @JvmOverloads constructor(
             content.addView(action("${zone.label ?: "Zone sans nom"}\n${GpsZoneRoleV2.fromToken(zone.pointTypeToken).title} • ${zone.radius} m") {
                 dialog.dismiss(); editZone(snapshot, group, zone.id)
             })
+            content.addView(action("Ajuster sur la carte — ${zone.label ?: "cette zone"}") {
+                val picker = rootView.findViewById<GpsPointPickerView>(R.id.gpsPointPickerView)
+                if (picker == null) notice("Carte indisponible ici. Les coordonnées restent modifiables dans la fiche de zone.")
+                else { dialog.dismiss(); picker.adjustZone(zone.id) }
+            })
         }
         content.addView(action("Ajouter une zone à ce lieu") { dialog.dismiss(); editZone(snapshot, group, null) })
         content.addView(action("Modifier l'adresse du lieu") { dialog.dismiss(); editAddress(snapshot, group) })

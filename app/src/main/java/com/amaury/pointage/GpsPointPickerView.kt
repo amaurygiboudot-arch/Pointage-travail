@@ -113,10 +113,6 @@ class GpsPointPickerView @JvmOverloads constructor(
         JSONObject(prefs.getString("zone_point_overrides", "{}") ?: "{}")
     }.getOrElse { JSONObject() }
 
-    private fun confirmed(): JSONObject = runCatching {
-        JSONObject(prefs.getString("zone_point_confirmed", "{}") ?: "{}")
-    }.getOrElse { JSONObject() }
-
     private fun pointOverrideFor(zoneId: String?, address: String, source: JSONObject = overrides()): JSONObject? {
         val canonicalId = zoneId?.trim().orEmpty()
         if (canonicalId.isNotBlank()) {
@@ -135,9 +131,6 @@ class GpsPointPickerView @JvmOverloads constructor(
                 ?.takeIf { it.optString("address").trim().equals(normalized, ignoreCase = true) }
         }
     }
-
-    private fun uniqueZoneForAddress(address: String, list: JSONArray?): JSONObject? =
-        zonesForAddress(address, list).singleOrNull()
 
     private fun provisionalZone(address: String): JSONObject {
         val provisionalId = UUID.randomUUID().toString()
@@ -168,13 +161,14 @@ class GpsPointPickerView @JvmOverloads constructor(
      * à partir du point manuel enregistré au lieu de la perdre silencieusement.
      */
     private fun reapplyStoredOverrides() {
-        val source = readPersistedGpsZones(prefs).toMutableJsonArrayOrNull()
-        if (source == null) {
+        val snapshot = GpsZoneEditorStoreV2.read(prefs)
+        val source = snapshot?.let { GpsZonesReadResult.Valid(it.zones).toMutableJsonArrayOrNull() }
+        if (snapshot == null || source == null) {
             GeofenceManager.reconfigureStoredZones(context)
             return
         }
-        val custom = overrides()
-        val addresses = savedAddresses()
+        val custom = snapshot.json("zone_point_overrides")
+        val addresses = snapshot.addresses()
         var changed = false
 
         for (i in 0 until source.length()) {
@@ -195,7 +189,8 @@ class GpsPointPickerView @JvmOverloads constructor(
         }
 
         addresses.forEach { address ->
-            if (zonesForAddress(address, source).isNotEmpty()) return@forEach
+            if (zonesForAddress(address, source).isNotEmpty() || source.length() >= 10) return@forEach
+            if (snapshot.zones.any { it.id == address }) return@forEach
             val point = custom.optJSONObject(address) ?: return@forEach
             val lat = point.optDouble("latitude", Double.NaN)
             val lon = point.optDouble("longitude", Double.NaN)
@@ -207,7 +202,7 @@ class GpsPointPickerView @JvmOverloads constructor(
                     .put("latitude", lat)
                     .put("longitude", lon)
                     .put("radius", prefs.getInt("radius", 150).coerceIn(50, 1000))
-                    .put("pointType", "POSTE")
+                    .put("pointType", "OTHER")
                     .put("pointSource", point.optString("source", "manual"))
                     .apply {
                         PlaceNames.get(context, address)?.takeIf { it.isNotBlank() }?.let { put("label", it) }
@@ -218,11 +213,11 @@ class GpsPointPickerView @JvmOverloads constructor(
 
         if (changed) {
             applyingOverride = true
-            prefs.edit().putString("zones", source.toString())
-                .remove("active_zones").remove("entry_resolution_pending")
-                .remove("entry_resolution_token").remove("pending_exit_zones").apply()
-            applyingOverride = false
-            registerCurrentZones()
+            val values = snapshot.values.toMutableMap().apply { put("zones", source.toString()) }
+            val saved = try {
+                GpsZoneEditorStoreV2.commit(prefs, GpsZoneEditorStoreV2.Change(snapshot, values))
+            } finally { applyingOverride = false }
+            if (saved) registerCurrentZones()
         }
     }
 
@@ -264,11 +259,16 @@ class GpsPointPickerView @JvmOverloads constructor(
 
     private fun choosePlaceManually() {
         val addresses = savedAddresses()
-        if (addresses.isEmpty()) {
+        val snapshot = GpsZoneEditorStoreV2.read(prefs)
+        if (snapshot == null) {
+            Toast.makeText(context, "Configuration GPS à vérifier", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (addresses.isEmpty() && snapshot.zones.none { !it.isGpsCandidate() }) {
             Toast.makeText(context, "Ajoute d'abord un lieu", Toast.LENGTH_SHORT).show()
             return
         }
-        val list = zones()
+        val list = GpsZonesReadResult.Valid(snapshot.zones).toMutableJsonArrayOrNull()
         if (list == null) {
             GeofenceManager.reconfigureStoredZones(context)
             Toast.makeText(context, "Configuration GPS illisible : aucun point n'a été modifié", Toast.LENGTH_LONG).show()
@@ -282,7 +282,7 @@ class GpsPointPickerView @JvmOverloads constructor(
             val item = list.optJSONObject(index) ?: continue
             val address = item.optString("address").trim()
             if (address.isBlank()) continue
-            if (addresses.none { it.equals(address, ignoreCase = true) }) continue
+            if (item.optBoolean("smartCandidate", false)) continue
             val zoneId = item.optString("id").trim().takeIf { it.isNotBlank() }
             val placeName = PlaceNames.get(context, zoneId, address)?.takeIf { it.isNotBlank() }
             val type = item.optString("pointType").trim().takeIf { it.isNotBlank() }
@@ -325,10 +325,29 @@ class GpsPointPickerView @JvmOverloads constructor(
         dialog.show()
     }
 
-    private fun showMapPicker(zone: JSONObject, automatic: Boolean) {
+    internal fun adjustZone(zoneId: String) {
+        val snapshot = GpsZoneEditorStoreV2.read(prefs) ?: return
+        val zone = snapshot.zones.singleOrNull { it.id == zoneId && !it.isGpsCandidate() } ?: return
+        showMapPicker(JSONObject(zone.sourceJson), automatic = false)
+    }
+
+    private fun showMapPicker(requestedZone: JSONObject, automatic: Boolean) {
+        val snapshot = GpsZoneEditorStoreV2.read(prefs)
+        if (snapshot == null) {
+            Toast.makeText(context, "Configuration GPS à vérifier : aucun point ne peut être enregistré", Toast.LENGTH_LONG).show()
+            return
+        }
+        val known = snapshot.zones.singleOrNull { it.id == requestedZone.optString("id").trim() && !it.isGpsCandidate() }
+        val zone = known?.let { JSONObject(it.sourceJson) } ?: requestedZone
         val address = zone.optString("address").trim()
         if (address.isBlank()) return
-
+        val creating = known == null && zone.optString("pointSource") == "provisional" &&
+            snapshot.groups().any { it.legacyOnly && it.address.equals(address, ignoreCase = true) }
+        if (known == null && !creating) {
+            Toast.makeText(context, "Cette zone a changé ou a été supprimée. Rouvre sa fiche.", Toast.LENGTH_LONG).show()
+            return
+        }
+        var pointChosen = !creating
         val zoneId = zone.optString("id").trim()
         val customPoint = pointOverrideFor(zoneId, address)
         val savedLat = customPoint?.optDouble("latitude", Double.NaN)?.takeIf { it.isFinite() }
@@ -371,6 +390,7 @@ class GpsPointPickerView @JvmOverloads constructor(
             this.text = if (automatic)
                 "Place le repère au centre réel de ta zone de travail. Tu peux déplacer la carte, zoomer et déplacer le repère."
             else "Déplace le repère sur le centre réel de la zone GPS. L'adresse postale ne changera pas."
+            if (creating) this.text = "Choisis explicitement le point sur la carte. Nouvelle zone sans association automatique, rôle à confirmer. Rayon : ${zone.optInt("radius", 150)} m."
             textSize = 14f
             setTextColor(text)
             setPadding(0, 0, 0, dp(10))
@@ -396,9 +416,14 @@ class GpsPointPickerView @JvmOverloads constructor(
         val bridge = object {
             @JavascriptInterface
             fun onPoint(latitude: Double, longitude: Double) {
-                selectedLat = latitude
-                selectedLon = longitude
-                post { coordinateLabel.text = "${fmt(latitude)}, ${fmt(longitude)}" }
+                if (!latitude.isFinite() || latitude !in -90.0..90.0 ||
+                    !longitude.isFinite() || longitude !in -180.0..180.0) return
+                post {
+                    selectedLat = latitude
+                    selectedLon = longitude
+                    pointChosen = true
+                    coordinateLabel.text = "${fmt(latitude)}, ${fmt(longitude)}"
+                }
             }
         }
         webView.addJavascriptInterface(bridge, "Android")
@@ -434,6 +459,7 @@ class GpsPointPickerView @JvmOverloads constructor(
                 webView.evaluateJavascript("setPoint($selectedLat,$selectedLon,true);", null)
             }
         }
+        addressButton.isEnabled = !creating
         val positionButton = actionButton("MA POSITION") {
             val now = currentLocation()
             if (now == null) {
@@ -441,6 +467,7 @@ class GpsPointPickerView @JvmOverloads constructor(
             } else {
                 selectedLat = now.latitude
                 selectedLon = now.longitude
+                pointChosen = true
                 coordinateLabel.text = "${fmt(selectedLat)}, ${fmt(selectedLon)}  ±${now.accuracy.toInt()} m"
                 webView.evaluateJavascript("setPoint($selectedLat,$selectedLon,true);", null)
             }
@@ -473,18 +500,24 @@ class GpsPointPickerView @JvmOverloads constructor(
         dialog.setOnDismissListener { webView.destroy() }
 
         save.setOnClickListener {
-            savePoint(zone, selectedLat, selectedLon, "map")
-            prefs.edit().remove("pending_point_address").apply()
-            dialog.dismiss()
+            if (!pointChosen) {
+                Toast.makeText(context, "Choisis le centre réel en touchant la carte ou avec Ma position", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            if (savePoint(snapshot, zone, selectedLat, selectedLon, "map", creating)) dialog.dismiss()
         }
         later.setOnClickListener {
-            if (automatic) prefs.edit().remove("pending_point_address").apply()
+            if (automatic && GpsZoneEditorStoreV2.read(prefs)?.values == snapshot.values &&
+                snapshot.values["pending_point_address"]?.equals(address, ignoreCase = true) == true) {
+                prefs.edit().remove("pending_point_address").commit()
+            }
             dialog.dismiss()
         }
         dialog.show()
     }
 
     private fun showCoordinateEntry(zone: JSONObject) {
+        val snapshot = GpsZoneEditorStoreV2.read(prefs) ?: return
         val dark = AppThemeCatalog.useDarkPalette(context)
         val theme = AppThemeCatalog.current(context)
         val panel = if (dark) theme.darkPanel else theme.lightPanel
@@ -521,7 +554,7 @@ class GpsPointPickerView @JvmOverloads constructor(
                 val lon = lonInput.text.toString().replace(',', '.').toDoubleOrNull()
                 if (lat == null || lon == null || lat !in -90.0..90.0 || lon !in -180.0..180.0) {
                     Toast.makeText(context, "Coordonnées invalides", Toast.LENGTH_LONG).show()
-                } else savePoint(zone, lat, lon, "manual_coordinates")
+                } else savePoint(snapshot, zone, lat, lon, "manual_coordinates", false)
             }
             .setNegativeButton("Annuler", null)
             .create()
@@ -533,94 +566,46 @@ class GpsPointPickerView @JvmOverloads constructor(
         dialog.show()
     }
 
-    private fun savePoint(zone: JSONObject, latitude: Double, longitude: Double, source: String) {
+    private fun savePoint(snapshot: GpsZoneEditorStoreV2.Snapshot, zone: JSONObject,
+                          latitude: Double, longitude: Double, source: String, creating: Boolean): Boolean {
         val address = zone.optString("address").trim()
-        if (address.isBlank()) return
-
-        val list = zones()
-        if (list == null) {
-            GeofenceManager.reconfigureStoredZones(context)
-            Toast.makeText(context, "Configuration GPS illisible : le point n'a pas été enregistré", Toast.LENGTH_LONG).show()
-            return
-        }
-        val custom = overrides()
-        val legacyOrCanonicalName = PlaceNames.get(context, zone.optString("id"), address)
-        var targetZoneId = zone.optString("id").trim()
-        var found = false
-        val uniqueAddressOwner = resolveUniqueGpsZoneIdForAddress(readPersistedGpsZones(prefs), address)
-        for (i in 0 until list.length()) {
-            val item = list.optJSONObject(i) ?: continue
-            val itemId = item.optString("id").trim()
-            val targetMatches = if (targetZoneId.isNotBlank()) {
-                itemId == targetZoneId
-            } else {
-                uniqueAddressOwner != null && itemId == uniqueAddressOwner
-            }
-            if (targetMatches) {
-                item.put("latitude", latitude)
-                item.put("longitude", longitude)
-                item.put("radius", prefs.getInt("radius", item.optInt("radius", 150)).coerceIn(50, 1000))
-                item.put("pointSource", source)
-                if (item.optString("id").isBlank()) item.put("id", UUID.randomUUID().toString())
-                if (item.optString("pointType").isBlank()) item.put("pointType", "POSTE")
-                if (item.optString("label").isBlank() && !legacyOrCanonicalName.isNullOrBlank()) {
-                    item.put("label", legacyOrCanonicalName)
+        val zoneId = zone.optString("id").trim()
+        val change = if (!creating) {
+            GpsZoneEditorStoreV2.setPoint(snapshot, zoneId, latitude, longitude, source)
+        } else {
+            val group = snapshot.groups().singleOrNull {
+                it.legacyOnly && it.address.equals(address, ignoreCase = true)
+            } ?: return false
+            val contact = snapshot.json("arrival_contacts").optJSONObject(address)
+            val name = snapshot.json("address_names").optString(address).trim().ifBlank { address }
+            val draft = GpsZoneDraftV2(name, latitude, longitude,
+                zone.optDouble("radius", Double.NaN), GpsZoneRoleV2.OTHER,
+                contact?.optString("contactName").orEmpty(), contact?.optString("phone").orEmpty(),
+                contact?.optBoolean("enabled", false) == true)
+            val prepared = GpsZoneEditorStoreV2.saveZone(snapshot, group, null, zoneId, draft, 10, source)
+            prepared?.let {
+                val values = it.values.toMutableMap()
+                if (values["pending_point_address"]?.equals(address, ignoreCase = true) == true) {
+                    values["pending_point_address"] = null
                 }
-                targetZoneId = item.optString("id").trim()
-                found = true
-                break
+                it.copy(values = values)
             }
         }
-        if (!found) {
-            targetZoneId = targetZoneId.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
-            list.put(
-                JSONObject()
-                    .put("id", targetZoneId)
-                    .put("address", address)
-                    .put("latitude", latitude)
-                    .put("longitude", longitude)
-                    .put("radius", prefs.getInt("radius", 150).coerceIn(50, 1000))
-                    .put("pointType", "POSTE")
-                    .put("pointSource", source)
-                    .apply {
-                        if (!legacyOrCanonicalName.isNullOrBlank()) put("label", legacyOrCanonicalName)
-                    }
-            )
+        if (change == null) {
+            Toast.makeText(context, "Zone ou coordonnées invalides : aucun point enregistré", Toast.LENGTH_LONG).show()
+            return false
         }
-
-        if (targetZoneId.isBlank()) {
-            Toast.makeText(context, "Zone GPS ambiguë : le point n'a pas été enregistré", Toast.LENGTH_LONG).show()
-            return
-        }
-        custom.remove(address)
-        custom.put(targetZoneId, JSONObject().put("latitude", latitude).put("longitude", longitude).put("source", source))
-
         applyingOverride = true
-        prefs.edit()
-            .putString("zone_point_overrides", custom.toString())
-            .putString("zones", list.toString())
-            .remove("active_zones")
-            .remove("entry_resolution_pending")
-            .remove("entry_resolution_token")
-            .remove("pending_exit_zones")
-            .apply()
-        applyingOverride = false
-        if (!legacyOrCanonicalName.isNullOrBlank() && targetZoneId.isNotBlank()) {
-            PlaceNames.put(context, targetZoneId, address, legacyOrCanonicalName)
+        val saved = try { GpsZoneEditorStoreV2.commit(prefs, change) } finally { applyingOverride = false }
+        if (!saved) {
+            Toast.makeText(context, "Configuration modifiée depuis l'ouverture ou écriture non confirmée. Rouvre la carte.", Toast.LENGTH_LONG).show()
+            return false
         }
-        markConfirmed(targetZoneId, address)
-        registerCurrentZones()
-        Toast.makeText(context, "Point GPS enregistré pour ${PlaceNames.get(context, targetZoneId, address) ?: address}", Toast.LENGTH_LONG).show()
-    }
-
-    private fun markConfirmed(zoneId: String, address: String) {
-        val canonicalId = zoneId.trim()
-        if (canonicalId.isBlank()) return
-        val done = confirmed().apply {
-            remove(address)
-            put(canonicalId, true)
+        GeofenceManager.reconfigureStoredZones(context) { success, message ->
+            post { Toast.makeText(context, if (success) "Point GPS enregistré — rayon et autres zones conservés"
+                else "Point GPS enregistré. $message", Toast.LENGTH_LONG).show() }
         }
-        prefs.edit().putString("zone_point_confirmed", done.toString()).apply()
+        return true
     }
 
     private fun registerCurrentZones() {
@@ -645,8 +630,7 @@ class GpsPointPickerView @JvmOverloads constructor(
             val age = now - fix.time
             age in 0L..300_000L
         }
-        val candidates = if (recent.isNotEmpty()) recent else fixes
-        return candidates.minWithOrNull(
+        return recent.filter { it.hasAccuracy() && it.accuracy.isFinite() && it.accuracy > 0f }.minWithOrNull(
             compareBy<Location> { if (it.hasAccuracy() && it.accuracy > 0f) it.accuracy else Float.MAX_VALUE }
                 .thenByDescending { it.time }
         )

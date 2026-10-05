@@ -167,6 +167,63 @@ class GpsZoneEditorV2Test {
         assertNull(GpsZoneEditorStoreV2.setRole(before, "deleted", GpsZoneRoleV2.WORK))
     }
 
+    @Test fun `deplacement par carte conserve rayon role employeur et contact`() {
+        val source = zone("a", radius = 330).put("pointType", "PAUSE")
+        val before = snapshot(source, zone("b", "Company-B", radius = 270), extra = mapOf(
+            "radius" to 999, "arrival_contacts" to """{"a":{"phone":"123","enabled":true}}""",
+            "pending_point_address" to "Site partagé"))
+        val next = after(GpsZoneEditorStoreV2.setPoint(before, "a", 47.5, -2.0, "map")!!)
+        val changed = next.zones.first()
+        assertEquals(330f, changed.radius, 0f)
+        assertEquals("PAUSE", changed.pointTypeToken)
+        assertEquals("Company-A", changed.companyId)
+        assertEquals("Zone a", changed.label)
+        assertEquals(47.5, changed.latitude, 0.0)
+        assertEquals(-2.0, changed.longitude, 0.0)
+        assertEquals("123", next.json("arrival_contacts").getJSONObject("a").getString("phone"))
+        assertEquals(before.zones.last().sourceJson, next.zones.last().sourceJson)
+        assertEquals("map", next.json("zone_point_overrides").getJSONObject("a").getString("source"))
+        assertNull(next.values["pending_point_address"])
+    }
+    @Test fun `carte perimee ne ressuscite jamais une zone supprimee`() {
+        val before = snapshot(zone("a"))
+        val change = GpsZoneEditorStoreV2.setPoint(before, "a", 47.5, -2.0, "map")!!
+        val prefs = MemoryPrefs(before.values.filterValues { it != null })
+        prefs.data["zones"] = "[]"
+        assertFalse(GpsZoneEditorStoreV2.commit(prefs, change))
+        assertEquals(0, prefs.commits)
+        assertEquals("[]", prefs.data["zones"])
+        val current = GpsZoneEditorStoreV2.read(prefs)!!
+        assertNull(GpsZoneEditorStoreV2.setPoint(current, "a", 47.5, -2.0, "map"))
+    }
+    @Test fun `carte refuse coordonnees invalides sans invalider un autre pending`() {
+        val before = snapshot(zone("a"), extra = mapOf("pending_point_address" to "Autre site"))
+        for ((lat, lon) in listOf(Double.NaN to 0.0, 91.0 to 0.0, 0.0 to 181.0, 0.0 to Double.NEGATIVE_INFINITY)) {
+            assertNull(GpsZoneEditorStoreV2.setPoint(before, "a", lat, lon, "map"))
+        }
+        assertNull(GpsZoneEditorStoreV2.setPoint(before, "a", 47.0, -1.5, "source_inventee"))
+        val next = after(GpsZoneEditorStoreV2.setPoint(before, "a", 47.0, -1.5, "map")!!)
+        assertEquals("Autre site", next.values["pending_point_address"])
+    }
+    @Test fun `editeur de zones ne peut jamais ecrire une cle du journal`() {
+        val before = snapshot(zone("a"))
+        val valid = GpsZoneEditorStoreV2.setPoint(before, "a", 47.0, -1.5, "map")!!
+        val invalid = valid.copy(values = valid.values + ("runtime_history" to "interdit"))
+        val prefs = MemoryPrefs(before.values.filterValues { it != null } + ("runtime_history" to "conserver"))
+        assertFalse(GpsZoneEditorStoreV2.commit(prefs, invalid))
+        assertEquals(0, prefs.commits)
+        assertEquals("conserver", prefs.data["runtime_history"])
+    }
+    @Test fun `premier point confirme sur carte conserve sa provenance`() {
+        val before = GpsZoneEditorStoreV2.decode(mapOf("address" to "Ancien dépôt"))!!
+        val change = GpsZoneEditorStoreV2.saveZone(before, before.groups().single(), null, "first",
+            draft.copy(role = GpsZoneRoleV2.OTHER), 10, "map")!!
+        val next = after(change)
+        assertEquals("map", JSONObject(next.zones.single().sourceJson).getString("pointSource"))
+        assertEquals("map", next.json("zone_point_overrides").getJSONObject("first").getString("source"))
+        assertEquals("OTHER", next.zones.single().pointTypeToken)
+    }
+
     private class MemoryPrefs(initial: Map<String, Any?>) : SharedPreferences {
         val data = initial.toMutableMap()
         var commits = 0

@@ -54,6 +54,7 @@ internal object GpsZoneEditorStoreV2 {
     @Synchronized
     fun commit(prefs: SharedPreferences, change: Change): Boolean {
         val current = read(prefs) ?: return false
+        if (change.values.keys != keys) return false
         if (current.values != change.expected.values || decode(change.values.filterValues { it != null }) == null) return false
         val editor = prefs.edit()
         change.values.forEach { (key, value) ->
@@ -102,8 +103,8 @@ internal object GpsZoneEditorStoreV2 {
     }
 
     fun saveZone(snapshot: Snapshot, group: GpsPlaceGroup, zoneId: String?, newZoneId: String,
-                 draft: GpsZoneDraftV2, maximumZones: Int): Change? {
-        if (draft.error() != null) return null
+                 draft: GpsZoneDraftV2, maximumZones: Int, pointSource: String = "manual_coordinates"): Change? {
+        if (draft.error() != null || pointSource !in setOf("manual_coordinates", "map")) return null
         val members = selected(snapshot, group) ?: return null
         val existing = zoneId?.let { id -> members.singleOrNull { it.id == id } ?: return null }
         val id = existing?.id ?: newZoneId.trim()
@@ -121,7 +122,7 @@ internal object GpsZoneEditorStoreV2 {
                 .also(zones::add)
         }
         target.put("label", draft.label.trim()).put("latitude", draft.latitude).put("longitude", draft.longitude)
-            .put("radius", draft.radius).put("pointType", draft.role.token).put("pointSource", "manual_coordinates")
+            .put("radius", draft.radius).put("pointType", draft.role.token).put("pointSource", pointSource)
         listOf("name", "placeName", "zoneName", "zoneType", "type").forEach(target::remove)
         val contact = existing?.let { snapshot.contact(it) }
         val contacts = JSONObject(values["arrival_contacts"] ?: "{}")
@@ -129,9 +130,31 @@ internal object GpsZoneEditorStoreV2 {
             .put("contactName", draft.contactName.trim()).put("phone", draft.phone.trim()).put("enabled", draft.notifyOnArrival))
         values["arrival_contacts"] = contacts.toString()
         val overrides = JSONObject(values["zone_point_overrides"] ?: "{}")
-        overrides.put(id, JSONObject().put("latitude", draft.latitude).put("longitude", draft.longitude).put("source", "manual_coordinates"))
+        overrides.put(id, JSONObject().put("latitude", draft.latitude).put("longitude", draft.longitude).put("source", pointSource))
         values["zone_point_overrides"] = overrides.toString()
         values["zone_point_confirmed"] = JSONObject(values["zone_point_confirmed"] ?: "{}").put(id, true).toString()
+        return finish(snapshot, zones, values)
+    }
+
+    /** Déplace uniquement un point existant ; ne recrée jamais une zone supprimée. */
+    fun setPoint(snapshot: Snapshot, zoneId: String, latitude: Double, longitude: Double,
+                 source: String): Change? {
+        if (!latitude.isFinite() || latitude !in -90.0..90.0 ||
+            !longitude.isFinite() || longitude !in -180.0..180.0 ||
+            source !in setOf("map", "manual_coordinates")) return null
+        val original = snapshot.zones.singleOrNull { it.id == zoneId && !it.isGpsCandidate() } ?: return null
+        val zones = snapshot.zones.map { JSONObject(it.sourceJson) }
+        val values = snapshot.values.toMutableMap()
+        preserveAddressMetadata(snapshot, zones, values, setOf(zoneId))
+        val target = zones.single { it.optString("id").trim() == zoneId }
+        target.put("latitude", latitude).put("longitude", longitude).put("pointSource", source)
+        // Le rayon, le type, le nom, l'entreprise et le contact restent ceux de la zone.
+        values["zone_point_overrides"] = JSONObject(values["zone_point_overrides"] ?: "{}")
+            .put(zoneId, JSONObject().put("latitude", latitude).put("longitude", longitude).put("source", source)).toString()
+        values["zone_point_confirmed"] = JSONObject(values["zone_point_confirmed"] ?: "{}").put(zoneId, true).toString()
+        if (values["pending_point_address"]?.equals(original.address, ignoreCase = true) == true) {
+            values["pending_point_address"] = null
+        }
         return finish(snapshot, zones, values)
     }
 
