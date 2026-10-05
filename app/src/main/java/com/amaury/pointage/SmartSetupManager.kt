@@ -38,6 +38,30 @@ internal fun canAppendSmartCandidateZone(
     maximumZoneCount: Int = 10
 ): Boolean = currentZoneCount in 0 until maximumZoneCount
 
+internal fun smartSetupTargetAlreadyRepresentedV2(
+    zones: JSONArray,
+    address: String,
+    companyId: String?,
+    legacyCompanySlot: Int?
+): Boolean {
+    val cleanAddress = address.trim()
+    val stableCompanyId = companyId?.trim()?.takeIf(String::isNotBlank)
+    val legacySlot = legacyCompanySlot?.takeIf { it in 1..2 }
+    if (cleanAddress.isBlank() || (stableCompanyId == null && legacySlot == null)) return false
+
+    for (index in 0 until zones.length()) {
+        val zone = zones.optJSONObject(index) ?: continue
+        if (!zone.optString("address").trim().equals(cleanAddress, ignoreCase = true)) continue
+        val zoneCompanyId = zone.optString("companyId").trim().takeIf(String::isNotBlank)
+        if (stableCompanyId != null) {
+            if (zoneCompanyId == stableCompanyId) return true
+        } else if (zoneCompanyId == null && zone.optInt("companySlot", 0) == legacySlot) {
+            return true
+        }
+    }
+    return false
+}
+
 internal fun smartCandidateZoneJson(
     id: String,
     address: String,
@@ -185,10 +209,13 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         val gps = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
         val zones = readPersistedGpsZones(gps).toMutableJsonArrayOrNull() ?: return
 
-        for (i in 0 until zones.length()) {
-            val z = zones.optJSONObject(i) ?: continue
-            if (z.optString("address").trim().equals(address, ignoreCase = true)) return
-        }
+        if (smartSetupTargetAlreadyRepresentedV2(
+                zones = zones,
+                address = address,
+                companyId = companyId,
+                legacyCompanySlot = legacyCompanySlot
+            )
+        ) return
         // Les candidats silencieux partagent la même limite que les zones configurées.
         // Dépasser cette limite ferait retirer toutes les geofences par le plan fail-closed.
         if (!canAppendSmartCandidateZone(zones.length())) return
