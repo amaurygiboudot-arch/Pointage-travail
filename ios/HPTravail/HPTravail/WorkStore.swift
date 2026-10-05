@@ -203,46 +203,16 @@ final class WorkStoreV2: ObservableObject {
     }
 
     private func load() {
-        let primaryData = defaults.data(forKey: WorkSessionStorageV2.primaryKey)
-        let legacyData = defaults.data(forKey: WorkSessionStorageV2.legacyKey)
-        let paidRepairAlreadyHandled = defaults.bool(forKey: WorkSessionStorageV2.paidRepairMarkerKey)
-
-        let resolution = WorkSessionStorageV2.resolve(
-            primaryData: primaryData,
-            legacyData: legacyData,
-            allowTransitionalPrimaryRepair: !paidRepairAlreadyHandled
-        )
-
-        if !paidRepairAlreadyHandled {
-            defaults.set(true, forKey: WorkSessionStorageV2.paidRepairMarkerKey)
+        let resolution = WorkSessionStorageV2.load(defaults: defaults) { decoded in
+            persistCanonical(decoded)
         }
-
         switch resolution {
         case .missing:
             sessions = []
             storageReliable = true
-
-        case .valid(let decoded, let origin):
-            switch origin {
-            case .primary:
-                sessions = decoded
-                storageReliable = true
-
-            case .legacyMigration, .transitionalPrimaryRepair:
-                guard persistCanonical(decoded) else {
-                    sessions = []
-                    storageReliable = false
-                    return
-                }
-
-                if origin == .legacyMigration {
-                    defaults.removeObject(forKey: WorkSessionStorageV2.legacyKey)
-                }
-
-                sessions = decoded
-                storageReliable = true
-            }
-
+        case .valid(let decoded, _):
+            sessions = decoded
+            storageReliable = true
         case .corrupt:
             sessions = []
             storageReliable = false

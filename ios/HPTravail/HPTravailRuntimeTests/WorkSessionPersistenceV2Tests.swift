@@ -3,6 +3,58 @@ import XCTest
 @testable import RuntimeV2Contract
 
 final class WorkSessionPersistenceV2Tests: XCTestCase {
+    func testFailedRepairRemainsRetryableAndDoesNotDuplicateSessions() throws {
+        let suite = "repair-retry-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(RejectingPrimaryDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let session = WorkSession(id: UUID(), entry: start, exit: start.addingTimeInterval(3600),
+            pauses: [PausePeriod(id: UUID(), start: start.addingTimeInterval(900),
+                                 end: start.addingTimeInterval(1200), paid: nil)])
+        let source = try JSONEncoder().encode([session])
+        defaults.set(source, forKey: WorkSessionStorageV2.primaryKey)
+        defaults.rejectPrimaryWrite = true
+        XCTAssertEqual(WorkSessionStorageV2.load(defaults: defaults) {
+            WorkSessionPersistenceV2.write($0, defaults: defaults)
+        }, .corrupt)
+        XCTAssertFalse(defaults.bool(forKey: WorkSessionStorageV2.paidRepairMarkerKey))
+        XCTAssertEqual(defaults.data(forKey: WorkSessionStorageV2.primaryKey), source)
+
+        // A new load retries the same primary; no fallback to unrelated legacy data.
+        defaults.rejectPrimaryWrite = false
+        guard case .valid(let repaired, let origin) = WorkSessionStorageV2.load(defaults: defaults, persist: {
+            WorkSessionPersistenceV2.write($0, defaults: defaults)
+        }) else { return XCTFail("Repair should retry after the write failure") }
+        XCTAssertEqual(origin, .transitionalPrimaryRepair)
+        XCTAssertEqual(repaired.map(\.id), [session.id])
+        XCTAssertEqual(repaired.first?.pauses.first?.paid, false)
+        XCTAssertTrue(defaults.bool(forKey: WorkSessionStorageV2.paidRepairMarkerKey))
+        XCTAssertEqual(WorkSessionStorageV2.load(defaults: defaults) { _ in
+            XCTFail("Successful migration must not run again")
+            return false
+        }, .valid(repaired, origin: .primary))
+    }
+
+    func testFailedLegacyMigrationRetainsSourceAndMarkerForRetry() throws {
+        let suite = "legacy-retry-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(RejectingPrimaryDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let session = WorkSession(id: UUID(), entry: start, exit: start.addingTimeInterval(3600), pauses: [])
+        let source = try JSONEncoder().encode([session])
+        defaults.set(source, forKey: WorkSessionStorageV2.legacyKey)
+        defaults.rejectPrimaryWrite = true
+        XCTAssertEqual(WorkSessionStorageV2.load(defaults: defaults) {
+            WorkSessionPersistenceV2.write($0, defaults: defaults)
+        }, .corrupt)
+        XCTAssertEqual(defaults.data(forKey: WorkSessionStorageV2.legacyKey), source)
+        XCTAssertFalse(defaults.bool(forKey: WorkSessionStorageV2.paidRepairMarkerKey))
+        defaults.rejectPrimaryWrite = false
+        XCTAssertEqual(WorkSessionStorageV2.load(defaults: defaults) {
+            WorkSessionPersistenceV2.write($0, defaults: defaults)
+        }, .valid([session], origin: .legacyMigration))
+        XCTAssertNil(defaults.data(forKey: WorkSessionStorageV2.legacyKey))
+        XCTAssertEqual(WorkSessionPersistenceV2.read(defaults.data(forKey: WorkSessionStorageV2.primaryKey)), .valid([session]))
+    }
+
     private let start = Date(timeIntervalSinceReferenceDate: 1_000)
 
     func testOverlappingSessionsAreCorrupt() throws {
@@ -332,5 +384,13 @@ final class WorkSessionPersistenceV2Tests: XCTestCase {
                 )
             ]
         )
+    }
+}
+
+private final class RejectingPrimaryDefaults: UserDefaults, @unchecked Sendable {
+    var rejectPrimaryWrite = false
+    override func set(_ value: Any?, forKey defaultName: String) {
+        if rejectPrimaryWrite && defaultName == WorkSessionStorageV2.primaryKey { return }
+        super.set(value, forKey: defaultName)
     }
 }
