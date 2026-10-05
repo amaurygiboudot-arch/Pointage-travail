@@ -63,7 +63,7 @@ object DailyPdfReport {
             page = pdf.startPage(PdfDocument.PageInfo.Builder(W, H, pageNo).create())
             val c = page!!.canvas
             y = M
-            c.drawText(if (continuation) "RAPPORT JOURNALIER HORATRACK — SUITE" else "RAPPORT JOURNALIER HORATRACK", M, y + 18, title)
+            c.drawText(if (continuation) "RAPPORT JOURNALIER AGKGMG — SUITE" else "RAPPORT JOURNALIER AGKGMG", M, y + 18, title)
             y += 34
             c.drawText(dayLabel, M, y + 12, head)
             y += 28
