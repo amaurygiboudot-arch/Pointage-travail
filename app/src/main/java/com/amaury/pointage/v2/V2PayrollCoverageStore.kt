@@ -38,19 +38,37 @@ object V2PayrollCoverageStore {
         checkedAtMs: Long,
         timeZoneId: String,
         nowMs: Long = System.currentTimeMillis()
-    ): PayrollCoverageAttestationV2? {
+    ): PayrollCoverageAttestationV2? = saveConfirmed(
+        employerId, coveredStartEpochDay, coveredEndEpochDay, checkedAtMs, timeZoneId, nowMs,
+        readSessions = { V2RuntimeReader.allSessions(context, nowMs) },
+        readCoverage = { read(context) },
+        writeCoverage = { write(context, it) }
+    )
+
+    /** The same runtime transaction protects both restoration and explicit confirmations. */
+    internal fun saveConfirmed(
+        employerId: String,
+        coveredStartEpochDay: Long,
+        coveredEndEpochDay: Long,
+        checkedAtMs: Long,
+        timeZoneId: String,
+        nowMs: Long,
+        readSessions: () -> V2RuntimeReader.SessionsRead,
+        readCoverage: () -> PayrollCoverageReadResultV2,
+        writeCoverage: (List<PayrollCoverageAttestationV2>) -> Boolean
+    ): PayrollCoverageAttestationV2? = V2RuntimeStore.withTransaction {
         val employer = employerId.trim()
         val zone = timeZoneId.trim()
         if (employer.isEmpty() || checkedAtMs <= 0L || checkedAtMs > nowMs ||
             !PayrollCoverageAttestationPolicyV2.coverageClosedBeforeCheck(
                 coveredEndEpochDay, checkedAtMs, zone
             )
-        ) return null
+        ) return@withTransaction null
 
-        val sessions = V2RuntimeReader.allSessions(context, nowMs)
-        if (!sessions.reliable) return null
-        val store = read(context)
-        if (!store.reliable) return null
+        val sessions = readSessions()
+        if (!sessions.reliable) return@withTransaction null
+        val store = readCoverage()
+        if (!store.reliable) return@withTransaction null
 
         val fingerprint = PayrollCoverageAttestationPolicyV2.fingerprint(
             sessions = sessions.sessions,
@@ -58,7 +76,7 @@ object V2PayrollCoverageStore {
             coveredStartEpochDay = coveredStartEpochDay,
             coveredEndEpochDay = coveredEndEpochDay,
             timeZoneId = zone
-        ) ?: return null
+        ) ?: return@withTransaction null
 
         val attestation = PayrollCoverageAttestationV2(
             id = UUID.randomUUID().toString(),
@@ -76,7 +94,7 @@ object V2PayrollCoverageStore {
                 it.coveredEndEpochDay == coveredEndEpochDay &&
                 it.timeZoneId == zone
         } + attestation
-        return if (write(context, next)) attestation else null
+        if (writeCoverage(next)) attestation else null
     }
 
     fun read(context: Context): PayrollCoverageReadResultV2 {
@@ -278,7 +296,14 @@ object V2PayrollCoverageStore {
     internal fun replaceAllForRestore(
         context: Context,
         items: List<PayrollCoverageAttestationV2>
-    ): Boolean = write(context, items)
+    ): Boolean = replaceAllForRestore(items) { write(context, it) }
+
+    internal fun replaceAllForRestore(
+        items: List<PayrollCoverageAttestationV2>,
+        writeCoverage: (List<PayrollCoverageAttestationV2>) -> Boolean
+    ): Boolean = V2RuntimeStore.withTransaction {
+        writeCoverage(items)
+    }
 
     private fun write(context: Context, items: List<PayrollCoverageAttestationV2>): Boolean {
         val raw = encode(items) ?: return false
