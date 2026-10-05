@@ -36,8 +36,8 @@ internal object GpsTriggeredZoneSelectionV2 {
         candidates: List<Candidate>,
         preferredZoneId: String? = null
     ): Result {
-        val expected = triggeredZoneIds.map(String::trim)
-        if (expected.any(String::isBlank)) {
+        val expected = triggeredZoneIds.map { it.trim() }
+        if (expected.any { it.isBlank() }) {
             return Result.Blocked("Une zone GPS déclenchée possède un identifiant invalide")
         }
         if (expected.toSet() != candidates.map { it.zoneId }.toSet()) {
