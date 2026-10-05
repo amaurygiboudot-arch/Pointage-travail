@@ -259,7 +259,8 @@ struct SalaryV2View: View {
             Text("Complétude des pointages").font(.headline)
             if let company = salaryStore.selectedCompany,
                let bounds = salaryStore.payrollCoverageBounds {
-                Text("Entreprise : \(company.name) — \(company.id)")
+                Text("Entreprise : \(company.name)")
+                if !company.siret.isEmpty { Text("SIRET : \(company.siret)").font(.footnote) }
                 Text("Mois : \(salaryStore.selectedPeriod.description)")
                 Text("Du \(epochDayLabel(bounds.start)) au \(epochDayLabel(bounds.end)) inclus")
                 Text("Fuseau horaire : \(salaryStore.payrollCoverageTimeZoneId)")
