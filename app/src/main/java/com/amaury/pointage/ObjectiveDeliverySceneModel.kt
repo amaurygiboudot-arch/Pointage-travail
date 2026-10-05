@@ -106,7 +106,8 @@ internal object ObjectiveDeliverySceneCatalog {
                 person("Noah", "Logistique", "Vérifie le colis et les documents.", 0.27f, 0.69f, gold, warmSkin, brownHair),
                 person(name, "Client", "Réceptionne la commande et peut faire un retour.", 0.76f, 0.39f, coral, lightSkin, brownHair),
                 person("Élise", "Service client", "Écoute et suit la demande du client.", 0.52f, 0.70f, purple, lightSkin, lightHair),
-                person("Karim", "Production", "Reste disponible si une correction est nécessaire.", 0.39f, 0.38f, blue, deepSkin, darkHair)
+                person("Karim", "Production", "Reste disponible si une correction est nécessaire.", 0.39f, 0.38f, blue, deepSkin, darkHair),
+                person("Direction", "Toi • direction", "Coordonne la réception et le suivi du client.", 0.22f, 0.43f, teal, warmSkin, darkHair)
             )
             8 -> listOf(
                 person("Direction", "Toi • direction", "Équilibre les besoins de l’entreprise et de l’équipe.", 0.26f, 0.67f, teal, warmSkin, darkHair),

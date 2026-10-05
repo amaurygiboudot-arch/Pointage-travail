@@ -1,8 +1,24 @@
 import CryptoKit
 import Foundation
 
-enum GpsZoneKindV2: String, Codable {
+enum GpsZoneKindV2: String, Codable, CaseIterable, Identifiable {
     case worksite
+    case parking
+    case breakZone = "break"
+    case other
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .worksite: return "Travail"
+        case .parking: return "Parking"
+        case .breakZone: return "Pause"
+        case .other: return "Autre"
+        }
+    }
+
+    var drivesAutomaticPointage: Bool { self == .worksite }
 }
 
 struct GpsZoneV2: Codable, Equatable, Identifiable {
@@ -13,6 +29,27 @@ struct GpsZoneV2: Codable, Equatable, Identifiable {
     var radius: Double
     var employerId: String?
     var kind: GpsZoneKindV2
+}
+
+struct GpsClockInFactsV2: Equatable {
+    let employerId: String?
+    let placeLabel: String
+}
+
+enum GpsClockInFactsPolicyV2 {
+    static func facts(for zone: GpsZoneV2) -> GpsClockInFactsV2? {
+        guard zone.kind.drivesAutomaticPointage else { return nil }
+        let label = zone.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty else { return nil }
+        let employerId = zone.employerId?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nonEmpty
+        return GpsClockInFactsV2(employerId: employerId, placeLabel: label)
+    }
+}
+
+private extension String {
+    var nonEmpty: String? { isEmpty ? nil : self }
 }
 
 enum GpsZonesReadV2: Equatable {
@@ -42,19 +79,29 @@ enum GpsZoneConfigurationV2 {
         }
         return zones.allSatisfy { zone in
             !zone.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && (zone.employerId == nil
+                    || !zone.employerId!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 && zone.latitude.isFinite
                 && (-90 ... 90).contains(zone.latitude)
                 && zone.longitude.isFinite
                 && (-180 ... 180).contains(zone.longitude)
                 && zone.radius.isFinite
                 && (50 ... 1_000).contains(zone.radius)
-                && zone.kind == .worksite
         }
     }
 
+    static func automaticZones(_ zones: [GpsZoneV2]) -> [GpsZoneV2] {
+        zones.filter { $0.kind.drivesAutomaticPointage }
+    }
+
+    static func automaticZoneIds(_ zones: [GpsZoneV2]) -> Set<UUID> {
+        Set(automaticZones(zones).map(\.id))
+    }
+
     static func fingerprint(enabled: Bool, zones: [GpsZoneV2]) -> String? {
-        guard enabled, !zones.isEmpty, isValid(zones) else { return nil }
-        let canonical = zones.sorted { $0.id.uuidString < $1.id.uuidString }
+        guard enabled, isValid(zones) else { return nil }
+        let canonical = automaticZones(zones).sorted { $0.id.uuidString < $1.id.uuidString }
+        guard !canonical.isEmpty else { return nil }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(canonical) else { return nil }

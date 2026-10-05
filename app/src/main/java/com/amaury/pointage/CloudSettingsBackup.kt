@@ -60,7 +60,7 @@ object CloudSettingsBackup {
             val values = root.optJSONObject(name)
                 ?: error("Fichier de réglages invalide : $name")
             for (key in values.keys()) {
-                if (!GpsPresenceStateKeysV2.isTransferablePreferenceKey(name, key)) continue
+                if (!BackupPreferenceKeyPolicy.canTransfer(name, key)) continue
                 val value = values.opt(key)
                 when (value) {
                     is Boolean, is Int, is Long, is Double, is String -> Unit

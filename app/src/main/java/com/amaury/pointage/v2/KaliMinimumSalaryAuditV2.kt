@@ -29,7 +29,7 @@ object KaliMinimumSalaryAuditV2 {
     )
 
     fun audit(context: Context, companyId: String, referenceDate: LocalDate): Task<Summary> {
-        val profile = ConventionLegalProfileV2.load(context, companyId)
+        val profile = ConventionLegalProfileV2.load(context, companyId, referenceDate)
             ?: return Tasks.forResult(Summary("", referenceDate, 0, 0, 0, false, false, warnings = listOf("KALI minimum : entreprise introuvable.")))
         if (profile.idcc.isBlank()) {
             return Tasks.forResult(Summary("", referenceDate, 0, 0, 0, false, false, warnings = listOf("KALI minimum : IDCC manquant.")))

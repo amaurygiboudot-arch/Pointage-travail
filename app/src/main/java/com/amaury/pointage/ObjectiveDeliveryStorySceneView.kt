@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -15,6 +16,7 @@ import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
@@ -227,8 +229,12 @@ private class ObjectiveDeliverySceneCanvas(
         WorldZone("QUAI & SÉCURITÉ", 2, 1, 0xFFE7EFED.toInt())
     )
     private val density = resources.displayMetrics.density
-    private var animationStart = 0L
-    private var previousFrameAt = 0L
+    private val animationClock = ObjectiveDeliveryAnimationClock()
+    private val visibleRect = Rect()
+    private var animationScheduled = false
+    private var observedTree: ViewTreeObserver? = null
+    private val scrollVisibilityListener = ViewTreeObserver.OnScrollChangedListener { refreshAnimation() }
+    private val layoutVisibilityListener = ViewTreeObserver.OnGlobalLayoutListener { refreshAnimation() }
     private var downX = 0f
     private var downY = 0f
     private var downCameraX = 0f
@@ -274,9 +280,14 @@ private class ObjectiveDeliverySceneCanvas(
 
     private val animateFrame = object : Runnable {
         override fun run() {
-            if (!isAttachedToWindow || visibility != VISIBLE || windowVisibility != VISIBLE) return
+            animationScheduled = false
+            if (!isSceneVisible()) {
+                animationClock.pause()
+                return
+            }
             invalidate()
-            postDelayed(this, 55L)
+            animationScheduled = true
+            postOnAnimation(this)
         }
     }
 
@@ -307,37 +318,65 @@ private class ObjectiveDeliverySceneCanvas(
         }
     }
 
+    private fun isSceneVisible(): Boolean =
+        isAttachedToWindow && isShown && windowVisibility == VISIBLE &&
+            getGlobalVisibleRect(visibleRect) && !visibleRect.isEmpty
+
+    private fun refreshAnimation() {
+        if (isSceneVisible()) {
+            if (!animationScheduled) {
+                animationClock.pause()
+                animationScheduled = true
+                postOnAnimation(animateFrame)
+            }
+        } else {
+            removeCallbacks(animateFrame)
+            animationScheduled = false
+            animationClock.pause()
+        }
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        animationStart = SystemClock.uptimeMillis()
-        previousFrameAt = 0L
-        removeCallbacks(animateFrame)
-        post(animateFrame)
+        observedTree = viewTreeObserver.also {
+            it.addOnScrollChangedListener(scrollVisibilityListener)
+            it.addOnGlobalLayoutListener(layoutVisibilityListener)
+        }
+        refreshAnimation()
     }
 
     override fun onDetachedFromWindow() {
+        observedTree?.takeIf { it.isAlive }?.let {
+            it.removeOnScrollChangedListener(scrollVisibilityListener)
+            it.removeOnGlobalLayoutListener(layoutVisibilityListener)
+        }
+        observedTree = null
         removeCallbacks(animateFrame)
+        animationScheduled = false
+        animationClock.pause()
         super.onDetachedFromWindow()
     }
 
     override fun onWindowVisibilityChanged(visibility: Int) {
         super.onWindowVisibilityChanged(visibility)
-        if (visibility == VISIBLE && isAttachedToWindow) {
-            removeCallbacks(animateFrame)
-            post(animateFrame)
-        } else {
-            removeCallbacks(animateFrame)
-        }
+        if (isAttachedToWindow) refreshAnimation()
+    }
+
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        // Android can dispatch this callback during the View constructor.
+        if (isAttachedToWindow) refreshAnimation()
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         canvas.drawColor(0xFFB8CEC3.toInt())
-        if (width <= 0 || height <= 0) return
+        if (width <= 0 || height <= 0 || !isSceneVisible()) return
 
         val now = SystemClock.uptimeMillis()
-        val elapsed = (now - animationStart) / 1000f
-        advanceWorld(now, elapsed)
+        val delta = animationClock.tick(now)
+        val elapsed = animationClock.elapsedSeconds()
+        advanceWorld(delta, elapsed)
 
         canvas.save()
         canvas.clipRect(0f, 0f, width.toFloat(), height.toFloat())
@@ -442,7 +481,7 @@ private class ObjectiveDeliverySceneCanvas(
         var bestIndex = -1
         var bestDistance = Float.MAX_VALUE
         scene.people.indices.forEach { index ->
-            val person = characterPosition(index, (SystemClock.uptimeMillis() - animationStart) / 1000f)
+            val person = characterPosition(index, animationClock.elapsedSeconds())
             val personScreenX = width / 2f + (person.first - cameraX) * zoomFactor
             val personScreenY = height / 2f + (person.second - cameraY) * zoomFactor
             val distance = sqrt(
@@ -596,7 +635,7 @@ private class ObjectiveDeliverySceneCanvas(
         onAgentStatusChanged?.invoke(index, agentStatus(index))
     }
 
-    private fun advanceWorld(now: Long, elapsed: Float) {
+    private fun advanceWorld(delta: Float, elapsed: Float) {
         if (!cameraReady) {
             val start = zoneBounds(activeZoneIndex()).centerPoint()
             managerX = start.x
@@ -607,9 +646,6 @@ private class ObjectiveDeliverySceneCanvas(
         }
         if (npcAgents.isEmpty() && scene.people.size > 1) initializeNpcBrains(elapsed)
 
-        val delta = if (previousFrameAt == 0L) 0f else
-            ((now - previousFrameAt) / 1000f).coerceIn(0f, 0.12f)
-        previousFrameAt = now
         walkingTarget?.let { target ->
             val dx = target.x - managerX
             val dy = target.y - managerY
@@ -628,8 +664,9 @@ private class ObjectiveDeliverySceneCanvas(
 
         if (!manualCamera) {
             val focused = characterPosition(trackingIndex, elapsed)
-            cameraX += (focused.first - cameraX) * 0.16f
-            cameraY += (focused.second - cameraY) * 0.16f
+            val blend = ObjectiveDeliveryAnimationClock.cameraBlend(delta)
+            cameraX += (focused.first - cameraX) * blend
+            cameraY += (focused.second - cameraY) * blend
         }
         clampCamera()
     }
@@ -786,7 +823,7 @@ private class ObjectiveDeliverySceneCanvas(
         val dialogue = agentSpeechLine(selectedIndex) ?: return
         if (width <= dp(120f) || height <= dp(100f)) return
 
-        val elapsed = (SystemClock.uptimeMillis() - animationStart) / 1000f
+        val elapsed = animationClock.elapsedSeconds()
         val person = characterPosition(selectedIndex, elapsed)
         val screenX = width / 2f + (person.first - cameraX) * zoomFactor
         val screenY = height / 2f + (person.second - cameraY) * zoomFactor

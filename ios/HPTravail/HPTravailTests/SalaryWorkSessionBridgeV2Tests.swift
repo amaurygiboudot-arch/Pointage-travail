@@ -59,6 +59,65 @@ final class SalaryWorkSessionBridgeV2Tests: XCTestCase {
         XCTAssertEqual(source.sessions[0].pauses[0].paid, false)
     }
 
+
+    func testGpsWorkZoneKeepsItsEmployerThroughRuntimeAndSalaryAggregation() throws {
+        let zone = GpsZoneV2(
+            id: UUID(),
+            label: "Atelier A",
+            latitude: 46.7,
+            longitude: -1.4,
+            radius: 150,
+            employerId: "company-a",
+            kind: .worksite
+        )
+        let facts = try XCTUnwrap(GpsClockInFactsPolicyV2.facts(for: zone))
+        let session = WorkSession(
+            id: UUID(),
+            entry: date(17, 8),
+            exit: date(17, 16),
+            pauses: [
+                PausePeriod(
+                    id: UUID(),
+                    start: date(17, 12),
+                    end: date(17, 12, 30),
+                    paid: false
+                )
+            ],
+            employerId: facts.employerId,
+            placeLabel: facts.placeLabel
+        )
+
+        let source = SalaryWorkSessionBridgeV2.source(
+            from: [session],
+            storageReliable: true
+        )
+        let companyA = SalaryPaidWorkAggregatorV2.aggregate(
+            sessions: source.sessions,
+            employerId: "company-a",
+            period: YearMonthV2(year: 2026, month: 9)!,
+            sourceReliable: source.reliable,
+            calendar: calendar
+        )
+        let companyB = SalaryPaidWorkAggregatorV2.aggregate(
+            sessions: source.sessions,
+            employerId: "company-b",
+            period: YearMonthV2(year: 2026, month: 9)!,
+            sourceReliable: source.reliable,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(facts.employerId, "company-a")
+        XCTAssertEqual(facts.placeLabel, "Atelier A")
+        XCTAssertEqual(source.sessions.count, 1)
+        XCTAssertEqual(source.sessions.first?.employerId, "company-a")
+        XCTAssertTrue(companyA.reliable)
+        XCTAssertEqual(companyA.completedSessionCount, 1)
+        XCTAssertEqual(companyA.totalPaidMinutes, 450)
+        XCTAssertTrue(companyB.reliable)
+        XCTAssertEqual(companyB.completedSessionCount, 0)
+        XCTAssertEqual(companyB.totalPaidMinutes, 0)
+    }
+
     func testBridgeNeverAssignsSelectedEmployerToUnassignedSession() {
         let unassigned = WorkSession(
             id: UUID(),

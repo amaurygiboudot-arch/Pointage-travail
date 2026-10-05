@@ -21,7 +21,7 @@ object VerifiedProtectionCategoryProviderV2 {
     )
 
     fun resolve(context: Context, companyId: String, referenceDate: LocalDate): Snapshot {
-        val profile = ConventionLegalProfileV2.load(context, companyId)
+        val profile = ConventionLegalProfileV2.load(context, companyId, referenceDate)
             ?: return unresolved("entreprise ou profil salarié introuvable")
         if (profile.idcc.isBlank()) return unresolved("IDCC manquant")
         if (profile.classification.isEmpty()) return unresolved("classification conventionnelle exacte manquante")

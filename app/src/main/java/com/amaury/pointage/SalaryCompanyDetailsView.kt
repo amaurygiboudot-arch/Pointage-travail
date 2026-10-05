@@ -636,8 +636,16 @@ class SalaryContractDetailsView(context: Context, private val company: SalaryCom
     private fun showSummary() {
         removeAllViews()
         val rate = prefs.getString("hourly_rate", "").orEmpty(); val coefficient = prefs.getString("convention_coefficient", "").orEmpty()
-        val type = prefs.getString("contract_type", "").orEmpty(); val weekly = prefs.getString("contract_weekly_hours", "").orEmpty(); val monthly = prefs.getString("monthly_contract_salary", "").orEmpty(); val status = prefs.getString("professional_status", "").orEmpty()
-        addView(text("Type de contrat : ${type.ifBlank { "Non renseigné" }}\nTemps de travail : ${weekly.ifBlank { "Non renseigné" }}\nTaux horaire : ${rate.ifBlank { "Non renseigné" }}\nSalaire mensuel forfait : ${monthly.ifBlank { "Non renseigné" }}\nStatut : ${status.ifBlank { "Non renseigné" }}\nCoefficient : ${coefficient.ifBlank { "Non renseigné" }}"))
+        val type = prefs.getString("contract_type", "").orEmpty(); val weekly = prefs.getString("contract_weekly_hours", "").orEmpty(); val monthly = prefs.getString("monthly_contract_salary", "").orEmpty()
+        addView(text("Type de contrat : ${type.ifBlank { "Non renseigné" }}\nTemps de travail : ${weekly.ifBlank { "Non renseigné" }}\nTaux horaire : ${rate.ifBlank { "Non renseigné" }}\nSalaire mensuel forfait : ${monthly.ifBlank { "Non renseigné" }}\nCoefficient : ${coefficient.ifBlank { "Non renseigné" }}"))
+        addView(text(CompanyPayrollFactsSummaryV2.professionalStatus(context, company.id)))
+        addView(button("GÉRER LE STATUT PROFESSIONNEL DATÉ") {
+            CompanyProfessionalStatusDialogV2.show(context, company.id) { showSummary() }
+        })
+        addView(text(CompanyPayrollFactsSummaryV2.atMp(context, company.id)))
+        addView(button("GÉRER LES TAUX AT/MP DATÉS") {
+            CompanyAtMpRateDialogV2.show(context, company.id) { showSummary() }
+        })
         addView(button("MODIFIER") { showEditor() })
     }
 
@@ -651,9 +659,8 @@ class SalaryContractDetailsView(context: Context, private val company: SalaryCom
         val annualDays = field("Forfait annuel en jours", prefs.getString("annual_days_package", "").orEmpty())
         val rate = field("Taux horaire brut", prefs.getString("hourly_rate", "").orEmpty())
         val monthly = field("Salaire mensuel brut contractuel", prefs.getString("monthly_contract_salary", "").orEmpty())
-        val status = Spinner(context); val statuses = listOf("NON_CADRE", "CADRE"); status.adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, statuses); status.setSelection(statuses.indexOf(prefs.getString("professional_status", "NON_CADRE")).coerceAtLeast(0))
         val coefficient = field("Coefficient convention collective", prefs.getString("convention_coefficient", "").orEmpty(), InputType.TYPE_CLASS_NUMBER)
-        addView(type, row()); listOf(weekly, annualHours, annualDays, rate, monthly).forEach { addView(it, row()) }; addView(status, row()); addView(coefficient, row())
+        addView(type, row()); listOf(weekly, annualHours, annualDays, rate, monthly).forEach { addView(it, row()) }; addView(coefficient, row())
         addView(button("ENREGISTRER") {
             val saved = SalaryCompanyStore.withConfirmedCompany(context, company.id) { confirmed ->
                 SalaryCompanyStore.prefs(context, confirmed.id).edit()
@@ -663,7 +670,6 @@ class SalaryContractDetailsView(context: Context, private val company: SalaryCom
                     .putString("annual_days_package", annualDays.text.toString().trim())
                     .putString("hourly_rate", rate.text.toString().trim())
                     .putString("monthly_contract_salary", monthly.text.toString().trim())
-                    .putString("professional_status", status.selectedItem.toString())
                     .putString("convention_coefficient", coefficient.text.toString().trim())
                     .commit()
             } == true

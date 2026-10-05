@@ -87,6 +87,12 @@ object V2RuntimeStore {
         if (nowMs <= 0L) return false
         val current = readForWrite(context, nowMs)
         if (!current.reliable || current.session?.status == SessionStatusV2.OPEN) return false
+        val storedHistory = V2RuntimeHistoryGuardV2.read(context)
+        if (!storedHistory.reliable) return false
+        // Une nouvelle session est ouverte sans fin connue. Elle ne peut donc commencer avant
+        // une session déjà archivée (y compris une saisie manuelle future), sinon deux vérités
+        // temporelles coexisteraient jusqu'à sa fermeture.
+        if (historyOverlapsRange(storedHistory.history, nowMs, Long.MAX_VALUE) != false) return false
         val prefs = prefs(context)
 
         // Les anciens appels peuvent encore imposer un slot 1/2. Le flux normal utilise désormais
@@ -143,11 +149,18 @@ object V2RuntimeStore {
         context: Context,
         nowMs: Long = System.currentTimeMillis(),
         source: EventSourceV2 = EventSourceV2.MANUAL,
-        paid: Boolean? = null
+        paid: Boolean? = null,
+        expectedTarget: PauseActionPolicyV2.Target? = null
     ): Boolean {
         val current = readForWrite(context, nowMs)
         val session = current.session ?: return false
         if (!current.reliable || session.status != SessionStatusV2.OPEN) return false
+        if (expectedTarget != null && !PauseActionPolicyV2.matches(
+                expectedTarget,
+                session.id,
+                session.pauses.lastOrNull { it.endMs == null }?.startMs
+            )
+        ) return false
         val entry = session.realArrivalMs ?: return false
         if (nowMs < entry) return false
         val prefs = prefs(context)
@@ -215,8 +228,46 @@ object V2RuntimeStore {
             if (after > before) added++
         }
 
-        if (added > 0 && !prefs.edit().putString(KEY_PAUSES, raw).commit()) return 0
+        if (added > 0) {
+            val editor = prefs.edit().putString(KEY_PAUSES, raw)
+            if (session.status == SessionStatusV2.CLOSED) {
+                val storedHistory = V2RuntimeHistoryGuardV2.read(context)
+                if (!storedHistory.reliable) return 0
+                val history = historyWithUpdatedCurrentPauses(
+                    storedHistory.history,
+                    session,
+                    pauseArrayOrNull(raw) ?: return 0
+                ) ?: return 0
+                // Une session fermée possède deux représentations : la pause ajoutée doit
+                // rejoindre l'archive dans le même commit, avant la prochaine entrée.
+                editor.putString(KEY_HISTORY, history.toString())
+            }
+            if (!editor.commit()) return 0
+        }
         return added
+    }
+
+    internal fun historyWithUpdatedCurrentPauses(
+        sourceHistory: JSONArray,
+        session: WorkSessionV2,
+        updatedPauses: JSONArray
+    ): JSONArray? {
+        if (session.status != SessionStatusV2.CLOSED) return null
+        val entry = session.realArrivalMs ?: return null
+        val exit = session.realExitMs ?: return null
+        if (!V2RuntimeHistoryGuardV2.inspect(sourceHistory).reliable) return null
+        val pauses = parsePauseArray(updatedPauses) ?: return null
+        if (pauses.any { it.startMs < entry || (it.endMs ?: return null) > exit }) return null
+        val history = runCatching { JSONArray(sourceHistory.toString()) }.getOrNull() ?: return null
+        for (index in 0 until history.length()) {
+            val item = history.optJSONObject(index) ?: return null
+            if (item.optString("id") != session.id) continue
+            // L'identité ne suffit pas si l'archive et le runtime décrivent deux périodes.
+            if (positive(item, "realEntry") != entry || positive(item, "realExit") != exit) return null
+            item.put(KEY_PAUSES, JSONArray(updatedPauses.toString()))
+            return history.takeIf { V2RuntimeHistoryGuardV2.inspect(it).reliable }
+        }
+        return null
     }
 
     /**
@@ -292,9 +343,9 @@ object V2RuntimeStore {
         val clean = ManualPauseQualificationV2.qualify(
             pauses.map { ManualPauseDraftV2(it.startMs, it.endMs, it.paid) }
         ) ?: return false
-        if (clean.any { pause ->
-                pause.startMs !in dayStart until dayEnd || pause.endMs > dayEnd
-            }) return false
+        // La journée d'édition est déterminée par le début de la pause. Une pause de nuit
+        // peut donc se terminer après minuit si elle reste entièrement dans sa session de travail.
+        if (clean.any { pause -> pause.startMs !in dayStart until dayEnd }) return false
 
         val p = prefs(context)
         val storedHistory = V2RuntimeHistoryGuardV2.read(context)
@@ -317,7 +368,10 @@ object V2RuntimeStore {
 
         fun currentContains(start: Long, end: Long): Boolean {
             if (currentEntry <= 0L || start < currentEntry) return false
-            val limit = currentExit ?: currentExpectedEnd ?: dayEnd
+            val limit = currentExit ?: maxOf(
+                currentExpectedEnd ?: dayEnd,
+                System.currentTimeMillis()
+            )
             return end <= limit
         }
 
@@ -432,7 +486,7 @@ object V2RuntimeStore {
             ?: session.employerId?.trim()?.takeIf { it.isNotBlank() }?.let { companyId ->
                 V2ScheduleStore.expectedEnd(context, companyId, entry, nowMs)
             }
-        val countedExit = HoraTrackV2.time.countedExitFromRealExit(nowMs, knownExpectedEnd)
+        val countedExit = countedExitForClosure(nowMs, knownExpectedEnd, session.countedEntryMs)
         val closedPauses = pauseArrayOrNull(pauses)?.let(::parsePauseArray) ?: return false
         val closedSession = session.copy(
             countedExitMs = countedExit,
@@ -454,7 +508,10 @@ object V2RuntimeStore {
             .remove(KEY_PAUSE_SOURCE)
             .remove(KEY_PAUSE_PAID)
             .putLong(KEY_REAL_EXIT, nowMs)
-            .putLong(KEY_COUNTED_EXIT, countedExit)
+            .apply {
+                if (countedExit == null) remove(KEY_COUNTED_EXIT)
+                else putLong(KEY_COUNTED_EXIT, countedExit)
+            }
             .commit()
         if (!closed) {
             V2RuntimeHistoryGuardV2.publishSourceState(
@@ -468,6 +525,17 @@ object V2RuntimeStore {
         return true
     }
 
+    /**
+     * Une présence courte peut se terminer avant l'entrée arrondie. La sortie réelle reste
+     * enregistrable ; seul le temps compté est laissé à confirmer, sans fabriquer de durée.
+     */
+    internal fun countedExitForClosure(
+        realExitMs: Long,
+        expectedEndMs: Long?,
+        countedEntryMs: Long?
+    ): Long? = HoraTrackV2.time.countedExitFromRealExit(realExitMs, expectedEndMs)
+        .takeIf { countedEntryMs == null || it > countedEntryMs }
+
     /** Réservé aux tests isolés. Aucun écran utilisateur ne doit appeler ce reset. */
     @Synchronized
     fun reset(context: Context) {
@@ -475,11 +543,13 @@ object V2RuntimeStore {
         prefs(context).edit().clear().commit()
     }
 
+    @Synchronized
     fun snapshot(context: Context, nowMs: Long = System.currentTimeMillis()): Snapshot {
         bind(context)
-        val prefs = prefs(context)
-        val values = prefs.all
-        if (!prefs.contains(KEY_REAL_ENTRY)) return Snapshot(null, null)
+        // Toutes les clés proviennent du même instant, même si un autre écrivain met à jour
+        // les préférences pendant la reconstruction de cette session.
+        val values = prefs(context).all
+        if (!values.containsKey(KEY_REAL_ENTRY)) return Snapshot(null, null)
         val realEntry = strictPositive(values[KEY_REAL_ENTRY]) ?: return corruptCurrentSnapshot()
 
         val realExitRead = optionalStrictPositive(values, KEY_REAL_EXIT)
@@ -501,11 +571,11 @@ object V2RuntimeStore {
         val expectedEnd = expectedEndRead.value
         if (expectedEnd != null && expectedEnd <= realEntry) return corruptCurrentSnapshot()
 
-        val id = runCatching { prefs.getString(KEY_ID, null) }.getOrNull()?.trim()
+        val id = (values[KEY_ID] as? String)?.trim()
             ?.takeIf { it.isNotBlank() && it != "null" }
             ?: return corruptCurrentSnapshot()
 
-        val rawPauses = runCatching { prefs.getString(KEY_PAUSES, null) }.getOrNull()
+        val rawPauses = values[KEY_PAUSES] as? String
             ?: return corruptCurrentSnapshot()
         val pauseArray = pauseArrayOrNull(rawPauses) ?: return corruptCurrentSnapshot()
         val pauses = parsePauseArray(pauseArray)?.toMutableList() ?: return corruptCurrentSnapshot()
@@ -513,11 +583,11 @@ object V2RuntimeStore {
         val pauseStartRead = optionalStrictPositive(values, KEY_PAUSE_START)
         if (!pauseStartRead.valid) return corruptCurrentSnapshot()
         val pauseStart = pauseStartRead.value
-        val storedPauseSource = runCatching { prefs.getString(KEY_PAUSE_SOURCE, null) }.getOrNull()
+        val storedPauseSource = values[KEY_PAUSE_SOURCE] as? String
         if (pauseStart != null) {
             if (realExit != null || pauseStart < realEntry) return corruptCurrentSnapshot()
             val source = parseSourceOrNull(storedPauseSource) ?: return corruptCurrentSnapshot()
-            val paid = if (prefs.contains(KEY_PAUSE_PAID)) {
+            val paid = if (values.containsKey(KEY_PAUSE_PAID)) {
                 strictBoolean(values[KEY_PAUSE_PAID]) ?: return corruptCurrentSnapshot()
             } else {
                 // Compatibilité fail-closed pour une pause restée ouverte pendant la mise à jour :
@@ -525,29 +595,28 @@ object V2RuntimeStore {
                 null
             }
             pauses += PauseV2(pauseStart, null, paid = paid, source = source)
-        } else if (prefs.contains(KEY_PAUSE_SOURCE) || prefs.contains(KEY_PAUSE_PAID)) {
+        } else if (values.containsKey(KEY_PAUSE_SOURCE) || values.containsKey(KEY_PAUSE_PAID)) {
             return corruptCurrentSnapshot()
         }
 
-        val storedSlot = if (prefs.contains(KEY_COMPANY_SLOT)) {
+        val storedSlot = if (values.containsKey(KEY_COMPANY_SLOT)) {
             val slot = strictInt(values[KEY_COMPANY_SLOT]) ?: return corruptCurrentSnapshot()
             slot.takeIf { it in 1..2 } ?: return corruptCurrentSnapshot()
         } else null
 
         fun optionalStoredString(key: String): String? {
-            if (!prefs.contains(key)) return null
-            return runCatching { prefs.getString(key, null) }.getOrNull()?.trim()
+            return (values[key] as? String)?.trim()
                 ?.takeIf { it.isNotBlank() && it != "null" }
         }
 
         val directEmployerId = optionalStoredString(KEY_EMPLOYER_ID)
-        if (prefs.contains(KEY_EMPLOYER_ID) && directEmployerId == null) return corruptCurrentSnapshot()
+        if (values.containsKey(KEY_EMPLOYER_ID) && directEmployerId == null) return corruptCurrentSnapshot()
         val employerId = directEmployerId
             ?: storedSlot?.let { V2ProfileStore.load(context, it).employer?.id }
         val placeId = optionalStoredString(KEY_PLACE_ID)
-        if (prefs.contains(KEY_PLACE_ID) && placeId == null) return corruptCurrentSnapshot()
+        if (values.containsKey(KEY_PLACE_ID) && placeId == null) return corruptCurrentSnapshot()
         val placeLabel = optionalStoredString(KEY_PLACE_LABEL)
-        if (prefs.contains(KEY_PLACE_LABEL) && placeLabel == null) return corruptCurrentSnapshot()
+        if (values.containsKey(KEY_PLACE_LABEL) && placeLabel == null) return corruptCurrentSnapshot()
 
         if (pauses.any { pause ->
                 val end = pause.endMs ?: return@any false
@@ -569,6 +638,7 @@ object V2RuntimeStore {
         return Snapshot(session, HoraTrackV2.time.calculate(session, nowMs))
     }
 
+    @Synchronized
     fun allSessions(context: Context, nowMs: Long = System.currentTimeMillis()): List<WorkSessionV2> {
         bind(context)
         val migration = V2MigrationManager.ensureMigrated(context)
@@ -590,17 +660,46 @@ object V2RuntimeStore {
         return history.distinctBy { it.id }.sortedBy { it.realArrivalMs ?: Long.MAX_VALUE }
     }
 
+    /**
+     * Vérifie qu'une nouvelle plage réelle ne recouvre aucune session déjà archivée.
+     *
+     * Une session historique ouverte est traitée comme allant jusqu'à l'infini : on refuse
+     * d'ajouter une seconde vérité plutôt que de risquer un double comptage.
+     * Null signifie que la vérification elle-même n'est pas fiable.
+     */
+    internal fun historyOverlapsRange(
+        sourceHistory: JSONArray,
+        startMs: Long,
+        endMs: Long,
+        ignoredSessionId: String? = null
+    ): Boolean? {
+        if (startMs <= 0L || endMs <= startMs) return null
+        if (!V2RuntimeHistoryGuardV2.inspect(sourceHistory).reliable) return null
+        for (index in 0 until sourceHistory.length()) {
+            val item = sourceHistory.optJSONObject(index) ?: return null
+            val id = item.optString("id").trim()
+            if (!ignoredSessionId.isNullOrBlank() && id == ignoredSessionId) continue
+            val existingStart = positive(item, "realEntry") ?: return null
+            val existingEnd = positive(item, "realExit") ?: Long.MAX_VALUE
+            if (startMs < existingEnd && existingStart < endMs) return true
+        }
+        return false
+    }
+
     internal fun historyWithClosedSession(
         sourceHistory: JSONArray,
         session: WorkSessionV2,
         companySlot: Int?
     ): JSONArray? {
-        if (session.status != SessionStatusV2.CLOSED || session.realArrivalMs == null || session.realExitMs == null) return null
+        if (session.status != SessionStatusV2.CLOSED) return null
+        val entry = session.realArrivalMs ?: return null
+        val exit = session.realExitMs ?: return null
         if (session.pauses.any { pause ->
                 val end = pause.endMs ?: return@any true
-                end <= pause.startMs || pause.paid == null
+                end <= pause.startMs || pause.paid == null || pause.startMs < entry || end > exit
             }) return null
         if (!V2RuntimeHistoryGuardV2.inspect(sourceHistory).reliable) return null
+        if (historyOverlapsRange(sourceHistory, entry, exit, ignoredSessionId = session.id) != false) return null
         val history = runCatching { JSONArray(sourceHistory.toString()) }.getOrNull() ?: return null
         for (i in 0 until history.length()) {
             val item = history.optJSONObject(i) ?: return null

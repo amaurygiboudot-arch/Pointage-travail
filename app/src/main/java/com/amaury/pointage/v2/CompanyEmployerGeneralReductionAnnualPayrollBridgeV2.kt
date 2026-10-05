@@ -88,8 +88,7 @@ object CompanyEmployerGeneralReductionAnnualPayrollBridgeV2 {
             return blocked(annualContextBlockers)
         }
 
-        val prefs = SalaryCompanyStore.prefs(context, company.id)
-        val idcc = company.idcc.ifBlank { prefs.getString("company_idcc", "").orEmpty() }
+        val idcc = company.idcc.trim()
         val convention = idcc.takeIf { it.isNotBlank() }
             ?.let { ConventionCatalog.findByIdcc(context, it) }
             ?.takeIf { it.idcc.isNotBlank() }

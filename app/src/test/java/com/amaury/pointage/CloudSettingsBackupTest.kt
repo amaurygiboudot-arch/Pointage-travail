@@ -26,4 +26,16 @@ class CloudSettingsBackupTest {
         backup.put("gps_settings", JSONObject().put("zones", JSONArray().put("valid")))
         assertEquals(2, CloudSettingsBackup.validateImport(backup).size)
     }
+    @Test fun ignoresMalformedDeviceLocalKeysButValidatesTransferableSettings() {
+        val values = JSONObject()
+            .put("active_tab", JSONObject().put("obsolete", true))
+            .put("report_month_ms", 1790812800000L)
+        val backup = JSONObject().put("navigation_state", values)
+        assertEquals(1, CloudSettingsBackup.validateImport(backup).size)
+
+        values.put("report_month_ms", JSONObject().put("invalid", true))
+        assertThrows(IllegalStateException::class.java) {
+            CloudSettingsBackup.validateImport(backup)
+        }
+    }
 }

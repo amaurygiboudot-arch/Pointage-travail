@@ -50,12 +50,12 @@ object V2BackupManager {
 
     data class RestoreResult(val restoredFiles:Int,val mergedSessions:Int)
     internal data class HistoryMergePlan(val history:JSONArray,val added:Int)
-    private data class BackupCandidate(
-        val uri: Uri,
+    internal data class BackupCopy(
         val fileName: String,
         val createdAtMs: Long,
         val priority: Int
     )
+    private data class BackupCandidate(val uri: Uri, val copy: BackupCopy)
 
     fun backupIfConfiguredAsync(context:Context){ val app=context.applicationContext;if(DriveBackupManager.savedTreeUri(app)==null)return;executor.execute{backupToConfiguredDrive(app)} }
     fun restoreFreshInstallIfConfiguredAsync(context:Context){ val app=context.applicationContext;if(DriveBackupManager.savedTreeUri(app)==null||!isFreshInstall(app))return;executor.execute{runCatching{val uri=configuredBackupUri(app)?:return@runCatching;restoreFromUri(app,uri).getOrThrow()}} }
@@ -73,7 +73,7 @@ object V2BackupManager {
             val root = treeRootDocumentUri(tree)
             val folder = ensureDirectory(context, root, ROOT_FOLDER)
             val existing = currentRecoveryCandidates(context, folder)
-            val recoveryName = recoveryTargetFileName(existing)
+            val recoveryName = recoveryTargetFileName(existing.map { it.copy })
             val recovery = ensureFile(context, folder, recoveryName, "application/json")
 
             // Une copie validée est durable avant toute réécriture du fichier principal.
@@ -177,29 +177,18 @@ object V2BackupManager {
         val root = treeRootDocumentUri(tree)
         val candidates = mutableListOf<BackupCandidate>()
 
-        findChild(context, root, ROOT_FOLDER, DocumentsContract.Document.MIME_TYPE_DIR)?.let { folder ->
-            listOf(
-                FILE_NAME to 30,
-                RECOVERY_FILE_A to 20,
-                RECOVERY_FILE_B to 20
-            ).forEach { (fileName, priority) ->
-                findChild(context, folder, fileName, "application/json")
-                    ?.let { inspectBackupCandidate(context, it, fileName, priority) }
-                    ?.let(candidates::add)
-            }
-        }
-
-        LEGACY_ROOT_FOLDERS.forEach { folderName ->
+        backupSearchLocations().groupBy { it.first }.forEach { (folderName, locations) ->
             val folder = findChild(context, root, folderName, DocumentsContract.Document.MIME_TYPE_DIR)
                 ?: return@forEach
-            LEGACY_FILE_NAMES.forEach { fileName ->
+            locations.forEach { (_, fileName) ->
                 findChild(context, folder, fileName, "application/json")
-                    ?.let { inspectBackupCandidate(context, it, fileName, 10) }
+                    ?.let { inspectBackupCandidate(context, it, fileName, backupPriority(fileName)) }
                     ?.let(candidates::add)
             }
         }
 
-        selectBestBackupCandidate(candidates)?.uri
+        candidates.maxWithOrNull(compareBy<BackupCandidate> { it.copy.createdAtMs }
+            .thenBy { it.copy.priority })?.uri
     }
 
     private fun currentRecoveryCandidates(context: Context, folder: Uri): List<BackupCandidate> =
@@ -212,8 +201,20 @@ object V2BackupManager {
                 ?.let { inspectBackupCandidate(context, it, fileName, priority) }
         }
 
-    private fun recoveryTargetFileName(candidates: List<BackupCandidate>): String {
-        val best = selectBestBackupCandidate(candidates)
+    internal fun backupSearchLocations(): List<Pair<String, String>> =
+        (listOf(ROOT_FOLDER) + LEGACY_ROOT_FOLDERS).flatMap { folder ->
+            (listOf(FILE_NAME) + LEGACY_FILE_NAMES + listOf(RECOVERY_FILE_A, RECOVERY_FILE_B))
+                .map { file -> folder to file }
+        }
+
+    private fun backupPriority(fileName: String): Int = when (fileName) {
+        FILE_NAME -> 30
+        RECOVERY_FILE_A, RECOVERY_FILE_B -> 20
+        else -> 10
+    }
+
+    internal fun recoveryTargetFileName(candidates: List<BackupCopy>): String {
+        val best = candidates.maxWithOrNull(compareBy<BackupCopy> { it.createdAtMs }.thenBy { it.priority })
         if (best?.fileName == RECOVERY_FILE_A) return RECOVERY_FILE_B
         if (best?.fileName == RECOVERY_FILE_B) return RECOVERY_FILE_A
 
@@ -227,23 +228,21 @@ object V2BackupManager {
         }
     }
 
-    private fun selectBestBackupCandidate(candidates: List<BackupCandidate>): BackupCandidate? =
-        candidates.maxWithOrNull(
-            compareBy<BackupCandidate> { it.createdAtMs }
-                .thenBy { it.priority }
-        )
-
     private fun inspectBackupCandidate(
         context: Context,
         uri: Uri,
         fileName: String,
         priority: Int
-    ): BackupCandidate? {
-        val raw = readBackupText(context, uri) ?: return null
+    ): BackupCandidate? = inspectBackupContent(fileName, priority) { readBackupText(context, uri) }
+        ?.let { BackupCandidate(uri, it) }
+
+    /** Une erreur I/O reste une erreur : elle ne rend jamais une copie disponible à l'écrasement. */
+    internal fun inspectBackupContent(fileName: String, priority: Int, read: () -> String): BackupCopy? {
+        val raw = read()
         val root = runCatching { JSONObject(raw) }.getOrNull() ?: return null
         if (!isStructurallyRestorableBackup(root)) return null
         val createdAtMs = strictLong(root.opt("createdAtMs"))?.takeIf { it >= 0L } ?: 0L
-        return BackupCandidate(uri, fileName, createdAtMs, priority)
+        return BackupCopy(fileName, createdAtMs, priority)
     }
 
     private fun writeAndVerifyBackup(context: Context, uri: Uri, content: String) {
@@ -256,7 +255,6 @@ object V2BackupManager {
             ?: error("Impossible d'écrire la sauvegarde")
 
         val verified = readBackupText(context, uri)
-            ?: error("Impossible de relire la sauvegarde écrite")
         check(verified == content) { "La sauvegarde relue diffère du snapshot écrit" }
         val parsed = runCatching { JSONObject(verified) }.getOrNull()
             ?: error("La sauvegarde écrite n'est pas un JSON valide")
@@ -265,12 +263,11 @@ object V2BackupManager {
         }
     }
 
-    private fun readBackupText(context: Context, uri: Uri): String? =
-        runCatching {
-            context.contentResolver.openInputStream(uri)
-                ?.bufferedReader(Charsets.UTF_8)
-                ?.use { it.readText() }
-        }.getOrNull()
+    private fun readBackupText(context: Context, uri: Uri): String =
+        context.contentResolver.openInputStream(uri)
+            ?.bufferedReader(Charsets.UTF_8)
+            ?.use { it.readText() }
+            ?: error("Impossible de lire la sauvegarde existante")
 
     private fun encodePreferences(context:Context,name:String):JSONObject { val out=JSONObject();context.applicationContext.getSharedPreferences(name,Context.MODE_PRIVATE).all.forEach{(k,v)->if(BackupPreferenceKeyPolicy.canTransfer(name,k))when(v){is String->out.put(k,JSONObject().put("t","s").put("v",v));is Boolean->out.put(k,JSONObject().put("t","b").put("v",v));is Int->out.put(k,JSONObject().put("t","i").put("v",v));is Long->out.put(k,JSONObject().put("t","l").put("v",v));is Float->out.put(k,JSONObject().put("t","f").put("v",v.toDouble()));is Set<*>->out.put(k,JSONObject().put("t","set").put("v",JSONArray(v.filterIsInstance<String>())))}};return out }
     private fun mergePreferences(context:Context,name:String,saved:JSONObject){
@@ -329,7 +326,7 @@ object V2BackupManager {
                 "b"->value is Boolean
                 "i"->strictLong(value)?.let{it in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()}==true
                 "l"->strictLong(value)!=null
-                "f"->(value as? Number)?.toDouble()?.isFinite()==true
+                "f"->(value as? Number)?.let { it.toDouble().isFinite() && it.toFloat().isFinite() }==true
                 "set"->{val array=value as? JSONArray?:return false;(0 until array.length()).all{array.opt(it) is String}}
                 else->false
             }
@@ -396,12 +393,12 @@ object V2BackupManager {
     }
     private fun strictLong(value:Any?):Long?=when(value){
         is Byte,is Short,is Int,is Long->(value as Number).toLong()
-        is Float,is Double->{val number=(value as Number).toDouble();number.takeIf{it.isFinite()&&it%1.0==0.0}?.toLong()}
+        is Float,is Double->{val number=(value as Number).toDouble();number.takeIf{it.isFinite()&&it%1.0==0.0&&it>=Long.MIN_VALUE.toDouble()&&it<Long.MAX_VALUE.toDouble()}?.toLong()}
         is String->value.trim().toLongOrNull()
         else->null
     }
     private fun treeRootDocumentUri(u:Uri):Uri=DocumentsContract.buildDocumentUriUsingTree(u,DocumentsContract.getTreeDocumentId(u))
     private fun ensureDirectory(c:Context,p:Uri,n:String):Uri=findChild(c,p,n,DocumentsContract.Document.MIME_TYPE_DIR)?:DocumentsContract.createDocument(c.contentResolver,p,DocumentsContract.Document.MIME_TYPE_DIR,n)?:error("Impossible de créer $n")
     private fun ensureFile(c:Context,p:Uri,n:String,m:String):Uri=findChild(c,p,n,m)?:DocumentsContract.createDocument(c.contentResolver,p,m,n)?:error("Impossible de créer $n")
-    private fun findChild(c:Context,p:Uri,n:String,m:String):Uri?{val id=DocumentsContract.getDocumentId(p);val children=DocumentsContract.buildChildDocumentsUriUsingTree(p,id);val projection=arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME,DocumentsContract.Document.COLUMN_MIME_TYPE);c.contentResolver.query(children,projection,null,null,null)?.use{cur->val ci=cur.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID);val cn=cur.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME);val cm=cur.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE);while(cur.moveToNext())if(cur.getString(cn)==n&&cur.getString(cm)==m)return DocumentsContract.buildDocumentUriUsingTree(p,cur.getString(ci))};return null}
+    private fun findChild(c:Context,p:Uri,n:String,m:String):Uri?{val id=DocumentsContract.getDocumentId(p);val children=DocumentsContract.buildChildDocumentsUriUsingTree(p,id);val projection=arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME,DocumentsContract.Document.COLUMN_MIME_TYPE);(c.contentResolver.query(children,projection,null,null,null)?:error("Impossible de lire le dossier de sauvegarde")).use{cur->val ci=cur.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID);val cn=cur.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME);val cm=cur.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE);while(cur.moveToNext())if(cur.getString(cn)==n&&cur.getString(cm)==m)return DocumentsContract.buildDocumentUriUsingTree(p,cur.getString(ci))};return null}
 }

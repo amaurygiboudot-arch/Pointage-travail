@@ -46,14 +46,26 @@ object V2ManualSessionWriter {
         if (!migration.reliable) return false
         val countedEntry = HoraTrackV2.time.countedEntryFromRealArrival(realStartMs)
         val expectedEnd = employerId?.let { V2ScheduleStore.expectedEnd(context, it, realStartMs, realEndMs) }
-        val countedExit = HoraTrackV2.time.countedExitFromRealExit(realEndMs, expectedEnd)
+        val countedExit = V2RuntimeStore.countedExitForClosure(realEndMs, expectedEnd, countedEntry)
         val placeLabel = place?.trim()?.takeIf { it.isNotBlank() }
 
         val stored = V2RuntimeHistoryGuardV2.read(context)
         if (!stored.reliable) return false
         val history = stored.history
+        if (V2RuntimeStore.historyOverlapsRange(history, realStartMs, realEndMs) != false) return false
+
+        // Une session ouverte n'est pas encore dans l'historique : elle doit elle aussi empêcher
+        // l'ajout d'une plage manuelle qui recouvrirait son temps réel.
+        val current = V2RuntimeStore.snapshot(context).session
+        if (!V2RuntimeHistoryGuardV2.sourceState().reliable) return false
+        if (current != null) {
+            val currentStart = current.realArrivalMs ?: return false
+            val currentEnd = current.realExitMs ?: Long.MAX_VALUE
+            if (realStartMs < currentEnd && currentStart < realEndMs) return false
+        }
+
         val employerKey = employerKey(employerId, legacySlot)
-        val signature = "$realStartMs:$realEndMs:$countedEntry:$countedExit:$employerKey"
+        val signature = "$realStartMs:$realEndMs:$countedEntry:${countedExit ?: 0L}:$employerKey"
         for (i in 0 until history.length()) {
             val o = history.optJSONObject(i) ?: return false
             val existingEmployer = employerKey(
@@ -86,7 +98,7 @@ object V2ManualSessionWriter {
         realStartMs: Long,
         realEndMs: Long,
         countedEntryMs: Long,
-        countedExitMs: Long,
+        countedExitMs: Long?,
         employerId: String?,
         legacySlot: Int?,
         placeLabel: String?
@@ -97,7 +109,7 @@ object V2ManualSessionWriter {
         .put("realEntry", realStartMs)
         .put("countedEntry", countedEntryMs)
         .put("realExit", realEndMs)
-        .put("countedExit", countedExitMs)
+        .put("countedExit", countedExitMs ?: JSONObject.NULL)
         .put("pauses", JSONArray())
         .put("source", "MANUAL")
         .put("placeId", JSONObject.NULL)

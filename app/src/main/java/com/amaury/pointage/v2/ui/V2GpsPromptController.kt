@@ -29,11 +29,19 @@ object V2GpsPromptController {
                             "Ta réponse détermine si ce moment doit devenir une vraie fin de travail."
                     )
                     .setPositiveButton("OUI") { _, _ ->
-                        GpsWorkStateCoordinatorV2.confirmExit(
-                            activity,
-                            pending.id,
-                            V2RuntimeStore.expectedEnd(activity)
-                        )
+                        if (!GpsWorkStateCoordinatorV2.confirmExit(
+                                activity,
+                                pending.id,
+                                V2RuntimeStore.expectedEnd(activity)
+                            )
+                        ) {
+                            GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
+                            Toast.makeText(
+                                activity,
+                                "Sortie non enregistrée : vérifie l'état du pointage puis réessaie.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
                     }
                     .setNegativeButton("NON") { _, _ ->
                         GpsWorkStateCoordinatorV2.cancelPending(activity, pending.id)

@@ -68,7 +68,7 @@ object KaliProvidentBenefitAuditV2 {
     )
 
     fun audit(context: Context, companyId: String, referenceDate: LocalDate): Task<Summary> {
-        val profile = ConventionLegalProfileV2.load(context, companyId)
+        val profile = ConventionLegalProfileV2.load(context, companyId, referenceDate)
             ?: return Tasks.forResult(emptySummary("", referenceDate, "entreprise introuvable"))
         if (profile.idcc.isBlank()) return Tasks.forResult(emptySummary("", referenceDate, "IDCC manquant"))
         if (profile.classification.isEmpty()) {

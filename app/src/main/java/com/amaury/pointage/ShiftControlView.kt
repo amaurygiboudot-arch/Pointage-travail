@@ -118,21 +118,25 @@ class ShiftControlView @JvmOverloads constructor(
             legacyEntry
         }
         val detected = if (HoraTrackV2.ENABLED) {
-            when (mode) {
-                ShiftType.MORNING.id -> ShiftType.MORNING
-                ShiftType.DAY.id -> ShiftType.DAY
-                ShiftType.AFTERNOON.id -> ShiftType.AFTERNOON
-                ShiftType.NIGHT.id -> ShiftType.NIGHT
-                else -> ShiftProfileManager.detect(entry)
+            val shiftId = when (mode) {
+                ShiftType.MORNING.id,
+                ShiftType.DAY.id,
+                ShiftType.AFTERNOON.id,
+                ShiftType.NIGHT.id -> mode
+                else -> companyId?.let { V2ScheduleStore.bestConfiguredShiftIdForEntry(context, it, entry) }
             }
+            ShiftType.values().firstOrNull { it.id == shiftId }
         } else {
             ShiftProfileManager.resolve(context, entry)
         }
         val schedule = if (HoraTrackV2.ENABLED) {
-            companyId?.let { V2ScheduleStore.schedule(context, it, detected.id) }
-                ?: V2ScheduleStore.Schedule(detected.id, null, null)
+            if (companyId != null && detected != null) {
+                V2ScheduleStore.schedule(context, companyId, detected.id)
+            } else {
+                V2ScheduleStore.Schedule("auto", null, null)
+            }
         } else {
-            V2ScheduleStore.legacySchedule(context, detected.id)
+            V2ScheduleStore.legacySchedule(context, detected!!.id)
         }
         val hours = when {
             schedule.startMinute != null && schedule.endMinute != null -> " • ${V2ScheduleStore.formatMinute(schedule.startMinute)}–${V2ScheduleStore.formatMinute(schedule.endMinute)}"
@@ -140,10 +144,12 @@ class ShiftControlView @JvmOverloads constructor(
             else -> ""
         }
         stateText.text = if (HoraTrackV2.ENABLED) {
-            "${detected.label}$hours"
+            detected?.let { "${it.label}$hours" }
+                ?: "Automatique • poste non déterminé"
         } else {
-            val pause = ShiftProfileManager.pauseMinutes(context, detected)
-            "${detected.label}$hours • pause $pause min"
+            val legacyShift = detected!!
+            val pause = ShiftProfileManager.pauseMinutes(context, legacyShift)
+            "${legacyShift.label}$hours • pause $pause min"
         }
     }
     private fun chooseMode() {

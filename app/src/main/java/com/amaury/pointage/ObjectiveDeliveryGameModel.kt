@@ -3198,17 +3198,17 @@ object ObjectiveDeliveryCampaignCodec {
         ))
         return ObjectiveDeliveryChapterEightState(
             phase = requireNotNull(enumValueOrNull<ObjectiveDeliveryChapterEightPhase>(json.getString("phase"))),
-            staffing = json.readEnumOrNull("staffing"),
-            bonusCriteria = json.readEnumOrNull("bonusCriteria"),
-            overtimeChoice = json.readEnumOrNull("overtimeChoice"),
-            absenceResponse = json.readEnumOrNull("absenceResponse"),
-            payrollResponse = json.readEnumOrNull("payrollResponse"),
-            conflictResponse = json.readEnumOrNull("conflictResponse"),
+            staffing = json.readEnumOrNull<ObjectiveDeliveryChapterEightStaffing>("staffing"),
+            bonusCriteria = json.readEnumOrNull<ObjectiveDeliveryChapterEightBonusCriteria>("bonusCriteria"),
+            overtimeChoice = json.readEnumOrNull<ObjectiveDeliveryChapterEightOvertimeChoice>("overtimeChoice"),
+            absenceResponse = json.readEnumOrNull<ObjectiveDeliveryChapterEightAbsenceResponse>("absenceResponse"),
+            payrollResponse = json.readEnumOrNull<ObjectiveDeliveryChapterEightPayrollResponse>("payrollResponse"),
+            conflictResponse = json.readEnumOrNull<ObjectiveDeliveryChapterEightConflictResponse>("conflictResponse"),
             voluntaryEventParticipants = json.getInt("voluntaryEventParticipants"),
             raiseEnvelopePercent = json.optNullableInt("raiseEnvelopePercent"),
             individualRaisePercent = json.optNullableInt("individualRaisePercent"),
             equalProfitShareConfirmed = json.getBoolean("equalProfitShareConfirmed"),
-            outcome = json.readEnumOrNull("outcome")
+            outcome = json.readEnumOrNull<ObjectiveDeliveryChapterEightOutcome>("outcome")
         )
     }
 
@@ -3226,11 +3226,11 @@ object ObjectiveDeliveryCampaignCodec {
         ))
         return ObjectiveDeliveryChapterNineState(
             phase = requireNotNull(enumValueOrNull<ObjectiveDeliveryChapterNinePhase>(json.getString("phase"))),
-            inspectionResponse = json.readEnumOrNull("inspectionResponse"),
-            safetyResponse = json.readEnumOrNull("safetyResponse"),
-            integrityResponse = json.readEnumOrNull("integrityResponse"),
-            correctionChoice = json.readEnumOrNull("correctionChoice"),
-            outcome = json.readEnumOrNull("outcome")
+            inspectionResponse = json.readEnumOrNull<ObjectiveDeliveryChapterNineInspectionResponse>("inspectionResponse"),
+            safetyResponse = json.readEnumOrNull<ObjectiveDeliveryChapterNineSafetyResponse>("safetyResponse"),
+            integrityResponse = json.readEnumOrNull<ObjectiveDeliveryChapterNineIntegrityResponse>("integrityResponse"),
+            correctionChoice = json.readEnumOrNull<ObjectiveDeliveryChapterNineCorrectionChoice>("correctionChoice"),
+            outcome = json.readEnumOrNull<ObjectiveDeliveryChapterNineOutcome>("outcome")
         )
     }
 
@@ -3248,11 +3248,11 @@ object ObjectiveDeliveryCampaignCodec {
         ))
         return ObjectiveDeliveryChapterTenState(
             phase = requireNotNull(enumValueOrNull<ObjectiveDeliveryChapterTenPhase>(json.getString("phase"))),
-            supplierChoice = json.readEnumOrNull("supplierChoice"),
-            priorityChoice = json.readEnumOrNull("priorityChoice"),
-            pricingChoice = json.readEnumOrNull("pricingChoice"),
-            cashChoice = json.readEnumOrNull("cashChoice"),
-            outcome = json.readEnumOrNull("outcome")
+            supplierChoice = json.readEnumOrNull<ObjectiveDeliveryChapterTenSupplierChoice>("supplierChoice"),
+            priorityChoice = json.readEnumOrNull<ObjectiveDeliveryChapterTenPriorityChoice>("priorityChoice"),
+            pricingChoice = json.readEnumOrNull<ObjectiveDeliveryChapterTenPricingChoice>("pricingChoice"),
+            cashChoice = json.readEnumOrNull<ObjectiveDeliveryChapterTenCashChoice>("cashChoice"),
+            outcome = json.readEnumOrNull<ObjectiveDeliveryChapterTenOutcome>("outcome")
         )
     }
 

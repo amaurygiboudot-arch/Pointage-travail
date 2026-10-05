@@ -38,6 +38,42 @@ internal sealed class StoredGeofencePlanV2 {
     data class Remove(val message: String) : StoredGeofencePlanV2()
 }
 
+internal fun StoredGpsZone.registersAutomaticGeofenceV2(): Boolean =
+    isGpsCandidate() || roleForContextV2() == GpsZoneRoleV2.WORK
+
+internal fun storedGpsAutomaticFingerprintV2(
+    enabled: Boolean,
+    stored: GpsZonesReadResult
+): String {
+    if (!enabled) return "disabled"
+    return when (stored) {
+        GpsZonesReadResult.Missing -> "enabled|missing"
+        is GpsZonesReadResult.Corrupt -> "enabled|corrupt|${stored.reason}"
+        is GpsZonesReadResult.Valid -> {
+            val canonical = JSONArray()
+            stored.zones
+                .filter(StoredGpsZone::registersAutomaticGeofenceV2)
+                .sortedBy { it.id }
+                .forEach { zone ->
+                    canonical.put(
+                        JSONObject()
+                            .put("id", zone.id)
+                            .put("latitude", zone.latitude)
+                            .put("longitude", zone.longitude)
+                            .put("radius", zone.radius.toDouble())
+                            .put("address", zone.address ?: JSONObject.NULL)
+                            .put("companyId", zone.companyId ?: JSONObject.NULL)
+                            .put("companySlot", zone.companySlot ?: JSONObject.NULL)
+                            .put("pointType", zone.pointTypeToken ?: JSONObject.NULL)
+                            .put("label", zone.label ?: JSONObject.NULL)
+                            .put("smartCandidate", zone.isGpsCandidate())
+                    )
+                }
+            "enabled|valid|$canonical"
+        }
+    }
+}
+
 internal fun planStoredGeofenceRegistrationV2(
     enabled: Boolean,
     hasHardware: Boolean,
@@ -57,13 +93,19 @@ internal fun planStoredGeofenceRegistrationV2(
     if (zones.size > maxZones) {
         return StoredGeofencePlanV2.Remove("Trop de zones GPS : $maxZones maximum")
     }
+    val automaticZones = zones.filter(StoredGpsZone::registersAutomaticGeofenceV2)
+    if (automaticZones.isEmpty()) {
+        return StoredGeofencePlanV2.Remove("Aucune zone Travail configurée")
+    }
     if (!hasHardware) {
         return StoredGeofencePlanV2.Remove("Aucun service de localisation disponible sur cet appareil")
     }
     if (!hasPermissions) {
         return StoredGeofencePlanV2.Remove("Autorisation de localisation manquante")
     }
-    return StoredGeofencePlanV2.Register(zones.map(StoredGpsZone::asWorkZone))
+    return StoredGeofencePlanV2.Register(
+        automaticZones.map(StoredGpsZone::asWorkZone)
+    )
 }
 
 internal fun isCurrentStoredGeofenceRegistrationV2(
@@ -82,6 +124,7 @@ object GeofenceManager {
     private var reconfigurationRunning = false
     private var reconfigurationSerial = 0L
     private var clearBusinessStateRequested = false
+    private var clearPresenceStateRequested = false
     private var latestReconfigurationContext: Context? = null
     private val reconfigurationCallbacks = mutableListOf<(Boolean, String) -> Unit>()
 
@@ -121,7 +164,10 @@ object GeofenceManager {
         if (storedGpsConfigurationFingerprint(prefs) != fingerprint) return false
         if (registeredZones != null) {
             val stored = readPersistedGpsZones(prefs) as? GpsZonesReadResult.Valid ?: return false
-            val canonical = stored.zones.map(StoredGpsZone::asWorkZone).sortedBy(WorkZone::id)
+            val canonical = stored.zones
+                .filter(StoredGpsZone::registersAutomaticGeofenceV2)
+                .map(StoredGpsZone::asWorkZone)
+                .sortedBy(WorkZone::id)
             if (canonical != registeredZones.sortedBy(WorkZone::id)) return false
         }
         return prefs.edit()
@@ -281,23 +327,83 @@ object GeofenceManager {
     fun reconfigureStoredZones(
         context: Context,
         onResult: (Boolean, String) -> Unit = { _, _ -> }
-    ) = enqueueStoredZonesReconciliation(context, clearBusinessState = true, onResult)
+    ) = reconcileStoredZonesChange(
+        context,
+        clearBusinessState = true,
+        clearPresenceState = true,
+        onResult
+    )
+
+    /**
+     * Réinscrit les geofences techniques sans effacer une présence Travail déjà prouvée.
+     * Réservé aux changements qui ne modifient que des candidats Smart Setup.
+     */
+    fun reconfigureStoredZonesPreservingBusinessState(
+        context: Context,
+        onResult: (Boolean, String) -> Unit = { _, _ -> }
+    ) = reconcileStoredZonesChange(
+        context,
+        clearBusinessState = false,
+        clearPresenceState = false,
+        onResult
+    )
+
+    private fun reconcileStoredZonesChange(
+        context: Context,
+        clearBusinessState: Boolean,
+        clearPresenceState: Boolean,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        val prefs = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
+        val fingerprint = storedGpsConfigurationFingerprint(prefs)
+        if (isCurrentStoredGeofenceRegistrationV2(
+                registrationValid = prefs.getBoolean(
+                    GpsPresenceStateKeysV2.REGISTRATION_VALID,
+                    false
+                ),
+                registeredFingerprint = prefs.getString(
+                    GpsPresenceStateKeysV2.REGISTRATION_FINGERPRINT,
+                    null
+                ),
+                currentFingerprint = fingerprint
+            )
+        ) {
+            // Les zones contextuelles ne changent pas les geofences, mais leur copie
+            // complète reste la dernière configuration saine à restaurer si nécessaire.
+            rememberLastGoodZones(context)
+            onResult(true, "Zones GPS automatiques déjà synchronisées")
+            return
+        }
+        enqueueStoredZonesReconciliation(
+            context,
+            clearBusinessState = clearBusinessState,
+            clearPresenceState = clearPresenceState,
+            onResult = onResult
+        )
+    }
 
     /** Resynchronise uniquement la plateforme après un callback Android périmé. */
     fun resyncStoredZones(
         context: Context,
         onResult: (Boolean, String) -> Unit = { _, _ -> }
-    ) = enqueueStoredZonesReconciliation(context, clearBusinessState = false, onResult)
+    ) = enqueueStoredZonesReconciliation(
+        context,
+        clearBusinessState = false,
+        clearPresenceState = true,
+        onResult = onResult
+    )
 
     private fun enqueueStoredZonesReconciliation(
         context: Context,
         clearBusinessState: Boolean,
+        clearPresenceState: Boolean,
         onResult: (Boolean, String) -> Unit
     ) {
         val shouldStart = synchronized(reconfigurationLock) {
             latestReconfigurationContext = context.applicationContext
             reconfigurationSerial++
             clearBusinessStateRequested = clearBusinessStateRequested || clearBusinessState
+            clearPresenceStateRequested = clearPresenceStateRequested || clearPresenceState
             reconfigurationCallbacks += onResult
             if (reconfigurationRunning) false else {
                 reconfigurationRunning = true
@@ -308,17 +414,24 @@ object GeofenceManager {
     }
 
     private fun runQueuedStoredZonesReconciliation() {
-        val (app, serial, clearBusinessState) = synchronized(reconfigurationLock) {
+        val (app, state) = synchronized(reconfigurationLock) {
             val context = checkNotNull(latestReconfigurationContext)
             val currentSerial = reconfigurationSerial
-            val mustClear = clearBusinessStateRequested
+            val mustClearBusiness = clearBusinessStateRequested
+            val mustClearPresence = clearPresenceStateRequested
             clearBusinessStateRequested = false
-            Triple(context, currentSerial, mustClear)
+            clearPresenceStateRequested = false
+            context to Triple(currentSerial, mustClearBusiness, mustClearPresence)
         }
+        val (serial, clearBusinessState, clearPresenceState) = state
         val prefs = app.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
-        val presenceEditor = prefs.edit()
-        GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach(presenceEditor::remove)
-        val presenceCleared = presenceEditor.commit()
+        val presenceCleared = if (clearPresenceState) {
+            val presenceEditor = prefs.edit()
+            GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach(presenceEditor::remove)
+            presenceEditor.commit()
+        } else {
+            true
+        }
         val businessCleared = !clearBusinessState ||
             GpsWorkStateCoordinatorV2.clearForGpsConfigurationChange(app)
         if (!presenceCleared || !businessCleared) {
@@ -454,10 +567,11 @@ object GeofenceManager {
         callbacks.forEach { callback -> callback(success, message) }
     }
 
-    private fun storedGpsConfigurationFingerprint(prefs: android.content.SharedPreferences): String {
-        val zones = prefs.all["zones"]
-        return "${prefs.getBoolean("enabled", false)}|${zones?.javaClass?.name}|$zones"
-    }
+    private fun storedGpsConfigurationFingerprint(prefs: android.content.SharedPreferences): String =
+        storedGpsAutomaticFingerprintV2(
+            enabled = prefs.getBoolean("enabled", false),
+            stored = readPersistedGpsZones(prefs)
+        )
 
     private fun rememberLastGoodZones(context: Context) {
         if (!isAutomaticGpsEnabled(context)) return
@@ -509,8 +623,12 @@ object GeofenceManager {
         val restoredZones = mutableListOf<WorkZone>()
 
         backup.zones.forEach { old ->
-            restoredJson.put(JSONObject(old.sourceJson).put("radius", radius))
-            restoredZones += WorkZone(old.id, old.latitude, old.longitude, radius.toFloat())
+            val restored = JSONObject(old.sourceJson)
+            if (old.registersAutomaticGeofenceV2()) {
+                restored.put("radius", radius)
+                restoredZones += WorkZone(old.id, old.latitude, old.longitude, radius.toFloat())
+            }
+            restoredJson.put(restored)
         }
 
         if (restoredZones.isEmpty() || !isAutomaticGpsEnabled(context)) return emptyList()

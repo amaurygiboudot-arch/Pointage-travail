@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2
 
 import org.json.JSONObject
+import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -8,6 +9,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class V2ManualSessionWriterTest {
+    @Test
+    fun `short manual session preserves real times without inventing counted time`() {
+        val entry = 1_800_000L + 11 * 60_000L
+        val exit = 1_800_000L + 20 * 60_000L
+        val countedEntry = HoraTrackV2.time.countedEntryFromRealArrival(entry)
+        val countedExit = V2RuntimeStore.countedExitForClosure(exit, null, countedEntry)
+        val json = V2ManualSessionWriter.createManualSessionJson(
+            id = "manual-short",
+            realStartMs = entry,
+            realEndMs = exit,
+            countedEntryMs = countedEntry,
+            countedExitMs = countedExit,
+            employerId = null,
+            legacySlot = null,
+            placeLabel = null
+        )
+        assertTrue(V2RuntimeHistoryGuardV2.inspect(JSONArray().put(json)).reliable)
+        assertEquals(entry, json.getLong("realEntry"))
+        assertEquals(exit, json.getLong("realExit"))
+        assertTrue(json.isNull("countedExit"))
+    }
+
     @Test
     fun `session without company keeps an explicit null employer and no legacy slot`() {
         val json = V2ManualSessionWriter.createManualSessionJson(

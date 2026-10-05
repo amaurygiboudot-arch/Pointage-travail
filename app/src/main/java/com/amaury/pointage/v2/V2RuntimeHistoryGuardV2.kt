@@ -72,6 +72,7 @@ object V2RuntimeHistoryGuardV2 {
     ): ReadResult {
         var malformed = false
         val identities = mutableSetOf<String>()
+        val sessionRanges = mutableListOf<Pair<Long, Long?>>()
 
         for (index in 0 until array.length()) {
             val item = array.optJSONObject(index)
@@ -88,6 +89,8 @@ object V2RuntimeHistoryGuardV2 {
             val realExit = nullablePositiveLong(item, "realExit")
             if (!realExit.valid || (realEntry != null && realExit.value != null && realExit.value <= realEntry)) {
                 malformed = true
+            } else if (realEntry != null) {
+                sessionRanges += realEntry to realExit.value
             }
 
             val countedEntry = nullablePositiveLong(item, "countedEntry")
@@ -120,7 +123,31 @@ object V2RuntimeHistoryGuardV2 {
                 malformed = true
             } else if (!validPauseArray(pauses)) {
                 malformed = true
+            } else if (realEntry != null) {
+                for (pauseIndex in 0 until pauses.length()) {
+                    val pause = pauses.optJSONObject(pauseIndex)
+                    val pauseStart = pause?.let { positiveLong(it, "start") }
+                    val pauseEnd = pause?.let { positiveLong(it, "end") }
+                    if (
+                        pauseStart == null ||
+                        pauseEnd == null ||
+                        pauseStart < realEntry ||
+                        (realExit.value != null && pauseEnd > realExit.value)
+                    ) {
+                        malformed = true
+                    }
+                }
             }
+        }
+
+        // Deux sessions réelles ne peuvent pas occuper le même instant. Le contrôle est global,
+        // indépendamment de l'employeur, comme sur iOS. Les sessions contiguës restent valides.
+        val sortedRanges = sessionRanges.sortedBy { it.first }
+        var furthestEnd = Long.MIN_VALUE
+        for ((start, rawEnd) in sortedRanges) {
+            if (start < furthestEnd) malformed = true
+            val end = rawEnd ?: Long.MAX_VALUE
+            if (end > furthestEnd) furthestEnd = end
         }
 
         return ReadResult(
@@ -155,6 +182,7 @@ object V2RuntimeHistoryGuardV2 {
 
     internal fun validPauseArray(array: JSONArray): Boolean {
         val identities = mutableSetOf<String>()
+        val ranges = mutableListOf<Pair<Long, Long>>()
         for (index in 0 until array.length()) {
             val item = array.optJSONObject(index) ?: return false
             val start = positiveLong(item, "start") ?: return false
@@ -168,6 +196,11 @@ object V2RuntimeHistoryGuardV2 {
             if (!item.has("paid") || item.opt("paid") !is Boolean) return false
             val identity = "$start:$end:$source:${item.optBoolean("paid")}" 
             if (!identities.add(identity)) return false
+            ranges += start to end
+        }
+        val sorted = ranges.sortedBy { it.first }
+        for (index in 1 until sorted.size) {
+            if (sorted[index].first < sorted[index - 1].second) return false
         }
         return true
     }

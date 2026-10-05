@@ -155,57 +155,67 @@ class ObjectiveDeliveryGameActivity : Activity() {
                 commit(ObjectiveDeliveryGameRules.returnFromReplay(current))
             }, buttonParams(bottom = 8))
         } else {
+            val replayActions = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                visibility = View.GONE
+            }
             if (current.activeChapter >= 2) {
-                content.addView(actionButton("REJOUER LE CHAPITRE 1") {
+                replayActions.addView(actionButton("REJOUER LE CHAPITRE 1") {
                     commit(ObjectiveDeliveryGameRules.replayChapterOne(current))
                 }, buttonParams(bottom = 8))
             }
             if (current.activeChapter >= 3) {
-                content.addView(actionButton("REJOUER LE CHAPITRE 2") {
+                replayActions.addView(actionButton("REJOUER LE CHAPITRE 2") {
                     commit(ObjectiveDeliveryGameRules.replayChapterTwo(current))
                 }, buttonParams(bottom = 8))
             }
             if (current.activeChapter >= 4) {
-                content.addView(actionButton("REJOUER LE CHAPITRE 3") {
+                replayActions.addView(actionButton("REJOUER LE CHAPITRE 3") {
                     commit(ObjectiveDeliveryGameRules.replayChapterThree(current))
                 }, buttonParams(bottom = 8))
             }
             if (current.activeChapter >= 5) {
-                content.addView(actionButton("REJOUER LE CHAPITRE 4") {
+                replayActions.addView(actionButton("REJOUER LE CHAPITRE 4") {
                     commit(ObjectiveDeliveryGameRules.replayChapterFour(current))
                 }, buttonParams(bottom = 8))
             }
             if (current.activeChapter >= 6) {
-                content.addView(actionButton("REJOUER LE CHAPITRE 5") {
+                replayActions.addView(actionButton("REJOUER LE CHAPITRE 5") {
                     commit(ObjectiveDeliveryGameRules.replayChapterFive(current))
                 }, buttonParams(bottom = 8))
                 if (current.activeChapter > 6 || current.chapterSix.outcome != null) {
-                    content.addView(actionButton("REJOUER LE CHAPITRE 6") {
+                    replayActions.addView(actionButton("REJOUER LE CHAPITRE 6") {
                         commit(ObjectiveDeliveryGameRules.replayChapterSix(current))
                     }, buttonParams(bottom = 8))
                 }
             }
             if (current.activeChapter >= 7) {
                 if (current.chapterSeven.outcome != null) {
-                    content.addView(actionButton("REJOUER LE CHAPITRE 7") {
+                    replayActions.addView(actionButton("REJOUER LE CHAPITRE 7") {
                         commit(ObjectiveDeliveryGameRules.replayChapterSeven(current))
                     }, buttonParams(bottom = 8))
                 }
             }
             if (current.activeChapter >= 8 && current.chapterEight.outcome != null) {
-                content.addView(actionButton("REJOUER LE CHAPITRE 8") {
+                replayActions.addView(actionButton("REJOUER LE CHAPITRE 8") {
                     commit(ObjectiveDeliveryGameRules.replayChapterEight(current))
                 }, buttonParams(bottom = 8))
             }
             if (current.activeChapter >= 9 && current.chapterNine.outcome != null) {
-                content.addView(actionButton("REJOUER LE CHAPITRE 9") {
+                replayActions.addView(actionButton("REJOUER LE CHAPITRE 9") {
                     commit(ObjectiveDeliveryGameRules.replayChapterNine(current))
                 }, buttonParams(bottom = 8))
             }
             if (current.activeChapter >= 10 && current.chapterTen.outcome != null) {
-                content.addView(actionButton("REJOUER LE CHAPITRE 10") {
+                replayActions.addView(actionButton("REJOUER LE CHAPITRE 10") {
                     commit(ObjectiveDeliveryGameRules.replayChapterTen(current))
                 }, buttonParams(bottom = 8))
+            }
+            if (replayActions.childCount > 0) {
+                content.addView(actionButton("ENTRAÎNEMENT • CHAPITRES OUVERTS") {
+                    replayActions.visibility = if (replayActions.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                }, buttonParams(bottom = 8))
+                content.addView(replayActions)
             }
             if (current.activeChapter == 1 && current.chapterOneWon && current.unlockedChapter >= 2) {
                 content.addView(actionButton("CONTINUER VERS LE CHAPITRE 2") {
@@ -276,18 +286,7 @@ class ObjectiveDeliveryGameActivity : Activity() {
             alpha = 0.75f
             setPadding(0, dp(4), 0, dp(3))
         })
-        val chapterTitle = when (chapter) {
-            1 -> "Premier contact"
-            2 -> "Construire le devis"
-            3 -> "Passer le relais"
-            4 -> "Organiser l’équipe"
-            5 -> "Préparer les matières"
-            6 -> "Fabriquer et contrôler"
-            7 -> "Livrer et écouter le client"
-            8 -> "Faire vivre l’entreprise et l’équipe"
-            9 -> "Protéger l’activité"
-            else -> "Piloter sous pression"
-        }
+        val chapterTitle = ObjectiveDeliveryChapterGuide.chapter(chapter).title
         content.addView(text(chapterTitle, 21f, bold = true).apply {
             setPadding(0, 0, 0, dp(4))
         })
@@ -307,6 +306,8 @@ class ObjectiveDeliveryGameActivity : Activity() {
             alpha = 0.82f
             setPadding(0, 0, 0, dp(12))
         })
+
+        renderChapterGuide(current)
 
         if (chapter == 1) {
             val board = ObjectiveDeliveryGameRules.chapterOneState(current)
@@ -332,6 +333,45 @@ class ObjectiveDeliveryGameActivity : Activity() {
             else -> renderChapterTen(current, ObjectiveDeliveryGameRules.chapterTenState(current))
         }
         content.addView(accountAndSaveCard())
+    }
+
+    private fun renderChapterGuide(current: ObjectiveDeliveryCampaign) {
+        val chapter = ObjectiveDeliveryChapterGuide.chapter(current.activeChapter)
+        val phase = when (current.activeChapter) {
+            1 -> ObjectiveDeliveryGameRules.chapterOneState(current).phase.name
+            2 -> ObjectiveDeliveryGameRules.chapterTwoState(current).phase.name
+            3 -> ObjectiveDeliveryGameRules.chapterThreeState(current).phase.name
+            4 -> ObjectiveDeliveryGameRules.chapterFourState(current).phase.name
+            5 -> ObjectiveDeliveryGameRules.chapterFiveState(current).phase.name
+            6 -> ObjectiveDeliveryGameRules.chapterSixState(current).phase.name
+            7 -> ObjectiveDeliveryGameRules.chapterSevenState(current).phase.name
+            8 -> ObjectiveDeliveryGameRules.chapterEightState(current).phase.name
+            9 -> ObjectiveDeliveryGameRules.chapterNineState(current).phase.name
+            else -> ObjectiveDeliveryGameRules.chapterTenState(current).phase.name
+        }
+        val index = chapter.indexOf(phase)
+        content.addView(infoCard(
+            "TA MISSION • ÉTAPE ${index + 1}/${chapter.stepCount()}",
+            "${chapter.goal}\n\nÀ faire maintenant : ${chapter.step(index).instruction}\n\nÀ surveiller : ${chapter.risk}"
+        ))
+        content.addView(actionButton("PARCOURS DES 10 CHAPITRES") {
+            val campaignChapter = current.replaySession?.returnChapter ?: current.activeChapter
+            val roadmap = (1..10).joinToString("\n\n") { number ->
+                val item = ObjectiveDeliveryChapterGuide.chapter(number)
+                val status = when {
+                    number == campaignChapter -> "Campagne en cours"
+                    number < campaignChapter -> "Déjà parcouru"
+                    number <= current.unlockedChapter -> "Ouvert"
+                    else -> "À débloquer"
+                }
+                "$number. ${item.title} • $status\n${item.goal}"
+            }
+            AlertDialog.Builder(this)
+                .setTitle("Ton parcours de direction")
+                .setMessage(roadmap)
+                .setPositiveButton("RETOUR AU JEU", null)
+                .show()
+        }, buttonParams(bottom = 10))
     }
 
     private fun renderQualification(current: ObjectiveDeliveryCampaign) {
@@ -1565,9 +1605,15 @@ class ObjectiveDeliveryGameActivity : Activity() {
         content.addView(checkLine("Erreur de paie vérifiée et corrigée", result.payrollWasCorrected))
         content.addView(checkLine("Tension entendue et traitée", result.conflictAddressed))
         content.addView(checkLine("Augmentation sous 5 % et dans l’enveloppe", result.raisesWithinEnvelope))
+        content.addView(checkLine("Partage collectif confirmé lorsque le seuil est atteint", result.profitShareConfirmed))
+        val shareStatus = when {
+            result.profitShareCents == 0 -> "seuil non atteint"
+            result.profitShareConfirmed -> "confirmation enregistrée"
+            else -> "confirmation manquante"
+        }
         content.addView(infoCard(
             "RÉSULTAT SIMULÉ",
-            "Prime hebdomadaire calculée : ${formatEuro(result.weeklyBonusCents)} • sortie facultative : ${result.voluntaryEventParticipants} participant(s) volontaire(s) • partage collectif : ${formatEuro(result.profitShareCents)}"
+            "Prime hebdomadaire calculée : ${formatEuro(result.weeklyBonusCents)} • sortie facultative : ${result.voluntaryEventParticipants} participant(s) volontaire(s) • enveloppe collective calculée : ${formatEuro(result.profitShareCents)} ($shareStatus)"
         ))
         if (success && replay) content.addView(actionButton("GARDER CE RÉSULTAT DANS LA CAMPAGNE") {
             commit(ObjectiveDeliveryGameRules.keepChapterEightReplayResult(current))

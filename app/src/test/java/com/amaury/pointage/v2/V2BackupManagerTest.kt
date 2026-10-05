@@ -149,6 +149,83 @@ class V2BackupManagerTest {
         assertTrue(runCatching { V2BackupManager.mergeHistories(JSONArray(), malformed) }.isFailure)
     }
 
+    @Test
+    fun `restauration refuse les nombres qui debordent leur type cible`() {
+        for (value in listOf(1e100, Long.MAX_VALUE.toDouble(), -1e100)) {
+            assertFalse(V2BackupManager.isValidTypedPreferencePayload(JSONObject().put("timestamp", typed("l", value))))
+        }
+        assertTrue(V2BackupManager.isValidTypedPreferencePayload(JSONObject().put("timestamp", typed("l", Long.MAX_VALUE))))
+        assertTrue(V2BackupManager.isValidTypedPreferencePayload(JSONObject().put("timestamp", typed("l", Long.MIN_VALUE.toDouble()))))
+        assertFalse(V2BackupManager.isValidTypedPreferencePayload(JSONObject().put("ratio", typed("f", 1e100))))
+        assertTrue(V2BackupManager.isValidTypedPreferencePayload(JSONObject().put("ratio", typed("f", Float.MAX_VALUE.toDouble()))))
+    }
+
+    @Test
+    fun `recherche conserve chaque emplacement historique et les copies de secours`() {
+        val locations = V2BackupManager.backupSearchLocations()
+        for (folder in listOf("AGKGMG", "Pointage Travail")) {
+            for (file in listOf("AGKGMG_backup.json", "HoraTrack_backup.json", "HoraTrack_V2_backup.json",
+                "AGKGMG_backup.recovery_a.json", "AGKGMG_backup.recovery_b.json")) {
+                assertTrue("$folder/$file", (folder to file) in locations)
+            }
+        }
+        assertEquals(locations.size, locations.distinct().size)
+    }
+
+    @Test
+    fun `rotation preserve derniere copie valide pendant les echecs successifs`() {
+        val canonical = "AGKGMG_backup.json"
+        val a = "AGKGMG_backup.recovery_a.json"
+        val b = "AGKGMG_backup.recovery_b.json"
+        fun copy(name: String, date: Long) = V2BackupManager.BackupCopy(name, date, if (name == canonical) 30 else 20)
+
+        assertEquals(a, V2BackupManager.recoveryTargetFileName(emptyList()))
+        // A validée, écriture du canonique interrompue : prochaine écriture sur B.
+        assertEquals(b, V2BackupManager.recoveryTargetFileName(listOf(copy(a, 100))))
+        // B validée, canonique toujours inutilisable : A devient la cible.
+        assertEquals(a, V2BackupManager.recoveryTargetFileName(listOf(copy(a, 100), copy(b, 200))))
+        // Sauvegarde réussie : remplacer la recovery la plus ancienne.
+        assertEquals(a, V2BackupManager.recoveryTargetFileName(listOf(copy(canonical, 200), copy(a, 100), copy(b, 200))))
+        // Cas symétrique avec A plus récente que B.
+        assertEquals(b, V2BackupManager.recoveryTargetFileName(listOf(copy(canonical, 300), copy(a, 300), copy(b, 200))))
+    }
+
+    @Test
+    fun `copie corrompue est ignoree mais erreur de lecture bloque toute rotation`() {
+        val a = "AGKGMG_backup.recovery_a.json"
+        val b = "AGKGMG_backup.recovery_b.json"
+        val content = JSONObject().put("formatVersion", 4).put("createdAtMs", 100L)
+            .put("preferences", JSONObject().put("navigation_state", JSONObject().put("report_month_ms", typed("l", 1_000L))))
+            .toString()
+        val valid = V2BackupManager.inspectBackupContent(a, 20) { content }!!
+        assertEquals(100L, valid.createdAtMs)
+        val corrupt = V2BackupManager.inspectBackupContent(b, 20) { "{truncated" }
+        assertEquals(null, corrupt)
+        assertEquals(b, V2BackupManager.recoveryTargetFileName(listOfNotNull(valid, corrupt)))
+
+        var rotationReached = false
+        val ioFailure = java.io.IOException("Lecture Drive interrompue")
+        val result = runCatching {
+            val copies = listOfNotNull(V2BackupManager.inspectBackupContent(a, 20) { throw ioFailure })
+            rotationReached = true
+            V2BackupManager.recoveryTargetFileName(copies)
+        }
+        assertTrue(result.exceptionOrNull() === ioFailure)
+        assertFalse(rotationReached)
+    }
+
+    @Test
+    fun `validation recovery conserve bornes numeriques de restauration`() {
+        fun root(type: String, value: Any) = JSONObject().put("formatVersion", 4)
+            .put("preferences", JSONObject().put("navigation_state", JSONObject().put("value", typed(type, value))))
+        assertFalse(V2BackupManager.isStructurallyRestorableBackup(root("l", Long.MAX_VALUE.toDouble())))
+        assertFalse(V2BackupManager.isStructurallyRestorableBackup(root("l", -1e100)))
+        assertFalse(V2BackupManager.isStructurallyRestorableBackup(root("f", 1e100)))
+        assertTrue(V2BackupManager.isStructurallyRestorableBackup(root("l", Long.MAX_VALUE)))
+        assertTrue(V2BackupManager.isStructurallyRestorableBackup(root("l", Long.MIN_VALUE)))
+        assertTrue(V2BackupManager.isStructurallyRestorableBackup(root("f", Float.MAX_VALUE.toDouble())))
+    }
+
     private fun typed(type: String, value: Any) = JSONObject().put("t", type).put("v", value)
 
     private fun session(id: String, entry: Long, exit: Long) = JSONObject()
