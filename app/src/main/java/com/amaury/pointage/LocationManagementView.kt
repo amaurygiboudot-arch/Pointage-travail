@@ -1,479 +1,263 @@
 package com.amaury.pointage
 
+import android.Manifest
 import android.app.AlertDialog
 import android.content.Context
-import android.graphics.Color
+import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.graphics.drawable.ColorDrawable
+import android.location.LocationManager
 import android.os.Handler
 import android.os.Looper
+import android.text.InputType
 import android.util.AttributeSet
-import android.view.Gravity
 import android.view.ViewGroup
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.TextView
-import android.widget.Toast
+import android.widget.*
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.engine.AnalyticsEngineV2
-import org.json.JSONArray
-import org.json.JSONObject
 import java.util.Locale
+import java.util.UUID
 
+/** Les actions de zone utilisent exclusivement le store GPS V2 et un instantané vérifié. */
 class LocationManagementView @JvmOverloads constructor(
-    context: Context,
-    attrs: AttributeSet? = null,
-    defStyleAttr: Int = 0
-) : LinearLayout(context, attrs, defStyleAttr) {
+    context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
+) : LinearLayout(context, attrs, defStyleAttr), SharedPreferences.OnSharedPreferenceChangeListener {
     private val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
-
     init { orientation = VERTICAL; refresh() }
-
-    private fun darkMode(): Boolean = AppThemeCatalog.useDarkPalette(context)
     private fun theme() = AppThemeCatalog.current(context)
+    private fun darkMode() = AppThemeCatalog.useDarkPalette(context)
     private fun panelColor() = if (darkMode()) theme().darkPanel else theme().lightPanel
     private fun primaryText() = if (darkMode()) theme().darkText else theme().lightText
-    private fun secondaryText() = if (darkMode()) theme().darkHint else theme().lightHint
     private fun accentText() = if (darkMode()) theme().accentLight else theme().accent
+    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        prefs.registerOnSharedPreferenceChangeListener(this)
+        refresh()
+    }
+    override fun onDetachedFromWindow() {
+        prefs.unregisterOnSharedPreferenceChangeListener(this)
+        super.onDetachedFromWindow()
+    }
+    override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
+        if (key in setOf("zones", "address", "arrival_contacts", "address_names")) post { refresh() }
+    }
+
+    private fun text(value: String) = TextView(context).apply {
+        text = value; textSize = 14f; setTextColor(primaryText()); setPadding(0, dp(6), 0, dp(6))
+    }
+    private fun action(value: String, run: () -> Unit) = Button(context).apply {
+        text = value; isAllCaps = false; textSize = 14f; minHeight = dp(48)
+        setTextColor(accentText()); setBackgroundResource(R.drawable.hp_panel)
+        setOnClickListener { run() }
+        layoutParams = LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+    }
+    private fun box() = LinearLayout(context).apply {
+        orientation = VERTICAL; setPadding(dp(16), dp(6), dp(16), dp(10))
+    }
+    private fun scroll(content: LinearLayout) = ScrollView(context).apply { addView(content) }
+    private fun style(dialog: AlertDialog) {
+        dialog.window?.setBackgroundDrawable(ColorDrawable(panelColor()))
+        listOf(AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL)
+            .forEach { dialog.getButton(it)?.setTextColor(accentText()) }
+    }
+    private fun notice(message: String) = Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    private fun companyLabel(group: GpsPlaceGroup): String {
+        val id = group.companyId
+        if (id == null) return if (group.companySlot == null) "Sans association automatique" else "Ancienne entreprise ${group.companySlot} — à confirmer"
+        val stored = SalaryCompanyStore.readConfirmed(context)
+        return if (stored.reliable) stored.companies.firstOrNull { it.id == id }?.name?.takeIf(String::isNotBlank)
+            ?: "Entreprise à confirmer ($id)" else "Entreprise à vérifier ($id)"
+    }
+    private fun groupTitle(group: GpsPlaceGroup) = uniqueGpsPlaceLabel(group) ?: group.address
 
     fun refresh() {
         removeAllViews()
-        addView(TextView(context).apply { text = "MES LIEUX DE TRAVAIL"; textSize = 16f; setTextColor(accentText()); setPadding(0, dp(18), 0, dp(8)) })
-        val groups = groupGpsZonesByPlace(readPersistedGpsZones(prefs), savedAddresses())
-        when {
-            groups == null -> addView(TextView(context).apply {
-                text = "Configuration GPS à vérifier"
-                textSize = 14f
-                setTextColor(secondaryText())
-                setPadding(0, dp(10), 0, dp(12))
-            })
-            groups.isEmpty() -> addView(TextView(context).apply {
-                text = "Aucun lieu enregistré"
-                textSize = 14f
-                setTextColor(secondaryText())
-                setPadding(0, dp(10), 0, dp(12))
-            })
-            else -> groups.forEach { group ->
-                val entry = GpsLocationEntry(representativeGpsZoneId(group), group.address)
-                addView(createPlaceCard(entry, group))
-            }
+        addView(text("MES LIEUX ET ZONES GPS").apply { textSize = 16f; setTextColor(accentText()) })
+        val snapshot = GpsZoneEditorStoreV2.read(prefs)
+        if (snapshot == null) { addView(text("Configuration GPS à vérifier — aucune donnée modifiée")); return }
+        val groups = snapshot.groups()
+        if (groups.isEmpty()) { addView(text("Aucun lieu enregistré. Utilise Ajouter un lieu.")); return }
+        for (group in groups) {
+            val roles = summarizeGpsPlaceTypes(group)
+            val description = if (group.legacyOnly) "Zone GPS à configurer" else
+                "${group.zones.size} zones : ${roles.workZones} travail, ${roles.parkingZones} parking, ${roles.pauseZones} pause, ${roles.otherZones} à confirmer"
+            addView(action("${companyLabel(group)}\n${groupTitle(group)}\n${group.address}\n$description") { showPlace(group.scope()) })
         }
     }
 
-    private fun arrivalContact(zoneId: String?, address: String): JSONObject? =
-        resolveGpsZoneScopedObject(
-            jsonObjectPreference("arrival_contacts"),
-            readPersistedGpsZones(prefs),
-            zoneId,
-            address
-        )
-
-    private fun createPlaceCard(entry: GpsLocationEntry, group: GpsPlaceGroup): LinearLayout {
-        val zoneId = entry.zoneId
-        val address = entry.address
-        val name = uniqueGpsPlaceLabel(group)
-            ?: PlaceNames.get(context, zoneId, address)?.takeIf { it.isNotBlank() }
-            ?: address
-        val contact = if (group.zones.size <= 1) arrivalContact(zoneId, address) else null
-        val contactName = contact?.optString("contactName")?.takeIf { it.isNotBlank() }
-        val radius = zoneRadiusText(entry)
-        val total = totalWorkedAtText(address)
-        val sharedAddress = zonesAtAddressCount(address) > 1
-        return LinearLayout(context).apply {
-            orientation = VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(14))
-            setBackgroundColor(Color.TRANSPARENT)
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { showDetails(entry, group) }
-            addView(TextView(context).apply { text = "📍 $name"; textSize = 16f; setTextColor(accentText()) })
-            addView(TextView(context).apply { text = address; textSize = 14f; setTextColor(primaryText()); setPadding(0, dp(5), 0, 0) })
-            if (contactName != null) addView(TextView(context).apply { text = "Contact : $contactName"; textSize = 14f; setTextColor(secondaryText()); setPadding(0, dp(7), 0, 0) })
-            addView(TextView(context).apply {
-                val roles = summarizeGpsPlaceTypes(group)
-                val zoneSummary = if (group.legacyOnly) {
-                    "Zone GPS à configurer"
-                } else {
-                    val roleParts = buildList {
-                        if (roles.workZones > 0) add("${roles.workZones} travail")
-                        if (roles.parkingZones > 0) add("${roles.parkingZones} parking")
-                        if (roles.pauseZones > 0) add("${roles.pauseZones} pause")
-                        if (roles.otherZones > 0) add("${roles.otherZones} autre")
-                    }
-                    "${group.zones.size} zone${if (group.zones.size > 1) "s" else ""} GPS • ${roleParts.joinToString(" / ")}"
-                }
-                text = "$zoneSummary   •   ${if (sharedAddress) "Rayons multiples" else "Rayon GPS : $radius"}   •   ${if (sharedAddress) "Temps à cette adresse" else "Temps travaillé"} : $total"
-                textSize = 14f
-                setTextColor(secondaryText())
-                setPadding(0, dp(5), 0, 0)
+    private fun showPlace(scope: GpsPlaceScopeV2) {
+        val snapshot = GpsZoneEditorStoreV2.read(prefs) ?: return notice("Configuration GPS à vérifier")
+        val group = snapshot.groups().singleOrNull { it.scope() == scope } ?: return notice("Ce lieu a changé. Rouvre sa fiche.")
+        val content = box()
+        content.addView(text(companyLabel(group)))
+        content.addView(text(group.address))
+        content.addView(text("Chaque zone conserve son propre nom, centre, rayon et contact. La présence GPS ne décide pas du temps payé."))
+        val totalText = text("Temps attribué aux zones actuelles : ${totalWorkedAtText(group)}")
+        content.addView(totalText)
+        val dialog = AlertDialog.Builder(context).setTitle(groupTitle(group)).setView(scroll(content))
+            .setPositiveButton("Fermer", null).create()
+        group.zones.forEach { zone ->
+            content.addView(action("${zone.label ?: "Zone sans nom"}\n${GpsZoneRoleV2.fromToken(zone.pointTypeToken).title} • ${zone.radius} m") {
+                dialog.dismiss(); editZone(snapshot, group, zone.id)
             })
-        }.also {
-            it.layoutParams = LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) }
         }
-    }
-
-    private fun styleDialog(dialog: AlertDialog) {
-        dialog.window?.setBackgroundDrawable(ColorDrawable(panelColor()))
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(accentText()); dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(accentText()); dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setTextColor(accentText())
-    }
-
-    private fun showDetails(entry: GpsLocationEntry, group: GpsPlaceGroup) {
-        val zoneId = entry.zoneId
-        val address = entry.address
-        val contact = if (group.zones.size <= 1) arrivalContact(zoneId, address) else null
-        val name = uniqueGpsPlaceLabel(group)
-            ?: PlaceNames.get(context, zoneId, address)?.takeIf { it.isNotBlank() }
-            ?: address
-        val contactName = contact?.optString("contactName")?.takeIf { it.isNotBlank() } ?: "Non renseigné"
-        val phone = contact?.optString("phone")?.takeIf { it.isNotBlank() } ?: "Non renseigné"
-        val notify = if (contact?.optBoolean("enabled", false) == true) "Oui" else "Non"
-        val radius = zoneRadiusText(entry)
-        val content = LinearLayout(context).apply { orientation = VERTICAL; setPadding(dp(20), dp(6), dp(20), 0); setBackgroundColor(panelColor()) }
-        fun line(label: String, value: String): TextView = TextView(context).apply {
-            text = "$label\n$value"; textSize = 14f; setTextColor(primaryText()); setPadding(0, dp(7), 0, dp(7)); content.addView(this)
-        }
-        line("Nom", name)
-        line("Adresse", address)
-        line("Contact", contactName)
-        line("Téléphone", phone)
-        line("Prévenir à l’arrivée", notify)
-        line("Rayon GPS", radius)
-        if (group.zones.isEmpty()) {
-            line("Zones GPS", "Aucune zone canonique — configuration à terminer")
-        } else {
-            line("Zones GPS", group.zones.size.toString())
-            group.zones.forEachIndexed { index, zone ->
-                val type = zone.pointTypeToken?.trim()?.uppercase(Locale.ROOT)?.takeIf { it.isNotBlank() } ?: "POSTE"
-                val zoneName = zone.label?.takeIf { it.isNotBlank() } ?: "Zone ${index + 1}"
-                line(zoneName, "$type • ${formatRadius(zone.radius)} • ID ${zone.id}")
-            }
-        }
-        val totalLabel = if (zonesAtAddressCount(address) > 1) "Temps total à cette adresse" else "Temps total travaillé"
-        val totalText = line(totalLabel, totalWorkedAtText(address))
-        val dialog = AlertDialog.Builder(context)
-            .setTitle(name)
-            .setView(content)
-            .setPositiveButton("Fermer", null)
-            .setNeutralButton("Modifier") { _, _ -> showEdit(entry, group) }
-            .setNegativeButton("Supprimer") { _, _ -> confirmDelete(entry, group, name) }
-            .create()
+        content.addView(action("Ajouter une zone à ce lieu") { dialog.dismiss(); editZone(snapshot, group, null) })
+        content.addView(action("Modifier l'adresse du lieu") { dialog.dismiss(); editAddress(snapshot, group) })
+        content.addView(action("Supprimer ce lieu et ses zones") { dialog.dismiss(); confirmDelete(snapshot, group, null) })
         val handler = Handler(Looper.getMainLooper())
         val updater = object : Runnable {
             override fun run() {
                 if (!dialog.isShowing) return
-                totalText.text = "$totalLabel\n${totalWorkedAtText(address)}"
+                totalText.text = "Temps attribué aux zones actuelles : ${totalWorkedAtText(group)}"
                 handler.postDelayed(this, 10_000L)
             }
         }
-        dialog.setOnShowListener { styleDialog(dialog); handler.post(updater) }
-        dialog.setOnDismissListener { handler.removeCallbacks(updater); refresh() }
+        dialog.setOnShowListener { style(dialog); handler.post(updater) }
+        dialog.setOnDismissListener { handler.removeCallbacks(updater) }
         dialog.show()
     }
 
-    private fun showEdit(entry: GpsLocationEntry, group: GpsPlaceGroup) {
-        val read = readPersistedGpsZones(prefs)
-        if (read is GpsZonesReadResult.Corrupt) {
-            GeofenceManager.reconfigureStoredZones(context)
-            Toast.makeText(context, "Configuration GPS illisible : le lieu n’a pas été modifié", Toast.LENGTH_LONG).show()
-            return
+    private fun input(label: String, value: String, numeric: Boolean = false): EditText = EditText(context).apply {
+        hint = label; setText(value); textSize = 16f; minHeight = dp(48); setTextColor(primaryText())
+        inputType = if (numeric) InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+            else InputType.TYPE_CLASS_TEXT
+    }
+    private fun field(content: LinearLayout, label: String, value: String, numeric: Boolean = false): EditText {
+        content.addView(text(label))
+        return input(label, value, numeric).also(content::addView)
+    }
+    private fun editZone(snapshot: GpsZoneEditorStoreV2.Snapshot, group: GpsPlaceGroup, zoneId: String?) {
+        val zone = zoneId?.let { id -> group.zones.singleOrNull { it.id == id } ?: return }
+        if (zone == null && group.companyId == null && group.companySlot != null) {
+            notice("Confirme d'abord l'association V2 de cette ancienne entreprise."); return
         }
-        val oldAddress = entry.address
-        val targetZoneId = entry.zoneId ?: resolveUniqueGpsZoneIdForAddress(read, oldAddress)
-        val zones = read.toMutableJsonArrayOrNull() ?: return
-        val targetZone = targetZoneId?.let { findZoneById(zones, it) }
-        if (entry.zoneId != null && targetZone == null) {
-            Toast.makeText(context, "Zone GPS introuvable : aucune modification effectuée", Toast.LENGTH_LONG).show()
-            return
+        val content = box()
+        content.addView(text("${companyLabel(group)}\n${group.address}"))
+        val name = field(content, "Nom de la zone", zone?.label.orEmpty())
+        val lat = field(content, "Latitude", zone?.latitude?.toString().orEmpty(), true)
+        val lon = field(content, "Longitude", zone?.longitude?.toString().orEmpty(), true)
+        val radius = field(content, "Rayon de cette zone, en mètres (50–1 000)", zone?.radius?.toString().orEmpty(), true)
+        content.addView(action("Utiliser ma position actuelle") {
+            val location = recentLocation()
+            if (location == null) notice("Position précise récente indisponible. Les coordonnées restent inchangées.")
+            else { lat.setText(location.latitude.toString()); lon.setText(location.longitude.toString()) }
+        })
+        content.addView(text("Rôle de la zone"))
+        val roles = GpsZoneRoleV2.values()
+        val role = Spinner(context).apply {
+            adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, roles.map { it.title })
+            setSelection(roles.indexOf(GpsZoneRoleV2.fromToken(zone?.pointTypeToken)))
         }
-        val contact = arrivalContact(targetZoneId, oldAddress)
-        val nameInput = dialogInput("Nom du lieu", PlaceNames.get(context, targetZoneId, oldAddress).orEmpty())
-        val addressInput = dialogInput("Adresse", oldAddress)
-        val contactInput = dialogInput("Nom du contact", contact?.optString("contactName").orEmpty())
-        val phoneInput = dialogInput("Téléphone", contact?.optString("phone").orEmpty()).apply { inputType = android.text.InputType.TYPE_CLASS_PHONE }
-        val box = LinearLayout(context).apply {
-            orientation = VERTICAL
-            setPadding(dp(20), dp(6), dp(20), 0)
-            setBackgroundColor(panelColor())
-            addView(nameInput); addView(addressInput); addView(contactInput); addView(phoneInput)
-        }
-        val dialog = AlertDialog.Builder(context)
-            .setTitle("Modifier le lieu")
-            .setView(box)
-            .setPositiveButton("Enregistrer") { _, _ ->
-                val newAddress = addressInput.text.toString().trim()
-                val newName = nameInput.text.toString().trim()
-                if (newAddress.isBlank()) return@setPositiveButton
-                val addressChanged = !newAddress.equals(oldAddress, ignoreCase = true)
-
-                if (addressChanged) {
-                    if (!moveGpsPlaceAddress(
-                            zones,
-                            oldAddress,
-                            newAddress,
-                            companyId = group.companyId,
-                            companySlot = group.companySlot
-                        ) && targetZoneId != null) {
-                        Toast.makeText(context, "Lieu GPS introuvable : aucune modification effectuée", Toast.LENGTH_LONG).show()
-                        return@setPositiveButton
+        content.addView(role)
+        content.addView(text("Une zone Pause reste une observation à confirmer : sa présence ne crée pas automatiquement une pause rémunérée."))
+        val contact = zone?.let { snapshot.contact(it) }
+        val contactName = field(content, "Nom du contact", contact?.optString("contactName").orEmpty())
+        val phone = field(content, "Téléphone", contact?.optString("phone").orEmpty()).apply { inputType = InputType.TYPE_CLASS_PHONE }
+        val notify = Switch(context).apply { text = "Proposer de prévenir à l'arrivée"; isChecked = contact?.optBoolean("enabled", false) == true }
+        content.addView(notify)
+        val builder = AlertDialog.Builder(context).setTitle(if (zone == null) "Ajouter une zone" else "Modifier cette zone")
+            .setView(scroll(content)).setPositiveButton("Enregistrer", null).setNegativeButton("Annuler", null)
+        if (zone != null) builder.setNeutralButton("Supprimer cette zone") { _, _ -> confirmDelete(snapshot, group, zone.id) }
+        val dialog = builder.create()
+        val generatedId = UUID.randomUUID().toString()
+        dialog.setOnShowListener {
+            style(dialog)
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                fun number(field: EditText) = field.text.toString().trim().replace(',', '.').toDoubleOrNull() ?: Double.NaN
+                val draft = GpsZoneDraftV2(name.text.toString(), number(lat), number(lon), number(radius),
+                    roles[role.selectedItemPosition], contactName.text.toString(), phone.text.toString(), notify.isChecked)
+                val error = draft.error()
+                if (error != null) { notice(error); return@setOnClickListener }
+                if (group.companyId != null) {
+                    val companies = SalaryCompanyStore.readConfirmed(context)
+                    if (!companies.reliable || companies.companies.none { it.id == group.companyId }) {
+                        notice("Entreprise V2 non confirmée : aucune nouvelle configuration enregistrée."); return@setOnClickListener
                     }
                 }
-
-                val contacts = jsonObjectPreference("arrival_contacts")
-                val contactValue = JSONObject()
-                    .put("contactName", contactInput.text.toString().trim())
-                    .put("phone", phoneInput.text.toString().trim())
-                    .put("enabled", contact?.optBoolean("enabled", false) ?: false)
-                if (targetZoneId != null) {
-                    contacts.remove(oldAddress)
-                    contacts.remove(newAddress)
-                    putGpsZoneScopedObject(contacts, targetZoneId, newAddress, contactValue)
-                } else {
-                    contacts.remove(oldAddress)
-                    contacts.put(newAddress, contactValue)
-                }
-
-                val names = jsonObjectPreference("address_names").apply {
-                    remove(oldAddress)
-                    if (addressChanged) remove(newAddress)
-                }
-                val overrides = jsonObjectPreference("zone_point_overrides")
-                val confirmed = jsonObjectPreference("zone_point_confirmed")
-                if (targetZoneId != null) {
-                    overrides.remove(oldAddress); overrides.remove(newAddress)
-                    confirmed.remove(oldAddress); confirmed.remove(newAddress)
-                }
-
-                val compatibilityAddresses = rebuiltAddressList(zones, savedAddresses(), oldAddress, newAddress)
-                rootView.findViewById<EditText>(R.id.workplaceAddress)?.setText(compatibilityAddresses.joinToString("\n"))
-
-                val companyMap = jsonObjectPreference("address_company_slots")
-                if (targetZoneId == null && addressChanged) {
-                    val legacySlot = companyMap.optInt(oldAddress, 0)
-                    companyMap.remove(oldAddress)
-                    if (legacySlot in 1..2) companyMap.put(newAddress, legacySlot)
-                }
-
-                val editor = prefs.edit()
-                    .putString("address", compatibilityAddresses.joinToString("\n"))
-                    .putString("address_names", names.toString())
-                    .putString("arrival_contacts", contacts.toString())
-                    .putString("address_company_slots", companyMap.toString())
-                    .putString("zone_point_overrides", overrides.toString())
-                    .putString("zone_point_confirmed", confirmed.toString())
-                    .putString("zones", zones.toString())
-                    .remove("active_zones")
-                    .remove("entry_resolution_pending")
-                    .remove("entry_resolution_token")
-                    .remove("pending_exit_zones")
-                if (addressChanged) editor.putString("pending_point_address", newAddress)
-                editor.apply()
-
-                PlaceNames.put(context, targetZoneId, newAddress, newName)
-                GeofenceManager.reconfigureStoredZones(context)
-                refresh()
-                PointageWidgetProvider.updateAll(context)
-                QuickActionsWidgetProvider.updateAll(context)
-                Toast.makeText(
-                    context,
-                    if (addressChanged) "Adresse modifiée — vérifie maintenant le point GPS précis" else "Lieu mis à jour",
-                    if (addressChanged) Toast.LENGTH_LONG else Toast.LENGTH_SHORT
-                ).show()
+                val change = GpsZoneEditorStoreV2.saveZone(snapshot, group, zoneId, generatedId, draft, 10)
+                if (change == null) { notice("Zone invalide, lieu modifié ou limite des 10 zones atteinte. Aucune zone écrasée."); return@setOnClickListener }
+                if (save(change, "Zone enregistrée")) dialog.dismiss()
             }
-            .setNegativeButton("Annuler", null)
-            .create()
-        dialog.setOnShowListener { styleDialog(dialog) }
+        }
         dialog.show()
     }
 
-    private fun dialogInput(hintText: String, value: String): EditText = EditText(context).apply { hint = hintText; setText(value); setTextColor(primaryText()); setHintTextColor(secondaryText()) }
-    private fun confirmDelete(entry: GpsLocationEntry, group: GpsPlaceGroup, name: String) {
-        val dialog = AlertDialog.Builder(context)
-            .setTitle("Supprimer $name ?")
-            .setMessage(
-                if (group.zones.size > 1)
-                    "Toutes les zones GPS de ce lieu seront retirées. Les autres lieux et l’historique déjà enregistré seront conservés."
-                else
-                    "Cette zone sera retirée du pointage GPS et de ses contacts. L’historique déjà enregistré sera conservé."
-            )
-            .setPositiveButton("Supprimer") { _, _ -> delete(entry, group) }
-            .setNegativeButton("Annuler", null)
-            .create()
-        dialog.setOnShowListener { styleDialog(dialog) }
+    private fun recentLocation(): android.location.Location? {
+        if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return null
+        val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
+        val now = System.currentTimeMillis()
+        return listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+            .mapNotNull { runCatching { manager.getLastKnownLocation(it) }.getOrNull() }
+            .filter { now - it.time in 0L..60_000L && it.hasAccuracy() && it.accuracy > 0f && it.accuracy <= 50f &&
+                it.latitude.isFinite() && it.latitude in -90.0..90.0 && it.longitude.isFinite() && it.longitude in -180.0..180.0 }
+            .maxByOrNull { it.time }
+    }
+    private fun editAddress(snapshot: GpsZoneEditorStoreV2.Snapshot, group: GpsPlaceGroup) {
+        val content = box()
+        val address = field(content, "Adresse du lieu", group.address)
+        content.addView(text("Seules les zones de ce lieu et de cette entreprise seront concernées. Leurs centres GPS et l'historique ne changent pas."))
+        val dialog = AlertDialog.Builder(context).setTitle("Modifier l'adresse")
+            .setView(scroll(content)).setPositiveButton("Enregistrer", null).setNegativeButton("Annuler", null).create()
+        dialog.setOnShowListener {
+            style(dialog)
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val change = GpsZoneEditorStoreV2.renameAddress(snapshot, group, address.text.toString())
+                if (change == null) notice("Adresse vide, lieu modifié ou déjà existant pour cette entreprise.")
+                else if (save(change, "Adresse modifiée, centres GPS conservés")) dialog.dismiss()
+            }
+        }
         dialog.show()
     }
-
-    private fun delete(entry: GpsLocationEntry, group: GpsPlaceGroup) {
-        val oldAddress = entry.address
-        val read = readPersistedGpsZones(prefs)
-        val zones = read.toMutableJsonArrayOrNull()
-        if (zones == null) {
-            GeofenceManager.reconfigureStoredZones(context)
-            Toast.makeText(context, "Configuration GPS illisible : le lieu n’a pas été supprimé", Toast.LENGTH_LONG).show()
-            return
+    private fun confirmDelete(snapshot: GpsZoneEditorStoreV2.Snapshot, group: GpsPlaceGroup, zoneId: String?) {
+        val dialog = AlertDialog.Builder(context).setTitle(if (zoneId == null) "Supprimer ce lieu ?" else "Supprimer cette zone ?")
+            .setMessage(if (zoneId == null) "Les ${group.zones.size} zones de ce lieu seront retirées. Les autres entreprises et l'historique seront conservés."
+                else "Seule cette zone et ses réglages seront retirés. Les autres zones et l'historique seront conservés.")
+            .setPositiveButton("Supprimer", null).setNegativeButton("Annuler", null).create()
+        dialog.setOnShowListener {
+            style(dialog)
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val change = GpsZoneEditorStoreV2.remove(snapshot, group, zoneId)
+                if (change == null) notice("Ce lieu ou cette zone a changé. Aucune suppression effectuée.")
+                else if (save(change, "Suppression enregistrée. Historique conservé")) dialog.dismiss()
+            }
         }
-
-        val targetZoneId = entry.zoneId
-        val remainingZones = when {
-            group.zones.size > 1 -> removeGpsPlaceZones(
-                zones,
-                oldAddress,
-                companyId = group.companyId,
-                companySlot = group.companySlot
-            )
-            targetZoneId != null -> removeGpsZoneById(zones, targetZoneId)
-            else -> zones
+        dialog.show()
+    }
+    private fun save(change: GpsZoneEditorStoreV2.Change, message: String): Boolean {
+        if (!GpsZoneEditorStoreV2.commit(prefs, change)) {
+            notice("Configuration modifiée depuis l'ouverture ou écriture non confirmée. Rouvre la fiche avant de réessayer.")
+            return false
         }
-        if (remainingZones == null) {
-            Toast.makeText(context, "Zone GPS introuvable : aucune suppression effectuée", Toast.LENGTH_LONG).show()
-            return
+        GpsZoneEditorStoreV2.read(prefs)?.let { saved ->
+            rootView.findViewById<EditText>(R.id.workplaceAddress)?.let { field ->
+                val addresses = saved.addresses().joinToString("\n")
+                if (field.text.toString() != addresses) field.setText(addresses)
+            }
         }
-
-        val addressStillUsed = jsonZonesUseAddress(remainingZones, oldAddress)
-        val contacts = jsonObjectPreference("arrival_contacts").apply {
-            targetZoneId?.let(::remove)
-            if (!addressStillUsed) remove(oldAddress)
-        }
-        val overrides = jsonObjectPreference("zone_point_overrides").apply {
-            targetZoneId?.let(::remove)
-            if (!addressStillUsed) remove(oldAddress)
-        }
-        val confirmed = jsonObjectPreference("zone_point_confirmed").apply {
-            targetZoneId?.let(::remove)
-            if (!addressStillUsed) remove(oldAddress)
-        }
-        val names = jsonObjectPreference("address_names").apply { if (!addressStillUsed) remove(oldAddress) }
-        val companyMap = jsonObjectPreference("address_company_slots").apply { if (!addressStillUsed) remove(oldAddress) }
-        val compatibilityAddresses = rebuiltAddressListAfterDelete(remainingZones, savedAddresses(), oldAddress, addressStillUsed)
-        rootView.findViewById<EditText>(R.id.workplaceAddress)?.setText(compatibilityAddresses.joinToString("\n"))
-
-        val pending = prefs.getString("pending_point_address", "").orEmpty()
-        val editor = prefs.edit()
-            .putString("address", compatibilityAddresses.joinToString("\n"))
-            .putString("address_names", names.toString())
-            .putString("arrival_contacts", contacts.toString())
-            .putString("address_company_slots", companyMap.toString())
-            .putString("zone_point_overrides", overrides.toString())
-            .putString("zone_point_confirmed", confirmed.toString())
-            .putString("zones", remainingZones.toString())
-            .remove("active_zones")
-            .remove("entry_resolution_pending")
-            .remove("entry_resolution_token")
-            .remove("pending_exit_zones")
-        if (!addressStillUsed && pending.equals(oldAddress, ignoreCase = true)) editor.remove("pending_point_address")
-        editor.apply()
-
-        registerZones()
         refresh()
         PointageWidgetProvider.updateAll(context)
         QuickActionsWidgetProvider.updateAll(context)
-        Toast.makeText(
-            context,
-            if (group.zones.size > 1) "Lieu et zones supprimés. Historique conservé." else "Zone supprimée. Historique conservé.",
-            Toast.LENGTH_LONG
-        ).show()
-    }
-
-    private fun findZoneById(zones: JSONArray, zoneId: String): JSONObject? {
-        val target = zoneId.trim()
-        if (target.isBlank()) return null
-        for (index in 0 until zones.length()) {
-            val zone = zones.optJSONObject(index) ?: continue
-            if (zone.optString("id").trim() == target) return zone
+        GeofenceManager.reconfigureStoredZones(context) { success, detail ->
+            post { notice(if (success) message else "$message. $detail") }
         }
-        return null
+        return true
     }
-
-    private fun zonesAtAddressCount(address: String): Int {
-        val read = readPersistedGpsZones(prefs) as? GpsZonesReadResult.Valid ?: return 0
-        return read.zones.count {
-            it.address?.trim()?.equals(address.trim(), ignoreCase = true) == true
-        }
-    }
-
-    private fun zoneRadiusText(entry: GpsLocationEntry): String {
-        val read = readPersistedGpsZones(prefs)
-        val zoneId = entry.zoneId?.trim().orEmpty()
-        if (zoneId.isNotBlank()) {
-            val valid = read as? GpsZonesReadResult.Valid ?: return "À vérifier"
-            val zone = valid.zones.firstOrNull { it.id == zoneId } ?: return "À vérifier"
-            return formatRadius(zone.radius)
-        }
-        return zoneRadiusText(entry.address)
-    }
-
-    private fun formatRadius(meters: Float): String =
-        if (meters % 1f == 0f) "${meters.toInt()} m"
-        else String.format(Locale.FRANCE, "%.1f m", meters)
-
-    private fun jsonZonesUseAddress(zones: JSONArray, address: String): Boolean {
-        for (index in 0 until zones.length()) {
-            val zone = zones.optJSONObject(index) ?: continue
-            if (zone.optString("address").trim().equals(address.trim(), ignoreCase = true)) return true
-        }
-        return false
-    }
-
-    private fun rebuiltAddressList(
-        zones: JSONArray,
-        previous: List<String>,
-        oldAddress: String,
-        newAddress: String
-    ): List<String> {
-        val canonicalAddresses = (0 until zones.length()).mapNotNull { index ->
-            zones.optJSONObject(index)?.optString("address")?.trim()?.takeIf { it.isNotBlank() }
-        }
-        val oldStillUsed = canonicalAddresses.any { it.equals(oldAddress, ignoreCase = true) }
-        val legacy = previous
-            .filterNot { !oldStillUsed && it.equals(oldAddress, ignoreCase = true) }
-            .toMutableList()
-        if (legacy.none { it.equals(newAddress, ignoreCase = true) }) legacy += newAddress
-        canonicalAddresses.forEach { address ->
-            if (legacy.none { it.equals(address, ignoreCase = true) }) legacy += address
-        }
-        return legacy.distinctBy { it.lowercase(Locale.FRANCE) }.take(10)
-    }
-
-    private fun rebuiltAddressListAfterDelete(
-        zones: JSONArray,
-        previous: List<String>,
-        deletedAddress: String,
-        addressStillUsed: Boolean
-    ): List<String> {
-        val result = previous
-            .filterNot { !addressStillUsed && it.equals(deletedAddress, ignoreCase = true) }
-            .toMutableList()
-        for (index in 0 until zones.length()) {
-            val address = zones.optJSONObject(index)?.optString("address")?.trim().orEmpty()
-            if (address.isNotBlank() && result.none { it.equals(address, ignoreCase = true) }) result += address
-        }
-        return result.distinctBy { it.lowercase(Locale.FRANCE) }.take(10)
-    }
-    private fun registerZones() {
-        GeofenceManager.reconfigureStoredZones(context)
-    }
-    private fun jsonObjectPreference(key: String): JSONObject = runCatching { JSONObject(prefs.getString(key, "{}") ?: "{}") }.getOrElse { JSONObject() }
-    private fun savedAddresses(): List<String> = prefs.getString("address", "").orEmpty().lines().map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase(Locale.FRANCE) }
-    private fun zoneRadiusText(address: String): String =
-        when (val resolution = resolveGpsZoneRadiusForAddress(readPersistedGpsZones(prefs), address)) {
-            is GpsZoneRadiusResolution.Known -> {
-                val meters = resolution.radiusMeters
-                if (meters % 1f == 0f) "${meters.toInt()} m" else String.format(Locale.FRANCE, "%.1f m", meters)
-            }
-            GpsZoneRadiusResolution.Missing -> "À confirmer"
-            GpsZoneRadiusResolution.Ambiguous,
-            GpsZoneRadiusResolution.Corrupt -> "À vérifier"
-        }
-    private fun totalWorkedAtText(address: String): String {
-        if (!HoraTrackV2.ENABLED) return formatDuration(legacyTotalWorkedAt(address))
+    private fun totalWorkedAtText(group: GpsPlaceGroup): String {
+        if (!HoraTrackV2.ENABLED || group.companyId == null || group.zones.isEmpty()) return "À confirmer"
         val now = System.currentTimeMillis()
         val runtime = V2RuntimeReader.allSessions(context, now)
         if (!runtime.reliable) return "À vérifier"
-        val analytics = AnalyticsEngineV2.summarize(runtime.sessions, HoraTrackV2.time, now)
-        val place = AnalyticsEngineV2.placeTotalForAddress(analytics, address)
-        return if (place.reliable) formatDuration(place.paidMs) else "À confirmer"
+        val ids = group.zones.map { it.id }.toSet()
+        // Une session non rattachée ne permet pas de certifier un total complet pour ce lieu.
+        if (runtime.sessions.any { it.employerId == group.companyId && it.placeId.isNullOrBlank() }) return "À confirmer"
+        if (runtime.sessions.any { it.placeId in ids && it.employerId != group.companyId }) return "À vérifier"
+        val sessions = runtime.sessions.filter { it.employerId == group.companyId && it.placeId in ids }
+        val total = AnalyticsEngineV2.summarize(sessions, HoraTrackV2.time, now)
+        if (!total.timeTotalsReliable) return "À confirmer"
+        val minutes = total.totalPaidMs / 60_000L
+        return String.format(Locale.FRANCE, "%dh %02d", minutes / 60L, minutes % 60L)
     }
-    private fun legacyTotalWorkedAt(address: String): Long { val data = PointageStore.load(context); val now = System.currentTimeMillis(); var total = 0L; for (i in 0 until data.length()) { val item = data.optJSONObject(i) ?: continue; val storedPlace = item.optString("zoneAddress").trim(); if (!AnalyticsEngineV2.matchesAddress(storedPlace, address)) continue; val entry = item.optLong("entry", 0L); if (entry <= 0L) continue; val end = if (item.isNull("exit")) now else item.optLong("exit", entry); total += PointageStore.workedDuration(item, end) }; return total }
-    private fun formatDuration(ms: Long): String { val minutes = ms.coerceAtLeast(0L) / 60000L; return String.format(Locale.FRANCE, "%dh %02d", minutes / 60L, minutes % 60L) }
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 }

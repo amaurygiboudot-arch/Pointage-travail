@@ -9,130 +9,60 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import org.json.JSONArray
-import java.util.Locale
 
-/** Permet de qualifier un lieu GPS existant sans toucher à ses coordonnées. */
-class GpsZoneTypeView @JvmOverloads constructor(
-    context: Context,
-    attrs: AttributeSet? = null
-) : LinearLayout(context, attrs), SharedPreferences.OnSharedPreferenceChangeListener {
+/** Même qualification que l'éditeur de zone ; aucune pause inconnue ne devient Poste. */
+class GpsZoneTypeView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) :
+    LinearLayout(context, attrs), SharedPreferences.OnSharedPreferenceChangeListener {
     companion object { const val TAG = "gps_zone_type_v2" }
     private val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
-
-    init {
-        tag = TAG
-        orientation = VERTICAL
-        setPadding(0, dp(10), 0, dp(6))
-        rebuild()
-    }
-
+    init { tag = TAG; orientation = VERTICAL; setPadding(0, dp(10), 0, dp(6)); rebuild() }
     override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        prefs.registerOnSharedPreferenceChangeListener(this)
-        rebuild()
+        super.onAttachedToWindow(); prefs.registerOnSharedPreferenceChangeListener(this); rebuild()
     }
-
     override fun onDetachedFromWindow() {
-        prefs.unregisterOnSharedPreferenceChangeListener(this)
-        super.onDetachedFromWindow()
+        prefs.unregisterOnSharedPreferenceChangeListener(this); super.onDetachedFromWindow()
     }
-
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
         if (key == "zones" || key == "address") post { rebuild() }
     }
-
     private fun rebuild() {
         removeAllViews()
+        addView(TextView(context).apply { text = "RÔLE DES ZONES GPS"; textSize = 14f })
         addView(TextView(context).apply {
-            text = "TYPE DES LIEUX GPS"
-            textSize = 14f
+            text = "Travail, parking, pause ou autre contexte. Le GPS ne décide pas à lui seul du temps payé."
+            textSize = 12f; setPadding(0, dp(4), 0, dp(6))
         })
-        addView(TextView(context).apply {
-            text = "Poste = lieu de travail. Parking = zone intermédiaire utilisée pour confirmer pause ou départ."
-            textSize = 12f
-            setPadding(0, dp(4), 0, dp(6))
-        })
-        val zones = readZones()
-        if (zones == null) {
-            addView(TextView(context).apply {
-                text = "Configuration GPS illisible. Les types de lieux restent inchangés."
-                textSize = 13f
-            })
-            GeofenceManager.reconfigureStoredZones(context)
-            return
+        val snapshot = GpsZoneEditorStoreV2.read(prefs)
+        if (snapshot == null) {
+            addView(TextView(context).apply { text = "Configuration GPS à vérifier. Aucun rôle modifié." }); return
         }
-        if (zones.length() == 0) {
-            addView(TextView(context).apply { text = "Ajoute d'abord un lieu GPS."; textSize = 13f })
-            return
-        }
-        for (i in 0 until zones.length()) {
-            val zone = zones.optJSONObject(i) ?: continue
-            val address = zone.optString("address").trim()
-            if (address.isBlank()) continue
-            val type = normalizedType(zone.optString("pointType").ifBlank { zone.optString("zoneType") })
-            val display = PlaceNames.get(context, zone.optString("id"), address)?.takeIf { it.isNotBlank() } ?: address
+        val zones = snapshot.zones.filter { !it.isGpsCandidate() && !it.address.isNullOrBlank() }
+        if (zones.isEmpty()) addView(TextView(context).apply { text = "Ajoute d'abord une zone GPS." })
+        zones.forEach { zone ->
             addView(Button(context).apply {
-                text = "$display  •  ${typeLabel(type)}"
-                isAllCaps = false
-                textSize = 14f
+                text = "${zone.label ?: zone.address} • ${GpsZoneRoleV2.fromToken(zone.pointTypeToken).title}"
+                isAllCaps = false; textSize = 14f; minHeight = dp(48)
                 setBackgroundResource(R.drawable.hp_panel)
-                setOnClickListener { chooseType(zone.optString("id"), address) }
-            }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(5) })
+                setOnClickListener { chooseType(zone.id) }
+            }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(5) })
         }
     }
-
-    private fun chooseType(zoneId: String, address: String) {
-        val labels = arrayOf("🏭 Poste de travail", "🅿️ Parking", "📍 Autre / à confirmer")
-        val values = arrayOf("POSTE", "PARKING", "OTHER")
-        AlertDialog.Builder(context)
-            .setTitle("Type de lieu")
-            .setMessage(address)
-            .setItems(labels) { _, which ->
-                val zones = readZones()
-                if (zones == null) {
-                    GeofenceManager.reconfigureStoredZones(context)
-                    Toast.makeText(context, "Configuration GPS illisible : aucun type n'a été modifié", Toast.LENGTH_LONG).show()
-                    return@setItems
-                }
-                val changed = updateGpsZoneTypeById(zones, zoneId, values[which])
-                if (changed) {
-                    val saved = prefs.edit().putString("zones", zones.toString())
-                        .remove("active_zones").remove("entry_resolution_pending")
-                        .remove("entry_resolution_token").remove("pending_exit_zones").commit()
-                    if (!saved) {
-                        Toast.makeText(context, "Impossible d'enregistrer le type GPS", Toast.LENGTH_LONG).show()
-                        return@setItems
-                    }
+    private fun chooseType(zoneId: String) {
+        val snapshot = GpsZoneEditorStoreV2.read(prefs) ?: return
+        val zone = snapshot.zones.singleOrNull { it.id == zoneId && !it.isGpsCandidate() } ?: return
+        val roles = GpsZoneRoleV2.values()
+        AlertDialog.Builder(context).setTitle("Rôle — ${zone.label ?: zone.address}")
+            .setItems(roles.map { it.title }.toTypedArray()) { _, which ->
+                val change = GpsZoneEditorStoreV2.setRole(snapshot, zoneId, roles[which])
+                if (change == null || !GpsZoneEditorStoreV2.commit(prefs, change)) {
+                    Toast.makeText(context, "Zone modifiée depuis l'ouverture ou écriture non confirmée. Rouvre sa fiche.", Toast.LENGTH_LONG).show()
+                } else {
                     GeofenceManager.reconfigureStoredZones(context) { success, message ->
-                        post {
-                            Toast.makeText(
-                                context,
-                                if (success) "Type GPS enregistré" else message,
-                                if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
-                            ).show()
-                        }
+                        post { Toast.makeText(context, if (success) "Rôle enregistré" else "Rôle enregistré. $message", Toast.LENGTH_LONG).show() }
                     }
                     rebuild()
                 }
-            }
-            .setNegativeButton("Annuler", null)
-            .show()
+            }.setNegativeButton("Annuler", null).show()
     }
-
-    private fun readZones(): JSONArray? = readPersistedGpsZones(prefs).toMutableJsonArrayOrNull()
-
-    private fun normalizedType(raw: String): String = when (raw.trim().uppercase(Locale.ROOT)) {
-        "PARKING" -> "PARKING"
-        "OTHER", "AUTRE" -> "OTHER"
-        else -> "POSTE"
-    }
-
-    private fun typeLabel(type: String) = when (type) {
-        "PARKING" -> "Parking"
-        "OTHER" -> "Autre"
-        else -> "Poste"
-    }
-
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 }
