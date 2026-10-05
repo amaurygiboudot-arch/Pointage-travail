@@ -272,22 +272,23 @@ final class GpsGeofenceV2Tests: XCTestCase {
         }
     }
 
-    func testReturnAfterBoundaryKeepsDepartureThenQueuesArrival() {
+    func testReturnAfterBoundaryCancelsDepartureForStillOpenSession() {
+        let sessionId = UUID()
         let returned = GpsPresenceTransitionV2.plan(
-            state: stateOutsideConfirmedSession(UUID()),
+            state: stateOutsideConfirmedSession(sessionId),
             zoneId: first,
             transition: .enter,
             occurredAt: now.addingTimeInterval(121)
         )
 
-        XCTAssertEqual(returned.pendingEvents.map(\.kind), [.departure, .arrival])
-        XCTAssertNil(returned.confirmedSessionId)
+        XCTAssertTrue(returned.pendingEvents.isEmpty)
+        XCTAssertEqual(returned.confirmedSessionId, sessionId)
     }
 
-    func testLaterVisitDepartureRemainsUnboundUntilNewArrivalIsConfirmed() {
-        let firstSession = UUID()
+    func testLaterExitCreatesFreshDepartureAfterReturn() {
+        let sessionId = UUID()
         let returned = GpsPresenceTransitionV2.plan(
-            state: stateOutsideConfirmedSession(firstSession),
+            state: stateOutsideConfirmedSession(sessionId),
             zoneId: first,
             transition: .enter,
             occurredAt: now.addingTimeInterval(121)
@@ -299,11 +300,56 @@ final class GpsGeofenceV2Tests: XCTestCase {
             occurredAt: now.addingTimeInterval(240)
         )
 
-        XCTAssertEqual(leftAgain.pendingEvents.map(\.kind), [.departure, .arrival, .departure])
-        XCTAssertEqual(leftAgain.pendingEvents[0].expectedSessionId, firstSession)
-        XCTAssertNil(leftAgain.pendingEvents[1].expectedSessionId)
-        XCTAssertNil(leftAgain.pendingEvents[2].expectedSessionId)
-        XCTAssertNil(leftAgain.confirmedSessionId)
+        XCTAssertEqual(leftAgain.pendingEvents.map(\.kind), [.departure])
+        XCTAssertEqual(leftAgain.pendingEvents[0].expectedSessionId, sessionId)
+        XCTAssertEqual(leftAgain.confirmedSessionId, sessionId)
+    }
+
+    func testReturnToDifferentZoneDoesNotCancelPendingDeparture() {
+        let sessionId = UUID()
+        let returned = GpsPresenceTransitionV2.plan(
+            state: stateOutsideConfirmedSession(sessionId),
+            zoneId: second,
+            transition: .enter,
+            occurredAt: now.addingTimeInterval(121)
+        )
+
+        XCTAssertEqual(returned.pendingEvents.map(\.kind), [.departure, .arrival])
+        XCTAssertEqual(returned.confirmedSessionId, sessionId)
+    }
+
+    func testLongReturnFromOverlappingWorkZonesPreservesSessionAndOverflowEvidence() {
+        let sessionId = UUID()
+        let inside = GpsPresenceTransitionV2.State(activeZoneIds: [first, second], pendingExitZoneIds: [],
+            pendingEvents: [], confirmedSessionId: sessionId, eventQueueOverflowed: false)
+        let leftFirst = GpsPresenceTransitionV2.plan(state: inside, zoneId: first,
+            transition: .exit, occurredAt: now)
+        var outside = GpsPresenceTransitionV2.plan(state: leftFirst, zoneId: second,
+            transition: .exit, occurredAt: now.addingTimeInterval(1))
+        XCTAssertEqual(Set(outside.pendingEvents[0].zoneIds), [first, second])
+        outside.eventQueueOverflowed = true
+        for zoneId in [first, second] {
+            let returned = GpsPresenceTransitionV2.plan(state: outside, zoneId: zoneId,
+                transition: .enter, occurredAt: now.addingTimeInterval(8 * 3600))
+            XCTAssertTrue(returned.pendingEvents.isEmpty)
+            XCTAssertEqual(returned.confirmedSessionId, sessionId)
+            XCTAssertTrue(returned.eventQueueOverflowed)
+        }
+    }
+
+    func testReturnAfterSessionReopenedDoesNotReuseOldDeparture() {
+        let previous = stateOutsideConfirmedSession(UUID())
+        let reconciled = GpsPresenceTransitionV2.reconcileSession(state: previous, openSessionId: UUID())
+        let returned = GpsPresenceTransitionV2.plan(state: reconciled, zoneId: first,
+            transition: .enter, occurredAt: now.addingTimeInterval(8 * 3600))
+        XCTAssertEqual(returned.pendingEvents.map(\.kind), [.arrival])
+        XCTAssertNil(returned.confirmedSessionId)
+    }
+
+    func testReturnToOtherZoneBeforeDepartureDoesNotReorderQueue() {
+        let outside = stateOutsideConfirmedSession(UUID())
+        XCTAssertEqual(GpsPresenceTransitionV2.plan(state: outside, zoneId: second,
+            transition: .enter, occurredAt: now.addingTimeInterval(-1)), outside)
     }
 
     func testReturnTimestampBeforeDepartureIsRejected() {

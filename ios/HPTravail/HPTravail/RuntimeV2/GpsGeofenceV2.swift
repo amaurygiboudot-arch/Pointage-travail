@@ -141,7 +141,6 @@ struct GpsPendingEventV2: Codable, Equatable, Identifiable {
 }
 
 enum GpsPresenceTransitionV2 {
-    static let rapidReturnInterval: TimeInterval = 120
     static let maximumPendingEventCount = 32
 
     enum Transition {
@@ -171,22 +170,19 @@ enum GpsPresenceTransitionV2 {
             next.pendingExitZoneIds.remove(zoneId)
 
             if wasEmpty {
+                // Une entrée antérieure au départ ne peut réordonner la file, même dans une autre zone.
+                if let pending = next.pendingEvents.last,
+                   pending.kind == .departure, occurredAt < pending.occurredAt { return state }
                 if let confirmedSessionId = next.confirmedSessionId,
                    let pending = next.pendingEvents.last,
                    pending.kind == .departure,
-                   pending.expectedSessionId == confirmedSessionId {
+                   pending.expectedSessionId == confirmedSessionId,
+                   pending.zoneIds.contains(zoneId) {
                     guard occurredAt >= pending.occurredAt else { return state }
-                    if occurredAt.timeIntervalSince(pending.occurredAt) <= rapidReturnInterval {
-                        next.pendingEvents.removeLast()
-                    } else {
-                        next.confirmedSessionId = nil
-                        appendEvent(GpsPendingEventV2(
-                            id: UUID(),
-                            kind: .arrival,
-                            zoneIds: [zoneId],
-                            occurredAt: occurredAt
-                        ), to: &next)
-                    }
+                    // Tant que la même session reste ouverte, revenir dans une zone qui avait
+                    // déclenché la demande de départ invalide cette demande de fin de journée.
+                    // La durée d'absence ne transforme pas un ancien EXIT non confirmé en vérité.
+                    next.pendingEvents.removeLast()
                 } else {
                     appendEvent(GpsPendingEventV2(
                         id: UUID(),
