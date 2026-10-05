@@ -18,6 +18,8 @@ object V2BackupManager {
     private const val FORMAT_VERSION = 4
     private const val ROOT_FOLDER = "AGKGMG"
     private const val FILE_NAME = "AGKGMG_backup.json"
+    private const val RECOVERY_FILE_A = "AGKGMG_backup.recovery_a.json"
+    private const val RECOVERY_FILE_B = "AGKGMG_backup.recovery_b.json"
     private val LEGACY_ROOT_FOLDERS = listOf("Pointage Travail")
     private val LEGACY_FILE_NAMES = listOf("HoraTrack_backup.json", "HoraTrack_V2_backup.json")
     private const val RUNTIME_PREFS = "horatrack_v2_test_runtime"
@@ -48,10 +50,46 @@ object V2BackupManager {
 
     data class RestoreResult(val restoredFiles:Int,val mergedSessions:Int)
     internal data class HistoryMergePlan(val history:JSONArray,val added:Int)
+    internal data class BackupCopy(
+        val fileName: String,
+        val createdAtMs: Long,
+        val priority: Int
+    )
+    private data class BackupCandidate(val uri: Uri, val copy: BackupCopy)
 
     fun backupIfConfiguredAsync(context:Context){ val app=context.applicationContext;if(DriveBackupManager.savedTreeUri(app)==null)return;executor.execute{backupToConfiguredDrive(app)} }
     fun restoreFreshInstallIfConfiguredAsync(context:Context){ val app=context.applicationContext;if(DriveBackupManager.savedTreeUri(app)==null||!isFreshInstall(app))return;executor.execute{runCatching{val uri=configuredBackupUri(app)?:return@runCatching;restoreFromUri(app,uri).getOrThrow()}} }
-    fun backupToConfiguredDrive(context:Context):Result<Uri> = runCatching { DriveBackupManager.withStorageAccess { val tree=DriveBackupManager.savedTreeUri(context)?:error("Choisis d'abord un dossier Google Drive");val content=snapshot(context).toString(2);val root=treeRootDocumentUri(tree);val folder=ensureDirectory(context,root,ROOT_FOLDER);val file=ensureFile(context,folder,FILE_NAME,"application/json");context.contentResolver.openOutputStream(file,"w")?.bufferedWriter(Charsets.UTF_8)?.use{it.write(content)}?:error("Impossible d'écrire la sauvegarde");context.getSharedPreferences("horatrack_v2_backup",Context.MODE_PRIVATE).edit().putLong("last_backup_ms",System.currentTimeMillis()).apply();file } }
+    fun backupToConfiguredDrive(context:Context):Result<Uri> = runCatching {
+        DriveBackupManager.withStorageAccess {
+            val tree = DriveBackupManager.savedTreeUri(context)
+                ?: error("Choisis d'abord un dossier Google Drive")
+            val content = snapshot(context).toString(2)
+            val parsed = runCatching { JSONObject(content) }.getOrNull()
+                ?: error("Snapshot de sauvegarde illisible")
+            require(isStructurallyRestorableBackup(parsed)) {
+                "Snapshot de sauvegarde incomplet"
+            }
+
+            val root = treeRootDocumentUri(tree)
+            val folder = ensureDirectory(context, root, ROOT_FOLDER)
+            val existing = currentRecoveryCandidates(context, folder)
+            val recoveryName = recoveryTargetFileName(existing.map { it.copy })
+            val recovery = ensureFile(context, folder, recoveryName, "application/json")
+
+            // Une copie validée est durable avant toute réécriture du fichier principal.
+            writeAndVerifyBackup(context, recovery, content)
+
+            val canonical = ensureFile(context, folder, FILE_NAME, "application/json")
+            // Si cette seconde écriture échoue, la copie recovery validée reste disponible.
+            writeAndVerifyBackup(context, canonical, content)
+
+            context.getSharedPreferences("horatrack_v2_backup", Context.MODE_PRIVATE)
+                .edit()
+                .putLong("last_backup_ms", System.currentTimeMillis())
+                .apply()
+            canonical
+        }
+    }
     fun restoreFromUri(context:Context,uri:Uri):Result<RestoreResult> = runCatching { val raw=DriveBackupManager.withStorageAccess { context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use{it.readText()}?:error("Impossible de lire la sauvegarde") };restoreFromJson(context,raw).getOrThrow() }
 
     /** Même restauration conservatrice pour Drive et Firestore. */
@@ -135,18 +173,102 @@ object V2BackupManager {
         return !hasRuntime&&!hasLegacy&&salary.all.isEmpty()&&salaryV2.all.isEmpty()
     }
     private fun configuredBackupUri(context:Context):Uri? = DriveBackupManager.withStorageAccess {
-        val tree=DriveBackupManager.savedTreeUri(context)?:return@withStorageAccess null
-        val root=treeRootDocumentUri(tree)
-        val folderNames=listOf(ROOT_FOLDER)+LEGACY_ROOT_FOLDERS
-        val fileNames=listOf(FILE_NAME)+LEGACY_FILE_NAMES
-        for(folderName in folderNames){
-            val folder=findChild(context,root,folderName,DocumentsContract.Document.MIME_TYPE_DIR)?:continue
-            for(fileName in fileNames){
-                findChild(context,folder,fileName,"application/json")?.let{return@withStorageAccess it}
+        val tree = DriveBackupManager.savedTreeUri(context) ?: return@withStorageAccess null
+        val root = treeRootDocumentUri(tree)
+        val candidates = mutableListOf<BackupCandidate>()
+
+        backupSearchLocations().groupBy { it.first }.forEach { (folderName, locations) ->
+            val folder = findChild(context, root, folderName, DocumentsContract.Document.MIME_TYPE_DIR)
+                ?: return@forEach
+            locations.forEach { (_, fileName) ->
+                findChild(context, folder, fileName, "application/json")
+                    ?.let { inspectBackupCandidate(context, it, fileName, backupPriority(fileName)) }
+                    ?.let(candidates::add)
             }
         }
-        null
+
+        candidates.maxWithOrNull(compareBy<BackupCandidate> { it.copy.createdAtMs }
+            .thenBy { it.copy.priority })?.uri
     }
+
+    private fun currentRecoveryCandidates(context: Context, folder: Uri): List<BackupCandidate> =
+        listOf(
+            FILE_NAME to 30,
+            RECOVERY_FILE_A to 20,
+            RECOVERY_FILE_B to 20
+        ).mapNotNull { (fileName, priority) ->
+            findChild(context, folder, fileName, "application/json")
+                ?.let { inspectBackupCandidate(context, it, fileName, priority) }
+        }
+
+    internal fun backupSearchLocations(): List<Pair<String, String>> =
+        (listOf(ROOT_FOLDER) + LEGACY_ROOT_FOLDERS).flatMap { folder ->
+            (listOf(FILE_NAME) + LEGACY_FILE_NAMES + listOf(RECOVERY_FILE_A, RECOVERY_FILE_B))
+                .map { file -> folder to file }
+        }
+
+    private fun backupPriority(fileName: String): Int = when (fileName) {
+        FILE_NAME -> 30
+        RECOVERY_FILE_A, RECOVERY_FILE_B -> 20
+        else -> 10
+    }
+
+    internal fun recoveryTargetFileName(candidates: List<BackupCopy>): String {
+        val best = candidates.maxWithOrNull(compareBy<BackupCopy> { it.createdAtMs }.thenBy { it.priority })
+        if (best?.fileName == RECOVERY_FILE_A) return RECOVERY_FILE_B
+        if (best?.fileName == RECOVERY_FILE_B) return RECOVERY_FILE_A
+
+        val a = candidates.firstOrNull { it.fileName == RECOVERY_FILE_A }
+        val b = candidates.firstOrNull { it.fileName == RECOVERY_FILE_B }
+        return when {
+            a == null -> RECOVERY_FILE_A
+            b == null -> RECOVERY_FILE_B
+            a.createdAtMs <= b.createdAtMs -> RECOVERY_FILE_A
+            else -> RECOVERY_FILE_B
+        }
+    }
+
+    private fun inspectBackupCandidate(
+        context: Context,
+        uri: Uri,
+        fileName: String,
+        priority: Int
+    ): BackupCandidate? = inspectBackupContent(fileName, priority) { readBackupText(context, uri) }
+        ?.let { BackupCandidate(uri, it) }
+
+    /** Une erreur I/O reste une erreur : elle ne rend jamais une copie disponible à l'écrasement. */
+    internal fun inspectBackupContent(fileName: String, priority: Int, read: () -> String): BackupCopy? {
+        val raw = read()
+        val root = runCatching { JSONObject(raw) }.getOrNull() ?: return null
+        if (!isStructurallyRestorableBackup(root)) return null
+        val createdAtMs = strictLong(root.opt("createdAtMs"))?.takeIf { it >= 0L } ?: 0L
+        return BackupCopy(fileName, createdAtMs, priority)
+    }
+
+    private fun writeAndVerifyBackup(context: Context, uri: Uri, content: String) {
+        context.contentResolver.openOutputStream(uri, "w")
+            ?.bufferedWriter(Charsets.UTF_8)
+            ?.use { writer ->
+                writer.write(content)
+                writer.flush()
+            }
+            ?: error("Impossible d'écrire la sauvegarde")
+
+        val verified = readBackupText(context, uri)
+        check(verified == content) { "La sauvegarde relue diffère du snapshot écrit" }
+        val parsed = runCatching { JSONObject(verified) }.getOrNull()
+            ?: error("La sauvegarde écrite n'est pas un JSON valide")
+        check(isStructurallyRestorableBackup(parsed)) {
+            "La sauvegarde écrite n'est pas restaurable"
+        }
+    }
+
+    private fun readBackupText(context: Context, uri: Uri): String =
+        context.contentResolver.openInputStream(uri)
+            ?.bufferedReader(Charsets.UTF_8)
+            ?.use { it.readText() }
+            ?: error("Impossible de lire la sauvegarde existante")
+
     private fun encodePreferences(context:Context,name:String):JSONObject { val out=JSONObject();context.applicationContext.getSharedPreferences(name,Context.MODE_PRIVATE).all.forEach{(k,v)->if(BackupPreferenceKeyPolicy.canTransfer(name,k))when(v){is String->out.put(k,JSONObject().put("t","s").put("v",v));is Boolean->out.put(k,JSONObject().put("t","b").put("v",v));is Int->out.put(k,JSONObject().put("t","i").put("v",v));is Long->out.put(k,JSONObject().put("t","l").put("v",v));is Float->out.put(k,JSONObject().put("t","f").put("v",v.toDouble()));is Set<*>->out.put(k,JSONObject().put("t","set").put("v",JSONArray(v.filterIsInstance<String>())))}};return out }
     private fun mergePreferences(context:Context,name:String,saved:JSONObject){
         require(isValidTypedPreferencePayload(saved)){"Préférences $name invalides"}
@@ -174,6 +296,23 @@ object V2BackupManager {
             .edit()
         GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach { editor.remove(it) }
         check(editor.commit()) { "Impossible de réinitialiser l'état de présence GPS" }
+    }
+
+    internal fun isStructurallyRestorableBackup(root: JSONObject): Boolean {
+        if (!isSupportedFormatVersion(root.optInt("formatVersion", 0))) return false
+        val files = root.optJSONObject("preferences") ?: return false
+        val names = files.keys().asSequence()
+            .filter(::isManagedPreferenceFileName)
+            .filter(BackupSecurityPolicy::canTransferPreferenceFile)
+            .toList()
+        if (names.isEmpty()) return false
+
+        for (name in names) {
+            val saved = files.optJSONObject(name) ?: return false
+            if (!isValidTypedPreferencePayload(saved)) return false
+            if (name == RUNTIME_PREFS && runCatching { decodeBackupHistory(saved) }.isFailure) return false
+        }
+        return true
     }
 
     internal fun isValidTypedPreferencePayload(saved:JSONObject):Boolean {
@@ -261,5 +400,5 @@ object V2BackupManager {
     private fun treeRootDocumentUri(u:Uri):Uri=DocumentsContract.buildDocumentUriUsingTree(u,DocumentsContract.getTreeDocumentId(u))
     private fun ensureDirectory(c:Context,p:Uri,n:String):Uri=findChild(c,p,n,DocumentsContract.Document.MIME_TYPE_DIR)?:DocumentsContract.createDocument(c.contentResolver,p,DocumentsContract.Document.MIME_TYPE_DIR,n)?:error("Impossible de créer $n")
     private fun ensureFile(c:Context,p:Uri,n:String,m:String):Uri=findChild(c,p,n,m)?:DocumentsContract.createDocument(c.contentResolver,p,m,n)?:error("Impossible de créer $n")
-    private fun findChild(c:Context,p:Uri,n:String,m:String):Uri?{val id=DocumentsContract.getDocumentId(p);val children=DocumentsContract.buildChildDocumentsUriUsingTree(p,id);val projection=arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME,DocumentsContract.Document.COLUMN_MIME_TYPE);c.contentResolver.query(children,projection,null,null,null)?.use{cur->val ci=cur.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID);val cn=cur.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME);val cm=cur.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE);while(cur.moveToNext())if(cur.getString(cn)==n&&cur.getString(cm)==m)return DocumentsContract.buildDocumentUriUsingTree(p,cur.getString(ci))};return null}
+    private fun findChild(c:Context,p:Uri,n:String,m:String):Uri?{val id=DocumentsContract.getDocumentId(p);val children=DocumentsContract.buildChildDocumentsUriUsingTree(p,id);val projection=arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME,DocumentsContract.Document.COLUMN_MIME_TYPE);(c.contentResolver.query(children,projection,null,null,null)?:error("Impossible de lire le dossier de sauvegarde")).use{cur->val ci=cur.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID);val cn=cur.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME);val cm=cur.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE);while(cur.moveToNext())if(cur.getString(cn)==n&&cur.getString(cm)==m)return DocumentsContract.buildDocumentUriUsingTree(p,cur.getString(ci))};return null}
 }
