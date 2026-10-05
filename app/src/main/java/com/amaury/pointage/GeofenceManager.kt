@@ -124,6 +124,7 @@ object GeofenceManager {
     private var reconfigurationRunning = false
     private var reconfigurationSerial = 0L
     private var clearBusinessStateRequested = false
+    private var clearPresenceStateRequested = false
     private var latestReconfigurationContext: Context? = null
     private val reconfigurationCallbacks = mutableListOf<(Boolean, String) -> Unit>()
 
@@ -326,7 +327,12 @@ object GeofenceManager {
     fun reconfigureStoredZones(
         context: Context,
         onResult: (Boolean, String) -> Unit = { _, _ -> }
-    ) = reconcileStoredZonesChange(context, clearBusinessState = true, onResult)
+    ) = reconcileStoredZonesChange(
+        context,
+        clearBusinessState = true,
+        clearPresenceState = true,
+        onResult
+    )
 
     /**
      * Réinscrit les geofences techniques sans effacer une présence Travail déjà prouvée.
@@ -335,11 +341,17 @@ object GeofenceManager {
     fun reconfigureStoredZonesPreservingBusinessState(
         context: Context,
         onResult: (Boolean, String) -> Unit = { _, _ -> }
-    ) = reconcileStoredZonesChange(context, clearBusinessState = false, onResult)
+    ) = reconcileStoredZonesChange(
+        context,
+        clearBusinessState = false,
+        clearPresenceState = false,
+        onResult
+    )
 
     private fun reconcileStoredZonesChange(
         context: Context,
         clearBusinessState: Boolean,
+        clearPresenceState: Boolean,
         onResult: (Boolean, String) -> Unit
     ) {
         val prefs = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
@@ -362,24 +374,36 @@ object GeofenceManager {
             onResult(true, "Zones GPS automatiques déjà synchronisées")
             return
         }
-        enqueueStoredZonesReconciliation(context, clearBusinessState, onResult)
+        enqueueStoredZonesReconciliation(
+            context,
+            clearBusinessState = clearBusinessState,
+            clearPresenceState = clearPresenceState,
+            onResult = onResult
+        )
     }
 
     /** Resynchronise uniquement la plateforme après un callback Android périmé. */
     fun resyncStoredZones(
         context: Context,
         onResult: (Boolean, String) -> Unit = { _, _ -> }
-    ) = enqueueStoredZonesReconciliation(context, clearBusinessState = false, onResult)
+    ) = enqueueStoredZonesReconciliation(
+        context,
+        clearBusinessState = false,
+        clearPresenceState = true,
+        onResult = onResult
+    )
 
     private fun enqueueStoredZonesReconciliation(
         context: Context,
         clearBusinessState: Boolean,
+        clearPresenceState: Boolean,
         onResult: (Boolean, String) -> Unit
     ) {
         val shouldStart = synchronized(reconfigurationLock) {
             latestReconfigurationContext = context.applicationContext
             reconfigurationSerial++
             clearBusinessStateRequested = clearBusinessStateRequested || clearBusinessState
+            clearPresenceStateRequested = clearPresenceStateRequested || clearPresenceState
             reconfigurationCallbacks += onResult
             if (reconfigurationRunning) false else {
                 reconfigurationRunning = true
@@ -390,17 +414,24 @@ object GeofenceManager {
     }
 
     private fun runQueuedStoredZonesReconciliation() {
-        val (app, serial, clearBusinessState) = synchronized(reconfigurationLock) {
+        val (app, state) = synchronized(reconfigurationLock) {
             val context = checkNotNull(latestReconfigurationContext)
             val currentSerial = reconfigurationSerial
-            val mustClear = clearBusinessStateRequested
+            val mustClearBusiness = clearBusinessStateRequested
+            val mustClearPresence = clearPresenceStateRequested
             clearBusinessStateRequested = false
-            Triple(context, currentSerial, mustClear)
+            clearPresenceStateRequested = false
+            context to Triple(currentSerial, mustClearBusiness, mustClearPresence)
         }
+        val (serial, clearBusinessState, clearPresenceState) = state
         val prefs = app.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
-        val presenceEditor = prefs.edit()
-        GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach(presenceEditor::remove)
-        val presenceCleared = presenceEditor.commit()
+        val presenceCleared = if (clearPresenceState) {
+            val presenceEditor = prefs.edit()
+            GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach(presenceEditor::remove)
+            presenceEditor.commit()
+        } else {
+            true
+        }
         val businessCleared = !clearBusinessState ||
             GpsWorkStateCoordinatorV2.clearForGpsConfigurationChange(app)
         if (!presenceCleared || !businessCleared) {
