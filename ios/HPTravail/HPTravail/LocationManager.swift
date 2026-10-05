@@ -212,6 +212,47 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         return persistZones(zones + [zone])
     }
 
+    @discardableResult
+    func updateZone(
+        id: UUID,
+        label: String,
+        radius: Double,
+        employerId: String?,
+        kind: GpsZoneKindV2,
+        moveToCurrentLocation: Bool
+    ) -> Bool {
+        let cleanLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard configurationReliable,
+              !cleanLabel.isEmpty,
+              radius.isFinite,
+              (50 ... 1_000).contains(radius),
+              let index = zones.firstIndex(where: { $0.id == id }) else {
+            return false
+        }
+
+        var updated = zones
+        var zone = updated[index]
+        if moveToCurrentLocation {
+            guard let location,
+                  Date().timeIntervalSince(location.timestamp) >= 0,
+                  Date().timeIntervalSince(location.timestamp) <= 60,
+                  manager.accuracyAuthorization == .fullAccuracy,
+                  location.horizontalAccuracy >= 0,
+                  location.horizontalAccuracy <= min(radius, 100) else {
+                requestCurrentLocation()
+                return false
+            }
+            zone.latitude = location.coordinate.latitude
+            zone.longitude = location.coordinate.longitude
+        }
+        zone.label = cleanLabel
+        zone.radius = radius
+        zone.employerId = employerId
+        zone.kind = kind
+        updated[index] = zone
+        return persistZones(updated)
+    }
+
     func removeZone(id: UUID) {
         _ = persistZones(zones.filter { $0.id != id })
     }
