@@ -1,8 +1,24 @@
 import CryptoKit
 import Foundation
 
-enum GpsZoneKindV2: String, Codable {
+enum GpsZoneKindV2: String, Codable, CaseIterable, Identifiable {
     case worksite
+    case parking
+    case breakZone = "break"
+    case other
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .worksite: return "Travail"
+        case .parking: return "Parking"
+        case .breakZone: return "Pause"
+        case .other: return "Autre"
+        }
+    }
+
+    var drivesAutomaticPointage: Bool { self == .worksite }
 }
 
 struct GpsZoneV2: Codable, Equatable, Identifiable {
@@ -48,13 +64,21 @@ enum GpsZoneConfigurationV2 {
                 && (-180 ... 180).contains(zone.longitude)
                 && zone.radius.isFinite
                 && (50 ... 1_000).contains(zone.radius)
-                && zone.kind == .worksite
         }
     }
 
+    static func automaticZones(_ zones: [GpsZoneV2]) -> [GpsZoneV2] {
+        zones.filter { $0.kind.drivesAutomaticPointage }
+    }
+
+    static func automaticZoneIds(_ zones: [GpsZoneV2]) -> Set<UUID> {
+        Set(automaticZones(zones).map(\.id))
+    }
+
     static func fingerprint(enabled: Bool, zones: [GpsZoneV2]) -> String? {
-        guard enabled, !zones.isEmpty, isValid(zones) else { return nil }
-        let canonical = zones.sorted { $0.id.uuidString < $1.id.uuidString }
+        guard enabled, isValid(zones) else { return nil }
+        let canonical = automaticZones(zones).sorted { $0.id.uuidString < $1.id.uuidString }
+        guard !canonical.isEmpty else { return nil }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(canonical) else { return nil }
