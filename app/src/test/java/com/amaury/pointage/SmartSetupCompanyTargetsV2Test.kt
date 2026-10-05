@@ -51,6 +51,57 @@ class SmartSetupCompanyTargetsV2Test {
     }
 
     @Test
+    fun `une adresse partagee reste distincte entre entreprises pour lapprentissage`() {
+        val zones = org.json.JSONArray()
+            .put(
+                smartCandidateZoneJson(
+                    id = "candidate-a",
+                    address = "12 rue Partagée",
+                    latitude = 46.7,
+                    longitude = -1.4,
+                    radius = 150,
+                    companyId = "Company-A",
+                    legacyCompanySlot = null
+                )
+            )
+
+        assertTrue(
+            smartSetupTargetAlreadyRepresentedV2(
+                zones, " 12 RUE PARTAGÉE ", "Company-A", null
+            )
+        )
+        assertFalse(
+            smartSetupTargetAlreadyRepresentedV2(
+                zones, "12 rue Partagée", "Company-B", null
+            )
+        )
+        assertFalse(
+            smartSetupTargetAlreadyRepresentedV2(
+                zones, "12 rue Partagée", "company-a", null
+            )
+        )
+    }
+
+    @Test
+    fun `les slots legacy partages ne sont pas confondus entre eux`() {
+        val zones = org.json.JSONArray()
+            .put(
+                smartCandidateZoneJson(
+                    id = "candidate-slot-1",
+                    address = "Même adresse",
+                    latitude = 46.7,
+                    longitude = -1.4,
+                    radius = 150,
+                    companyId = null,
+                    legacyCompanySlot = 1
+                )
+            )
+
+        assertTrue(smartSetupTargetAlreadyRepresentedV2(zones, "Même adresse", null, 1))
+        assertFalse(smartSetupTargetAlreadyRepresentedV2(zones, "Même adresse", null, 2))
+    }
+
+    @Test
     fun `lapprentissage intelligent respecte la limite globale de dix zones`() {
         assertTrue(canAppendSmartCandidateZone(0))
         assertTrue(canAppendSmartCandidateZone(9))
