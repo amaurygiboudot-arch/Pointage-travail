@@ -33,6 +33,11 @@ internal fun resolveSmartSetupCompanyTargets(
     }
 }
 
+internal fun canAppendSmartCandidateZone(
+    currentZoneCount: Int,
+    maximumZoneCount: Int = 10
+): Boolean = currentZoneCount in 0 until maximumZoneCount
+
 internal fun smartCandidateZoneJson(
     id: String,
     address: String,
@@ -184,6 +189,9 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
             val z = zones.optJSONObject(i) ?: continue
             if (z.optString("address").trim().equals(address, ignoreCase = true)) return
         }
+        // Les candidats silencieux partagent la même limite que les zones configurées.
+        // Dépasser cette limite ferait retirer toutes les geofences par le plan fail-closed.
+        if (!canAppendSmartCandidateZone(zones.length())) return
 
         val geocoded = runCatching {
             Geocoder(context, Locale.FRANCE).getFromLocationName(address, 1)?.firstOrNull()
