@@ -154,7 +154,7 @@ class LocationManagementView @JvmOverloads constructor(
             .setTitle(name)
             .setView(content)
             .setPositiveButton("Fermer", null)
-            .setNeutralButton("Modifier") { _, _ -> showEdit(entry) }
+            .setNeutralButton("Modifier") { _, _ -> showEdit(entry, group) }
             .setNegativeButton("Supprimer") { _, _ -> confirmDelete(entry, name) }
             .create()
         val handler = Handler(Looper.getMainLooper())
@@ -170,7 +170,7 @@ class LocationManagementView @JvmOverloads constructor(
         dialog.show()
     }
 
-    private fun showEdit(entry: GpsLocationEntry) {
+    private fun showEdit(entry: GpsLocationEntry, group: GpsPlaceGroup) {
         val read = readPersistedGpsZones(prefs)
         if (read is GpsZonesReadResult.Corrupt) {
             GeofenceManager.reconfigureStoredZones(context)
@@ -206,7 +206,13 @@ class LocationManagementView @JvmOverloads constructor(
                 val addressChanged = !newAddress.equals(oldAddress, ignoreCase = true)
 
                 if (addressChanged) {
-                    if (!moveGpsPlaceAddress(zones, oldAddress, newAddress) && targetZoneId != null) {
+                    if (!moveGpsPlaceAddress(
+                            zones,
+                            oldAddress,
+                            newAddress,
+                            companyId = group.companyId,
+                            companySlot = group.companySlot
+                        ) && targetZoneId != null) {
                         Toast.makeText(context, "Lieu GPS introuvable : aucune modification effectuée", Toast.LENGTH_LONG).show()
                         return@setPositiveButton
                     }
