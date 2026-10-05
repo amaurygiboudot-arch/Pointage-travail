@@ -33,6 +33,37 @@ final class GpsGeofenceV2Tests: XCTestCase {
         XCTAssertEqual(GpsZoneConfigurationV2.read(try JSONEncoder().encode([invalid])), .corrupt)
     }
 
+
+    func testContextZonesAreValidButNeverDriveAutomaticPointage() throws {
+        let work = zone(first, kind: .worksite)
+        let parking = zone(second, kind: .parking)
+        let pause = zone(UUID(), kind: .breakZone)
+        let other = zone(UUID(), kind: .other)
+
+        XCTAssertTrue(GpsZoneConfigurationV2.isValid([work, parking, pause, other]))
+        XCTAssertEqual(
+            GpsZoneConfigurationV2.automaticZoneIds([work, parking, pause, other]),
+            [first]
+        )
+        XCTAssertNil(
+            GpsZoneConfigurationV2.fingerprint(
+                enabled: true,
+                zones: [parking, pause, other]
+            )
+        )
+
+        let workFingerprint = try XCTUnwrap(
+            GpsZoneConfigurationV2.fingerprint(enabled: true, zones: [work])
+        )
+        let mixedFingerprint = try XCTUnwrap(
+            GpsZoneConfigurationV2.fingerprint(
+                enabled: true,
+                zones: [work, parking, pause, other]
+            )
+        )
+        XCTAssertEqual(workFingerprint, mixedFingerprint)
+    }
+
     func testFingerprintRejectsStaleRegionIdentifier() throws {
         let original = [zone(first)]
         var moved = zone(first)
@@ -374,7 +405,10 @@ final class GpsGeofenceV2Tests: XCTestCase {
         )
     }
 
-    private func zone(_ id: UUID) -> GpsZoneV2 {
+    private func zone(
+        _ id: UUID,
+        kind: GpsZoneKindV2 = .worksite
+    ) -> GpsZoneV2 {
         GpsZoneV2(
             id: id,
             label: "Atelier",
@@ -382,7 +416,7 @@ final class GpsGeofenceV2Tests: XCTestCase {
             longitude: -1.4,
             radius: 150,
             employerId: nil,
-            kind: .worksite
+            kind: kind
         )
     }
 
