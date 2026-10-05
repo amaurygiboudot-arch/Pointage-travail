@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2
 
 import android.content.Context
+import android.content.SharedPreferences
 import com.amaury.pointage.WidgetLocationExpiryScheduler
 import com.amaury.pointage.v2.model.EventSourceV2
 import com.amaury.pointage.v2.model.PauseV2
@@ -157,7 +158,20 @@ object V2RuntimeStore {
     ): Boolean {
         val current = readForWrite(context, nowMs)
         val session = current.session ?: return false
-        if (!current.reliable || session.status != SessionStatusV2.OPEN) return false
+        if (!current.reliable) return false
+        return toggleObservedPause(prefs(context), session, nowMs, source, paid, expectedTarget)
+    }
+
+    internal fun toggleObservedPause(
+        prefs: SharedPreferences,
+        session: WorkSessionV2,
+        nowMs: Long,
+        source: EventSourceV2 = EventSourceV2.MANUAL,
+        paid: Boolean? = null,
+        expectedTarget: PauseActionPolicyV2.Target? = null
+    ): Boolean {
+        val observation = RuntimeObservationV2.assess(session, nowMs)
+        if (!observation.reliable || observation.hasActiveBoundedPause || session.status != SessionStatusV2.OPEN) return false
         if (expectedTarget != null && !PauseActionPolicyV2.matches(
                 expectedTarget,
                 session.id,
@@ -166,7 +180,6 @@ object V2RuntimeStore {
         ) return false
         val entry = session.realArrivalMs ?: return false
         if (nowMs < entry) return false
-        val prefs = prefs(context)
         val start = safeLong(prefs.all[KEY_PAUSE_START])
         if (start <= 0L) {
             // Le canal de saisie ne permet jamais de déduire si une pause est payée.
@@ -197,19 +210,24 @@ object V2RuntimeStore {
      * Une plage invalide ou hors session bloque l'ensemble du lot.
      */
     @Synchronized
-    fun addQualifiedManualPauses(context: Context, pauses: List<QualifiedManualPauseV2>): Int {
+    fun addQualifiedManualPauses(
+        context: Context,
+        pauses: List<QualifiedManualPauseV2>,
+        nowMs: Long = System.currentTimeMillis()
+    ): Int {
         val qualified = ManualPauseQualificationV2.qualify(
             pauses.map { ManualPauseDraftV2(it.startMs, it.endMs, it.paid) }
         ) ?: return 0
         if (qualified.isEmpty()) return 0
 
-        val current = readForWrite(context)
+        val current = readForWrite(context, nowMs)
         val session = current.session ?: return 0
         if (!current.reliable) return 0
         val entry = session.realArrivalMs ?: return 0
         val realExit = session.realExitMs
         if (qualified.any { pause ->
-                pause.startMs < entry || (realExit != null && pause.endMs > realExit)
+                pause.startMs < entry || (realExit == null && pause.startMs > nowMs) ||
+                    (realExit != null && pause.endMs > realExit)
             }) return 0
 
         val prefs = prefs(context)
@@ -336,26 +354,39 @@ object V2RuntimeStore {
         context: Context,
         dayStart: Long,
         dayEnd: Long,
-        pauses: List<QualifiedManualPauseV2>
+        pauses: List<QualifiedManualPauseV2>,
+        nowMs: Long = System.currentTimeMillis()
     ): Boolean {
         bind(context)
         val migration = V2MigrationManager.ensureMigrated(context)
         if (!migration.reliable) return false
-        if (dayStart <= 0L || dayEnd <= dayStart) return false
+        val storedHistory = V2RuntimeHistoryGuardV2.read(context)
+        if (!storedHistory.reliable) return false
+        val currentSnapshot = snapshot(context, nowMs)
+        if (!V2RuntimeHistoryGuardV2.sourceState().reliable) return false
+        return replaceEditablePauses(
+            prefs(context), storedHistory.history, currentSnapshot, dayStart, dayEnd, pauses, nowMs
+        )
+    }
 
+    /** Prépare et persiste le lot en un seul commit, sans dépendre de l’interface Android. */
+    internal fun replaceEditablePauses(
+        p: SharedPreferences,
+        history: JSONArray,
+        currentSnapshot: Snapshot,
+        dayStart: Long,
+        dayEnd: Long,
+        pauses: List<QualifiedManualPauseV2>,
+        nowMs: Long
+    ): Boolean {
+        if (dayStart <= 0L || dayEnd <= dayStart) return false
+        if (p.contains(KEY_REAL_ENTRY) && currentSnapshot.session == null) return false
+        if (!RuntimeObservationV2.assess(currentSnapshot.session, nowMs).reliable) return false
         val clean = ManualPauseQualificationV2.qualify(
             pauses.map { ManualPauseDraftV2(it.startMs, it.endMs, it.paid) }
         ) ?: return false
-        // La journée d'édition est déterminée par le début de la pause. Une pause de nuit
-        // peut donc se terminer après minuit si elle reste entièrement dans sa session de travail.
+        // Une pause de nuit appartient à la journée de son début.
         if (clean.any { pause -> pause.startMs !in dayStart until dayEnd }) return false
-
-        val p = prefs(context)
-        val storedHistory = V2RuntimeHistoryGuardV2.read(context)
-        if (!storedHistory.reliable) return false
-        val currentSnapshot = snapshot(context)
-        if (!V2RuntimeHistoryGuardV2.sourceState().reliable) return false
-        val history = storedHistory.history
         val currentEntry = currentSnapshot.session?.realArrivalMs ?: 0L
         val currentExit = currentSnapshot.session?.realExitMs
         val currentExpectedEnd = safeLong(p.all[KEY_EXPECTED_END]).takeIf { currentEntry > 0L && it > currentEntry }
@@ -371,9 +402,10 @@ object V2RuntimeStore {
 
         fun currentContains(start: Long, end: Long): Boolean {
             if (currentEntry <= 0L || start < currentEntry) return false
+            if (currentExit == null && start > nowMs) return false
             val limit = currentExit ?: maxOf(
                 currentExpectedEnd ?: dayEnd,
-                System.currentTimeMillis()
+                nowMs
             )
             return end <= limit
         }
@@ -551,7 +583,16 @@ object V2RuntimeStore {
         bind(context)
         // Toutes les clés proviennent du même instant, même si un autre écrivain met à jour
         // les préférences pendant la reconstruction de cette session.
-        val values = prefs(context).all
+        return snapshotFromValues(prefs(context).all, nowMs) { slot ->
+            V2ProfileStore.load(context, slot).employer?.id
+        }
+    }
+
+    internal fun snapshotFromValues(
+        values: Map<String, *>,
+        nowMs: Long,
+        employerForSlot: (Int) -> String? = { null }
+    ): Snapshot {
         if (!values.containsKey(KEY_REAL_ENTRY)) return Snapshot(null, null)
         val realEntry = strictPositive(values[KEY_REAL_ENTRY]) ?: return corruptCurrentSnapshot()
 
@@ -615,7 +656,7 @@ object V2RuntimeStore {
         val directEmployerId = optionalStoredString(KEY_EMPLOYER_ID)
         if (values.containsKey(KEY_EMPLOYER_ID) && directEmployerId == null) return corruptCurrentSnapshot()
         val employerId = directEmployerId
-            ?: storedSlot?.let { V2ProfileStore.load(context, it).employer?.id }
+            ?: storedSlot?.let(employerForSlot)
         val placeId = optionalStoredString(KEY_PLACE_ID)
         if (values.containsKey(KEY_PLACE_ID) && placeId == null) return corruptCurrentSnapshot()
         val placeLabel = optionalStoredString(KEY_PLACE_LABEL)
@@ -638,6 +679,11 @@ object V2RuntimeStore {
             placeId = placeId,
             placeLabel = placeLabel
         )
+        val observation = RuntimeObservationV2.assess(session, nowMs)
+        if (!observation.reliable) {
+            V2RuntimeHistoryGuardV2.publishSourceState(false, listOf(RuntimeObservationV2.CLOCK_MESSAGE))
+            return Snapshot(null, null)
+        }
         return Snapshot(session, HoraTrackV2.time.calculate(session, nowMs))
     }
 

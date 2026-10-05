@@ -100,8 +100,8 @@ object PointageStore {
 
     fun isPaused(context: Context): Boolean {
         if (v2Active()) {
-            val session = V2RuntimeStore.snapshot(context).session ?: return false
-            return session.realExitMs == null && session.pauses.any { it.endMs == null }
+            val read = com.amaury.pointage.v2.V2RuntimeReader.current(context)
+            return read.reliable && read.observation.paused
         }
         val open = findOpenSession(load(context)) ?: return false
         return currentPause(open) != null

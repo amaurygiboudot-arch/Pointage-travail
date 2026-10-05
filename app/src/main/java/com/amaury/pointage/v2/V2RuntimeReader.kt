@@ -25,7 +25,8 @@ object V2RuntimeReader {
     data class CurrentRead(
         val snapshot: V2RuntimeStore.Snapshot,
         val reliable: Boolean,
-        val warnings: List<String>
+        val warnings: List<String>,
+        val observation: RuntimeObservationV2.State = RuntimeObservationV2.State(false)
     )
 
     const val UNRELIABLE_MESSAGE =
@@ -67,7 +68,9 @@ object V2RuntimeReader {
         return CurrentRead(
             snapshot = if (source.reliable) snapshot else V2RuntimeStore.Snapshot(null, null),
             reliable = source.reliable,
-            warnings = source.warnings
+            warnings = source.warnings,
+            observation = if (source.reliable) RuntimeObservationV2.assess(snapshot.session, nowMs)
+                else RuntimeObservationV2.State(false)
         )
     }
 

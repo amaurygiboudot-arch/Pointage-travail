@@ -54,7 +54,7 @@ object IconSwitcher {
             resolveV2IconState(
                 reliable = current.reliable,
                 status = current.snapshot.session?.status,
-                hasOpenPause = current.snapshot.session?.pauses?.any { it.endMs == null } == true
+                hasOpenPause = current.observation.paused
             ) ?: run {
                 recordDiagnostic(
                     context,
