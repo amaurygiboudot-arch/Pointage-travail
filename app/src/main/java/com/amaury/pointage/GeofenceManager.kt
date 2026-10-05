@@ -326,6 +326,21 @@ object GeofenceManager {
     fun reconfigureStoredZones(
         context: Context,
         onResult: (Boolean, String) -> Unit = { _, _ -> }
+    ) = reconcileStoredZonesChange(context, clearBusinessState = true, onResult)
+
+    /**
+     * Réinscrit les geofences techniques sans effacer une présence Travail déjà prouvée.
+     * Réservé aux changements qui ne modifient que des candidats Smart Setup.
+     */
+    fun reconfigureStoredZonesPreservingBusinessState(
+        context: Context,
+        onResult: (Boolean, String) -> Unit = { _, _ -> }
+    ) = reconcileStoredZonesChange(context, clearBusinessState = false, onResult)
+
+    private fun reconcileStoredZonesChange(
+        context: Context,
+        clearBusinessState: Boolean,
+        onResult: (Boolean, String) -> Unit
     ) {
         val prefs = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
         val fingerprint = storedGpsConfigurationFingerprint(prefs)
@@ -347,7 +362,7 @@ object GeofenceManager {
             onResult(true, "Zones GPS automatiques déjà synchronisées")
             return
         }
-        enqueueStoredZonesReconciliation(context, clearBusinessState = true, onResult)
+        enqueueStoredZonesReconciliation(context, clearBusinessState, onResult)
     }
 
     /** Resynchronise uniquement la plateforme après un callback Android périmé. */
