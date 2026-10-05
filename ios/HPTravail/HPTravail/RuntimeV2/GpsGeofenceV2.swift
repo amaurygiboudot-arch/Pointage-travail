@@ -31,6 +31,27 @@ struct GpsZoneV2: Codable, Equatable, Identifiable {
     var kind: GpsZoneKindV2
 }
 
+struct GpsClockInFactsV2: Equatable {
+    let employerId: String?
+    let placeLabel: String
+}
+
+enum GpsClockInFactsPolicyV2 {
+    static func facts(for zone: GpsZoneV2) -> GpsClockInFactsV2? {
+        guard zone.kind.drivesAutomaticPointage else { return nil }
+        let label = zone.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty else { return nil }
+        let employerId = zone.employerId?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nonEmpty
+        return GpsClockInFactsV2(employerId: employerId, placeLabel: label)
+    }
+}
+
+private extension String {
+    var nonEmpty: String? { isEmpty ? nil : self }
+}
+
 enum GpsZonesReadV2: Equatable {
     case missing
     case valid([GpsZoneV2])
@@ -58,6 +79,8 @@ enum GpsZoneConfigurationV2 {
         }
         return zones.allSatisfy { zone in
             !zone.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && (zone.employerId == nil
+                    || !zone.employerId!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 && zone.latitude.isFinite
                 && (-90 ... 90).contains(zone.latitude)
                 && zone.longitude.isFinite
