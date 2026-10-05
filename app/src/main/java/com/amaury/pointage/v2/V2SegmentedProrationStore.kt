@@ -157,7 +157,7 @@ object V2SegmentedProrationStore {
     internal fun strictLong(value: Any?): Long? = when (value) {
         is Byte, is Short, is Int, is Long -> (value as Number).toLong()
         is java.math.BigDecimal -> runCatching { value.longValueExact() }.getOrNull()
-        is java.math.BigInteger -> runCatching { value.longValueExact() }.getOrNull()
+        is java.math.BigInteger -> value.toString().toLongOrNull()
         is Float, is Double -> (value as Number).toDouble()
             .takeIf { it.isFinite() && it % 1.0 == 0.0 &&
                 it >= Long.MIN_VALUE.toDouble() && it < Long.MAX_VALUE.toDouble() }?.toLong()
