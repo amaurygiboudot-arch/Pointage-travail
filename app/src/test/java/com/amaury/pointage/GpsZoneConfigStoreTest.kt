@@ -572,6 +572,7 @@ class GpsZoneConfigStoreTest {
 
         assertEquals(2, summary.workZones)
         assertEquals(1, summary.parkingZones)
+        assertEquals(0, summary.pauseZones)
         assertEquals(1, summary.otherZones)
     }
 
@@ -639,6 +640,25 @@ class GpsZoneConfigStoreTest {
 
         assertEquals(1, remaining?.length())
         assertEquals("b1", remaining?.getJSONObject(0)?.getString("id"))
+    }
+
+
+    @Test
+    fun `pause et type inconnu ne deviennent jamais du temps de travail par defaut`() {
+        val zones = parsePersistedGpsZones(
+            """[
+                {"id":"poste","latitude":46.7,"longitude":-1.4,"radius":120,"address":"Site A","pointType":"POSTE"},
+                {"id":"pause","latitude":46.7001,"longitude":-1.4001,"radius":90,"address":"Site A","pointType":"PAUSE"},
+                {"id":"futur","latitude":46.7002,"longitude":-1.4002,"radius":90,"address":"Site A","pointType":"TYPE_FUTUR"}
+            ]""".trimIndent()
+        )
+
+        val summary = summarizeGpsPlaceTypes(groupGpsZonesByPlace(zones, emptyList())!!.single())
+
+        assertEquals(1, summary.workZones)
+        assertEquals(0, summary.parkingZones)
+        assertEquals(1, summary.pauseZones)
+        assertEquals(1, summary.otherZones)
     }
 
 }
