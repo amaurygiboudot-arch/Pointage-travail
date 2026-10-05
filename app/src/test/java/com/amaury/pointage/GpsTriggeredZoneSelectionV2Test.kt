@@ -97,6 +97,29 @@ class GpsTriggeredZoneSelectionV2Test {
     }
 
     @Test
+    fun `une zone declenchee non resolue bloque tout le groupe`() {
+        val result = GpsTriggeredZoneSelectionV2.selectAllTriggered(
+            triggeredZoneIds = listOf("zone-a", "zone-b"),
+            candidates = listOf(candidate("zone-a"))
+        )
+
+        assertTrue(result is GpsTriggeredZoneSelectionV2.Result.Blocked)
+    }
+
+    @Test
+    fun `un groupe complet conserve la selection deterministe`() {
+        val result = GpsTriggeredZoneSelectionV2.selectAllTriggered(
+            triggeredZoneIds = listOf("zone-z", "zone-a"),
+            candidates = listOf(candidate("zone-z"), candidate("zone-a"))
+        )
+
+        assertEquals(
+            GpsTriggeredZoneSelectionV2.Result.Selected("zone-a"),
+            result
+        )
+    }
+
+    @Test
     fun `employeurs differents bloquent le pointage automatique`() {
         val result = GpsTriggeredZoneSelectionV2.select(
             listOf(
