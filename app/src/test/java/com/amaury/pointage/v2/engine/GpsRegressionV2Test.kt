@@ -160,6 +160,34 @@ class GpsRegressionV2Test {
     }
 
     @Test
+    fun `retour au meme poste apres deux minutes annule aussi la sortie en attente`() {
+        val pending = pending(atMs = 10_000L)
+        val returnedLater = event(id = "return-later", atMs = 600_000L)
+
+        assertFalse(
+            GpsWorkStateCoordinatorV2.canApplyQuickReturn(
+                pending,
+                returnedLater,
+                session()
+            )
+        )
+        assertTrue(
+            GpsWorkStateCoordinatorV2.canApplyReturnToPoste(
+                pending,
+                returnedLater,
+                session()
+            )
+        )
+        assertFalse(
+            GpsWorkStateCoordinatorV2.canApplyReturnToPoste(
+                pending,
+                returnedLater.copy(placeId = "autre"),
+                session()
+            )
+        )
+    }
+
+    @Test
     fun `retour rapide exige meme poste et vraie entree`() {
         val pending = pending(atMs = 10_000L)
 
@@ -218,6 +246,24 @@ class GpsRegressionV2Test {
                 entryStarted = true
             )
         )
+    }
+
+    @Test
+    fun `retour apres 121 secondes ou longue absence reste lie a la session ouverte`() {
+        val pending = pending(atMs = 10_000L)
+        for (delay in listOf(121_000L, 8 * 60 * 60_000L)) {
+            val returned = event(id = "return-$delay", atMs = pending.atMs + delay)
+            assertTrue(GpsWorkStateCoordinatorV2.canApplyReturnToPoste(pending, returned, session()))
+            assertFalse(GpsWorkStateCoordinatorV2.canApplyReturnToPoste(pending, returned,
+                session(status = SessionStatusV2.CLOSED, realExitMs = 20_000L)))
+            assertFalse(GpsWorkStateCoordinatorV2.canApplyReturnToPoste(pending, returned,
+                session().copy(id = "new-session", realArrivalMs = pending.atMs + 1)))
+            assertFalse(GpsWorkStateCoordinatorV2.canApplyReturnToPoste(pending, returned.copy(placeId = "autre"), session()))
+        }
+        assertFalse(GpsWorkStateCoordinatorV2.canApplyReturnToPoste(pending,
+            event(id = "reversed", atMs = pending.atMs - 1), session()))
+        assertFalse(GpsWorkStateCoordinatorV2.canApplyReturnToPoste(pending,
+            event(id = "exit", atMs = 600_000L, transition = GpsTransitionV2.EXIT), session()))
     }
 
     private fun event(

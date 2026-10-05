@@ -70,9 +70,13 @@ object GpsWorkStateCoordinatorV2 {
         }
 
         if (event.pointType == GpsPointTypeV2.POSTE && event.transition == GpsTransitionV2.ENTER) {
-            if (canApplyQuickReturn(currentPending, event, current)) {
+            if (canApplyReturnToPoste(currentPending, event, current)) {
                 clearPending(context)
-                return Outcome(Action.RETURNED_TO_POSTE, false, "Retour rapide au poste : sortie GPS annulée")
+                return Outcome(
+                    Action.RETURNED_TO_POSTE,
+                    false,
+                    "Retour au poste : ancienne demande de fin de journée annulée"
+                )
             }
 
             if (current == null || current.realExitMs != null) {
@@ -161,7 +165,7 @@ object GpsWorkStateCoordinatorV2 {
         return event.atMs - pending.atMs <= RETURN_WINDOW_MS
     }
 
-    internal fun canApplyQuickReturn(
+    internal fun canApplyReturnToPoste(
         pending: Pending?,
         event: GpsEventV2,
         current: WorkSessionV2?
@@ -169,7 +173,20 @@ object GpsWorkStateCoordinatorV2 {
         if (current?.status != SessionStatusV2.OPEN || current.realExitMs != null) return false
         val arrival = current.realArrivalMs ?: return false
         if (pending == null || pending.atMs < arrival) return false
-        return isQuickReturnToPoste(pending, event)
+        if (pending.kind != Pending.Kind.EXIT_WORKSITE) return false
+        if (event.pointType != GpsPointTypeV2.POSTE || event.transition != GpsTransitionV2.ENTER) return false
+        if (pending.placeId != event.placeId || event.atMs < pending.atMs) return false
+        return true
+    }
+
+    internal fun canApplyQuickReturn(
+        pending: Pending?,
+        event: GpsEventV2,
+        current: WorkSessionV2?
+    ): Boolean {
+        if (!canApplyReturnToPoste(pending, event, current)) return false
+        val pendingAt = pending?.atMs ?: return false
+        return event.atMs - pendingAt <= RETURN_WINDOW_MS
     }
 
     fun pending(context: Context): Pending? {
