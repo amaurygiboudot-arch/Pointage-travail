@@ -243,7 +243,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
             .putBoolean("smart_setup_candidate_created", true)
             .apply()
 
-        registerStoredZones(context)
+        registerStoredZones(context, preserveBusinessState = true)
     }
 
     fun isCandidateZone(context: Context, zoneId: String): Boolean {
@@ -425,18 +425,15 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
             val zone = old.optJSONObject(i) ?: continue
             if (zone.optString("id") != zoneId) kept.put(zone)
         }
-        gps.edit().putString("zones", kept.toString())
-            .remove("active_zones")
-            .remove("entry_resolution_pending")
-            .remove("entry_resolution_token")
-            .remove("pending_exit_zones")
-            .apply()
+        // Un candidat n'alimente jamais active_zones : son retrait ne doit donc
+        // pas effacer une présence Travail ou une sortie déjà en attente.
+        gps.edit().putString("zones", kept.toString()).apply()
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean("candidate_rejected_$zoneId", true)
             .remove("candidate_days_$zoneId")
             .remove("candidate_enter_$zoneId")
             .apply()
-        registerStoredZones(context)
+        registerStoredZones(context, preserveBusinessState = true)
     }
 
     private fun clearPendingProposal(prefs: SharedPreferences) {
@@ -485,8 +482,15 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         return null
     }
 
-    private fun registerStoredZones(context: Context) {
-        GeofenceManager.reconfigureStoredZones(context)
+    private fun registerStoredZones(
+        context: Context,
+        preserveBusinessState: Boolean = false
+    ) {
+        if (preserveBusinessState) {
+            GeofenceManager.reconfigureStoredZonesPreservingBusinessState(context)
+        } else {
+            GeofenceManager.reconfigureStoredZones(context)
+        }
     }
 
     private fun learnPausesAsync(context: Context) {
