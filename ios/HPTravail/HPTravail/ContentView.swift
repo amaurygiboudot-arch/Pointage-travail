@@ -605,10 +605,15 @@ struct ContentView: View {
             locationManager.clearPendingEvent()
             return
         }
+        guard let clockInFacts = GpsClockInFactsPolicyV2.facts(for: zone) else {
+            gpsFeedback = "Cette zone n'est pas une zone Travail confirmée : aucune entrée n'a été créée."
+            locationManager.clearPendingEvent()
+            return
+        }
         if store.clockIn(
             at: event.occurredAt,
-            employerId: zone.employerId,
-            placeLabel: zone.label
+            employerId: clockInFacts.employerId,
+            placeLabel: clockInFacts.placeLabel
         ), let sessionId = store.currentSession?.id {
             if locationManager.confirmArrival(eventId: event.id, sessionId: sessionId) {
                 gpsFeedback = nil
