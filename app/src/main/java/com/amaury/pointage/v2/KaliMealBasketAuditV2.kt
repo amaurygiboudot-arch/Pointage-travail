@@ -37,7 +37,7 @@ object KaliMealBasketAuditV2 {
     )
 
     fun audit(context: Context, companyId: String, referenceDate: LocalDate): Task<Summary> {
-        val profile = ConventionLegalProfileV2.load(context, companyId)
+        val profile = ConventionLegalProfileV2.load(context, companyId, referenceDate)
             ?: return Tasks.forResult(Summary("", referenceDate, 0, 0, 0, 0, false, listOf("KALI repas : entreprise introuvable.")))
         if (profile.idcc.isBlank()) {
             return Tasks.forResult(Summary("", referenceDate, 0, 0, 0, 0, false, listOf("KALI repas : IDCC manquant.")))

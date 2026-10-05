@@ -72,6 +72,17 @@ enum WorkSessionPersistenceV2 {
         return .valid(sessions)
     }
 
+    /** Un candidat invalide ne doit jamais remplacer le dernier journal valide. */
+    static func write(_ sessions: [WorkSession], defaults: UserDefaults) -> Bool {
+        guard isStructurallyValid(sessions),
+              let data = try? JSONEncoder().encode(sessions),
+              read(data) == .valid(sessions) else {
+            return false
+        }
+        defaults.set(data, forKey: WorkSessionStorageV2.primaryKey)
+        return read(defaults.data(forKey: WorkSessionStorageV2.primaryKey)) == .valid(sessions)
+    }
+
     /**
      Lecture réservée à la clé V1 historique.
 
@@ -118,18 +129,30 @@ enum WorkSessionPersistenceV2 {
         guard sessions.filter({ $0.exit == nil }).count <= 1 else { return false }
 
         for session in sessions {
+            guard session.entry.timeIntervalSinceReferenceDate.isFinite else { return false }
+            if let exit = session.exit, !exit.timeIntervalSinceReferenceDate.isFinite { return false }
             if let exit = session.exit, exit <= session.entry { return false }
             if Set(session.pauses.map(\.id)).count != session.pauses.count { return false }
             if session.pauses.filter({ $0.end == nil }).count > 1 { return false }
 
             for pause in session.pauses {
-                guard pause.start >= session.entry else { return false }
+                guard pause.start.timeIntervalSinceReferenceDate.isFinite,
+                      pause.start >= session.entry else { return false }
                 if let end = pause.end {
-                    guard end > pause.start else { return false }
+                    guard end.timeIntervalSinceReferenceDate.isFinite,
+                          end > pause.start else { return false }
                     guard pause.paid != nil else { return false }
                     if let exit = session.exit, end > exit { return false }
                 } else if session.exit != nil {
                     return false
+                }
+            }
+
+            let orderedPauses = session.pauses.sorted { $0.start < $1.start }
+            if orderedPauses.count > 1 {
+                for index in 1..<orderedPauses.count {
+                    let previousEnd = orderedPauses[index - 1].end ?? .distantFuture
+                    if orderedPauses[index].start < previousEnd { return false }
                 }
             }
         }
@@ -145,6 +168,63 @@ enum WorkSessionPersistenceV2 {
             }
         }
         return true
+    }
+}
+
+/** Prépare les mutations sans toucher au journal en mémoire ni au stockage. */
+enum WorkSessionMutationV2 {
+    static func togglingPause(
+        in sessions: [WorkSession],
+        at date: Date,
+        paid: Bool?
+    ) -> [WorkSession]? {
+        guard WorkSessionPersistenceV2.isStructurallyValid(sessions),
+              date.timeIntervalSinceReferenceDate.isFinite,
+              let index = sessions.lastIndex(where: { $0.exit == nil }),
+              date >= sessions[index].entry,
+              sessions[index].pauses.allSatisfy({ pause in
+                  pause.end.map { $0 <= date } ?? true
+              }) else {
+            return nil
+        }
+        var updated = sessions
+        if let pauseIndex = updated[index].pauses.lastIndex(where: { $0.end == nil }) {
+            guard date > updated[index].pauses[pauseIndex].start,
+                  let resolvedPaid = updated[index].pauses[pauseIndex].paid ?? paid else {
+                return nil
+            }
+            updated[index].pauses[pauseIndex].paid = resolvedPaid
+            updated[index].pauses[pauseIndex].end = date
+        } else {
+            guard let paid else { return nil }
+            updated[index].pauses.append(
+                PausePeriod(id: UUID(), start: date, end: nil, paid: paid)
+            )
+        }
+        return WorkSessionPersistenceV2.isStructurallyValid(updated) ? updated : nil
+    }
+
+    static func closingSession(
+        in sessions: [WorkSession],
+        at date: Date,
+        expectedSessionId: UUID?
+    ) -> [WorkSession]? {
+        guard WorkSessionPersistenceV2.isStructurallyValid(sessions),
+              date.timeIntervalSinceReferenceDate.isFinite,
+              let index = sessions.lastIndex(where: { $0.exit == nil }),
+              expectedSessionId == nil || sessions[index].id == expectedSessionId,
+              date > sessions[index].entry,
+              sessions[index].pauses.allSatisfy({ pause in
+                  pause.paid != nil && (pause.end.map { $0 <= date } ?? (date > pause.start))
+              }) else {
+            return nil
+        }
+        var updated = sessions
+        if let pauseIndex = updated[index].pauses.lastIndex(where: { $0.end == nil }) {
+            updated[index].pauses[pauseIndex].end = date
+        }
+        updated[index].exit = date
+        return WorkSessionPersistenceV2.isStructurallyValid(updated) ? updated : nil
     }
 }
 

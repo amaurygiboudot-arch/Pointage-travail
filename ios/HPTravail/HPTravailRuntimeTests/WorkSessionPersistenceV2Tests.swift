@@ -25,6 +25,56 @@ final class WorkSessionPersistenceV2Tests: XCTestCase {
         )
     }
 
+    func testOverlappingPausesAreCorruptAndAdjacentPausesRemainValid() throws {
+        let overlapping = WorkSession(
+            id: UUID(),
+            entry: start,
+            exit: start.addingTimeInterval(3_600),
+            pauses: [
+                PausePeriod(
+                    id: UUID(),
+                    start: start.addingTimeInterval(600),
+                    end: start.addingTimeInterval(1_200),
+                    paid: true
+                ),
+                PausePeriod(
+                    id: UUID(),
+                    start: start.addingTimeInterval(900),
+                    end: start.addingTimeInterval(1_500),
+                    paid: false
+                )
+            ]
+        )
+        XCTAssertEqual(
+            WorkSessionPersistenceV2.read(try JSONEncoder().encode([overlapping])),
+            .corrupt
+        )
+
+        let adjacent = WorkSession(
+            id: UUID(),
+            entry: start,
+            exit: start.addingTimeInterval(3_600),
+            pauses: [
+                PausePeriod(
+                    id: UUID(),
+                    start: start.addingTimeInterval(600),
+                    end: start.addingTimeInterval(900),
+                    paid: true
+                ),
+                PausePeriod(
+                    id: UUID(),
+                    start: start.addingTimeInterval(900),
+                    end: start.addingTimeInterval(1_200),
+                    paid: false
+                )
+            ]
+        )
+        XCTAssertEqual(
+            WorkSessionPersistenceV2.read(try JSONEncoder().encode([adjacent])),
+            .valid([adjacent])
+        )
+    }
+
     func testMissingStorageIsReliableEmptyState() {
         XCTAssertEqual(WorkSessionPersistenceV2.read(nil), .missing)
     }

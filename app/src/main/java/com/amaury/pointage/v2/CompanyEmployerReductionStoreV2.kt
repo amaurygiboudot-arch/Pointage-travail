@@ -7,11 +7,11 @@ import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.V2SalaryAdapter
 import com.amaury.pointage.v2.engine.EmployerReductionAdjustmentV2
 import com.amaury.pointage.v2.engine.EmployerReductionResolutionV2
-import com.amaury.pointage.v2.model.ContractTypeV2
+import com.amaury.pointage.v2.model.ContractV2
+import com.amaury.pointage.v2.engine.EmploymentContractPeriodResolutionV2
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.YearMonth
-import java.util.Locale
 
 object CompanyEmployerReductionStoreV2 {
     private const val KEY = "employer_reductions_v2"
@@ -118,12 +118,20 @@ object CompanyEmployerReductionStoreV2 {
         if (malformedManual || activeManual.size > 1) return manual
         if (activeManual.size == 1 && manual.reliable && manual.amount != null) return manual
 
-        val prefs = SalaryCompanyStore.prefs(context, company.id)
-        val idcc = company.idcc.ifBlank { prefs.getString("company_idcc", "").orEmpty() }
+        val idcc = company.idcc.trim()
         val convention = idcc.takeIf { it.isNotBlank() }
             ?.let { ConventionCatalog.findByIdcc(context, it) }
             ?.takeIf { it.idcc.isNotBlank() }
             ?: return blockedAutomatic(manual.warnings, "RGDU : convention collective à confirmer avant le calcul automatique.")
+
+        val contractSnapshot = V2EmploymentContractPayrollBridge.resolve(
+            context, company.id, month.year, month.monthValue - 1
+        )
+        val contract = automaticContract(contractSnapshot.resolution)
+            ?: return blockedAutomatic(
+                manual.warnings + contractSnapshot.warnings,
+                "RGDU : contrat daté du mois à confirmer avant le calcul automatique."
+            )
 
         val salary = runCatching {
             V2SalaryAdapter.calculateForCompany(
@@ -140,10 +148,8 @@ object CompanyEmployerReductionStoreV2 {
         val benefits = CompanyBenefitInKindStoreV2.resolve(context, company.id, month)
         val workforce = CompanyWorkforceContributionStoreV2.resolve(context, company.id, month)
         val monthlyContext = CompanyEmployerGeneralReductionContextStoreV2.resolve(context, company.id, month)
-        val contractType = parseContractType(prefs.getString("contract_type", ""))
-        val contractualWeeklyMinutes = SalaryNumericInputV2.positiveMinutesFromHours(
-            prefs.getString("contract_weekly_hours", "").orEmpty()
-        )
+        val contractType = contract.type
+        val contractualWeeklyMinutes = contract.contractualWeeklyMinutes
 
         val payrollInput = RgduPayrollInputBridgeV2.resolve(
             salary = salary,
@@ -262,15 +268,8 @@ object CompanyEmployerReductionStoreV2 {
         return EmployerReductionAdjustmentV2.Record(id, month, amount, source, note)
     }
 
-    private fun parseContractType(raw: String?): ContractTypeV2? = when (raw.orEmpty().trim().uppercase(Locale.ROOT)) {
-        "FULL_TIME" -> ContractTypeV2.FULL_TIME
-        "PART_TIME" -> ContractTypeV2.PART_TIME
-        "FORFAIT_HEURES" -> ContractTypeV2.FORFAIT_HOURS
-        "FORFAIT_JOURS" -> ContractTypeV2.FORFAIT_DAYS
-        "FORFAIT" -> ContractTypeV2.FORFAIT
-        "OTHER" -> ContractTypeV2.OTHER
-        else -> null
-    }
+    internal fun automaticContract(resolution: EmploymentContractPeriodResolutionV2): ContractV2? =
+        resolution.contract.takeIf { resolution.readyForSingleContractCalculation }
 
     private fun blockedAutomatic(
         manualWarnings: List<String>,

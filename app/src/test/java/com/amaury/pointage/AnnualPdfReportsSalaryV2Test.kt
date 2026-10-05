@@ -44,6 +44,30 @@ class AnnualPdfReportsSalaryV2Test {
     }
 
     @Test
+    fun `l idcc annuel V2 vient uniquement de l entreprise confirmee`() {
+        val company = SalaryCompanyStore.Company(
+            id = "company-a",
+            name = "Entreprise A",
+            siret = "12345678901234",
+            idcc = " 292 "
+        )
+
+        assertEquals("292", resolveAnnualCompanyIdccV2(company))
+    }
+
+    @Test
+    fun `un idcc V2 absent ne reactive aucune ancienne preference`() {
+        val company = SalaryCompanyStore.Company(
+            id = "company-a",
+            name = "Entreprise A",
+            siret = "12345678901234",
+            idcc = "   "
+        )
+
+        assertNull(resolveAnnualCompanyIdccV2(company))
+    }
+
+    @Test
     fun `brut social non fiable reste exclu du pdf annuel`() {
         val resolution = resolveAnnualSalaryGrossV2(
             cashGross = 2_500.0,

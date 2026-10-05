@@ -31,7 +31,7 @@ object MealBasketLegalProviderV2 {
         referenceDate: LocalDate,
         territoryCode: String? = null
     ): Snapshot {
-        val profile = ConventionLegalProfileV2.load(context, companyId)
+        val profile = ConventionLegalProfileV2.load(context, companyId, referenceDate)
             ?: return blocked("profil juridique local introuvable")
         val normalizedExpected = ConventionMinimumSalaryV2.normalizeIdcc(expectedIdcc)
         val normalizedProfile = ConventionMinimumSalaryV2.normalizeIdcc(profile.idcc)

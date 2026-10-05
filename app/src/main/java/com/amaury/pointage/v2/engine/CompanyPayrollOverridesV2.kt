@@ -15,6 +15,10 @@ import com.amaury.pointage.v2.ConventionLegalProfileV2
 import com.amaury.pointage.v2.OfficialAccoProvidentContributionParserV2
 import com.amaury.pointage.v2.PayrollLegalSourceKnowledgeStoreV2
 import com.amaury.pointage.v2.SalaryNumericInputV2
+import com.amaury.pointage.v2.V2EmploymentContractPayrollBridge
+import com.amaury.pointage.v2.CompanyAtMpRateStoreV2
+import com.amaury.pointage.v2.CompanyProfessionalStatusStoreV2
+import com.amaury.pointage.v2.model.ContractV2
 import com.amaury.pointage.v2.V2CompanyProvidentContributionStore
 import com.amaury.pointage.v2.V2ConventionMatterCoverageStore
 import com.amaury.pointage.v2.V2ConventionProvidentContributionBridge
@@ -183,42 +187,34 @@ object CompanyPayrollOverridesV2 {
         val p=SalaryCompanyStore.prefs(context,companyId)
         fun number(key:String)=SalaryNumericInputV2.nonNegativeDecimal(p.getString(key,"").orEmpty())
         fun normalizeIdcc(raw:String?)=raw.orEmpty().filter(Char::isDigit).trimStart('0').ifBlank{null}
-        val idcc=normalizeIdcc(company.idcc) ?: normalizeIdcc(p.getString("company_idcc",""))
-        val entryDate=runCatching {
-            p.getString("entry_date","").orEmpty().trim().takeIf{it.isNotBlank()}?.let {
-                LocalDate.parse(it,DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE))
-            }
-        }.getOrNull()
+        val idcc=normalizeIdcc(company.idcc)
+        val contractSource=V2EmploymentContractPayrollBridge.resolve(
+            context,companyId,referenceDate.year,referenceDate.monthValue-1
+        )
+        val contract=contractForPeriod(contractSource.resolution)
+        val entryDate=contract?.hireDateEpochDay?.let { epochDay ->
+            runCatching { LocalDate.ofEpochDay(epochDay) }.getOrNull()
+        }
         val seniorityMonths=entryDate?.let { start ->
             if(start.isAfter(referenceDate)) 0 else ChronoUnit.MONTHS.between(start,referenceDate).toInt().coerceAtLeast(0)
         }
-        val contractType=when(p.getString("contract_type","").orEmpty().trim().uppercase(Locale.ROOT)) {
-            "FULL_TIME" -> ContractTypeV2.FULL_TIME
-            "PART_TIME" -> ContractTypeV2.PART_TIME
-            "FORFAIT_HEURES" -> ContractTypeV2.FORFAIT_HOURS
-            "FORFAIT_JOURS" -> ContractTypeV2.FORFAIT_DAYS
-            "FORFAIT" -> ContractTypeV2.FORFAIT
-            "OTHER" -> ContractTypeV2.OTHER
-            else -> null
-        }
-        val contractualWeeklyMinutes=SalaryNumericInputV2.positiveMinutesFromHours(
-            p.getString("contract_weekly_hours","").orEmpty()
-        )
-        val forfaitAnnualDays=SalaryNumericInputV2.positiveDecimal(
-            p.getString("forfait_annual_days","").orEmpty()
-        )
+        val contractType=contract?.type
+        val contractualWeeklyMinutes=contract?.contractualWeeklyMinutes
+        val forfaitAnnualDays=contract?.forfaitAnnualDays
         val legacyMutual=number("mutual_employee_amount")
         val legacyProvident=number("provident_employee_amount")
         val legacyTransport=number("transport_employee_amount")
         val legacyEmployerProtectionTaxable=number("employer_protection_taxable_amount")
         val legacyEmployeeProvidentNonDeductible=number("employee_provident_nondeductible_amount")
         val legacyTaxPercent=number("income_tax_rate_percent")?.takeIf{it<=100.0}
-        val atMpEmployerRate=number("atmp_employer_rate_percent")?.takeIf{it<=100.0}?.div(100.0)
-        val professionalStatus=p.getString("professional_status","").orEmpty().trim().uppercase().takeIf{it=="CADRE"||it=="NON_CADRE"}
+        val atMpSource=CompanyAtMpRateStoreV2.resolve(context,companyId,java.time.YearMonth.from(referenceDate))
+        val atMpEmployerRate=atMpSource.rate.takeIf{atMpSource.reliable}
+        val professionalSource=CompanyProfessionalStatusStoreV2.resolve(context,companyId,java.time.YearMonth.from(referenceDate))
+        val professionalStatus=professionalSource.status.takeIf{professionalSource.reliable}
         val conventionCoefficient=p.getString("convention_coefficient","").orEmpty().trim().toIntOrNull()
         val protectionCategory=PlasturgieProtectionCategoryV2.classify(idcc,referenceDate,conventionCoefficient)
         val verifiedProtectionCategory=VerifiedProtectionCategoryProviderV2.resolve(context,companyId,referenceDate)
-        val legalProfile=ConventionLegalProfileV2.load(context,companyId)
+        val legalProfile=ConventionLegalProfileV2.load(context,companyId,referenceDate)
         val verifiedProvidentClassification=legalProfile?.classification ?: ConventionClassificationV2()
         val verifiedProvidentSeniorityMonths=legalProfile?.let {
             V2ConventionProvidentContributionBridge.seniorityMonths(it,referenceDate)
@@ -320,6 +316,9 @@ object CompanyPayrollOverridesV2 {
             )
         }else observedAbsenceImpact
         val warnings=buildList {
+            addAll(contractSource.warnings)
+            addAll(atMpSource.warnings)
+            addAll(professionalSource.warnings)
             if(entryDate==null)add("Date d’entrée : à confirmer pour les règles liées à l’ancienneté et au plafond social")
             if(legalProfile!=null && verifiedProvidentSeniorityMonths==null)add("Ancienneté conventionnelle vérifiée : à confirmer")
             addAll(absenceImpact.warnings)
@@ -410,6 +409,9 @@ object CompanyPayrollOverridesV2 {
             verifiedCompanyProvidentStoreWarnings=verifiedCompanyProvidentStored.warnings
         )
     }
+
+    internal fun contractForPeriod(resolution:EmploymentContractPeriodResolutionV2):ContractV2? =
+        resolution.contract.takeIf { resolution.readyForSingleContractCalculation }
 
     internal fun confirmedCompany(
         stored:SalaryCompanyStore.ReadResult,
