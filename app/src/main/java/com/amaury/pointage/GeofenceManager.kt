@@ -50,22 +50,24 @@ internal fun storedGpsAutomaticFingerprintV2(
         GpsZonesReadResult.Missing -> "enabled|missing"
         is GpsZonesReadResult.Corrupt -> "enabled|corrupt|${stored.reason}"
         is GpsZonesReadResult.Valid -> {
-            val canonical = stored.zones
+            val canonical = JSONArray()
+            stored.zones
                 .filter(StoredGpsZone::registersAutomaticGeofenceV2)
                 .sortedBy { it.id }
-                .joinToString("||") { zone ->
-                    listOf(
-                        zone.id,
-                        zone.latitude.toString(),
-                        zone.longitude.toString(),
-                        zone.radius.toString(),
-                        zone.address.orEmpty(),
-                        zone.companyId.orEmpty(),
-                        zone.companySlot?.toString().orEmpty(),
-                        zone.pointTypeToken.orEmpty(),
-                        zone.label.orEmpty(),
-                        zone.isGpsCandidate().toString()
-                    ).joinToString("|")
+                .forEach { zone ->
+                    canonical.put(
+                        JSONObject()
+                            .put("id", zone.id)
+                            .put("latitude", zone.latitude)
+                            .put("longitude", zone.longitude)
+                            .put("radius", zone.radius.toDouble())
+                            .put("address", zone.address ?: JSONObject.NULL)
+                            .put("companyId", zone.companyId ?: JSONObject.NULL)
+                            .put("companySlot", zone.companySlot ?: JSONObject.NULL)
+                            .put("pointType", zone.pointTypeToken ?: JSONObject.NULL)
+                            .put("label", zone.label ?: JSONObject.NULL)
+                            .put("smartCandidate", zone.isGpsCandidate())
+                    )
                 }
             "enabled|valid|$canonical"
         }
