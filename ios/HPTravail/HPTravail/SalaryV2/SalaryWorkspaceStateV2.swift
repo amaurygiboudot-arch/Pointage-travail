@@ -22,6 +22,88 @@ struct SalaryWorkspaceSnapshotV2: Equatable {
 enum SalaryWorkspaceResolverV2 {
     static let upstreamUnavailableWarning =
         "Salaire V2 iOS : les sources canoniques amont ne sont pas encore raccordées pour ce mois ; aucun montant n'est inventé."
+    static let segmentedSourceUnavailableWarning =
+        "Salaire V2 iOS : une transition datée exige la chaîne segmentée canonique ; aucun montant issu du calcul mensuel unique n'est affiché."
+    static let segmentedPeriodMismatchWarning =
+        "Salaire V2 iOS : la sortie segmentée appartient à un autre mois ; aucun montant n'est affiché."
+
+    static func resolve(
+        period: YearMonthV2,
+        requiresSegmentedSource: Bool,
+        segmented: SalarySegmentedCanonicalOutputV2?,
+        reference: SalaryReferenceContractV2?,
+        incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot? = nil
+    ) -> SalaryWorkspaceSnapshotV2 {
+        guard requiresSegmentedSource else {
+            return resolve(period: period, reference: reference, incomeTaxRate: incomeTaxRate)
+        }
+        guard let segmented else {
+            return SalaryWorkspaceSnapshotV2(
+                period: period,
+                sourceReady: false,
+                socialGross: nil,
+                netBeforeIncomeTax: nil,
+                netTaxable: nil,
+                incomeTax: nil,
+                netAfterIncomeTax: nil,
+                warnings: [segmentedSourceUnavailableWarning]
+            )
+        }
+        return resolve(period: period, segmented: segmented)
+    }
+
+    static func resolve(
+        period: YearMonthV2,
+        segmented: SalarySegmentedCanonicalOutputV2?
+    ) -> SalaryWorkspaceSnapshotV2 {
+        guard let segmented else {
+            return SalaryWorkspaceSnapshotV2(
+                period: period,
+                sourceReady: false,
+                socialGross: nil,
+                netBeforeIncomeTax: nil,
+                netTaxable: nil,
+                incomeTax: nil,
+                netAfterIncomeTax: nil,
+                warnings: [upstreamUnavailableWarning]
+            )
+        }
+
+        guard segmented.period == period else {
+            return SalaryWorkspaceSnapshotV2(
+                period: period,
+                sourceReady: false,
+                socialGross: nil,
+                netBeforeIncomeTax: nil,
+                netTaxable: nil,
+                incomeTax: nil,
+                netAfterIncomeTax: nil,
+                warnings: [segmentedPeriodMismatchWarning]
+            )
+        }
+
+        let sourceReady =
+            segmented.paidTimeReliable &&
+            segmented.workedGrossReliable &&
+            segmented.cashGrossReliable
+        let socialGross = segmented.net.projection.flatMap { projection in
+            projection.grossReliable && projection.contributionGross.isFinite && projection.contributionGross >= 0
+                ? projection.contributionGross
+                : nil
+        }
+        let netComplete = sourceReady && segmented.netBeforeIncomeTaxComplete
+
+        return SalaryWorkspaceSnapshotV2(
+            period: period,
+            sourceReady: sourceReady,
+            socialGross: sourceReady ? socialGross : nil,
+            netBeforeIncomeTax: netComplete ? segmented.netBeforeIncomeTax : nil,
+            netTaxable: netComplete ? segmented.netTaxable : nil,
+            incomeTax: netComplete ? segmented.incomeTax : nil,
+            netAfterIncomeTax: netComplete ? segmented.netAfterIncomeTax : nil,
+            warnings: unique(segmented.warnings)
+        )
+    }
 
     static func resolve(
         period: YearMonthV2,

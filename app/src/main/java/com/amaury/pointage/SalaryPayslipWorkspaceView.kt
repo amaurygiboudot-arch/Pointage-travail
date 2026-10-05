@@ -19,6 +19,7 @@ import com.amaury.pointage.v2.NetSalaryReferencePolicyV2
 import com.amaury.pointage.v2.V2EmploymentContractPayrollBridge
 import com.amaury.pointage.v2.V2PayslipStore
 import com.amaury.pointage.v2.V2RightsStore
+import com.amaury.pointage.v2.V2SegmentedSalaryCanonicalBridge
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.CompanyAgreementPayrollBridgeV2
 import com.amaury.pointage.v2.engine.PayrollPeriodV2
@@ -75,6 +76,147 @@ class SalaryPayslipWorkspaceView(context:Context,private val company:SalaryCompa
   }.onFailure{Toast.makeText(activity,"Impossible de générer la fiche exemple",Toast.LENGTH_LONG).show()}
  }
  private fun renderEstimate(){
+  val (routeYear,routeMonth)=selectedPeriod()
+  when(com.amaury.pointage.v2.V2SalaryCalculationRoute.resolve(context,company,routeYear,routeMonth)){
+   com.amaury.pointage.v2.V2SalaryCalculationRoute.Route.MONTHLY->{renderMonthlyEstimate();return}
+   com.amaury.pointage.v2.V2SalaryCalculationRoute.Route.BLOCKED->{
+    add(TextView(context).apply{text="Contrat ou règles datées à confirmer pour ce mois. Aucun calcul mensuel de remplacement n’est utilisé.";textSize=14f})
+    return
+   }
+   com.amaury.pointage.v2.V2SalaryCalculationRoute.Route.SEGMENTED->{
+    addButton("CONFIRMER LES POINTAGES DU MOIS"){SalarySegmentedEvidenceDialogsV2.confirmCoverage(context,company,routeYear,routeMonth){render()}}
+    addButton("RENSEIGNER LE PLANNING DE RÉFÉRENCE"){SalarySegmentedEvidenceDialogsV2.confirmProration(context,company,routeYear,routeMonth){render()}}
+   }
+  }
+  val(year,month)=selectedPeriod();val period=SimpleDateFormat("MMMM yyyy",Locale.FRANCE).format(Calendar.getInstance(Locale.FRANCE).apply{set(year,month,1)}.time).replaceFirstChar{it.uppercase()}
+  val contractSnapshot=V2EmploymentContractPayrollBridge.resolve(context,company.id,year,month)
+  val contractPresentation=salaryPayslipWorkspaceContractPresentationV2(company,contractSnapshot.resolution.contract,year,month)
+  add(TextView(context).apply{text="FICHE DE PAIE ESTIMATIVE";textSize=17f;setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER;setPadding(0,dp(10),0,dp(4))})
+  val seniority=contractPresentation.seniorityLabel;add(TextView(context).apply{text="Période : $period\nEntreprise : ${company.name.ifBlank{"Non renseignée"}}\nSIRET : ${company.siret.ifBlank{"Non renseigné"}}\nAncienneté : $seniority";textSize=14f;setPadding(0,0,0,dp(10))})
+  val convention=contractPresentation.conventionId?.let{ConventionCatalog.findByIdcc(context,it)}
+  val canonicalResult=if(HoraTrackV2.ENABLED)runCatching{
+   V2SegmentedSalaryCanonicalBridge.calculateForCompany(
+    context=context,
+    company=company,
+    year=year,
+    monthZeroBased=month,
+    timeZoneId=ZoneId.systemDefault().id
+   )
+  }.getOrNull() else null
+  val canonical=canonicalResult?.output
+  if(canonical==null){
+   val warnings=canonicalResult?.warnings.orEmpty()
+   add(TextView(context).apply{
+    text=buildString{
+     append("Calcul détaillé indisponible : complète le contrat, les règles et les preuves de cette entreprise. HoraTrack n’invente aucun montant.")
+     if(warnings.isNotEmpty())append("\n\nÀ vérifier :\n• ").append(warnings.distinct().joinToString("\n• "))
+    }
+    textSize=14f
+   })
+  }else{
+   val payroll=canonical.net.projection?.payroll
+   val payrollPeriod=PayrollPeriodV2.month(year,month)
+   val referenceDate=payrollPeriod.referenceDate
+   val agreementRules=CompanyAgreementPayrollBridgeV2.load(context,company.id,referenceDate,payrollPeriod)
+   val coefficient=SalaryCompanyStore.prefs(context,company.id).getString("convention_coefficient","").orEmpty().trim().toIntOrNull()
+   val socialGross=payroll?.takeIf{canonical.cashGrossReliable&&it.grossReliable}?.let(NetSalaryReferencePolicyV2::socialGross)
+   val lines=buildString{
+    append("Convention : ").append(convention?.displayName?:"Non renseignée").append('\n')
+    coefficient?.let{append("Coefficient : ").append(it).append('\n')}
+
+    if(canonical.paidTimeReliable&&canonical.paidMinutes!=null){
+     append("Temps payé : ").append(hours(canonical.paidMinutes.toLong()*60_000L)).append('\n')
+     append("Heures supplémentaires variables : ")
+      .append(canonical.variableOvertimeMinutes?.let{hours(it.toLong()*60_000L)}?:"À confirmer").append('\n')
+     append("Heures complémentaires : ")
+      .append(canonical.complementaryMinutes?.let{hours(it.toLong()*60_000L)}?:"À confirmer").append('\n')
+    }else{
+     append("Temps payé : À confirmer\n")
+     append("Heures supplémentaires variables : À confirmer\n")
+     append("Heures complémentaires : À confirmer\n")
+    }
+
+    if(canonical.premiumTimeReliable){
+     append("Heures de nuit : ").append(canonical.nightMinutes?.let{hours(it.toLong()*60_000L)}?:"À confirmer").append('\n')
+     append("Samedi : ").append(canonical.saturdayMinutes?.let{hours(it.toLong()*60_000L)}?:"À confirmer").append('\n')
+     append("Dimanche : ").append(canonical.sundayMinutes?.let{hours(it.toLong()*60_000L)}?:"À confirmer").append('\n')
+     append("Jours fériés : ").append(canonical.publicHolidayMinutes?.let{hours(it.toLong()*60_000L)}?:"À confirmer").append('\n')
+    }else{
+     append("Heures de nuit : À confirmer\n")
+     append("Samedi : À confirmer\n")
+     append("Dimanche : À confirmer\n")
+     append("Jours fériés : À confirmer\n")
+    }
+
+    append("Paniers : À confirmer\n")
+    if(year==2026){
+     append("PLAFOND SS APPLIQUÉ : ")
+      .append(payroll?.socialSecurityCeiling?.let{eur(it)}?:"À confirmer")
+     if(payroll?.socialSecurityCeilingComplete!=true)append(" (à vérifier)")
+     append('\n')
+    }
+
+    append("Majoration heures supplémentaires : ")
+     .append(canonical.overtimeGross?.takeIf{canonical.workedGrossReliable}?.let{eur(it)}?:"À confirmer").append('\n')
+    append("Autres primes variables : ")
+     .append(canonical.premiumGross?.takeIf{canonical.workedGrossReliable}?.let{eur(it)}?:"À confirmer").append('\n')
+    append("BRUT DE TRAVAIL : ")
+     .append(canonical.workedGross?.takeIf{canonical.workedGrossReliable}?.let{eur(it)}?:"À confirmer").append('\n')
+    append("BRUT EN ESPÈCES : ")
+     .append(canonical.cashGross?.takeIf{canonical.cashGrossReliable}?.let{eur(it)}?:"À confirmer").append('\n')
+    append("BRUT SOCIAL ESTIMÉ HORS PANIERS : ").append(socialGross?.let{eur(it)}?:"À confirmer").append('\n')
+
+    if(payroll!=null&&canonical.cashGrossReliable){
+     if(payroll.benefitsInKindDeduction>0.0)append("DONT AVANTAGES EN NATURE : ").append(eur(payroll.benefitsInKindDeduction)).append('\n')
+     append("COTISATIONS LÉGALES : -").append(eur(payroll.statutory)).append('\n')
+     append("RETRAITE COMPLÉMENTAIRE AGIRC-ARRCO / CEG / CET : -").append(eur(payroll.complementaryRetirement)).append('\n')
+     if(payroll.companyEmployeeDeductions>0)append("RETENUES ENTREPRISE/SALARIÉ CONNUES : -").append(eur(payroll.companyEmployeeDeductions)).append('\n')
+     if(payroll.benefitsInKindDeduction>0.0)append("AVANTAGES EN NATURE NON VERSÉS EN ESPÈCES : -").append(eur(payroll.benefitsInKindDeduction)).append('\n')
+    }else{
+     append("COTISATIONS / RETENUES : À confirmer\n")
+    }
+
+    if(canonical.netBeforeIncomeTaxComplete){
+     append("NET ESTIMÉ AVANT IMPÔT : ").append(canonical.netBeforeIncomeTax?.let{eur(it)}?:"À confirmer").append('\n')
+     append("NET IMPOSABLE ESTIMÉ : ").append(canonical.netTaxable?.let{eur(it)}?:"À confirmer").append('\n')
+     append("PRÉLÈVEMENT À LA SOURCE : ").append(canonical.incomeTax?.let{"-"+eur(it)}?:"À confirmer").append('\n')
+     append("NET ESTIMÉ APRÈS PAS : ").append(canonical.netAfterIncomeTax?.let{eur(it)}?:"À confirmer").append('\n')
+    }else{
+     append("NET ESTIMÉ AVANT IMPÔT : À confirmer\n")
+     append("Cotisations ou paramètres de paie à confirmer : aucun net salarié final n'est affiché.\n")
+    }
+   }
+   add(TextView(context).apply{text=lines;textSize=14f})
+
+   if(agreementRules.hasApplicableRules)add(TextView(context).apply{text=buildString{
+    append("\nRÈGLES D’ENTREPRISE APPLICABLES\n• ")
+    append(agreementRules.applicableRules.joinToString("\n• "){"${it.category.name} : ${it.excerpt}"})
+    append('\n')
+    when{
+     agreementRules.hasOvertimeConflicts->append("Les règles d’heures supplémentaires en conflit sont bloquées et exclues du calcul.")
+     agreementRules.hasPeriodChanges->append("Une règle change pendant le mois : la chaîne segmentée conserve les périodes distinctes et bloque toute valeur non prouvée.")
+     agreementRules.hasSafeOvertimeRules->append("Les taux d’heures supplémentaires vérifiés sont pris en compte par la chaîne canonique lorsque leur preuve est complète.")
+     else->append("Aucune règle d’entreprise n’est actuellement assez structurée pour modifier automatiquement le calcul.")
+    }
+   };textSize=12f})
+
+   if(agreementRules.hasPeriodChanges)add(TextView(context).apply{text="\n⚠ CHANGEMENT DE RÈGLE PENDANT LE MOIS\n"+agreementRules.periodSegments.joinToString("\n"){segment->"• ${segment.start.format(DateTimeFormatter.ofPattern("dd/MM/uuuu"))} → ${segment.endInclusive.format(DateTimeFormatter.ofPattern("dd/MM/uuuu"))} : ${segment.applicableRules.size} règle(s) applicable(s)"}+"\nLa sortie canonique conserve la segmentation et ne fusionne pas arbitrairement les règles.";textSize=12f;setTypeface(typeface,Typeface.BOLD)})
+
+   if(agreementRules.hasOvertimeConflicts)add(TextView(context).apply{text="\n⚠ CONFLIT D’HEURES SUPPLÉMENTAIRES — BLOQUÉ\n"+agreementRules.conflictingOvertimeRules.joinToString("\n"){rule->val end=rule.band.toHourInclusive?.let{"${it}e heure"}?:"sans limite déterminée";"• ${rule.band.fromHourInclusive}e → $end : +${String.format(Locale.FRANCE,"%.2f",rule.percent)} %\n  ${rule.source.source.excerpt}"}+"\nCes règles restent exclues du calcul tant que le conflit n’est pas résolu.";textSize=12f;setTypeface(typeface,Typeface.BOLD)})
+
+   ConventionNightRules.forIdcc(convention?.idcc.orEmpty())?.let{rule->
+    add(TextView(context).apply{text="\nRègle nuit : ${rule.note}";textSize=12f})
+   }
+   if(canonical.warnings.isNotEmpty())add(TextView(context).apply{
+    text="\nÀ vérifier :\n• "+canonical.warnings.distinct().joinToString("\n• ")
+    textSize=12f
+   })
+   val monthStartMs=LocalDate.of(year,month+1,1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();val monthEndMs=LocalDate.of(year,month+1,1).plusMonths(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();val sicknessAbsences=V2RightsStore.absencesForCompany(context,company.id).filter{it.type==AbsencePayrollImpactV2.TYPE_SICKNESS&&it.endMs>monthStartMs&&it.startMs<monthEndMs};if(sicknessAbsences.isNotEmpty())add(TextView(context).apply{text=buildString{append("\nARRÊT MALADIE / IJSS\n");sicknessAbsences.forEach{absence->val start=Instant.ofEpochMilli(absence.startMs).atZone(ZoneId.systemDefault()).toLocalDate();val end=Instant.ofEpochMilli(absence.endMs-1L).atZone(ZoneId.systemDefault()).toLocalDate();val allowance=V2PayslipStore.sicknessAllowanceForAbsence(context,company.id,absence);val flow=SicknessPaymentFlowV2.resolve(absence,allowance);append("• ").append(start.format(DateTimeFormatter.ofPattern("dd/MM/uuuu"))).append(" → ").append(end.format(DateTimeFormatter.ofPattern("dd/MM/uuuu"))).append(" • ").append(absenceTreatmentLabel(absence.salaryTreatment)).append('\n');when(flow.ijssRecipient){SicknessPaymentFlowV2.IjssRecipient.EMPLOYER->{append("  IJSS → employeur");flow.employerIjssReimbursementGross?.let{append(" : ").append(eur(it)).append(" brut estimés")};append(" — non ajoutées une 2e fois au salarié\n")};SicknessPaymentFlowV2.IjssRecipient.EMPLOYEE->{append("  IJSS → salarié séparément");flow.directEmployeeIjssGross?.let{append(" : ").append(eur(it)).append(" brut estimés")};append(" — hors net de la fiche employeur\n")};SicknessPaymentFlowV2.IjssRecipient.TO_CONFIRM->append("  Destination IJSS : à confirmer\n")};flow.warnings.firstOrNull()?.let{append("  ⚠ ").append(it).append('\n')}}};textSize=12f})
+  }
+  add(TextView(context).apply{text="\nDurée hebdomadaire contractuelle : ${contractPresentation.weeklyLabel}\nCette fiche est une estimation HoraTrack, pas un bulletin officiel.";textSize=12f});addButton("PRENDRE UNE PHOTO"){launchPhoto()};addButton("IMPORTER UN FICHIER"){launchImport()}
+ }
+ private fun absenceTreatmentLabel(value:AbsenceSalaryTreatmentV2)=when(value){AbsenceSalaryTreatmentV2.FULLY_MAINTAINED->"maintien complet";AbsenceSalaryTreatmentV2.PARTIALLY_MAINTAINED->"maintien partiel à chiffrer";AbsenceSalaryTreatmentV2.UNPAID->"sans maintien employeur";AbsenceSalaryTreatmentV2.TO_CONFIRM->"maintien à confirmer"}
+ private fun renderMonthlyEstimate(){
   val(year,month)=selectedPeriod();val period=SimpleDateFormat("MMMM yyyy",Locale.FRANCE).format(Calendar.getInstance(Locale.FRANCE).apply{set(year,month,1)}.time).replaceFirstChar{it.uppercase()}
   val contractSnapshot=V2EmploymentContractPayrollBridge.resolve(context,company.id,year,month)
   val contractPresentation=salaryPayslipWorkspaceContractPresentationV2(company,contractSnapshot.resolution.contract,year,month)

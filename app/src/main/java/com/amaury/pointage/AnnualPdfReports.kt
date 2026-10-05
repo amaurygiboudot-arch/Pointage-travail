@@ -8,7 +8,9 @@ import com.amaury.pointage.v2.NetSalaryReferencePolicyV2
 import com.amaury.pointage.v2.SalaryNumericInputV2
 import com.amaury.pointage.v2.V2LegacyPolicy
 import com.amaury.pointage.v2.V2ProfileStore
+import com.amaury.pointage.v2.V2SalaryCalculationRoute
 import com.amaury.pointage.v2.V2RuntimeReader
+import com.amaury.pointage.v2.V2SegmentedSalaryCanonicalBridge
 import com.amaury.pointage.v2.engine.NetSalaryEngineV2
 import com.amaury.pointage.v2.engine.WorkSessionRangeV2
 import com.amaury.pointage.v2.engine.TimeResultV2
@@ -458,52 +460,85 @@ object AnnualPdfReports {
                     !unassignedEmployerSession
             )
 
-            val salaryNet = if (company != null && convention != null) {
+            val route = company?.let { V2SalaryCalculationRoute.resolve(context,it,year,month) }
+            val segmentedConsumer = company != null && route != V2SalaryCalculationRoute.Route.MONTHLY
+            val canonical = if (company != null && route == V2SalaryCalculationRoute.Route.SEGMENTED) {
                 runCatching {
-                    V2SalaryNetBridgeV2.calculateForCompany(
+                    V2SegmentedSalaryCanonicalBridge.calculateForCompany(
                         context = context,
                         company = company,
                         year = year,
-                        month = month,
-                        convention = convention
-                    )
+                        monthZeroBased = month,
+                        timeZoneId = java.time.ZoneId.systemDefault().id
+                    ).output
                 }.getOrNull()
             } else null
+            val salaryNet = if (company != null && convention != null && route == V2SalaryCalculationRoute.Route.MONTHLY)
+                runCatching { V2SalaryNetBridgeV2.calculateForCompany(context,company,year,month,convention) }.getOrNull()
+                else null
             val salary = when {
-                company != null -> salaryNet?.salary
+                salaryNet != null -> salaryNet.salary
                 company == null && rate != null && rate > 0.0 && convention != null && legacyProfile?.contract != null -> runCatching {
                     V2SalaryAdapter.calculate(context, year, month, rate, convention)
                 }.getOrNull()
                 else -> null
             }
-            val paid = resolveAnnualPaidWorkV2(
-                paidWorkMs = timeResolution.paidWorkMs,
-                companyScoped = company != null,
-                paidTimeReliable = salary?.paidTimeReliable
-            )
-            val overtime = resolveAnnualOvertimeV2(
-                overtimeDurationsMs = salary?.overtimeTiers?.map { it.durationMs },
-                monthlyGrossReliable = salary?.monthlyGrossReliable == true,
-                paidTimeReliable = salary?.paidTimeReliable == true,
-                upstreamTimeReliable = timeResolution.reliable
-            )
-            val grossResolution = salary?.let { reliable ->
-                resolveAnnualSalaryGrossV2(
-                    cashGross = reliable.monthlyEstimatedGross,
-                    cashGrossReliable = reliable.monthlyGrossReliable,
-                    paidTimeReliable = reliable.paidTimeReliable,
-                    salaryWarnings = reliable.warnings,
-                    payroll = salaryNet?.payroll,
-                    socialGrossRequired = company != null,
+            val paid = if (segmentedConsumer) {
+                canonical?.paidMinutes
+                    ?.takeIf { canonical.paidTimeReliable && timeResolution.reliable }
+                    ?.toLong()
+                    ?.times(60_000L)
+            } else {
+                resolveAnnualPaidWorkV2(
+                    paidWorkMs = timeResolution.paidWorkMs,
+                    companyScoped = company != null,
+                    paidTimeReliable = salary?.paidTimeReliable
+                )
+            }
+            val overtime = if (segmentedConsumer) {
+                // La sortie canonique expose aujourd'hui les HS variables mais pas encore
+                // un total exhaustif incluant toutes les heures structurelles.
+                null
+            } else {
+                resolveAnnualOvertimeV2(
+                    overtimeDurationsMs = salary?.overtimeTiers?.map { it.durationMs },
+                    monthlyGrossReliable = salary?.monthlyGrossReliable == true,
+                    paidTimeReliable = salary?.paidTimeReliable == true,
                     upstreamTimeReliable = timeResolution.reliable
                 )
+            }
+            val grossResolution = if (segmentedConsumer) {
+                canonical?.let { output ->
+                    resolveAnnualSalaryGrossV2(
+                        cashGross = output.cashGross ?: 0.0,
+                        cashGrossReliable = output.cashGrossReliable && output.cashGross != null,
+                        paidTimeReliable = output.paidTimeReliable,
+                        salaryWarnings = output.warnings,
+                        payroll = output.net.projection?.payroll,
+                        socialGrossRequired = true,
+                        upstreamTimeReliable = timeResolution.reliable
+                    )
+                }
+            } else {
+                salary?.let { reliable ->
+                    resolveAnnualSalaryGrossV2(
+                        cashGross = reliable.monthlyEstimatedGross,
+                        cashGrossReliable = reliable.monthlyGrossReliable,
+                        paidTimeReliable = reliable.paidTimeReliable,
+                        salaryWarnings = reliable.warnings,
+                        payroll = salaryNet?.payroll,
+                        socialGrossRequired = company != null,
+                        upstreamTimeReliable = timeResolution.reliable
+                    )
+                }
             }
             val gross = grossResolution?.amount
             val state = when {
                 !timeResolution.reliable -> "Temps payé à confirmer"
                 convention == null -> "Convention à confirmer"
-                salary == null -> "Contrat à compléter"
-                else -> grossResolution!!.state
+                segmentedConsumer && canonical == null -> "Contrat / preuves à compléter"
+                company == null && salary == null -> "Contrat à compléter"
+                else -> grossResolution?.state ?: "Brut à confirmer"
             }
             if (state != "OK") ruleWarnings++
 
