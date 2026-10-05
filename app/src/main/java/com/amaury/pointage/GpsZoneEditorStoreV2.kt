@@ -55,17 +55,28 @@ internal object GpsZoneEditorStoreV2 {
     fun commit(prefs: SharedPreferences, change: Change): Boolean {
         val current = read(prefs) ?: return false
         if (change.values.keys != keys) return false
-        if (current.values != change.expected.values || decode(change.values.filterValues { it != null }) == null) return false
+        val next = decode(change.values.filterValues { it != null }) ?: return false
+        if (current.values != change.expected.values) return false
+        val automaticConfigurationChanged =
+            storedGpsAutomaticFingerprintV2(
+                enabled = prefs.getBoolean("enabled", false),
+                stored = GpsZonesReadResult.Valid(current.zones)
+            ) != storedGpsAutomaticFingerprintV2(
+                enabled = prefs.getBoolean("enabled", false),
+                stored = GpsZonesReadResult.Valid(next.zones)
+            )
         val editor = prefs.edit()
         change.values.forEach { (key, value) ->
             if (value != current.values[key]) {
                 if (value == null) editor.remove(key) else editor.putString(key, value)
             }
         }
-        // Les inscriptions système sont invalidées dans cette même écriture.
-        editor.remove("active_zones").remove("entry_resolution_pending")
-            .remove("entry_resolution_token").remove("pending_exit_zones")
-            .remove("geofence_registration_valid").remove("geofence_registration_fingerprint")
+        if (automaticConfigurationChanged) {
+            // Seule une vraie modification des geofences automatiques invalide leur état.
+            editor.remove("active_zones").remove("entry_resolution_pending")
+                .remove("entry_resolution_token").remove("pending_exit_zones")
+                .remove("geofence_registration_valid").remove("geofence_registration_fingerprint")
+        }
         return editor.commit()
     }
 
