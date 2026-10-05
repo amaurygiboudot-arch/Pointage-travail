@@ -64,6 +64,32 @@ final class GpsGeofenceV2Tests: XCTestCase {
         XCTAssertEqual(workFingerprint, mixedFingerprint)
     }
 
+
+    func testOnlyWorkZoneProducesClockInFacts() {
+        var work = zone(first, kind: .worksite)
+        work.label = "  Atelier Nord  "
+        work.employerId = "  company-a  "
+
+        XCTAssertEqual(
+            GpsClockInFactsPolicyV2.facts(for: work),
+            GpsClockInFactsV2(employerId: "company-a", placeLabel: "Atelier Nord")
+        )
+
+        for kind in [GpsZoneKindV2.parking, .breakZone, .other] {
+            XCTAssertNil(GpsClockInFactsPolicyV2.facts(for: zone(UUID(), kind: kind)))
+        }
+    }
+
+    func testBlankEmployerIdMakesConfigurationUnreliable() throws {
+        var invalid = zone(first)
+        invalid.employerId = "   "
+
+        XCTAssertEqual(
+            GpsZoneConfigurationV2.read(try JSONEncoder().encode([invalid])),
+            .corrupt
+        )
+    }
+
     func testFingerprintRejectsStaleRegionIdentifier() throws {
         let original = [zone(first)]
         var moved = zone(first)
