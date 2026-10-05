@@ -41,7 +41,7 @@ object DailyPdfReport {
         val muted = Paint(text).apply { color = Color.rgb(105,105,105); textSize = 9f }
         val line = Paint().apply { color = Color.rgb(205,205,205); strokeWidth = 1f }
         val dateF = SimpleDateFormat("EEEE dd MMMM yyyy", Locale.FRANCE).apply { timeZone = reportZone }
-        val timeF = SimpleDateFormat("dd/MM HH:mm XXX", Locale.FRANCE).apply { timeZone = reportZone }
+        val timeF = SimpleDateFormat("dd/MM HH:mm Z", Locale.FRANCE).apply { timeZone = reportZone }
         val dayLabel = dateF.format(Date(dayStart)).replaceFirstChar { it.uppercase() }
         val contentBottom = H - 82f
 
