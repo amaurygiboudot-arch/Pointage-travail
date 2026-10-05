@@ -46,11 +46,15 @@ class DriveBackupReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (!DriveBackupManager.isConfigured(context)) return
 
-        // Un BroadcastReceiver peut être arrêté très vite par Android après onReceive().
-        // goAsync() garde officiellement le receiver vivant jusqu'à la fin du travail.
-        val pendingResult = goAsync()
-        DriveBackupManager.syncAllAsync(context.applicationContext) { _, _ ->
-            pendingResult.finish()
+        // Maintenir le receiver seulement jusqu'à l'enregistrement durable du travail,
+        // jamais pendant les lectures/écritures du fournisseur Documents/Drive.
+        val pending = goAsync()
+        try {
+            val operation = DriveBackupWorker.enqueue(context)
+            operation.result.addListener({ pending.finish() }, java.util.concurrent.Executor { it.run() })
+        } catch (error: Exception) {
+            pending.finish()
+            throw error
         }
     }
 }

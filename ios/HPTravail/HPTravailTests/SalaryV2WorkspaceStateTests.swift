@@ -84,4 +84,39 @@ final class SalaryV2WorkspaceStateTests: XCTestCase {
         XCTAssertNil(snapshot.netTaxable)
         XCTAssertTrue(snapshot.warnings.contains("Cotisation salariale à confirmer"))
     }
+
+    func testSegmentedTransitionNeverFallsBackToSingleMonthReference() {
+        let benefits = CompanyBenefitInKindContractV2.Snapshot(
+            applied: [], totalGross: 0, reliable: true, warnings: []
+        )
+        let singleMonthReference = SalaryReferenceContractV2.build(
+            cashGross: 2_500,
+            benefits: benefits,
+            netBeforeIncomeTax: 2_000,
+            netTaxable: 2_050
+        )
+
+        let segmentedMonth = SalaryWorkspaceResolverV2.resolve(
+            period: month,
+            requiresSegmentedSource: true,
+            segmented: nil,
+            reference: singleMonthReference
+        )
+        XCTAssertFalse(segmentedMonth.sourceReady)
+        XCTAssertNil(segmentedMonth.socialGross)
+        XCTAssertNil(segmentedMonth.netBeforeIncomeTax)
+        XCTAssertEqual(
+            segmentedMonth.warnings,
+            [SalaryWorkspaceResolverV2.segmentedSourceUnavailableWarning]
+        )
+
+        let ordinaryMonth = SalaryWorkspaceResolverV2.resolve(
+            period: month,
+            requiresSegmentedSource: false,
+            segmented: nil,
+            reference: singleMonthReference
+        )
+        XCTAssertTrue(ordinaryMonth.sourceReady)
+        XCTAssertEqual(ordinaryMonth.socialGross, 2_500)
+    }
 }

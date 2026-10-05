@@ -294,14 +294,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
                     && !state.pendingEvents.contains(where: { $0.id == eventId })
             }
         ) { state, event in
-            guard event.kind == .arrival else { return false }
-            state.confirmedSessionId = sessionId
-            if let nextDeparture = state.pendingEvents.firstIndex(where: {
-                $0.kind == .departure && $0.expectedSessionId == nil
-            }) {
-                state.pendingEvents[nextDeparture].expectedSessionId = sessionId
-            }
-            return true
+            GpsVisitConfirmationV2.arrival(state: &state, event: event, sessionId: sessionId)
         }
     }
 
@@ -314,13 +307,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
                     && !state.pendingEvents.contains(where: { $0.id == eventId })
             }
         ) { state, event in
-            guard event.kind == .departure,
-                  event.expectedSessionId == sessionId,
-                  state.confirmedSessionId == nil || state.confirmedSessionId == sessionId else {
-                return false
-            }
-            state.confirmedSessionId = nil
-            return true
+            GpsVisitConfirmationV2.departure(state: &state, event: event, sessionId: sessionId)
         }
     }
 

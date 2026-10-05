@@ -16,8 +16,10 @@ import com.amaury.pointage.v2.LegalPayrollSourceStoreV2
 import com.amaury.pointage.v2.NetSalaryReferencePolicyV2
 import com.amaury.pointage.v2.OfficialLegalCodeSourceV2
 import com.amaury.pointage.v2.V2EmploymentContractPayrollBridge
+import com.amaury.pointage.v2.V2SalaryCalculationRoute
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.model.ContractV2
+import com.amaury.pointage.v2.V2SegmentedSalaryCanonicalBridge
 import com.amaury.pointage.v2.V2RightsStore
 import java.io.OutputStream
 import java.text.DateFormatSymbols
@@ -186,13 +188,24 @@ object SalaryExamplePdfV2 {
             ?.let { ConventionCatalog.findByIdcc(context, it) }
             ?.takeIf { it.idcc.isNotBlank() }
 
-        val salaryNet = when {
-            !HoraTrackV2.ENABLED || convention == null -> null
-            company != null -> runCatching {
-                V2SalaryNetBridgeV2.calculateForCompany(context, company, year, month, convention)
+        val route = company?.let { V2SalaryCalculationRoute.resolve(context,it,year,month) }
+        val segmentedConsumer = company != null && route != V2SalaryCalculationRoute.Route.MONTHLY
+        val canonical = when {
+            company == null || !HoraTrackV2.ENABLED || route != V2SalaryCalculationRoute.Route.SEGMENTED -> null
+            else -> runCatching {
+                V2SegmentedSalaryCanonicalBridge.calculateForCompany(
+                    context = context,
+                    company = company,
+                    year = year,
+                    monthZeroBased = month,
+                    timeZoneId = ZoneId.systemDefault().id
+                ).output
             }.getOrNull()
-            else -> null
         }
+        val salaryNet = if (company != null && convention != null && HoraTrackV2.ENABLED &&
+            route == V2SalaryCalculationRoute.Route.MONTHLY) runCatching {
+                V2SalaryNetBridgeV2.calculateForCompany(context,company,year,month,convention)
+            }.getOrNull() else null
         val salary = when {
             salaryNet != null -> salaryNet.salary
             company != null || !HoraTrackV2.ENABLED || convention == null -> null
@@ -202,9 +215,10 @@ object SalaryExamplePdfV2 {
             else -> null
         }
         val payrollReferenceDate = PayrollPeriodV2.month(year, month).referenceDate
-        val payroll = salaryNet?.payroll
+        val payroll = canonical?.net?.projection?.payroll ?: salaryNet?.payroll
 
-        val timeSection = timeSectionValues(salary, salary?.unpaidPauseMs)
+        val timeSection = if (segmentedConsumer) timeSectionValues(canonical)
+            else timeSectionValues(salary, salary?.unpaidPauseMs)
         val counters = if (company != null) V2RightsStore.forCompany(context, company.id) else V2RightsStore.all(context)
         val legalReferenceAtMs = payrollReferenceDate
             .atStartOfDay(ZoneId.systemDefault())
@@ -259,7 +273,8 @@ object SalaryExamplePdfV2 {
             )))
 
             if (Field.ESTIMATED_GROSS in fields) {
-                add(PdfSection("ESTIMATION DE RÉMUNÉRATION", estimatedGrossLines(salary, salaryNet)))
+                add(PdfSection("ESTIMATION DE RÉMUNÉRATION",
+                    if (segmentedConsumer) estimatedGrossLines(canonical) else estimatedGrossLines(salary, salaryNet)))
             }
 
             if (Field.COUNTERS in fields) {
@@ -276,7 +291,8 @@ object SalaryExamplePdfV2 {
 
             if (Field.SOURCES in fields) {
                 val warningSections = warningSections(
-                    salaryWarnings = salaryNet?.warnings ?: salary?.warnings.orEmpty(),
+                    salaryWarnings = if (segmentedConsumer) canonical?.warnings.orEmpty()
+                        else salaryNet?.warnings ?: salary?.warnings.orEmpty(),
                     payrollWarnings = emptyList(),
                     employerCostWarnings = payroll?.employerCostWarnings.orEmpty()
                 )
@@ -463,6 +479,70 @@ object SalaryExamplePdfV2 {
     private const val PDF_SECTION_TAIL_HEIGHT = 23f
 
     internal fun estimatedGrossLines(
+        canonical: SegmentedSalaryCanonicalOutputV2?
+    ): List<Pair<String, String>> {
+        val payroll = canonical?.net?.projection?.payroll
+        val reliablePayrollGross =
+            canonical?.cashGrossReliable == true &&
+                payroll?.grossReliable == true
+        val socialGross = payroll
+            ?.takeIf { reliablePayrollGross }
+            ?.let(NetSalaryReferencePolicyV2::socialGross)
+
+        return buildList {
+            add(
+                "Brut social estimé HoraTrack hors paniers" to
+                    (socialGross?.let(::money) ?: "À confirmer")
+            )
+            if (reliablePayrollGross && (payroll?.benefitsInKindDeduction ?: 0.0) > 0.0) {
+                add("Dont avantages en nature" to money(payroll!!.benefitsInKindDeduction))
+            }
+            add(
+                "Majoration heures supplémentaires" to
+                    (canonical?.overtimeGross
+                        ?.takeIf { canonical.workedGrossReliable && it.isFinite() && it >= 0.0 }
+                        ?.let(::money)
+                        ?: "À confirmer")
+            )
+
+            // Le contrat segmenté ne porte pas encore les paniers : ne jamais relire l'ancien moteur
+            // pour compléter ce champ dans un PDF autrement canonique.
+            add("Paniers hors brut" to "À confirmer")
+
+            if (reliablePayrollGross && (payroll?.benefitsInKindDeduction ?: 0.0) > 0.0) {
+                add("Avantages en nature non versés en espèces" to "-${money(payroll!!.benefitsInKindDeduction)}")
+            }
+
+            val netComplete = canonical?.netBeforeIncomeTaxComplete == true
+            add("Net estimé avant impôt" to
+                (canonical?.netBeforeIncomeTax?.takeIf { netComplete }?.let(::money) ?: "À confirmer"))
+            add("Net imposable estimé" to
+                (canonical?.netTaxable?.takeIf { netComplete }?.let(::money) ?: "À confirmer"))
+            add("Prélèvement à la source" to
+                (canonical?.incomeTax?.takeIf { netComplete }?.let { "-${money(it)}" } ?: "À confirmer"))
+            add("Net estimé après PAS" to
+                (canonical?.netAfterIncomeTax?.takeIf { netComplete }?.let(::money) ?: "À confirmer"))
+
+            add(
+                "Réductions / exonérations patronales" to
+                    (payroll
+                        ?.takeIf { reliablePayrollGross }
+                        ?.confirmedEmployerReductions
+                        ?.let(::money)
+                        ?: "À confirmer")
+            )
+            add(
+                "Sous-total patronal connu après réductions" to
+                    (payroll
+                        ?.takeIf { reliablePayrollGross }
+                        ?.knownEmployerContributionsAfterReductions
+                        ?.let(::money)
+                        ?: "À confirmer")
+            )
+        }
+    }
+
+    internal fun estimatedGrossLines(
         salary: V2SalaryAdapter.Result?,
         salaryNet: V2SalaryNetBridgeV2.Result?
     ): List<Pair<String, String>> {
@@ -525,6 +605,27 @@ object SalaryExamplePdfV2 {
                         ?: "À confirmer")
             )
         }
+    }
+
+    internal fun timeSectionValues(
+        canonical: SegmentedSalaryCanonicalOutputV2?
+    ): TimeSectionValues {
+        if (canonical?.paidTimeReliable != true || canonical.paidMinutes == null) {
+            return TimeSectionValues(
+                completedSessions = "À confirmer",
+                paidTime = "À confirmer",
+                regularHours = "À confirmer",
+                overtimeHours = "À confirmer",
+                unpaidPauses = "À confirmer"
+            )
+        }
+        return TimeSectionValues(
+            completedSessions = canonical.worked.evidence.contributingSessionIds.size.toString(),
+            paidTime = duration(canonical.paidMinutes.toLong() * 60_000L),
+            regularHours = "À confirmer",
+            overtimeHours = "À confirmer",
+            unpaidPauses = "À confirmer"
+        )
     }
 
     internal fun timeSectionValues(
