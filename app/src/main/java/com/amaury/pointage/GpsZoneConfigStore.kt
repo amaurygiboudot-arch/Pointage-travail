@@ -257,21 +257,24 @@ internal fun groupGpsZonesByPlace(
 internal data class GpsPlaceTypeSummary(
     val workZones: Int,
     val parkingZones: Int,
+    val pauseZones: Int,
     val otherZones: Int
 )
 
 internal fun summarizeGpsPlaceTypes(group: GpsPlaceGroup): GpsPlaceTypeSummary {
     var work = 0
     var parking = 0
+    var pause = 0
     var other = 0
     group.zones.forEach { zone ->
         when (zone.pointTypeToken?.trim()?.uppercase()) {
+            null, "", "POSTE", "WORK", "WORKSITE" -> work++
             "PARKING" -> parking++
-            "OTHER", "AUTRE" -> other++
-            else -> work++
+            "PAUSE", "BREAK" -> pause++
+            else -> other++
         }
     }
-    return GpsPlaceTypeSummary(work, parking, other)
+    return GpsPlaceTypeSummary(work, parking, pause, other)
 }
 
 internal fun uniqueGpsPlaceLabel(group: GpsPlaceGroup): String? {
