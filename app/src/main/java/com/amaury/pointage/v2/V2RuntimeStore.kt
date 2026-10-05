@@ -50,6 +50,9 @@ object V2RuntimeStore {
         val session: WorkSessionV2?
     )
 
+    /** Même moniteur que les mutations @Synchronized du runtime, réentrant sans verrou secondaire. */
+    internal inline fun <T> withTransaction(block: () -> T): T = synchronized(this, block)
+
     fun bind(context: Context) {
         boundContext = context.applicationContext
         V2ProfileStore.bind(context)
