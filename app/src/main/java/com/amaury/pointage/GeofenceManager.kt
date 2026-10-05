@@ -339,6 +339,9 @@ object GeofenceManager {
                 currentFingerprint = fingerprint
             )
         ) {
+            // Les zones contextuelles ne changent pas les geofences, mais leur copie
+            // complète reste la dernière configuration saine à restaurer si nécessaire.
+            rememberLastGoodZones(context)
             onResult(true, "Zones GPS automatiques déjà synchronisées")
             return
         }
