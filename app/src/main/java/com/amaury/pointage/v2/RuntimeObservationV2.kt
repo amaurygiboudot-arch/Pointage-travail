@@ -13,7 +13,8 @@ object RuntimeObservationV2 {
     data class State(
         val reliable: Boolean,
         val paused: Boolean = false,
-        val hasActiveBoundedPause: Boolean = false
+        val hasActiveBoundedPause: Boolean = false,
+        val activePauseStartMs: Long? = null
     )
 
     fun assess(session: WorkSessionV2?, nowMs: Long): State {
@@ -24,6 +25,6 @@ object RuntimeObservationV2 {
             session.pauses.any { it.startMs > nowMs }) return State(false)
         if (session.status != SessionStatusV2.OPEN) return State(true)
         val active = session.pauses.filter { it.startMs <= nowMs && (it.endMs == null || it.endMs > nowMs) }
-        return State(true, active.isNotEmpty(), active.any { it.endMs != null })
+        return State(true, active.isNotEmpty(), active.any { it.endMs != null }, active.minOfOrNull { it.startMs })
     }
 }

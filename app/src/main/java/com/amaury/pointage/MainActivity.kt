@@ -728,21 +728,17 @@ class MainActivity : Activity() {
 
     private fun refreshScreen() {
         if (HoraTrackV2.ENABLED) {
-            val read = V2RuntimeReader.current(this)
+            val nowMs = System.currentTimeMillis()
+            val read = V2RuntimeReader.current(this, nowMs)
             if (!read.reliable) {
                 statusCard.text = "STATUT ACTUEL\n⚠ DONNÉES À VÉRIFIER"
                 historyText.text = "Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
                 return
             }
-            val session = read.snapshot.session
-            val openPause = session?.pauses?.lastOrNull { it.endMs == null }
-            statusCard.text = when {
-                session == null -> "STATUT ACTUEL\n○ Aucune entrée en cours"
-                session.status == SessionStatusV2.CLOSED -> "STATUT ACTUEL\n● SESSION TERMINÉE"
-                openPause != null -> "STATUT ACTUEL\n⏸ PAUSE EN COURS\nDepuis ${dateFormat.format(Date(openPause.startMs))}"
-                else -> "STATUT ACTUEL\n● ENTRÉE EN COURS\nDepuis ${dateFormat.format(Date(session.realArrivalMs ?: System.currentTimeMillis()))}"
+            statusCard.text = com.amaury.pointage.v2.ui.RuntimeStatusTextV2.format(read) { atMs ->
+                dateFormat.format(Date(atMs))
             }
-            historyText.text = buildV2HistoryText(todayOnly = true)
+            historyText.text = buildV2HistoryText(todayOnly = true, now = nowMs)
             return
         }
         V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.HISTORY)
@@ -756,8 +752,7 @@ class MainActivity : Activity() {
         historyText.text = buildLegacyTodayHistoryText()
     }
 
-    private fun buildV2HistoryText(todayOnly: Boolean): String {
-        val now = System.currentTimeMillis()
+    private fun buildV2HistoryText(todayOnly: Boolean, now: Long = System.currentTimeMillis()): String {
         val read = V2RuntimeReader.allSessions(this, now)
         if (!read.reliable) {
             return "Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
