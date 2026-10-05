@@ -192,6 +192,68 @@ internal fun resolveGpsLocationEntries(
     return entries
 }
 
+
+internal data class GpsPlaceGroup(
+    val address: String,
+    val zones: List<StoredGpsZone>,
+    val legacyOnly: Boolean
+)
+
+internal fun groupGpsZonesByPlace(
+    zonesResult: GpsZonesReadResult,
+    savedAddresses: List<String>
+): List<GpsPlaceGroup>? {
+    if (zonesResult is GpsZonesReadResult.Corrupt) return null
+    val groups = linkedMapOf<String, Pair<String, MutableList<StoredGpsZone>>>()
+    if (zonesResult is GpsZonesReadResult.Valid) {
+        zonesResult.zones.forEach { zone ->
+            val source = runCatching { JSONObject(zone.sourceJson) }.getOrNull()
+            if (source?.optBoolean("smartCandidate", false) == true) return@forEach
+            val address = zone.address?.trim().orEmpty()
+            if (address.isBlank()) return@forEach
+            val key = address.lowercase()
+            val pair = groups.getOrPut(key) { address to mutableListOf() }
+            pair.second += zone
+        }
+    }
+    savedAddresses.map(String::trim).filter(String::isNotBlank).forEach { address ->
+        groups.getOrPut(address.lowercase()) { address to mutableListOf() }
+    }
+    return groups.values.map { (address, zones) ->
+        GpsPlaceGroup(address, zones.toList(), legacyOnly = zones.isEmpty())
+    }
+}
+
+
+
+internal data class GpsPlaceTypeSummary(
+    val workZones: Int,
+    val parkingZones: Int,
+    val otherZones: Int
+)
+
+internal fun summarizeGpsPlaceTypes(group: GpsPlaceGroup): GpsPlaceTypeSummary {
+    var work = 0
+    var parking = 0
+    var other = 0
+    group.zones.forEach { zone ->
+        when (zone.pointTypeToken?.trim()?.uppercase()) {
+            "PARKING" -> parking++
+            "OTHER", "AUTRE" -> other++
+            else -> work++
+        }
+    }
+    return GpsPlaceTypeSummary(work, parking, other)
+}
+
+internal fun uniqueGpsPlaceLabel(group: GpsPlaceGroup): String? {
+    val labels = group.zones.mapNotNull { it.label?.trim()?.takeIf(String::isNotBlank) }.distinct()
+    return labels.singleOrNull()
+}
+
+internal fun representativeGpsZoneId(group: GpsPlaceGroup): String? =
+    group.zones.singleOrNull()?.id
+
 internal sealed class GpsZoneRadiusResolution {
     data class Known(val radiusMeters: Float) : GpsZoneRadiusResolution()
     object Missing : GpsZoneRadiusResolution()
@@ -265,6 +327,43 @@ internal fun putGpsZoneScopedObject(
     values.put(canonicalId, JSONObject(value.toString()))
     return true
 }
+
+internal fun removeGpsZoneById(zones: JSONArray, zoneId: String): JSONArray? {
+    val target = zoneId.trim()
+    if (target.isBlank()) return null
+    val result = JSONArray()
+    var removed = false
+    for (index in 0 until zones.length()) {
+        val zone = zones.optJSONObject(index) ?: return null
+        if (zone.optString("id").trim() == target) {
+            if (removed) return null
+            removed = true
+        } else {
+            result.put(JSONObject(zone.toString()))
+        }
+    }
+    return result.takeIf { removed }
+}
+
+internal fun moveGpsPlaceAddress(
+    zones: JSONArray,
+    oldAddress: String,
+    newAddress: String
+): Boolean {
+    val oldValue = oldAddress.trim()
+    val newValue = newAddress.trim()
+    if (oldValue.isBlank() || newValue.isBlank()) return false
+    var changed = false
+    for (index in 0 until zones.length()) {
+        val zone = zones.optJSONObject(index) ?: return false
+        if (zone.optString("address").trim().equals(oldValue, ignoreCase = true)) {
+            zone.put("address", newValue)
+            changed = true
+        }
+    }
+    return changed
+}
+
 
 internal fun updateGpsZoneTypeById(
     zones: JSONArray,
