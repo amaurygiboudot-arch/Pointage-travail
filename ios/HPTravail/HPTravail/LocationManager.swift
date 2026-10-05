@@ -655,6 +655,14 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
               let data = try? JSONEncoder().encode(updated) else {
             return false
         }
+        let previousAutomaticFingerprint = GpsZoneConfigurationV2.fingerprint(
+            enabled: automaticEnabled,
+            zones: zones
+        )
+        let nextAutomaticFingerprint = GpsZoneConfigurationV2.fingerprint(
+            enabled: automaticEnabled,
+            zones: updated
+        )
         defaults.set(data, forKey: GpsZoneConfigurationV2.zonesKey)
         guard GpsZoneConfigurationV2.read(
             defaults.data(forKey: GpsZoneConfigurationV2.zonesKey)
@@ -663,7 +671,9 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             return false
         }
         registrationSuspended = false
-        reloadAndReconcile(configurationChanged: true)
+        reloadAndReconcile(
+            configurationChanged: previousAutomaticFingerprint != nextAutomaticFingerprint
+        )
         return true
     }
 
