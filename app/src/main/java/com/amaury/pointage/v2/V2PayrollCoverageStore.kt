@@ -307,6 +307,8 @@ object V2PayrollCoverageStore {
 
     internal fun strictLong(value: Any?): Long? = when (value) {
         is Byte, is Short, is Int, is Long -> (value as Number).toLong()
+        is java.math.BigDecimal -> runCatching { value.longValueExact() }.getOrNull()
+        is java.math.BigInteger -> runCatching { value.longValueExact() }.getOrNull()
         is Float, is Double -> (value as Number).toDouble()
             .takeIf {
                 it.isFinite() && it % 1.0 == 0.0 &&

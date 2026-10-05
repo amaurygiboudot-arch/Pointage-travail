@@ -7,6 +7,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.json.JSONObject
 
 class V2SegmentedProrationStoreTest {
     @Test
@@ -53,6 +54,27 @@ class V2SegmentedProrationStoreTest {
         assertEquals(Long.MAX_VALUE, V2SegmentedProrationStore.strictLong(Long.MAX_VALUE))
         assertEquals(Long.MIN_VALUE, V2SegmentedProrationStore.strictLong(Long.MIN_VALUE.toDouble()))
         assertEquals(1234L, V2SegmentedProrationStore.strictLong(1234.0))
+    }
+
+    @Test
+    fun integralFloatingTimestampRoundTripsFromScientificJson() {
+        val value = sample().copy(checkedAtMs = 1790546400000L)
+        val payload = JSONObject(V2SegmentedProrationStore.encode(value)!!)
+        payload.put("checkedAtMs", value.checkedAtMs.toDouble())
+        assertEquals(value, V2SegmentedProrationStore.decode(payload.toString()))
+    }
+
+    @Test
+    fun arbitraryPrecisionValuesRequireExactLong() {
+        assertEquals(Long.MAX_VALUE, V2SegmentedProrationStore.strictLong(java.math.BigInteger.valueOf(Long.MAX_VALUE)))
+        assertEquals(1234L, V2SegmentedProrationStore.strictLong(java.math.BigDecimal("1234.0")))
+        for (invalid in listOf<Number>(java.math.BigDecimal("1.5"), java.math.BigDecimal("1E100"),
+                java.math.BigDecimal("-1E100"), java.math.BigInteger("9223372036854775808"))) {
+            assertNull(V2SegmentedProrationStore.strictLong(invalid))
+            val payload = JSONObject(V2SegmentedProrationStore.encode(sample())!!)
+            payload.put("checkedAtMs", invalid)
+            assertNull(V2SegmentedProrationStore.decode(payload.toString()))
+        }
     }
 
     private fun sample() = ConfirmedSegmentedMonthlyProrationV2(

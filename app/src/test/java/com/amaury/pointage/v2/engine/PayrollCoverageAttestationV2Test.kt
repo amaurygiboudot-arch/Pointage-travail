@@ -199,6 +199,16 @@ class PayrollCoverageAttestationV2Test {
     }
 
     @Test
+    fun `nombres JSON de precision arbitraire conservent uniquement les entiers Long exacts`() {
+        org.junit.Assert.assertEquals(checkedAt, V2PayrollCoverageStore.strictLong(java.math.BigDecimal.valueOf(checkedAt)))
+        org.junit.Assert.assertEquals(Long.MAX_VALUE, V2PayrollCoverageStore.strictLong(java.math.BigInteger.valueOf(Long.MAX_VALUE)))
+        for (invalid in listOf<Number>(java.math.BigDecimal("1E100"), java.math.BigDecimal("-1E100"),
+                java.math.BigDecimal("1.5"), java.math.BigInteger("9223372036854775808"))) {
+            org.junit.Assert.assertNull(V2PayrollCoverageStore.strictLong(invalid))
+        }
+    }
+
+    @Test
     fun `codec conserve dates entieres exactes et entieres flottantes`() {
         val proof = attestation("one", weekStart, weekEnd,
             listOf(session("a", LocalDate.of(2026, 9, 22))))
