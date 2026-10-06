@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.util.TypedValue
 import android.widget.RemoteViews
 import android.widget.Toast
+import com.amaury.pointage.v2.RuntimeObservationV2
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.V2RuntimeStore
@@ -69,7 +70,7 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             val read = V2RuntimeReader.current(context)
             if (!read.reliable) return "VÉRIFIER"
             val session = read.snapshot.session ?: return "PAUSE"
-            val paused = session.realExitMs == null && session.pauses.any { it.endMs == null }
+            val paused = read.observation.paused
             return if (paused) "REPRENDRE" else "PAUSE"
         }
 
@@ -183,11 +184,13 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
                     val read = V2RuntimeReader.current(context)
                     val session = read.snapshot.session
                     if (!read.reliable) {
-                        Toast.makeText(context, "Pause bloquée : données HoraTrack à vérifier", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, V2RuntimeReader.warningText(read.warnings), Toast.LENGTH_LONG).show()
                     } else if (session == null || session.realExitMs != null) {
                         Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
+                    } else if (read.observation.hasActiveBoundedPause) {
+                        Toast.makeText(context, RuntimeObservationV2.BOUNDED_PAUSE_MESSAGE, Toast.LENGTH_LONG).show()
                     } else {
-                        val wasPaused = session.pauses.any { it.endMs == null }
+                        val wasPaused = read.observation.paused
                         if (wasPaused) {
                             val changed = V2RuntimeStore.togglePause(context)
                             Toast.makeText(

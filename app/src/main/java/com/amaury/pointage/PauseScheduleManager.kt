@@ -195,15 +195,17 @@ object PauseScheduleManager {
 
     private fun isAnyPauseActive(context: Context): Boolean {
         if (!HoraTrackV2.ENABLED) return PointageStore.isPaused(context)
-        val session = V2RuntimeStore.snapshot(context).session ?: return false
-        return session.realExitMs == null && session.pauses.any { it.endMs == null }
+        val read = com.amaury.pointage.v2.V2RuntimeReader.current(context)
+        return read.reliable && read.observation.paused
     }
 
     private fun startScheduledPause(context: Context): Boolean {
         if (!HoraTrackV2.ENABLED) return PointageStore.startPause(context, true)
-        val snap = V2RuntimeStore.snapshot(context).session ?: return false
-        if (snap.realExitMs != null || snap.pauses.any { it.endMs == null }) return false
-        return V2RuntimeStore.togglePause(context, source = EventSourceV2.SYSTEM, paid = false)
+        val nowMs = System.currentTimeMillis()
+        val read = com.amaury.pointage.v2.V2RuntimeReader.current(context, nowMs)
+        val session = read.snapshot.session ?: return false
+        if (!read.reliable || session.realExitMs != null || read.observation.paused) return false
+        return V2RuntimeStore.togglePause(context, nowMs, source = EventSourceV2.SYSTEM, paid = false)
     }
 
     private fun isScheduledPauseActive(context: Context): Boolean {

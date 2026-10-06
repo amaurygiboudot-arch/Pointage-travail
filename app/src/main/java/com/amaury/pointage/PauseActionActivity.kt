@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.os.Bundle
 import android.widget.Toast
+import com.amaury.pointage.v2.RuntimeObservationV2
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.PauseActionPolicyV2
 import com.amaury.pointage.v2.V2RuntimeReader
@@ -31,11 +32,16 @@ class PauseActionActivity : Activity() {
     private fun handlePauseAction() {
         val read = V2RuntimeReader.current(this)
         if (!read.reliable) {
-            Toast.makeText(this, "Pause bloquée : données HoraTrack à vérifier", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, V2RuntimeReader.warningText(read.warnings), Toast.LENGTH_LONG).show()
             finish()
             return
         }
 
+        if (read.observation.hasActiveBoundedPause) {
+            Toast.makeText(this, RuntimeObservationV2.BOUNDED_PAUSE_MESSAGE, Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
         val session = read.snapshot.session
         val openPause = session?.pauses?.lastOrNull { it.endMs == null }
         val target = session?.let { PauseActionPolicyV2.Target(it.id, openPause?.startMs) }

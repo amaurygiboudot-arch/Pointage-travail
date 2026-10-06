@@ -40,7 +40,7 @@ object V2LegacyIsolationUi {
         if (!read.reliable) return "STATUT ACTUEL\n●  DONNÉES À VÉRIFIER"
         val session = read.snapshot.session ?: return "STATUT ACTUEL\n●  AUCUNE SESSION EN COURS"
         return when (session.status) {
-            SessionStatusV2.OPEN -> if (session.pauses.any { it.endMs == null }) "STATUT ACTUEL\n●  PAUSE EN COURS" else "STATUT ACTUEL\n●  TRAVAIL EN COURS"
+            SessionStatusV2.OPEN -> if (read.observation.paused) "STATUT ACTUEL\n●  PAUSE EN COURS" else "STATUT ACTUEL\n●  TRAVAIL EN COURS"
             SessionStatusV2.CLOSED -> "STATUT ACTUEL\n●  SESSION TERMINÉE"
             SessionStatusV2.TO_CONFIRM -> "STATUT ACTUEL\n●  SESSION À CONFIRMER"
         }

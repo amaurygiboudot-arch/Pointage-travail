@@ -14,6 +14,7 @@ import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import android.widget.Toast
+import com.amaury.pointage.v2.RuntimeObservationV2
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.V2RuntimeStore
@@ -130,7 +131,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
                 } else if (read.snapshot.session != null) {
                     val session = read.snapshot.session
                     val result = read.snapshot.result
-                    paused = session.pauses.any { it.endMs == null }
+                    paused = read.observation.paused
                     session.realArrivalMs?.let { entryText = formatTime(it) }
                     session.realExitMs?.let { exitText = formatTime(it) }
                     durationText = formatDuration(result?.paidWorkMs ?: 0L)
@@ -323,11 +324,13 @@ class PointageWidgetProvider : AppWidgetProvider() {
                     val read = V2RuntimeReader.current(context)
                     val session = read.snapshot.session
                     if (!read.reliable) {
-                        Toast.makeText(context, "Pause bloquée : données HoraTrack à vérifier", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, V2RuntimeReader.warningText(read.warnings), Toast.LENGTH_LONG).show()
                     } else if (session == null || session.realExitMs != null) {
                         Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
+                    } else if (read.observation.hasActiveBoundedPause) {
+                        Toast.makeText(context, RuntimeObservationV2.BOUNDED_PAUSE_MESSAGE, Toast.LENGTH_LONG).show()
                     } else {
-                        val wasPaused = session.pauses.any { it.endMs == null }
+                        val wasPaused = read.observation.paused
                         if (wasPaused) {
                             val changed = V2RuntimeStore.togglePause(context)
                             Toast.makeText(
