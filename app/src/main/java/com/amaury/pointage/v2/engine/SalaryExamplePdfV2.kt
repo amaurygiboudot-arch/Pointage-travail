@@ -64,6 +64,14 @@ object SalaryExamplePdfV2 {
         employerCost = employerCostWarnings.distinct()
     )
 
+    internal fun calculationDiagnostics(
+        calculationAvailable: Boolean,
+        upstreamWarnings: List<String>,
+        outputWarnings: List<String>
+    ): List<String> = (upstreamWarnings + outputWarnings +
+        if (calculationAvailable) emptyList() else listOf("Calcul salaire non disponible pour ce mois — données à confirmer.")
+    ).distinct()
+
     internal fun legalSourceStatus(
         reliable: Boolean,
         coveredTopics: Int,
@@ -162,16 +170,9 @@ object SalaryExamplePdfV2 {
         val legacyProfile = if (company == null) V2ProfileStore.load(context, 1) else null
         val legacyContract = legacyProfile?.contract
         val legacyEmployer = legacyProfile?.employer
-        val periodContract = if (company != null) {
-            V2EmploymentContractPayrollBridge.resolve(
-                context = context,
-                companyId = company.id,
-                year = year,
-                monthZeroBased = month
-            ).resolution.contract
-        } else {
-            legacyContract
-        }
+        val routeDetails = company?.let { V2SalaryCalculationRoute.resolveDetails(context, it, year, month) }
+        val periodContract = if (company != null) routeDetails?.contract else legacyContract
+        val calculationWarnings = mutableListOf<String>()
         val contractDisplay = contractDisplayValues(periodContract)
         val rate = contractDisplay.grossHourlyRate
 
@@ -188,9 +189,9 @@ object SalaryExamplePdfV2 {
             ?.let { ConventionCatalog.findByIdcc(context, it) }
             ?.takeIf { it.idcc.isNotBlank() }
 
-        val route = company?.let { V2SalaryCalculationRoute.resolve(context,it,year,month) }
+        val route = routeDetails?.route
         val segmentedConsumer = company != null && route != V2SalaryCalculationRoute.Route.MONTHLY
-        val canonical = when {
+        val segmentedResult = when {
             company == null || !HoraTrackV2.ENABLED || route != V2SalaryCalculationRoute.Route.SEGMENTED -> null
             else -> runCatching {
                 V2SegmentedSalaryCanonicalBridge.calculateForCompany(
@@ -199,13 +200,20 @@ object SalaryExamplePdfV2 {
                     year = year,
                     monthZeroBased = month,
                     timeZoneId = ZoneId.systemDefault().id
-                ).output
-            }.getOrNull()
+                )
+            }.getOrElse {
+                calculationWarnings += V2SalaryCalculationRoute.UNAVAILABLE_WARNING
+                null
+            }
         }
+        val canonical = segmentedResult?.output
         val salaryNet = if (company != null && convention != null && HoraTrackV2.ENABLED &&
             route == V2SalaryCalculationRoute.Route.MONTHLY) runCatching {
                 V2SalaryNetBridgeV2.calculateForCompany(context,company,year,month,convention)
-            }.getOrNull() else null
+            }.getOrElse {
+                calculationWarnings += V2SalaryCalculationRoute.UNAVAILABLE_WARNING
+                null
+            } else null
         val salary = when {
             salaryNet != null -> salaryNet.salary
             company != null || !HoraTrackV2.ENABLED || convention == null -> null
@@ -295,8 +303,13 @@ object SalaryExamplePdfV2 {
 
             if (Field.SOURCES in fields) {
                 val warningSections = warningSections(
-                    salaryWarnings = if (segmentedConsumer) canonical?.warnings.orEmpty()
-                        else salaryNet?.warnings ?: salary?.warnings.orEmpty(),
+                    salaryWarnings = calculationDiagnostics(
+                        calculationAvailable = salary != null || canonical != null,
+                        upstreamWarnings = routeDetails?.warnings.orEmpty() + calculationWarnings +
+                            segmentedResult?.warnings.orEmpty(),
+                        outputWarnings = if (segmentedConsumer) canonical?.warnings.orEmpty()
+                            else salaryNet?.warnings ?: salary?.warnings.orEmpty()
+                    ),
                     payrollWarnings = emptyList(),
                     employerCostWarnings = payroll?.employerCostWarnings.orEmpty()
                 )

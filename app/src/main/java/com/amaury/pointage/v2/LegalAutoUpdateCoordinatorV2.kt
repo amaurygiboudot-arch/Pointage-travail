@@ -18,7 +18,6 @@ import java.util.Locale
 object LegalAutoUpdateCoordinatorV2 {
     private const val PREFS = "legal_auto_update_v2"
     private const val RETRY_DELAY_MS = 6L * 60L * 60L * 1000L
-    private val PARIS = ZoneId.of("Europe/Paris")
     private val SAFE_KALI_KINDS = setOf(
         "KALI_OVERTIME",
         "KALI_NIGHT",
@@ -99,23 +98,24 @@ object LegalAutoUpdateCoordinatorV2 {
         referenceDate: LocalDate,
         plan: LegalReanalysisPlanClientV2.Plan
     ): Task<Summary> {
+        val scope = AuditScope(company.id, referenceDate)
         val (allKali, allLegi, allAcco) = selectKinds(plan.jobs)
         val nowMs = System.currentTimeMillis()
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val kali = allKali.filter { job ->
-            job.analysisKinds.any { kind -> kind in SAFE_KALI_KINDS && canAttempt(prefs, job, kind, nowMs) }
+            job.analysisKinds.any { kind -> kind in SAFE_KALI_KINDS && canAttempt(prefs, job, kind, nowMs, scope) }
         }
-        val legi = allLegi.filter { canAttempt(prefs, it, "LEGI_ALL", nowMs) }
+        val legi = allLegi.filter { canAttempt(prefs, it, "LEGI_ALL", nowMs, scope) }
         val acco = allAcco.filter {
             "ACCO_EXTRACT_CANDIDATES" in it.analysisKinds &&
-                canAttempt(prefs, it, "ACCO_EXTRACT_CANDIDATES", nowMs)
+                canAttempt(prefs, it, "ACCO_EXTRACT_CANDIDATES", nowMs, scope)
         }
         val legacyAcco = allAcco.filter {
             "ACCO_PENDING_PARSER" in it.analysisKinds && "ACCO_EXTRACT_CANDIDATES" !in it.analysisKinds
         }
         val alreadyHandled = plan.jobs.count { job ->
             val kinds = job.analysisKinds.filter { it != "ACCO_PENDING_PARSER" }
-            kinds.isNotEmpty() && kinds.all { isDone(prefs, job, it) }
+            kinds.isNotEmpty() && kinds.all { isDone(prefs, job, it, scope) }
         }
 
         val baseWarnings = buildList {
@@ -149,14 +149,14 @@ object LegalAutoUpdateCoordinatorV2 {
                 } else {
                     KaliOutcome(warnings = listOf("KALI : mise à jour automatique interrompue."))
                 }
-                runLegi(context, referenceDate, legi, nowMs)
+                runLegi(context, company.id, referenceDate, legi, nowMs)
                     .continueWithTask { legiTask ->
                         val legiOutcome = if (legiTask.isSuccessful) {
                             legiTask.result ?: LegiOutcome()
                         } else {
                             LegiOutcome(warnings = listOf("LEGI : mise à jour automatique interrompue."))
                         }
-                        runAcco(context, company, acco, nowMs)
+                        runAcco(context, company, referenceDate, acco, nowMs)
                             .continueWith { accoTask ->
                                 val accoOutcome = if (accoTask.isSuccessful) {
                                     accoTask.result ?: AccoOutcome()
@@ -199,9 +199,10 @@ object LegalAutoUpdateCoordinatorV2 {
             return Tasks.forResult(KaliOutcome(warnings = listOf("KALI : IDCC requis pour la mise à jour automatique.")))
         }
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val scope = AuditScope(company.id, referenceDate)
         val work = SAFE_KALI_KINDS.mapNotNull { kind ->
             val kindJobs = jobs.filter { job ->
-                kind in job.analysisKinds && canAttempt(prefs, job, kind, nowMs)
+                kind in job.analysisKinds && canAttempt(prefs, job, kind, nowMs, scope)
             }
             kind.takeIf { kindJobs.isNotEmpty() }?.let { it to kindJobs }
         }
@@ -220,7 +221,8 @@ object LegalAutoUpdateCoordinatorV2 {
     ): Task<KaliOutcome> {
         if (index >= work.size) return Tasks.forResult(accumulated)
         val (kind, jobs) = work[index]
-        markAttempt(context, jobs, kind, nowMs)
+        val scope = AuditScope(companyId, referenceDate)
+        markAttempt(context, jobs, kind, nowMs, scope)
 
         val audit: Task<Pair<Boolean, Boolean>> = when (kind) {
             "KALI_OVERTIME" -> KaliOvertimePayrollAuditV2.audit(context, idcc, referenceDate)
@@ -327,7 +329,7 @@ object LegalAutoUpdateCoordinatorV2 {
             val result = if (task.isSuccessful) task.result else null
             val completed = result?.first == true
             val saved = result?.second == true
-            if (completed) markDone(context, jobs, kind)
+            if (completed) markDone(context, jobs, kind, scope)
             val warning = if (completed) emptyList() else listOf("${kindLabel(kind)} : contrôle officiel à retenter ultérieurement.")
             runKaliKinds(
                 context = context,
@@ -367,13 +369,15 @@ object LegalAutoUpdateCoordinatorV2 {
 
     private fun runLegi(
         context: Context,
+        companyId: String,
         referenceDate: LocalDate,
         jobs: List<LegalReanalysisPlanClientV2.Job>,
         nowMs: Long
     ): Task<LegiOutcome> {
         if (jobs.isEmpty()) return Tasks.forResult(LegiOutcome())
-        markAttempt(context, jobs, "LEGI_ALL", nowMs)
-        val atMs = referenceDate.atTime(12, 0).atZone(PARIS).toInstant().toEpochMilli()
+        val scope = AuditScope(companyId, referenceDate)
+        markAttempt(context, jobs, "LEGI_ALL", nowMs, scope)
+        val atMs = payrollReferenceAtMs(referenceDate)
         return LegalPayrollAuditV2.auditAll(context, atMs)
             .continueWith { task ->
                 if (!task.isSuccessful) {
@@ -381,7 +385,7 @@ object LegalAutoUpdateCoordinatorV2 {
                 }
                 val summary = task.result
                 val completed = summary != null && legiAuditCompleted(summary)
-                if (completed) markDone(context, jobs, "LEGI_ALL")
+                if (completed) markDone(context, jobs, "LEGI_ALL", scope)
                 LegiOutcome(
                     ran = 1,
                     verifiedArticles = summary?.verifiedArticles ?: 0,
@@ -399,6 +403,7 @@ object LegalAutoUpdateCoordinatorV2 {
     private fun runAcco(
         context: Context,
         company: SalaryCompanyStore.Company,
+        referenceDate: LocalDate,
         jobs: List<LegalReanalysisPlanClientV2.Job>,
         nowMs: Long
     ): Task<AccoOutcome> {
@@ -407,14 +412,15 @@ object LegalAutoUpdateCoordinatorV2 {
         if (siret.length != 14) {
             return Tasks.forResult(AccoOutcome(warnings = listOf("ACCO : SIRET requis pour la réanalyse automatique.")))
         }
-        markAttempt(context, jobs, "ACCO_EXTRACT_CANDIDATES", nowMs)
+        val scope = AuditScope(company.id, referenceDate)
+        markAttempt(context, jobs, "ACCO_EXTRACT_CANDIDATES", nowMs, scope)
         return CompanyAgreementOfficialAuditV2.audit(context, company.id, siret)
             .continueWith { task ->
                 if (!task.isSuccessful) {
                     return@continueWith AccoOutcome(1, 0, listOf("ACCO : contrôle automatique impossible."))
                 }
                 val summary = task.result
-                if (summary?.completed == true) markDone(context, jobs, "ACCO_EXTRACT_CANDIDATES")
+                if (summary?.completed == true) markDone(context, jobs, "ACCO_EXTRACT_CANDIDATES", scope)
                 AccoOutcome(
                     ran = 1,
                     extractedCandidates = summary?.extractedCandidates ?: 0,
@@ -438,47 +444,61 @@ object LegalAutoUpdateCoordinatorV2 {
             value.contains("indisponible") || value.contains("erreur") || value.contains("timeout")
     }
 
-    private fun canAttempt(
+    internal fun canAttempt(
         prefs: android.content.SharedPreferences,
         job: LegalReanalysisPlanClientV2.Job,
         kind: String,
-        nowMs: Long
+        nowMs: Long,
+        scope: AuditScope
     ): Boolean {
-        if (isDone(prefs, job, kind)) return false
-        val lastAttempt = prefs.getLong(attemptKey(job, kind), 0L)
+        if (isDone(prefs, job, kind, scope)) return false
+        val lastAttempt = prefs.getLong(attemptKey(job, kind, scope), 0L)
         return lastAttempt <= 0L || nowMs - lastAttempt >= RETRY_DELAY_MS
     }
 
     private fun isDone(
         prefs: android.content.SharedPreferences,
         job: LegalReanalysisPlanClientV2.Job,
-        kind: String
-    ): Boolean = prefs.getBoolean(doneKey(job, kind), false)
+        kind: String,
+        scope: AuditScope
+    ): Boolean = prefs.getBoolean(doneKey(job, kind, scope), false)
 
     private fun markAttempt(
         context: Context,
         jobs: List<LegalReanalysisPlanClientV2.Job>,
         kind: String,
-        nowMs: Long
+        nowMs: Long,
+        scope: AuditScope
     ) {
         val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-        jobs.forEach { editor.putLong(attemptKey(it, kind), nowMs) }
+        jobs.forEach { editor.putLong(attemptKey(it, kind, scope), nowMs) }
         editor.apply()
     }
 
     private fun markDone(
         context: Context,
         jobs: List<LegalReanalysisPlanClientV2.Job>,
-        kind: String
+        kind: String,
+        scope: AuditScope
     ) {
         val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-        jobs.forEach { editor.putBoolean(doneKey(it, kind), true) }
+        jobs.forEach { editor.putBoolean(doneKey(it, kind, scope), true) }
         editor.apply()
     }
 
-    private fun doneKey(job: LegalReanalysisPlanClientV2.Job, kind: String) =
-        "done_${kind}_${job.revisionKey}"
+    internal data class AuditScope(val companyId: String, val referenceDate: LocalDate)
 
-    private fun attemptKey(job: LegalReanalysisPlanClientV2.Job, kind: String) =
-        "attempt_${kind}_${job.revisionKey}"
+    // Match PDF, manual audits and the salary engine, including their local midnight convention.
+    internal fun payrollReferenceAtMs(date: LocalDate, zone: ZoneId = ZoneId.systemDefault()): Long =
+        date.atStartOfDay(zone).toInstant().toEpochMilli()
+
+    private fun scopeKey(scope: AuditScope): String =
+        "${scope.companyId.length}:${scope.companyId}:${scope.referenceDate.toEpochDay()}"
+
+    // Old unscoped flags cannot prove that this company/date has been audited.
+    internal fun doneKey(job: LegalReanalysisPlanClientV2.Job, kind: String, scope: AuditScope) =
+        "done_v2_${scopeKey(scope)}_${kind}_${job.revisionKey}"
+
+    internal fun attemptKey(job: LegalReanalysisPlanClientV2.Job, kind: String, scope: AuditScope) =
+        "attempt_v2_${scopeKey(scope)}_${kind}_${job.revisionKey}"
 }
