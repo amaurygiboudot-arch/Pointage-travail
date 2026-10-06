@@ -17,7 +17,7 @@ import org.robolectric.annotation.Config
 @Config(application = Application::class, sdk = [28])
 class SalaryInformationSheetSaveTest {
     private fun form(): SalaryInformationSheetView {
-        val context = RuntimeEnvironment.getApplication<Application>()
+        val context = RuntimeEnvironment.getApplication()
         context.getSharedPreferences("horatrack_v2_employment_contract_history", 0).edit().clear().commit()
         assertTrue(SalaryCompanyStore.upsert(context, SalaryCompanyStore.Company("save-test", "Entreprise", "")))
         return SalaryInformationSheetView(context).bindCompany("save-test").apply {
