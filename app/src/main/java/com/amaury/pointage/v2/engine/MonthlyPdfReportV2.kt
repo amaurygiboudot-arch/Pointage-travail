@@ -31,6 +31,7 @@ object MonthlyPdfReportV2 {
                 it.get(Calendar.YEAR) == year && it.get(Calendar.MONTH) == month
             }
         }.sortedBy { it.realArrivalMs }
+        ConfirmedWorkPdfPolicyV2.requireStable(selected)
 
         val pdf = PdfDocument()
         val normal = PdfVisualStyle.bodyPaint()

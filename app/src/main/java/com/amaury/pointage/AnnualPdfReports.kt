@@ -13,6 +13,7 @@ import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.V2SegmentedSalaryCanonicalBridge
 import com.amaury.pointage.v2.engine.NetSalaryEngineV2
 import com.amaury.pointage.v2.engine.WorkSessionRangeV2
+import com.amaury.pointage.v2.engine.ConfirmedWorkPdfPolicyV2
 import com.amaury.pointage.v2.engine.TimeResultV2
 import com.amaury.pointage.v2.engine.WorkSessionEmployerAssignmentV2
 import com.amaury.pointage.v2.engine.WorkSessionOverlapV2
@@ -153,6 +154,8 @@ object AnnualPdfReports {
     private fun writeWorkV2(context: Context, year: Int, out: OutputStream) {
         val runtimeSessions = V2RuntimeReader.allSessions(context).requireReliable()
         val reportNowMs = System.currentTimeMillis()
+        val yearScope = yearRange(year)
+        ConfirmedWorkPdfPolicyV2.requireStableForRange(runtimeSessions, yearScope.first, yearScope.second, reportNowMs)
         val sessions = runtimeSessions.filter { session ->
             val anchor = session.countedEntryMs ?: session.realArrivalMs ?: return@filter false
             Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = anchor }.get(Calendar.YEAR) == year
@@ -343,6 +346,9 @@ object AnnualPdfReports {
             legacyProfile?.employer?.id != null -> setOf(legacyProfile.employer!!.id)
             else -> emptySet()
         }
+        val yearScope = yearRange(year)
+        ConfirmedWorkPdfPolicyV2.requireStableForRange(runtimeSessions, yearScope.first, yearScope.second, reportNowMs,
+            acceptedEmployerIds.takeIf { it.isNotEmpty() })
         val rate = if (company == null) {
             legacyProfile?.contract?.grossHourlyRate ?: prefDouble(legacyPrefs.all["hourly_rate"])
         } else {

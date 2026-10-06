@@ -5,13 +5,11 @@ import com.amaury.pointage.billing.BillingPdfGate
 import android.content.Context
 import android.content.Intent
 import android.util.AttributeSet
-import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.HoraTrackV2
-import com.amaury.pointage.v2.V2RuntimeReader
-import com.amaury.pointage.v2.engine.MonthlyPdfReportV2
+import com.amaury.pointage.v2.V2LegacyPolicy
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -23,11 +21,12 @@ class PreviewPdfButton @JvmOverloads constructor(
     defStyleAttr: Int = android.R.attr.buttonStyle
 ) : Button(context, attrs, defStyleAttr) {
 
-    override fun setOnClickListener(l: View.OnClickListener?) {
+    init {
+        // A caller can replace or clear this default using the normal Button API.
         super.setOnClickListener { openPreview() }
     }
 
-    private fun openPreview() {
+    internal fun openPreview(year: Int? = null, month: Int? = null) {
         val activity = context as? MainActivity ?: return
         val monthText = activity.findViewById<TextView>(R.id.selectedReportMonthText)?.text?.toString().orEmpty()
         val label = monthText.substringAfter(":", "").trim()
@@ -37,25 +36,30 @@ class PreviewPdfButton @JvmOverloads constructor(
             if (parsed != null) cal.time = parsed
         }
 
+        if (year != null && month != null) {
+            if (!MonthlyPdfExportPolicy.validPeriod(year, month)) return
+            cal.clear(); cal.set(year, month, 1)
+        }
+        if (HoraTrackV2.ENABLED) {
+            activity.startActivity(Intent(activity, V2MonthlyPdfActivity::class.java).apply {
+                putExtra("report_year", cal.get(Calendar.YEAR))
+                putExtra("report_month", cal.get(Calendar.MONTH))
+                putExtra("report_preview", true)
+            })
+            return
+        }
+
         runCatching {
+            V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
             val file = File.createTempFile("monthly_preview_", ".pdf", activity.cacheDir)
             file.outputStream().use { out ->
-                if (HoraTrackV2.ENABLED) {
-                    MonthlyPdfReportV2.write(
-                        V2RuntimeReader.allSessions(activity).requireReliable(),
-                        cal.get(Calendar.YEAR),
-                        cal.get(Calendar.MONTH),
-                        out
-                    )
-                } else {
-                    MonthlyPdfReport.write(
-                        activity,
-                        PointageStore.load(activity),
-                        cal.get(Calendar.YEAR),
-                        cal.get(Calendar.MONTH),
-                        out
-                    )
-                }
+                MonthlyPdfReport.write(
+                    activity,
+                    PointageStore.load(activity),
+                    cal.get(Calendar.YEAR),
+                    cal.get(Calendar.MONTH),
+                    out
+                )
             }
             val pretty = SimpleDateFormat("MMMM_yyyy", Locale.FRANCE).format(cal.time)
                 .replaceFirstChar { it.uppercase() }

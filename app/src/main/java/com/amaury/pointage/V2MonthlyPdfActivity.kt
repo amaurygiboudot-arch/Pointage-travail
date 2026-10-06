@@ -16,10 +16,9 @@ import android.widget.Toast
 import com.amaury.pointage.billing.BillingContract
 import com.amaury.pointage.billing.BillingPdfGate
 import com.amaury.pointage.billing.HoraTrackBilling
-import com.amaury.pointage.v2.HoraTrackV2
-import com.amaury.pointage.v2.model.SessionStatusV2
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.engine.MonthlyPdfReportV2
+import com.amaury.pointage.v2.engine.ConfirmedWorkPdfPolicyV2
 import com.google.firebase.auth.FirebaseAuth
 import java.io.File
 import java.text.SimpleDateFormat
@@ -40,6 +39,7 @@ class V2MonthlyPdfActivity : Activity() {
     private var authorizedHash: String? = null
     private var destinationRequested = false
     private var fileName = "HoraTrack.pdf"
+    private var previewMode = false
     private var phase = MonthlyPdfRecovery.Phase.CHOOSE
     private var selectedYear = -1
     private var selectedMonth = -1
@@ -52,6 +52,7 @@ class V2MonthlyPdfActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        previewMode = savedInstanceState?.getBoolean("preview_mode") ?: intent.getBooleanExtra("report_preview", false)
         ownerUid = savedInstanceState?.getString("owner_uid") ?: currentUid()
         if (ownerUid == null || ownerUid != currentUid()) { toast("Connecte ton compte avant l'export PDF."); finish(); return }
         status = TextView(this).apply { text = "Choisis le mois à exporter."; textSize = 16f }
@@ -132,13 +133,7 @@ class V2MonthlyPdfActivity : Activity() {
                         it.get(Calendar.YEAR) == year && it.get(Calendar.MONTH) == month
                     } } == true
                 }
-                check(sessions.all { session ->
-                    MonthlyPdfExportPolicy.stableSession(
-                        session.status == SessionStatusV2.CLOSED, session.realArrivalMs, session.countedEntryMs,
-                        session.realExitMs, session.countedExitMs, session.pauses.all { it.endMs != null },
-                        HoraTrackV2.time.calculate(session, session.realExitMs ?: 0L).reliable
-                    )
-                }) { "Termine ou confirme les pointages du mois avant de générer ce PDF." }
+                ConfirmedWorkPdfPolicyV2.requireStable(sessions)
                 // Reuse unchanged private bytes, including pending payments after restart.
                 val input = "monthly-v1|$year|$month|${java.util.TimeZone.getDefault().id}|${sessions.sortedBy { it.id }}"
                 val folder = File(filesDir, "monthly_pdf_pending/${BillingContract.accountId(uid)}").apply { check(mkdirs() || isDirectory) }
@@ -157,7 +152,7 @@ class V2MonthlyPdfActivity : Activity() {
                     authorizedFile = file
                     authorizedHash = BillingContract.documentId(file)
                     requestAuthorization(file)
-                }.onFailure { toast(it.message?.takeIf { message -> message == "Termine ou confirme les pointages du mois avant de générer ce PDF." } ?: "Impossible de préparer le PDF. Aucun fichier extérieur créé."); finish() }
+                }.onFailure { toast(it.message?.takeIf { message -> message == ConfirmedWorkPdfPolicyV2.WARNING } ?: "Impossible de préparer le PDF. Aucun fichier extérieur créé."); finish() }
             }
         }
     }
@@ -204,6 +199,7 @@ class V2MonthlyPdfActivity : Activity() {
     private fun toast(message: String) { Toast.makeText(this, message, Toast.LENGTH_LONG).show() }
     override fun onSaveInstanceState(outState: Bundle) {
         stateSaved = true
+        outState.putBoolean("preview_mode", previewMode)
         outState.putString("owner_uid", ownerUid)
         outState.putString("phase", phase.name)
         outState.putInt("year", selectedYear); outState.putInt("month", selectedMonth)
@@ -272,6 +268,20 @@ class V2MonthlyPdfActivity : Activity() {
     private fun launchDestination() {
         if (destinationRequested) return
         if (stateSaved) { restoredVerification = true; return }
+        if (previewMode) {
+            val uid = ownerUid ?: return
+            val file = authorizedFile ?: return
+            if (!active(uid)) return
+            runCatching {
+                destinationRequested = true
+                startActivity(Intent(this, PdfPreviewActivity::class.java).apply {
+                    putExtra("pdf_path", file.absolutePath)
+                    putExtra("pdf_name", fileName)
+                })
+                finish()
+            }.onFailure { toast("Impossible d'ouvrir l'aperçu PDF."); finish() }
+            return
+        }
         runCatching {
             phase = MonthlyPdfRecovery.Phase.WAIT_PICKER
             destinationRequested = true
@@ -313,11 +323,6 @@ class V2MonthlyPdfActivity : Activity() {
 
 /** Final copy cannot rely on a previous account or mutable PDF contents. */
 internal object MonthlyPdfExportPolicy {
-    fun stableSession(closed: Boolean, arrival: Long?, countedEntry: Long?, realExit: Long?, countedExit: Long?, pausesClosed: Boolean, timeReliable: Boolean): Boolean =
-        closed && arrival != null && arrival > 0L && countedEntry != null && countedEntry > 0L &&
-            realExit != null && realExit >= arrival && countedExit != null && countedExit > countedEntry &&
-            pausesClosed && timeReliable
-
     fun validPeriod(year: Int, month: Int): Boolean = year in 1900..9999 && month in 0..11
     fun allows(ownerUid: String?, currentUid: String?, expectedHash: String?, actualHash: String?): Boolean =
         !ownerUid.isNullOrBlank() && ownerUid == currentUid && expectedHash != null &&

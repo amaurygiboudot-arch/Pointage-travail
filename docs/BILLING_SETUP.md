@@ -81,6 +81,7 @@ Les pointages fermés qui traversent une borne de mois utilisent la sélection e
 - Données insuffisantes : aucun paiement proposé ; couverture réelle et limites affichées avant achat.
 - Courrier modifié : nouvelle empreinte ; aucun original de bulletin supprimé ou bloqué.
 - PDF ordinaire : paiement différé, fermeture puis modification des données ; la copie préparée reste retrouvable sans régénération ni nouvel achat du même document.
+- Bouton réel « Aperçu du relevé mensuel » : conserver la période choisie, passer par le contrôle V2 et refuser un pointage ou une pause ouverte avant préparation ou proposition d'achat. Les générateurs mensuel et annuels contrôlent également leurs sessions pour empêcher un appel direct de figer une durée provisoire.
 - Export mensuel : rotation ou redimensionnement pendant préparation, paiement, choix d'emplacement et copie ; reprendre les octets exacts et revérifier les droits, sans relancer automatiquement l'achat ni ouvrir un deuxième sélecteur.
 - Abonnements actifs : empêcher un deuxième abonnement simultané sans parcours de remplacement vérifié. Le lien de gestion Google Play reste accessible.
 - Abonnements suspendus ou en pause : ils ne donnent aucun droit Premium/Plus, mais leur existence bloque un second abonnement ; vérifier la reprise du premier sans double facturation et le déblocage après expiration réelle.

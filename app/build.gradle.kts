@@ -43,6 +43,23 @@ android {
 
     buildFeatures { buildConfig = true }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            it.jvmArgs(
+                "--add-opens=java.base/java.lang=ALL-UNNAMED",
+                "--add-opens=java.base/java.util=ALL-UNNAMED",
+                "--add-opens=java.base/java.io=ALL-UNNAMED",
+                "--add-opens=java.base/java.net=ALL-UNNAMED",
+                "--add-opens=java.base/java.security=ALL-UNNAMED",
+                "--add-opens=java.base/java.text=ALL-UNNAMED",
+                "--add-opens=java.base/jdk.internal.access=ALL-UNNAMED",
+                "--add-opens=java.desktop/java.awt.font=ALL-UNNAMED",
+                "--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED"
+            )
+        }
+    }
+
     buildTypes {
         getByName("debug") {
             isDebuggable = true
@@ -98,6 +115,8 @@ dependencies {
     implementation("io.sentry:sentry-android:8.43.0")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.16.1")
+    testImplementation("org.mockito:mockito-core:5.14.2")
     // Android fournit org.json à l'exécution, mais les tests JVM utilisent android.jar où
     // JSONObject/JSONArray sont des stubs. Cette dépendance donne l'implémentation réelle aux tests.
     testImplementation("org.json:json:20240303")
