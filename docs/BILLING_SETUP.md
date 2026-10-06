@@ -6,12 +6,17 @@
 |---|---|---|---|
 | Premium | `horatrack_premium` | Abonnement, plans mensuel et annuel | 4,99 €/mois ; 49,99 €/an |
 | Premium avec analyses | `horatrack_plus` | Abonnement, plans mensuel et annuel | 9,99 €/mois ; 99,99 €/an |
-| Analyse ponctuelle | `horatrack_analysis` | Achat consommable | 4,99 € |
+| Analyse détaillée du bulletin | `horatrack_analysis` | Achat consommable | 4,99 € |
+| Comparaison pointage / bulletin | `horatrack_payslip_comparison` | Achat consommable | 6,99 € |
+| Bilan annuel approfondi | `horatrack_annual_review` | Achat consommable | 9,99 € |
+| Dossier factuel de réclamation | `horatrack_claim_dossier` | Achat consommable | 14,99 € |
 | PDF | `horatrack_pdf` | Achat consommable | 0,99 € |
 
 Les montants sont les prix cibles approuvés, pas des produits déjà créés dans Play Console. Le client affiche les prix et périodes renvoyés par Google Play. L'application reste gratuite à télécharger.
 
-Un abonnement Plus donne droit à une analyse par mois. L'offre Plus et l'analyse ponctuelle restent indisponibles à l'achat tant que le service d'analyse correspondant n'est pas raccordé et testé. Ne pas vendre un service indisponible.
+Les quatre prestations ont été approuvées le 6 octobre 2026. Leur prix inclut leur propre rapport PDF, sans supplément de 0,99 €. Le catalogue Android les présente comme indisponibles : leurs parcours de livraison ne sont pas encore construits. Premium inclut les exports ordinaires, pas ces prestations approfondies.
+
+Un abonnement Plus prévoit une analyse de bulletin par mois, pas une comparaison, un bilan ou un dossier. Ce périmètre doit être confirmé dans la fiche de l’offre avant activation. L'offre Plus et l'analyse ponctuelle restent indisponibles à l'achat tant que le service d'analyse correspondant n'est pas raccordé et testé. Ne pas vendre un service indisponible.
 
 Dans cette première intégration, les PDF et leur archive sont raccordés aux droits Premium. Les autres avantages envisagés (sans publicité, statistiques avancées, sauvegarde Premium) ne doivent pas être annoncés comme des exclusivités payantes tant que leurs consommateurs ne sont pas raccordés aux droits serveur.
 
@@ -46,3 +51,7 @@ Le déploiement, la création des produits, l'attribution des permissions et l'a
 ## État de publication
 
 Les prix et le comportement ont été approuvés par l'utilisateur. L'intégration est préparée avant publication publique. Ne pas présenter les paiements comme opérationnels tant que les étapes externes et les essais réels ne sont pas terminés.
+
+## Audit de monétisation
+
+Voir [MONETIZATION_AUDIT.md](MONETIZATION_AUDIT.md) pour les fonctionnalités examinées, les quatre prestations approuvées, les propositions supplémentaires et les conditions de livraison. Les propositions supplémentaires ne constituent pas des tarifs approuvés ni des droits actifs.

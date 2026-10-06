@@ -41,12 +41,12 @@ test("PDF token is idempotent document-bound redownloadable and revoked on refun
   raw = { ...raw, purchaseState: 1 };
   await assert.rejects(service.authorizePdf(UID, { documentSha256: PDF }));
 });
-test("analysis credits reserved once with retry and never grant arbitrary PDF", async () => {
+test("legacy bulletin credits retained while missing pipeline cannot reserve or grant arbitrary PDF", async () => {
   const service = createBillingService({ db: memoryDb(), play: { get: async () => good(), settle: async () => {} } });
   await service.verify(UID, { productId: "horatrack_analysis", purchaseToken: "analysis-token" });
   const requestId = "analysis_request_1";
-  await service.reserveAnalysis(UID, { requestId }); await service.reserveAnalysis(UID, { requestId });
-  await assert.rejects(service.reserveAnalysis(UID, { requestId: "analysis_request_2" }));
+  await assert.rejects(service.reserveAnalysis(UID, { requestId, inputSha256: PDF }), error => error.code === "failed-precondition");
+  assert.equal((await service.entitlements(UID)).analysisCredits, 1);
   await assert.rejects(service.authorizePdf(UID, { documentSha256: PDF, analysisId: requestId }));
 });
 test("owner entitlement comes from trusted argument and API outages deny access", async () => {

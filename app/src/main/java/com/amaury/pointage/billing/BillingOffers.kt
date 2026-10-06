@@ -13,6 +13,35 @@ import android.content.Context
 
 object BillingOffers {
     fun show(activity: Activity, documentId: String? = null, onVerified: () -> Unit = {}) {
+        if (documentId != null) {
+            showPurchasable(activity, documentId, onVerified)
+            return
+        }
+        AlertDialog.Builder(activity).setTitle("Premium et services")
+            .setItems(arrayOf("Abonnements et offres Google Play", "Services à venir et tarifs prévus", "Restaurer les achats", "Mes PDF")) { _, index ->
+                when (index) {
+                    0 -> showPurchasable(activity, null, onVerified)
+                    1 -> showServiceCatalog(activity)
+                    2 -> {
+                        HoraTrackBilling.initialize(activity)
+                        HoraTrackBilling.restore(activity) { ok -> if (ok) onVerified() }
+                    }
+                    3 -> showArchive(activity)
+                }
+            }.setNegativeButton("Fermer", null).show()
+    }
+
+    private fun showServiceCatalog(activity: Activity) {
+        AlertDialog.Builder(activity).setTitle("Services à venir — achat indisponible")
+            .setItems(BillingServiceCatalog.services.map { "${it.title} — tarif prévu ${it.targetPriceLabel}" }.toTypedArray()) { _, index ->
+                val service = BillingServiceCatalog.services[index]
+                AlertDialog.Builder(activity).setTitle(service.title)
+                    .setMessage("${service.description}\n\nTarif prévu : ${service.targetPriceLabel}. Ce tarif n'est pas une offre Google Play active.\n\nEn préparation : livrable indisponible, aucun achat ni paiement possible actuellement.")
+                    .setPositiveButton("Compris", null).show()
+            }.setNegativeButton("Fermer", null).show()
+    }
+
+    private fun showPurchasable(activity: Activity, documentId: String?, onVerified: () -> Unit) {
         HoraTrackBilling.initialize(activity)
         val uid = BillingBackend.uid()
         BillingBackend.call("billingGetEntitlements").addOnCompleteListener { task ->

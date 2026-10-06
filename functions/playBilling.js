@@ -1,6 +1,7 @@
 "use strict";
 
 const { createHash } = require("node:crypto");
+const { SERVICES, validateServiceOrder } = require("./billingServiceCatalog");
 const PACKAGE = "com.amaury.pointage";
 const PRODUCTS = Object.freeze({ horatrack_premium: "premium", horatrack_plus: "plus", horatrack_analysis: "analysis", horatrack_pdf: "pdf" });
 const sha = value => createHash("sha256").update(value).digest("hex");
@@ -11,6 +12,9 @@ function documentKey(value) {
   return value;
 }
 function purchaseRequest(data) {
+  if (data && Object.hasOwn(SERVICES, data.productId) && data.productId !== "horatrack_analysis") {
+    throw new BillingError("failed-precondition", "Service non disponible : aucun achat autorisé.");
+  }
   if (!data || !Object.hasOwn(PRODUCTS, data.productId) || typeof data.purchaseToken !== "string" || !data.purchaseToken.length || data.purchaseToken.length > 4096) {
     throw new BillingError("invalid-argument", "Achat non reconnu.");
   }
@@ -142,6 +146,11 @@ function createBillingService({ db, play, now = Date.now }) {
     deny("Paiement vérifié requis avant de générer ou prévisualiser ce PDF.");
   }
   async function reserveAnalysis(uid, data, owner = false) {
+    // Keep legacy purchased bulletin credits readable, but never spend them for a missing service.
+    try {
+      const order = validateServiceOrder({ ...data, productId: data?.productId || "horatrack_analysis" });
+      if (order.productId !== "horatrack_analysis") throw new BillingError("failed-precondition", "Un crédit bulletin ne donne pas accès à un autre service.");
+    } catch (error) { throw new BillingError(error.code || "invalid-argument", error.message); }
     const requestId = data?.requestId;
     if (typeof requestId !== "string" || !/^[a-zA-Z0-9_-]{16,128}$/.test(requestId)) throw new BillingError("invalid-argument", "Identifiant idempotent requis.");
     const active = owner ? [] : await livePurchases(uid);
