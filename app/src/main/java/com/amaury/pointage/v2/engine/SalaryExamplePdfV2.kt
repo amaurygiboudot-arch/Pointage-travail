@@ -344,21 +344,23 @@ object SalaryExamplePdfV2 {
             }
         }
 
-        val body = PdfVisualStyle.bodyPaint(9f)
-        val wrappedSections = sections.map { section ->
-            section.copy(lines = section.lines.flatMap { (label, value) ->
-                val labels = wrapText(label, body, 267f)
-                val values = wrapText(value, body, 242f)
-                List(maxOf(labels.size, values.size)) { index ->
-                    labels.getOrElse(index) { "" } to values.getOrElse(index) { "" }
-                }
-            })
+        val body = PdfVisualStyle.bodyPaint(7.5f)
+        val tableSections = presentationSections(sections)
+        val wrappedTables = tableSections.map { section ->
+            wrapTableRows(section) { text, width -> wrapText(text, body, width) }
         }
-        val pages = paginateSections(wrappedSections)
+        // The existing planner splits even very long wrapped rows without discarding cells.
+        val tablesByName = wrappedTables.associateBy { it.name }
+        val pages = paginateSections(wrappedTables.map { section ->
+            PdfSection(section.name, section.rows.indices.map { it.toString() to "" })
+        }, sectionHeaderHeight = 42f, rowHeight = 14f, sectionTailHeight = 14f, keepSectionsTogether = false)
         val pdf = PdfDocument()
-        val bold = PdfVisualStyle.boldPaint(10f)
+        val heading = PdfVisualStyle.boldPaint(8.5f).apply { color = Color.WHITE }
+        val columnHeading = PdfVisualStyle.boldPaint(7f)
         val muted = PdfVisualStyle.bodyPaint(8f).apply { color = Color.rgb(95, 95, 95) }
-        val line = Paint(1).apply { color = PdfVisualStyle.line; strokeWidth = 0.8f }
+        val green = Paint().apply { color = Color.rgb(11, 119, 119) }
+        val stripe = Paint().apply { color = Color.rgb(244, 246, 246) }
+        val rule = Paint().apply { color = Color.rgb(210, 218, 218); strokeWidth = 0.5f }
         try {
             pages.forEachIndexed { pageIndex, plannedPage ->
                 val pageNumber = pageIndex + 1
@@ -367,26 +369,35 @@ object SalaryExamplePdfV2 {
                 PdfVisualStyle.header(canvas, 595, "FICHE DE SALAIRE — ESTIMATION", "")
                 canvas.drawText("$monthName $year • document personnel non officiel • page $pageNumber/${pages.size}", 28f, 82f, muted)
                 var y = PDF_CONTENT_TOP
-
                 plannedPage.fragments.forEach { fragment ->
-                    canvas.drawRect(28f, y - 11f, 567f, y + 3f, Paint().apply { color = PdfVisualStyle.panel })
-                    canvas.drawText(
-                        if (fragment.continuation) "${fragment.name} (suite)" else fragment.name,
-                        28f,
-                        y,
-                        bold
-                    )
-                    y += PDF_SECTION_HEADER_HEIGHT
-                    fragment.lines.forEach { (label, value) ->
-                        canvas.drawText(label, 38f, y, body)
-                        canvas.drawText(value, 315f, y, body)
-                        y += PDF_ROW_HEIGHT
+                    val table = tablesByName.getValue(fragment.name)
+                    canvas.drawRect(28f, y - 11f, 567f, y + 9f, green)
+                    canvas.drawText(if (fragment.continuation) "${fragment.name} (suite)" else fragment.name, 36f, y + 2f, heading)
+                    y += 25f
+                    var x = 28f
+                    table.headers.forEachIndexed { index, label ->
+                        canvas.drawText(label, x + 6f, y, columnHeading)
+                        x += table.widths[index]
                     }
-                    y += 5f
-                    canvas.drawLine(28f, y, 567f, y, line)
-                    y += 18f
+                    canvas.drawLine(28f, y + 5f, 567f, y + 5f, rule)
+                    y += 17f
+                    fragment.lines.forEachIndexed { rowIndex, (rowId, _) ->
+                        val cells = table.rows[rowId.toInt()]
+                        val netPay = cells.first().startsWith("Net estimé après PAS")
+                        if (netPay || rowIndex % 2 == 0) canvas.drawRect(28f, y - 10f, 567f, y + 4f,
+                            if (netPay) Paint().apply { color = Color.rgb(223, 240, 238) } else stripe)
+                        val cellPaint = if (netPay) PdfVisualStyle.boldPaint(7.5f) else body
+                        x = 28f
+                        cells.forEachIndexed { index, cell ->
+                            canvas.drawText(cell, x + 6f, y, cellPaint)
+                            if (index > 0) canvas.drawLine(x, y - 10f, x, y + 4f, rule)
+                            x += table.widths[index]
+                        }
+                        canvas.drawLine(28f, y + 4f, 567f, y + 4f, rule)
+                        y += 14f
+                    }
+                    y += 14f
                 }
-
                 PdfVisualStyle.footer(canvas, 595, 842, pageNumber)
                 pdf.finishPage(page)
             }
@@ -394,6 +405,90 @@ object SalaryExamplePdfV2 {
         } finally {
             pdf.close()
         }
+    }
+
+    internal data class PresentationTable(
+        val name: String,
+        val headers: List<String>,
+        val widths: List<Float>,
+        val rows: List<List<String>>
+    )
+
+    internal fun wrapTableRows(
+        table: PresentationTable,
+        wrap: (String, Float) -> List<String>
+    ): PresentationTable = table.copy(rows = table.rows.flatMap { cells ->
+        require(cells.size == table.widths.size)
+        val wrapped = cells.mapIndexed { index, cell -> wrap(cell, table.widths[index] - 12f) }
+        List(wrapped.maxOf { it.size }) { index -> wrapped.map { it.getOrElse(index) { "" } } }
+    })
+
+    internal fun presentationSections(sections: List<PdfSection>): List<PresentationTable> {
+        fun simple(name: String, rows: List<Pair<String, String>>) = PresentationTable(
+            name, listOf("Rubrique", "Montant / information"), listOf(300f, 239f),
+            rows.map { listOf(it.first, it.second) }
+        )
+        val tables = sections.flatMap { section ->
+            when (section.name) {
+                "ESTIMATION DE RÉMUNÉRATION" -> {
+                    val remuneration = mutableListOf<Pair<String, String>>()
+                    val expenses = mutableListOf<Pair<String, String>>()
+                    val net = mutableListOf<Pair<String, String>>()
+                    val employer = mutableListOf<Pair<String, String>>()
+                    section.lines.forEach { row ->
+                        when {
+                            row.first.startsWith("Paniers") -> expenses += row
+                            row.first.startsWith("Net") || row.first.startsWith("Prélèvement") ||
+                                row.first.startsWith("Avantages en nature non") -> net += row
+                            row.first.startsWith("Réductions") || row.first.startsWith("Sous-total patronal") -> employer += row
+                            else -> remuneration += row
+                        }
+                    }
+                    listOf(simple("RÉMUNÉRATION BRUTE", remuneration),
+                        simple("PANIERS ET FRAIS", expenses), simple("SYNTHÈSE DU NET", net),
+                        simple("SYNTHÈSE EMPLOYEUR", employer)).filter { it.rows.isNotEmpty() }
+                }
+                "COTISATIONS — SALARIÉ / EMPLOYEUR" -> {
+                    val details = section.lines.filterNot { it.first == "Lecture des montants" ||
+                        it.first.startsWith("Fiabilité") || it.first == "Bases et taux détaillés" ||
+                        it.first.startsWith("Sous-total") || it.first.startsWith("Réductions") }
+                    val notes = section.lines.filter { it.first.startsWith("Fiabilité") || it.first == "Bases et taux détaillés" }
+                    listOf(PresentationTable(section.name,
+                        listOf("Rubrique", "Base", "Taux sal.", "Part sal.", "Taux emp.", "Part emp."),
+                        listOf(209f, 66f, 66f, 66f, 66f, 66f),
+                        details.map { contributionCells(it.first, it.second) }),
+                        simple("FIABILITÉ DES COTISATIONS", notes))
+                }
+                else -> listOf(simple(section.name, section.lines))
+            }
+        }.toMutableList()
+        val employerTotals = sections.filter { it.name == "COTISATIONS — SALARIÉ / EMPLOYEUR" }
+            .flatMap { it.lines }.filter { it.first.startsWith("Sous-total") || it.first.startsWith("Réductions") }
+        if (employerTotals.isNotEmpty()) {
+            val existingIndex = tables.indexOfFirst { it.name == "SYNTHÈSE EMPLOYEUR" }
+            if (existingIndex < 0) tables += simple("SYNTHÈSE EMPLOYEUR", employerTotals)
+            else {
+                val existing = tables[existingIndex]
+                val labels = existing.rows.map { it.first() }.toSet()
+                tables[existingIndex] = existing.copy(rows = existing.rows + employerTotals
+                    .filter { it.first !in labels }.map { listOf(it.first, it.second) })
+            }
+        }
+        val salaryNames = listOf("RÉMUNÉRATION BRUTE", "COTISATIONS — SALARIÉ / EMPLOYEUR",
+            "PANIERS ET FRAIS", "SYNTHÈSE DU NET", "SYNTHÈSE EMPLOYEUR", "FIABILITÉ DES COTISATIONS")
+        val salaryTables = tables.filter { it.name in salaryNames }.sortedBy { salaryNames.indexOf(it.name) }
+        val firstSalary = tables.indexOfFirst { it.name in salaryNames }
+        if (firstSalary < 0) return tables
+        return tables.take(firstSalary) + salaryTables + tables.drop(firstSalary).filter { it.name !in salaryNames }
+    }
+
+    internal fun contributionCells(label: String, value: String): List<String> {
+        val pair = value.split(" / ", limit = 2)
+        val employeeOnly = label == "Retenues propres à l'entreprise"
+        val employee = if (pair.size == 2 || employeeOnly) pair[0] else "—"
+        val employer = if (pair.size == 2) pair[1] else if (employeeOnly) "—" else value
+        return listOf(label, "À confirmer", "À confirmer", employee,
+            "À confirmer", employer)
     }
 
     private fun wrapText(text: String, paint: Paint, width: Float): List<String> {
@@ -472,7 +567,8 @@ object SalaryExamplePdfV2 {
         contentBottom: Float = PDF_CONTENT_BOTTOM,
         sectionHeaderHeight: Float = PDF_SECTION_HEADER_HEIGHT,
         rowHeight: Float = PDF_ROW_HEIGHT,
-        sectionTailHeight: Float = PDF_SECTION_TAIL_HEIGHT
+        sectionTailHeight: Float = PDF_SECTION_TAIL_HEIGHT,
+        keepSectionsTogether: Boolean = true
     ): List<PdfPagePlan> {
         require(contentBottom > contentTop)
         require(sectionHeaderHeight > 0f && rowHeight > 0f && sectionTailHeight >= 0f)
@@ -491,7 +587,7 @@ object SalaryExamplePdfV2 {
 
         sections.filter { it.lines.isNotEmpty() }.forEach { section ->
             val wholeHeight = sectionHeaderHeight + section.lines.size * rowHeight + sectionTailHeight
-            if (wholeHeight <= pageCapacity) {
+            if (keepSectionsTogether && wholeHeight <= pageCapacity) {
                 if (fragments.isNotEmpty() && usedHeight + wholeHeight > pageCapacity) finishPage()
                 fragments += PdfSectionFragment(section.name, section.lines, continuation = false)
                 usedHeight += wholeHeight
