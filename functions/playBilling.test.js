@@ -75,6 +75,40 @@ test("Play requests use fixed package and consume verified consumable server sid
   await client.order("GPA.1");
   assert.match(seen[1].url, /applications\/com\.amaury\.pointage\/orders\/GPA\.1$/);
 });
+test("empty HTTP 200 settlement succeeds for PDF and subscriptions, verification still requires JSON", async () => {
+  const requests = [];
+  const client = createPlayClient({
+    credential: { getAccessToken: async () => ({ access_token: "credential" }) },
+    fetchImpl: async (url, options) => {
+      requests.push({ url, method: options.method });
+      return new Response("", { status: 200 });
+    },
+  });
+  await client.settle({ productId: "horatrack_pdf", token: "pdf", kind: "pdf" }, { consumed: false });
+  await client.settle({ productId: "horatrack_premium", token: "premium", kind: "premium" }, { acknowledged: false });
+  assert.match(requests[0].url, /:consume$/);
+  assert.match(requests[1].url, /:acknowledge$/);
+  assert.deepEqual(requests.map(r => r.method), ["POST", "POST"]);
+  await assert.rejects(client.get({ productId: "horatrack_pdf", token: "pdf", kind: "pdf" }), SyntaxError);
+  await assert.rejects(client.order("GPA.1"), SyntaxError);
+});
+test("empty settlement bodies complete verified purchases without duplicated rights", async () => {
+  const db = memoryDb();
+  let consumed = false;
+  const play = createPlayClient({
+    credential: { getAccessToken: async () => ({ access_token: "credential" }) },
+    fetchImpl: async (_url, options) => {
+      if (options.method === "POST") { consumed = true; return new Response("", { status: 200 }); }
+      return Response.json({ ...good(), consumptionState: consumed ? 1 : 0 });
+    },
+  });
+  const service = createBillingService({ db, play });
+  const purchase = { productId: "horatrack_pdf", purchaseToken: "empty-body", documentSha256: PDF };
+  await service.verify(UID, purchase);
+  await service.verify(UID, purchase);
+  assert.equal(db.rows.size, 1);
+  assert.equal((await service.authorizePdf(UID, { documentSha256: PDF })).authorized, true);
+});
 test("linked subscription replaces predecessor and cannot cross UID ownership", async () => {
   const db = memoryDb();
   const old = "old-token", next = "new-token";

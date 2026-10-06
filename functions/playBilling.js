@@ -38,7 +38,9 @@ function createPlayClient({ credential, fetchImpl = fetch }) {
     const access = await credential.getAccessToken();
     const response = await fetchImpl(new URL(root + path).href, { method: body === undefined ? "GET" : "POST", headers: { Authorization: `Bearer ${access.access_token}`, "Content-Type": "application/json" }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(15000) });
     if (!response.ok) throw new BillingError([404, 410].includes(response.status) ? "permission-denied" : "unavailable", "Vérification Google Play indisponible.");
-    return response.status === 204 ? {} : response.json();
+    // consume/acknowledge return an empty successful body (including HTTP 200).
+    // Only verification GETs need JSON; their malformed/empty responses must fail closed.
+    return body !== undefined || response.status === 204 ? {} : response.json();
   }
   const path = p => `/products/${encodeURIComponent(p.productId)}/tokens/${encodeURIComponent(p.token)}`;
   return {

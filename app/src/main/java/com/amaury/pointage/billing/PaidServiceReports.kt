@@ -15,7 +15,6 @@ import com.amaury.pointage.ConventionCatalog
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.V2SalaryNetBridgeV2
 import com.amaury.pointage.v2.*
-import com.amaury.pointage.v2.model.SessionStatusV2
 import com.google.firebase.auth.FirebaseAuth
 import java.io.File
 import java.security.MessageDigest
@@ -145,16 +144,17 @@ object PaidServiceReports {
         val zone = ZoneId.systemDefault()
         val start = LocalDate.of(record.year, record.month + 1, 1).atStartOfDay(zone).toInstant().toEpochMilli()
         val end = LocalDate.of(record.year, record.month + 1, 1).plusMonths(1).atStartOfDay(zone).toInstant().toEpochMilli()
-        val sessions = runtime.filter { session ->
-            session.employerId in accepted && session.realArrivalMs?.let { it < end && (session.realExitMs ?: Long.MAX_VALUE) > start } == true
-        }.sortedBy { it.realArrivalMs }
-        check(sessions.isNotEmpty() && sessions.all { it.status == SessionStatusV2.CLOSED && it.realArrivalMs != null && it.realExitMs != null &&
-            it.realArrivalMs >= start && it.realExitMs <= end }) { "Pointages absents, ouverts ou traversant le mois : compléter les preuves avant le service." }
-        val chronology = sessions.flatMap { session ->
+        val slices = PaidServiceWorkEvidence.resolve(runtime, accepted, start, end, System.currentTimeMillis())
+        refs += "Les sessions traversant une borne de mois sont conservées ; seul leur temps attribué à ce mois par le moteur canonique est rapproché du bulletin."
+        val chronology = slices.flatMap { slice ->
+            val session = slice.session
             val time = HoraTrackV2.time.calculate(session)
             check(time.reliable) { "Durée ou pause non fiable dans un pointage." }
-            val rows = mutableListOf("${dateFormat.format(Instant.ofEpochMilli(session.realArrivalMs!!))} → ${dateFormat.format(Instant.ofEpochMilli(session.realExitMs!!))} : présence ${duration(time.presenceMs)}, temps payé ${duration(time.paidWorkMs)}, pauses non payées ${duration(time.unpaidPauseMs)} ; lieu ${session.placeLabel.orEmpty().ifBlank { "non renseigné" }} ; référence ${session.id}.",
-                "Entrée comptée ${session.countedEntryMs?.let { dateFormat.format(Instant.ofEpochMilli(it)) } ?: "non confirmée"} ; sortie comptée ${session.countedExitMs?.let { dateFormat.format(Instant.ofEpochMilli(it)) } ?: "non confirmée"}.")
+            fun interval(first: Long?, last: Long?): String = if (first == null || last == null) "aucune portion dans ce mois"
+                else "${dateFormat.format(Instant.ofEpochMilli(first))} → ${dateFormat.format(Instant.ofEpochMilli(last))}"
+            val rows = mutableListOf("SESSION COMPLÈTE — contexte documentaire${if (slice.crossesPeriod) " ; traverse une borne du mois, ne pas imputer sa durée complète à ce bulletin" else ""} : ${dateFormat.format(Instant.ofEpochMilli(session.realArrivalMs!!))} → ${dateFormat.format(Instant.ofEpochMilli(session.realExitMs!!))} ; présence ${duration(time.presenceMs)}, temps payé total ${duration(time.paidWorkMs)}, pauses non payées totales ${duration(time.unpaidPauseMs)} ; lieu ${session.placeLabel.orEmpty().ifBlank { "non renseigné" }} ; référence ${session.id}.",
+                "TRACE ENREGISTRÉE — entrée comptée ${session.countedEntryMs?.let { dateFormat.format(Instant.ofEpochMilli(it)) } ?: "non confirmée"} ; sortie comptée ${session.countedExitMs?.let { dateFormat.format(Instant.ofEpochMilli(it)) } ?: "non confirmée"}. L'intervalle attribué ci-dessous applique la correction canonique connue de l'entrée lorsque nécessaire.")
+            rows += "PART ATTRIBUÉE À CE MOIS — présence réelle ${interval(slice.realStartMs, slice.realEndMs)} : ${duration(slice.realPresenceMs)} ; intervalle compté ${interval(slice.countedStartMs, slice.countedEndMs)} : ${duration(slice.countedSpanMs)} ; temps payé ${duration(slice.paidMs)}, déduction non payée ${duration(slice.unpaidMs)} (répartition canonique)."
             session.pauses.forEach { pause -> rows += "Pause ${dateFormat.format(Instant.ofEpochMilli(pause.startMs))} → ${pause.endMs?.let { dateFormat.format(Instant.ofEpochMilli(it)) } ?: "ouverte"} ; ${if (pause.paid == true) "payée" else if (pause.paid == false) "non payée" else "statut inconnu"} ; source ${pause.source}, validation ${pause.status}." }
             session.travels.forEach { travel -> rows += "Déplacement ${dateFormat.format(Instant.ofEpochMilli(travel.startMs))} → ${travel.endMs?.let { dateFormat.format(Instant.ofEpochMilli(it)) } ?: "ouvert"} ; qualification ${travel.classification}." }
             rows

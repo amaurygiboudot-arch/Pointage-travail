@@ -21,6 +21,8 @@ object HoraTrackBilling : PurchasesUpdatedListener {
     private var connecting = false
     private val waiters = mutableListOf<(Boolean) -> Unit>()
     private var completion: (() -> Unit)? = null
+    enum class TerminalOutcome { CANCELLED, PENDING, FAILED }
+    private var terminal: ((TerminalOutcome) -> Unit)? = null
     private var purchaseActivity: WeakReference<Activity>? = null
     private var purchasing = false
 
@@ -40,7 +42,7 @@ object HoraTrackBilling : PurchasesUpdatedListener {
             override fun onActivityStopped(activity: Activity) {}
             override fun onActivitySaveInstanceState(activity: Activity, state: Bundle) {}
             override fun onActivityDestroyed(activity: Activity) {
-                if (purchaseActivity?.get() === activity) { completion = null; purchaseActivity = null }
+                if (purchaseActivity?.get() === activity) { completion = null; terminal = null; purchaseActivity = null }
             }
         })
     }
@@ -101,31 +103,32 @@ object HoraTrackBilling : PurchasesUpdatedListener {
         }
     }
 
-    fun purchase(activity: Activity, offer: Offer, documentId: String? = null, onVerified: () -> Unit = {}) {
+    fun purchase(activity: Activity, offer: Offer, documentId: String? = null, onVerified: () -> Unit = {}, onTerminal: (TerminalOutcome) -> Unit = {}) {
         val uid = BillingBackend.uid()
-        if (uid == null) { toast(activity, "Connecte ton compte avant d'acheter."); return }
-        if (purchasing) { toast(activity, "Un achat est déjà en cours. Restaure les achats avant de réessayer."); return }
-        if (offer.details.productId !in BillingContract.products) return
+        if (uid == null) { toast(activity, "Connecte ton compte avant d'acheter."); onTerminal(TerminalOutcome.FAILED); return }
+        if (purchasing) { toast(activity, "Un achat est déjà en cours. Restaure les achats avant de réessayer."); onTerminal(TerminalOutcome.FAILED); return }
+        if (offer.details.productId !in BillingContract.products) { onTerminal(TerminalOutcome.FAILED); return }
         val service = offer.details.productId in BillingContract.serviceProducts
         val analysisReady = BillingServiceCatalog.services.any { it.productId == BillingContract.ANALYSIS && it.availability == BillingServiceCatalog.Availability.READY }
-        if (offer.details.productId == BillingContract.PLUS && !analysisReady) return
-        if (service && BillingServiceCatalog.services.none { it.productId == offer.details.productId && it.availability == BillingServiceCatalog.Availability.READY }) return
+        if (offer.details.productId == BillingContract.PLUS && !analysisReady) { onTerminal(TerminalOutcome.FAILED); return }
+        if (service && BillingServiceCatalog.services.none { it.productId == offer.details.productId && it.availability == BillingServiceCatalog.Availability.READY }) { onTerminal(TerminalOutcome.FAILED); return }
         if (service && (documentId == null || BillingServiceFlow.prepared(activity, uid, documentId)?.productId != offer.details.productId)) {
-            toast(activity, "Prépare d'abord ce rapport avant de payer."); return
+            toast(activity, "Prépare d'abord ce rapport avant de payer."); onTerminal(TerminalOutcome.FAILED); return
         }
         if (offer.details.productId == BillingContract.PDF || service) {
-            if (documentId == null || !Regex("[a-f0-9]{64}").matches(documentId)) return
+            if (documentId == null || !Regex("[a-f0-9]{64}").matches(documentId)) { onTerminal(TerminalOutcome.FAILED); return }
         }
         purchasing = true
         completion = onVerified
+        terminal = onTerminal
         purchaseActivity = WeakReference(activity)
         connected(activity) { ready ->
             if (!ready || BillingBackend.uid() != uid || activity.isFinishing || activity.isDestroyed) {
-                purchasing = false; completion = null; toast(activity, "Google Play indisponible : aucun droit débloqué."); return@connected
+                purchasing = false; completion = null; terminal = null; onTerminal(TerminalOutcome.FAILED); toast(activity, "Google Play indisponible : aucun droit débloqué."); return@connected
             }
             fun launchVerifiedOffer() {
                 if (BillingBackend.uid() != uid || activity.isFinishing || activity.isDestroyed) {
-                    purchasing = false; completion = null; return
+                    purchasing = false; completion = null; terminal = null; onTerminal(TerminalOutcome.FAILED); return
                 }
             val builder = BillingFlowParams.newBuilder()
                 .setObfuscatedAccountId(BillingContract.accountId(uid))
@@ -136,9 +139,9 @@ object HoraTrackBilling : PurchasesUpdatedListener {
             val params = builder.build()
             val result = client!!.launchBillingFlow(activity, params)
             if (result.responseCode != BillingClient.BillingResponseCode.OK) {
-                purchasing = false; completion = null
-                if (result.responseCode == BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED) restore(activity) { ok -> if (ok) onVerified() }
-                else toast(activity, "Achat non lancé. Aucun droit débloqué.")
+                purchasing = false; completion = null; terminal = null
+                if (result.responseCode == BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED) restore(activity) { ok -> if (ok) onVerified() else onTerminal(TerminalOutcome.FAILED) }
+                else { toast(activity, "Achat non lancé. Aucun droit débloqué."); onTerminal(TerminalOutcome.FAILED) }
             }
             }
             if (offer.details.productId in setOf(BillingContract.PREMIUM, BillingContract.PLUS)) {
@@ -146,13 +149,13 @@ object HoraTrackBilling : PurchasesUpdatedListener {
                     val overlapping = subscriptions.any { it.purchaseState != Purchase.PurchaseState.UNSPECIFIED_STATE &&
                         it.products.any { product -> product in setOf(BillingContract.PREMIUM, BillingContract.PLUS) } }
                     if (query.responseCode != BillingClient.BillingResponseCode.OK || overlapping || BillingBackend.uid() != uid) {
-                        purchasing = false; completion = null
+                        purchasing = false; completion = null; terminal = null; onTerminal(TerminalOutcome.FAILED)
                         toast(activity, "Vérifie ou gère ton abonnement existant. Aucun second abonnement lancé.")
                     } else BillingBackend.call("billingGetEntitlements").addOnCompleteListener { task ->
                         val rights = if (task.isSuccessful) task.result as? Map<*, *> else null
                         if (BillingBackend.uid() != uid || rights == null || rights["obfuscatedAccountId"] != BillingContract.accountId(uid) ||
                             rights["owner"] == true || rights["premium"] == true || rights["plus"] == true) {
-                            purchasing = false; completion = null
+                            purchasing = false; completion = null; terminal = null; onTerminal(TerminalOutcome.FAILED)
                             toast(activity, "Aucun second abonnement lancé. Vérifie ou gère ton abonnement Google Play.")
                         } else launchVerifiedOffer()
                     }
@@ -163,7 +166,7 @@ object HoraTrackBilling : PurchasesUpdatedListener {
                     val intact = report != null && runCatching { BillingContract.documentId(report.file) == documentId }.getOrDefault(false)
                     main.post {
                         if (!intact || report == null || BillingBackend.uid() != uid || activity.isFinishing || activity.isDestroyed) {
-                            purchasing = false; completion = null
+                            purchasing = false; completion = null; terminal = null; onTerminal(TerminalOutcome.FAILED)
                             toast(activity, "Rapport préparé introuvable ou modifié. Aucun achat lancé.")
                             return@post
                         }
@@ -171,17 +174,17 @@ object HoraTrackBilling : PurchasesUpdatedListener {
                             "documentSha256" to report.documentId, "usePlusCredit" to false, "useAnalysisCredit" to false))
                             .addOnCompleteListener { task ->
                                 if (BillingBackend.uid() != uid || activity.isFinishing || activity.isDestroyed) {
-                                    purchasing = false; completion = null; return@addOnCompleteListener
+                                    purchasing = false; completion = null; terminal = null; onTerminal(TerminalOutcome.FAILED); return@addOnCompleteListener
                                 }
                                 val response = if (task.isSuccessful) task.result as? Map<*, *> else null
                                 if (task.isSuccessful && BillingContract.authorizedPdf(response, report.documentId) &&
                                     response != null && response["reportId"] == report.reportId && response["productId"] == report.productId) {
-                                    purchasing = false; completion = null
+                                    purchasing = false; completion = null; terminal = null
                                     onVerified()
                                 } else if ((task.exception as? FirebaseFunctionsException)?.code == FirebaseFunctionsException.Code.PERMISSION_DENIED) {
                                     launchVerifiedOffer()
                                 } else {
-                                    purchasing = false; completion = null
+                                    purchasing = false; completion = null; terminal = null; onTerminal(TerminalOutcome.FAILED)
                                     toast(activity, "Vérification du rapport indisponible. Aucun achat lancé.")
                                 }
                             }
@@ -193,11 +196,14 @@ object HoraTrackBilling : PurchasesUpdatedListener {
 
     override fun onPurchasesUpdated(result: BillingResult, purchases: MutableList<Purchase>?) {
         val activity = purchaseActivity?.get()
+        val ended = terminal
+        terminal = null
         if (result.responseCode != BillingClient.BillingResponseCode.OK) {
             purchasing = false
             completion = null
             if (activity != null && result.responseCode != BillingClient.BillingResponseCode.USER_CANCELED)
                 toast(activity, "Paiement non confirmé. Restaure les achats pour réessayer.")
+            ended?.invoke(if (result.responseCode == BillingClient.BillingResponseCode.USER_CANCELED) TerminalOutcome.CANCELLED else TerminalOutcome.FAILED)
             return
         }
         val done = completion
@@ -205,7 +211,11 @@ object HoraTrackBilling : PurchasesUpdatedListener {
         verifyPurchases(purchases.orEmpty()) { successful ->
             purchasing = false
             if (successful) done?.invoke()
-            else if (activity != null) toast(activity, "Paiement en attente ou vérification indisponible. Aucun aperçu débloqué ; utilise Restaurer les achats.")
+            else {
+                val pending = purchases.orEmpty().any { it.purchaseState == Purchase.PurchaseState.PENDING }
+                if (activity != null) toast(activity, if (pending) "Paiement en attente. Restaure les achats après sa confirmation." else "Vérification indisponible. Aucun aperçu débloqué ; utilise Restaurer les achats.")
+                ended?.invoke(if (pending) TerminalOutcome.PENDING else TerminalOutcome.FAILED)
+            }
         }
     }
 

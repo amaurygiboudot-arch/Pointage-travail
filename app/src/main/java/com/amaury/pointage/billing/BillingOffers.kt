@@ -12,9 +12,9 @@ import java.util.Locale
 import android.content.Context
 
 object BillingOffers {
-    fun show(activity: Activity, documentId: String? = null, onVerified: () -> Unit = {}) {
+    fun show(activity: Activity, documentId: String? = null, onClosed: () -> Unit = {}, onVerified: () -> Unit = {}) {
         if (documentId != null) {
-            showPurchasable(activity, documentId, onVerified)
+            showPurchasable(activity, documentId, onVerified, onClosed)
             return
         }
         AlertDialog.Builder(activity).setTitle("Premium et services")
@@ -24,7 +24,7 @@ object BillingOffers {
                     1 -> showServiceCatalog(activity)
                     2 -> {
                         HoraTrackBilling.initialize(activity)
-                        HoraTrackBilling.restore(activity) { ok -> if (ok) onVerified() }
+                        HoraTrackBilling.restore(activity) { ok -> if (ok) onVerified() else onClosed() }
                     }
                     3 -> showArchive(activity)
                     4 -> BillingServiceFlow.showPending(activity)
@@ -52,16 +52,16 @@ object BillingOffers {
             }.setNegativeButton("Fermer", null).show()
     }
 
-    fun showServicePurchase(activity: Activity, report: BillingServiceFlow.Report, onUsePlusCredit: () -> Unit, onUseLegacyCredit: () -> Unit, onVerified: () -> Unit) {
-        val uid = BillingBackend.uid() ?: return
-        if (BillingServiceFlow.prepared(activity, uid, report.documentId)?.reportId != report.reportId) return
+    fun showServicePurchase(activity: Activity, report: BillingServiceFlow.Report, onUsePlusCredit: () -> Unit, onUseLegacyCredit: () -> Unit, onClosed: () -> Unit = {}, onVerified: () -> Unit) {
+        val uid = BillingBackend.uid() ?: run { onClosed(); return }
+        if (BillingServiceFlow.prepared(activity, uid, report.documentId)?.reportId != report.reportId) { onClosed(); return }
         BillingBackend.call("billingGetEntitlements").addOnCompleteListener { entitlementTask ->
             val entitlement = entitlementTask.resultOrNull() as? Map<*, *>
             if (activity.isFinishing || activity.isDestroyed || BillingBackend.uid() != uid || entitlement == null ||
-                entitlement["obfuscatedAccountId"] != BillingContract.accountId(uid)) return@addOnCompleteListener
+                entitlement["obfuscatedAccountId"] != BillingContract.accountId(uid)) { onClosed(); return@addOnCompleteListener }
             val included = entitlement["owner"] == true || entitlement["premium"] == true || entitlement["plus"] == true
             HoraTrackBilling.queryOffers(activity) { offers ->
-            if (activity.isFinishing || activity.isDestroyed || BillingBackend.uid() != uid) return@queryOffers
+            if (activity.isFinishing || activity.isDestroyed || BillingBackend.uid() != uid) { onClosed(); return@queryOffers }
             val available = offers.filter { it.details.productId == report.productId ||
                 (!included && report.productId == BillingContract.ANALYSIS && it.details.productId == BillingContract.PLUS) }
             val builder = AlertDialog.Builder(activity).setTitle("Débloquer ce rapport — PDF inclus")
@@ -70,38 +70,38 @@ object BillingOffers {
                     else if (available.isEmpty()) "Aucune offre Google Play active pour cette prestation. Aucun achat possible actuellement. Premium et Plus ne comprennent pas cette prestation."
                     else if (report.productId == BillingContract.ANALYSIS) "Achat unique pour ce rapport, ou Premium + analyses pour un bulletin par mois. Le contrôle porte sur les montants confirmés disponibles, pas toutes les lignes du bulletin. Les prix et périodes ci-dessous sont ceux de Google Play."
                     else "Achat unique pour ce rapport, PDF inclus. Les abonnements Premium et Plus ne comprennent pas cette prestation. Le prix affiché est celui de Google Play.")
-                .setNeutralButton("Restaurer et vérifier") { _, _ -> HoraTrackBilling.restore(activity) { ok -> if (ok && BillingBackend.uid() == uid) onVerified() } }
-                .setNegativeButton("Plus tard", null)
+                .setNeutralButton("Restaurer et vérifier") { _, _ -> HoraTrackBilling.restore(activity) { ok -> if (ok && BillingBackend.uid() == uid) onVerified() else onClosed() } }
+                .setNegativeButton("Plus tard") { _, _ -> onClosed() }.setOnCancelListener { onClosed() }
             val plusCredit = report.productId == BillingContract.ANALYSIS && entitlement["plusAnalysisCreditAvailable"] == true
             val legacyCredit = report.productId == BillingContract.ANALYSIS && (entitlement["legacyAnalysisCredits"] as? Number)?.toInt()?.let { it > 0 } == true
             if (available.isNotEmpty() || plusCredit || legacyCredit) builder.setPositiveButton("Choisir") { _, _ ->
                 val actions = mutableListOf<Pair<String, () -> Unit>>()
                 if (plusCredit) actions += "Utiliser mon analyse mensuelle Plus" to onUsePlusCredit
                 if (legacyCredit) actions += "Utiliser un ancien crédit d'analyse" to onUseLegacyCredit
-                available.forEach { offer -> actions += offer.label to { HoraTrackBilling.purchase(activity, offer, report.documentId, onVerified) } }
+                available.forEach { offer -> actions += offer.label to { HoraTrackBilling.purchase(activity, offer, report.documentId, onVerified) { onClosed() } } }
                 AlertDialog.Builder(activity).setTitle("Débloquer le rapport — PDF inclus")
                     .setItems(actions.map { it.first }.toTypedArray()) { _, index ->
                         if (BillingBackend.uid() == uid) actions[index].second()
-                    }.setNegativeButton("Annuler", null).show()
+                    }.setNegativeButton("Annuler") { _, _ -> onClosed() }.setOnCancelListener { onClosed() }.show()
             }
             builder.show()
             }
         }
     }
 
-    private fun showPurchasable(activity: Activity, documentId: String?, onVerified: () -> Unit) {
+    private fun showPurchasable(activity: Activity, documentId: String?, onVerified: () -> Unit, onClosed: () -> Unit = {}) {
         HoraTrackBilling.initialize(activity)
         val uid = BillingBackend.uid()
         BillingBackend.call("billingGetEntitlements").addOnCompleteListener { task ->
-            if (activity.isFinishing || activity.isDestroyed || BillingBackend.uid() != uid) return@addOnCompleteListener
+            if (activity.isFinishing || activity.isDestroyed || BillingBackend.uid() != uid) { onClosed(); return@addOnCompleteListener }
             val entitlements = task.resultOrNull() as? Map<*, *>
             if (uid == null || entitlements == null || entitlements["obfuscatedAccountId"] != BillingContract.accountId(uid)) {
                 Toast.makeText(activity, "Connecte ton compte ; la vérification serveur des achats doit être disponible avant de payer.", Toast.LENGTH_LONG).show()
-                return@addOnCompleteListener
+                onClosed(); return@addOnCompleteListener
             }
             val included = entitlements["owner"] == true || entitlements["premium"] == true || entitlements["plus"] == true
             HoraTrackBilling.queryOffers(activity) { offers ->
-                if (activity.isFinishing || activity.isDestroyed || BillingBackend.uid() != uid) return@queryOffers
+                if (activity.isFinishing || activity.isDestroyed || BillingBackend.uid() != uid) { onClosed(); return@queryOffers }
                 val analysisReady = BillingServiceCatalog.services.any { it.productId == BillingContract.ANALYSIS && it.availability == BillingServiceCatalog.Availability.READY }
                 val available = offers.filter { (!included && (it.details.productId == BillingContract.PREMIUM || (analysisReady && it.details.productId == BillingContract.PLUS))) ||
                     (documentId != null && !included && it.details.productId == BillingContract.PDF) }
@@ -114,15 +114,20 @@ object BillingOffers {
                             if (available.isEmpty()) "Aucune offre Google Play disponible actuellement. Les produits doivent être activés dans Play Console." else "Choisis une offre ci-dessous. Les tarifs sont ceux de Google Play."
                     )
                     .setPositiveButton("Voir les offres") { _, _ ->
-                        if (available.isEmpty()) return@setPositiveButton
+                        if (activity.isFinishing || activity.isDestroyed || BillingBackend.uid() != uid) { onClosed(); return@setPositiveButton }
+                        if (available.isEmpty()) { onClosed(); return@setPositiveButton }
                         AlertDialog.Builder(activity).setTitle("Offres Google Play")
-                            .setItems(labels) { _, index -> HoraTrackBilling.purchase(activity, available[index], documentId, onVerified) }
-                            .setNegativeButton("Annuler", null).show()
+                            .setItems(labels) { _, index ->
+                                if (activity.isFinishing || activity.isDestroyed || BillingBackend.uid() != uid) onClosed()
+                                else HoraTrackBilling.purchase(activity, available[index], documentId, onVerified) { onClosed() }
+                            }
+                            .setNegativeButton("Annuler") { _, _ -> onClosed() }.setOnCancelListener { onClosed() }.show()
                     }
                     .setNeutralButton("Restaurer les achats") { _, _ ->
-                        HoraTrackBilling.restore(activity) { ok -> if (ok) onVerified() }
+                        HoraTrackBilling.restore(activity) { ok -> if (ok && !activity.isFinishing && !activity.isDestroyed && BillingBackend.uid() == uid) onVerified() else onClosed() }
                     }
-                    .setNegativeButton("Mes PDF") { _, _ -> showArchive(activity) }
+                    .setNegativeButton(if (documentId == null) "Mes PDF" else "Annuler") { _, _ -> if (documentId == null) showArchive(activity) else onClosed() }
+                    .setOnCancelListener { onClosed() }
                     .show()
             }
         }

@@ -17,31 +17,31 @@ object BillingPdfGate {
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
 
-    fun require(activity: Activity, file: File, displayName: String = file.name, usePlusCredit: Boolean = false, useAnalysisCredit: Boolean = false, onAuthorized: (File) -> Unit) {
+    fun require(activity: Activity, file: File, displayName: String = file.name, usePlusCredit: Boolean = false, useAnalysisCredit: Boolean = false, onDenied: () -> Unit = {}, onAuthorized: (File) -> Unit) {
         HoraTrackBilling.initialize(activity)
         val uid = BillingBackend.uid()
-        if (uid == null) { message(activity, "Connecte ton compte pour vérifier les droits PDF."); return }
+        if (uid == null) { message(activity, "Connecte ton compte pour vérifier les droits PDF."); onDenied(); return }
         val requested = runCatching { file.canonicalFile }.getOrNull()
-        val roots = listOf("billing_pdf_archive", "billing_service_pending", "billing_service_drafts", "paid_service_prepared")
+        val roots = listOf("billing_pdf_archive", "billing_service_pending", "billing_service_drafts", "paid_service_prepared", "monthly_pdf_pending")
         if (requested == null || roots.any { root ->
                 val shared = File(activity.filesDir, root).canonicalFile
                 val own = File(shared, BillingContract.accountId(uid)).canonicalFile
                 requested.path.startsWith(shared.path + File.separator) && !requested.path.startsWith(own.path + File.separator)
             }) {
-            message(activity, "Ce PDF appartient à un autre compte.")
+            message(activity, "Ce PDF appartient à un autre compte."); onDenied()
             return
         }
         io.execute {
             val hash = runCatching { BillingContract.documentId(file) }.getOrNull()
             main.post {
-                if (!active(activity) || BillingBackend.uid() != uid) return@post
-                if (hash == null) { message(activity, "PDF introuvable ou vide."); return@post }
+                if (!active(activity) || BillingBackend.uid() != uid) { onDenied(); return@post }
+                if (hash == null) { message(activity, "PDF introuvable ou vide."); onDenied(); return@post }
                 val service = BillingServiceFlow.prepared(activity, uid, hash)
                 val endpoint = if (service == null) "billingAuthorizePdf" else "billingAuthorizeReport"
                 val payload = if (service == null) mapOf("documentSha256" to hash)
                     else mapOf("documentSha256" to hash, "reportId" to service.reportId, "usePlusCredit" to usePlusCredit, "useAnalysisCredit" to useAnalysisCredit)
                 BillingBackend.call(endpoint, payload).addOnCompleteListener { task ->
-                    if (!active(activity) || BillingBackend.uid() != uid) return@addOnCompleteListener
+                    if (!active(activity) || BillingBackend.uid() != uid) { onDenied(); return@addOnCompleteListener }
                     val response = if (task.isSuccessful) task.result as? Map<*, *> else null
                     val serviceMatches = service == null || (response != null && response["reportId"] == service.reportId && response["productId"] == service.productId)
                     if (task.isSuccessful && BillingContract.authorizedPdf(task.result, hash) && serviceMatches) {
@@ -59,8 +59,8 @@ object BillingPdfGate {
                             }.getOrNull()
                             main.post {
                                 if (active(activity) && BillingBackend.uid() == uid) {
-                                    if (verifiedSnapshot != null) onAuthorized(verifiedSnapshot) else message(activity, "Le PDF a changé : vérifie de nouveau ses droits.")
-                                }
+                                    if (verifiedSnapshot != null) onAuthorized(verifiedSnapshot) else { message(activity, "Le PDF a changé : vérifie de nouveau ses droits."); onDenied() }
+                                } else onDenied()
                             }
                         }
                     } else {
@@ -69,23 +69,23 @@ object BillingPdfGate {
                         if (denied && service != null) {
                             if (usePlusCredit || useAnalysisCredit) message(activity, "Crédit demandé indisponible ou déjà utilisé. Aucun rapport débloqué.")
                             BillingOffers.showServicePurchase(activity, service,
-                                onUsePlusCredit = { require(activity, file, displayName, usePlusCredit = true, onAuthorized = onAuthorized) },
-                                onUseLegacyCredit = { require(activity, file, displayName, useAnalysisCredit = true, onAuthorized = onAuthorized) },
-                                onVerified = { require(activity, file, displayName, onAuthorized = onAuthorized) })
+                                onUsePlusCredit = { require(activity, file, displayName, usePlusCredit = true, onDenied = onDenied, onAuthorized = onAuthorized) },
+                                onUseLegacyCredit = { require(activity, file, displayName, useAnalysisCredit = true, onDenied = onDenied, onAuthorized = onAuthorized) },
+                                onClosed = onDenied, onVerified = { require(activity, file, displayName, onDenied = onDenied, onAuthorized = onAuthorized) })
                         } else if (denied) {
                             val details = (task.exception as? FirebaseFunctionsException)?.details as? Map<*, *>
                             val productId = details?.get("productId") as? String
                             val reportId = details?.get("reportId") as? String
                             if (productId in BillingContract.serviceProducts && reportId != null) {
                                 BillingServiceFlow.recover(activity, uid, file, hash, reportId, productId!!, displayName) { recovered ->
-                                    if (recovered == null) message(activity, "Rapport indisponible : aucune offre PDF ordinaire ne peut le débloquer.")
+                                    if (recovered == null) { message(activity, "Rapport indisponible : aucune offre PDF ordinaire ne peut le débloquer."); onDenied() }
                                     else BillingOffers.showServicePurchase(activity, recovered,
-                                        onUsePlusCredit = { require(activity, recovered.file, displayName, usePlusCredit = true, onAuthorized = onAuthorized) },
-                                        onUseLegacyCredit = { require(activity, recovered.file, displayName, useAnalysisCredit = true, onAuthorized = onAuthorized) },
-                                        onVerified = { require(activity, recovered.file, displayName, onAuthorized = onAuthorized) })
+                                        onUsePlusCredit = { require(activity, recovered.file, displayName, usePlusCredit = true, onDenied = onDenied, onAuthorized = onAuthorized) },
+                                        onUseLegacyCredit = { require(activity, recovered.file, displayName, useAnalysisCredit = true, onDenied = onDenied, onAuthorized = onAuthorized) },
+                                        onClosed = onDenied, onVerified = { require(activity, recovered.file, displayName, onDenied = onDenied, onAuthorized = onAuthorized) })
                                 }
-                            } else BillingOffers.show(activity, hash) { require(activity, file, displayName, onAuthorized = onAuthorized) }
-                        } else message(activity, "Vérification PDF indisponible. Aucun aperçu ni export débloqué.")
+                            } else BillingOffers.show(activity, hash, onClosed = onDenied) { require(activity, file, displayName, onDenied = onDenied, onAuthorized = onAuthorized) }
+                        } else { message(activity, "Vérification PDF indisponible. Aucun aperçu ni export débloqué."); onDenied() }
                     }
                 }
             }
@@ -98,7 +98,7 @@ object BillingPdfGate {
         val uid = BillingBackend.uid() ?: return false
         return runCatching {
             val requested = file.canonicalFile
-            check(listOf("billing_pdf_archive", "billing_service_pending", "billing_service_drafts", "paid_service_prepared").none { root ->
+            check(listOf("billing_pdf_archive", "billing_service_pending", "billing_service_drafts", "paid_service_prepared", "monthly_pdf_pending").none { root ->
                 val shared = File(context.filesDir, root).canonicalFile
                 val own = File(shared, BillingContract.accountId(uid)).canonicalFile
                 requested.path.startsWith(shared.path + File.separator) && !requested.path.startsWith(own.path + File.separator)

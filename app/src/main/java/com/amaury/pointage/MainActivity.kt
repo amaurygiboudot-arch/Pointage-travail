@@ -559,6 +559,14 @@ class MainActivity : Activity() {
     }
 
     private fun requestMonthlyPdfDestination() {
+        if (HoraTrackV2.ENABLED) {
+            startActivity(Intent(this, V2MonthlyPdfActivity::class.java).apply {
+                putExtra("report_year", selectedReportMonth.get(Calendar.YEAR))
+                putExtra("report_month", selectedReportMonth.get(Calendar.MONTH))
+            })
+            return
+        }
+        V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
         pendingPdfYear = selectedReportMonth.get(Calendar.YEAR)
         pendingPdfMonth = selectedReportMonth.get(Calendar.MONTH)
         val monthFile = SimpleDateFormat("MMMM_yyyy", Locale.FRANCE).format(selectedReportMonth.time)
