@@ -5,6 +5,10 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.os.Bundle
+import android.net.Uri
+import android.provider.DocumentsContract
+import java.util.concurrent.Executors
+import com.amaury.pointage.billing.BillingContract
 import android.os.ParcelFileDescriptor
 import android.widget.Button
 import android.widget.ImageView
@@ -15,30 +19,50 @@ import com.amaury.pointage.billing.BillingPdfGate
 import com.google.firebase.auth.FirebaseAuth
 
 class PdfPreviewActivity : Activity() {
-    companion object { private const val REQUEST_SAVE = 4102 }
+    companion object {
+        private const val REQUEST_SAVE = 4102
+        private val exportWorker = Executors.newSingleThreadExecutor()
+    }
     private lateinit var pdfFile: File
     private var fileName: String = "Pointage.pdf"
     private var documentAccountUid: String? = null
     private var resumed = false
+    private var pendingFile: File? = null
+    private var pendingHash: String? = null
+    private var pickerRequested = false
+    private var destination: Uri? = null
+    private var stateSaved = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_pdf_preview)
         pdfFile = File(intent.getStringExtra("pdf_path") ?: "")
         fileName = intent.getStringExtra("pdf_name") ?: "Pointage.pdf"
-        documentAccountUid = runCatching { FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
+        documentAccountUid = if (savedInstanceState != null) savedInstanceState.getString("pdf_owner") else currentUid()
+        if (documentAccountUid == null || documentAccountUid != currentUid()) {
+            if (savedInstanceState?.getBoolean("save_picker", false) == true) {
+                savedInstanceState.getString("save_uri")?.let(Uri::parse)?.takeIf { it.scheme == "content" }?.let { uri -> exportWorker.execute { cleanup(uri) } }
+            }
+            finish(); return
+        }
+        pendingFile = savedInstanceState?.getString("save_file")?.let(::File)
+        pendingHash = savedInstanceState?.getString("save_hash")
+        pickerRequested = savedInstanceState?.getBoolean("save_picker", false) ?: false
+        destination = savedInstanceState?.getString("save_uri")?.let(Uri::parse)
         findViewById<Button>(R.id.pdfPreviewBack).setOnClickListener { finish() }
         findViewById<Button>(R.id.pdfPreviewSave).setOnClickListener { savePdf() }
         findViewById<Button>(R.id.pdfPreviewSave).isEnabled = false
+        destination?.let { copyToDestination(it) }
     }
 
     override fun onResume() {
         super.onResume()
         resumed = true
+        stateSaved = false
         val currentUid = runCatching { FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
         if (currentUid != documentAccountUid) { finish(); return }
         BillingPdfGate.require(this, pdfFile, displayName = fileName) { authorizedFile ->
-            if (!resumed) return@require
+            if (!resumed || documentAccountUid != currentUid()) return@require
             pdfFile = authorizedFile
             findViewById<LinearLayout>(R.id.pdfPagesContainer).removeAllViews()
             runCatching { renderPdf() }.onFailure {
@@ -78,30 +102,90 @@ class PdfPreviewActivity : Activity() {
     }
 
     private fun savePdf() {
+        val uid = documentAccountUid ?: return
+        if (!active(uid) || pickerRequested) return
         BillingPdfGate.require(this, pdfFile, displayName = fileName) { authorizedFile ->
-            pdfFile = authorizedFile
-            requestSaveDestination()
+            if (!active(uid) || pickerRequested || stateSaved) return@require
+            runCatching {
+                pdfFile = authorizedFile
+                pendingFile = authorizedFile
+                pendingHash = BillingContract.documentId(authorizedFile)
+                pickerRequested = true
+                startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "application/pdf"
+                    putExtra(Intent.EXTRA_TITLE, fileName)
+                }, REQUEST_SAVE)
+            }.onFailure { clearSave(); toast("Impossible d'ouvrir le choix d'emplacement.") }
         }
-    }
-
-    private fun requestSaveDestination() {
-        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "application/pdf"
-            putExtra(Intent.EXTRA_TITLE, fileName)
-        }
-        startActivityForResult(intent, REQUEST_SAVE)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_SAVE || resultCode != RESULT_OK) return
-        val uri = data?.data ?: return
-        BillingPdfGate.require(this, pdfFile, displayName = fileName) { authorizedFile -> runCatching {
-            contentResolver.openOutputStream(uri)?.use { out -> authorizedFile.inputStream().use { it.copyTo(out) } }
-        }.onSuccess { Toast.makeText(this, "PDF enregistré", Toast.LENGTH_LONG).show() }
-         .onFailure { Toast.makeText(this, "Impossible d'enregistrer le PDF", Toast.LENGTH_LONG).show() } }
+        if (requestCode != REQUEST_SAVE) return
+        val uri = data?.data
+        if (resultCode != RESULT_OK || uri == null) {
+            if (uri?.scheme == "content") cleanup(uri)
+            clearSave()
+            return
+        }
+        if (uri.scheme != "content") { clearSave(); toast("Emplacement PDF invalide."); return }
+        destination = uri
+        runCatching { contentResolver.takePersistableUriPermission(uri,
+            (data?.flags ?: 0) and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)) }
+        copyToDestination(uri)
     }
+
+    private fun copyToDestination(uri: Uri) {
+        val uid = documentAccountUid
+        val file = pendingFile
+        val hash = pendingHash
+        if (uid == null || file == null || hash == null || !pickerRequested || uri.scheme != "content") {
+            cleanup(uri); clearSave(); toast("Export annulé : autorisation à vérifier."); return
+        }
+        exportWorker.execute {
+            val result = runCatching {
+                check(active(uid))
+                check(BillingContract.documentId(file) == hash)
+                // Read-only: never offer another purchase after the destination exists.
+                check(BillingPdfGate.authorizeBackgroundBlocking(this, file))
+                check(active(uid) && BillingContract.documentId(file) == hash)
+                val output = contentResolver.openOutputStream(uri, "w") ?: error("Destination inaccessible")
+                output.use { out -> file.inputStream().use { input ->
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val size = input.read(buffer)
+                        if (size < 0) break
+                        check(active(uid))
+                        out.write(buffer, 0, size)
+                    }
+                } }
+                check(active(uid) && BillingContract.documentId(file) == hash)
+            }
+            if (result.isFailure && !isChangingConfigurations) cleanup(uri)
+            runOnUiThread {
+                if (isDestroyed || isChangingConfigurations) return@runOnUiThread
+                clearSave()
+                toast(if (result.isSuccess) "PDF enregistré" else "Impossible d'enregistrer le PDF. Le document incomplet a été supprimé si le fournisseur le permet.")
+            }
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        stateSaved = true
+        outState.putString("pdf_owner", documentAccountUid)
+        outState.putString("save_file", pendingFile?.absolutePath)
+        outState.putString("save_hash", pendingHash)
+        outState.putBoolean("save_picker", pickerRequested)
+        outState.putString("save_uri", destination?.toString())
+        super.onSaveInstanceState(outState)
+    }
+
+    private fun active(uid: String) = !isFinishing && !isDestroyed && !isChangingConfigurations && currentUid() == uid
+    private fun currentUid() = runCatching { FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
+    private fun cleanup(uri: Uri) { runCatching { DocumentsContract.deleteDocument(contentResolver, uri) } }
+    private fun clearSave() { pendingFile = null; pendingHash = null; pickerRequested = false; destination = null }
+    private fun toast(text: String) { Toast.makeText(this, text, Toast.LENGTH_LONG).show() }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 }

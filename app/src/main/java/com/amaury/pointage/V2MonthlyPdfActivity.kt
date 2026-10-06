@@ -54,7 +54,7 @@ class V2MonthlyPdfActivity : Activity() {
         super.onCreate(savedInstanceState)
         previewMode = savedInstanceState?.getBoolean("preview_mode") ?: intent.getBooleanExtra("report_preview", false)
         ownerUid = savedInstanceState?.getString("owner_uid") ?: currentUid()
-        if (ownerUid == null || ownerUid != currentUid()) { toast("Connecte ton compte avant l'export PDF."); finish(); return }
+        if (ownerUid == null || ownerUid != currentUid()) { cleanupRestoredDestination(savedInstanceState); toast("Connecte ton compte avant l'export PDF."); finish(); return }
         status = TextView(this).apply { text = "Choisis le mois à exporter."; textSize = 16f }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -195,7 +195,15 @@ class V2MonthlyPdfActivity : Activity() {
 
     private fun currentUid() = runCatching { FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
     private fun active(uid: String) = !isFinishing && !isDestroyed && !isChangingConfigurations && currentUid() == uid
-    private fun cleanup(uri: Uri) { runCatching { DocumentsContract.deleteDocument(contentResolver, uri) } }
+    private fun cleanup(uri: Uri) {
+        if (uri.scheme == "content") runCatching { DocumentsContract.deleteDocument(contentResolver, uri) }
+    }
+    private fun cleanupRestoredDestination(state: Bundle?) {
+        val uri = state?.getString("destination")?.let(Uri::parse) ?: return
+        if (uri.scheme != "content") return
+        // Wait for the departing instance's copy to stop before removing its failed destination.
+        worker.execute { cleanup(uri) }
+    }
     private fun toast(message: String) { Toast.makeText(this, message, Toast.LENGTH_LONG).show() }
     override fun onSaveInstanceState(outState: Bundle) {
         stateSaved = true
@@ -247,7 +255,7 @@ class V2MonthlyPdfActivity : Activity() {
                 destinationUri = uri
                 copyAuthorized(uid, file!!, authorizedHash!!, uri)
             }
-            MonthlyPdfRecovery.Action.REJECT -> { toast("Reprise impossible : compte ou PDF à vérifier."); finish() }
+            MonthlyPdfRecovery.Action.REJECT -> { cleanupRestoredDestination(state); toast("Reprise impossible : compte ou PDF à vérifier."); finish() }
         }
     }
 

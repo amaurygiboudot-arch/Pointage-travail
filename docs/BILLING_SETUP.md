@@ -32,6 +32,10 @@ L'archive des octets PDF est conservée sur l'appareil, par compte connecté. La
 
 « Mes PDF » donne accès aux copies préparées et aux archives autorisées. Après un paiement différé ou une fermeture du processus, l'utilisateur peut retrouver la copie exacte même si ses pointages ou son bulletin ont changé. Toute ouverture vérifie à nouveau les droits serveur ; une copie privée, un paiement en attente ou un état d'écran sauvegardé ne débloque jamais l'aperçu.
 
+L’enregistrement depuis l’aperçu revalide les droits sans proposer un nouvel achat après création de la destination. Un refus, une panne, un changement de compte ou une copie interrompue déclenche la suppression du document extérieur créé, lorsque le fournisseur le permet ; la copie privée reste récupérable. La sauvegarde PDF Drive ne remplace jamais un rapport antérieur par une copie en cours : des octets différents donnent une nouvelle version, et une copie échouée est supprimée.
+
+La commande de revue collecte aussi les runs et jobs GitHub du SHA exact avant d’entrer dans son sandbox en lecture seule. Cette preuve temporaire conserve les tentatives actuelles et signale explicitement une collecte indisponible ou incomplète ; elle ne remplace aucun agent ni critère de fusion.
+
 ## Raccordement avant activation
 
 1. Créer les produits et les plans dans Google Play Console, renseigner leurs prix et activer les offres. Tester sur la piste Google Play existante avec des testeurs de licence.

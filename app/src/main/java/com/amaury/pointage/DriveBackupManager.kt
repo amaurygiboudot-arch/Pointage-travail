@@ -1,6 +1,8 @@
 package com.amaury.pointage
 
 import com.amaury.pointage.billing.BillingPdfGate
+import com.amaury.pointage.billing.BillingContract
+import com.amaury.pointage.billing.BillingBackend
 import java.io.File
 
 import android.app.Activity
@@ -199,16 +201,15 @@ object DriveBackupManager {
 
     /** A background backup never starts a purchase or exports an unpaid PDF. */
     private fun publishAuthorizedPdf(context: Context, folder: Uri, name: String, write: (java.io.OutputStream) -> Unit) {
+        val uid = BillingBackend.uid() ?: error("Compte requis pour la sauvegarde PDF")
         val prepared = File.createTempFile("drive_report_", ".pdf", context.cacheDir)
         try {
             prepared.outputStream().use(write)
             check(BillingPdfGate.authorizeBackground(context, prepared)) {
                 "PDF Drive non exporté : achat ou abonnement à vérifier dans l'application. Les données de pointage restent conservées."
             }
-            val destination = ensureFile(context, folder, name, "application/pdf")
-            context.contentResolver.openOutputStream(destination, "w")?.use { output ->
-                prepared.inputStream().use { it.copyTo(output) }
-            } ?: error("Impossible d'écrire $name")
+            check(BillingBackend.uid() == uid) { "Compte modifié pendant la sauvegarde PDF" }
+            publishPreparedPdf(context, folder, name, prepared) { BillingBackend.uid() == uid }
         } finally {
             prepared.delete()
         }
@@ -229,9 +230,41 @@ object DriveBackupManager {
             ?: error("Impossible de créer le dossier $name")
     }
 
-    private fun ensureFile(context: Context, parent: Uri, name: String, mime: String): Uri {
-        findChild(context, parent, name, mime)?.let { return it }
-        return DocumentsContract.createDocument(context.contentResolver, parent, mime, name) ?: error("Impossible de créer $name")
+    /** Publish only to a fresh document: a transport failure must never corrupt an older report. */
+    internal fun publishPreparedPdf(context: Context, parent: Uri, name: String, prepared: File, accountUnchanged: () -> Boolean) {
+        check(accountUnchanged()) { "Compte modifié pendant la sauvegarde PDF" }
+        val hash = BillingContract.documentId(prepared)
+        fun matches(uri: Uri): Boolean = context.contentResolver.openInputStream(uri)?.use { input ->
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            val buffer = ByteArray(8192)
+            while (true) { val count = input.read(buffer); if (count < 0) break; digest.update(buffer, 0, count) }
+            digest.digest().joinToString("") { "%02x".format(it) } == hash
+        } ?: error("Impossible de vérifier le PDF existant")
+        val existing = findChild(context, parent, name, "application/pdf")
+        if (existing != null && matches(existing)) return
+        val targetName = if (existing == null) name else name.removeSuffix(".pdf") + "_$hash.pdf"
+        val previous = if (existing == null) null else findChild(context, parent, targetName, "application/pdf")
+        if (previous != null) {
+            check(matches(previous)) { "Un rapport existant doit être vérifié avant publication" }
+            return
+        }
+        check(accountUnchanged()) { "Compte modifié pendant la sauvegarde PDF" }
+        val destination = DocumentsContract.createDocument(context.contentResolver, parent, "application/pdf", targetName)
+            ?: error("Impossible de créer $targetName")
+        try {
+            context.contentResolver.openOutputStream(destination, "w")?.use { output ->
+                prepared.inputStream().use { input ->
+                    val buffer = ByteArray(8192)
+                    while (true) { val count = input.read(buffer); if (count < 0) break; check(accountUnchanged()); output.write(buffer, 0, count) }
+                }
+            } ?: error("Impossible d'écrire $targetName")
+            check(accountUnchanged()) { "Compte modifié pendant la sauvegarde PDF" }
+            check(BillingContract.documentId(prepared) == hash && matches(destination)) { "PDF sauvegardé incomplet" }
+            check(accountUnchanged()) { "Compte modifié pendant la sauvegarde PDF" }
+        } catch (error: Exception) {
+            runCatching { DocumentsContract.deleteDocument(context.contentResolver, destination) }
+            throw error
+        }
     }
 
     private fun findChild(context: Context, parent: Uri, name: String, mime: String): Uri? {

@@ -378,14 +378,20 @@ class MainActivity : Activity() {
                 V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
                 MonthlyPdfReport.write(this, PointageStore.load(this), pendingPdfYear, pendingPdfMonth, output)
             }
-            BillingPdfGate.require(this, file, "HoraTrack_${pendingPdfYear}_${pendingPdfMonth + 1}.pdf") { authorizedFile ->
+            BillingPdfGate.require(this, file, "HoraTrack_${pendingPdfYear}_${pendingPdfMonth + 1}.pdf", onDenied = {
+                runCatching { android.provider.DocumentsContract.deleteDocument(contentResolver, uri) }
+            }) { authorizedFile ->
                 runCatching {
                     contentResolver.openOutputStream(uri)?.use { output -> authorizedFile.inputStream().use { it.copyTo(output) } }
                         ?: error("Impossible d'ouvrir le fichier")
                 }.onSuccess { Toast.makeText(this, "PDF mensuel enregistré", Toast.LENGTH_LONG).show() }
-                    .onFailure { Toast.makeText(this, "Impossible d'enregistrer le PDF", Toast.LENGTH_LONG).show() }
+                    .onFailure {
+                        runCatching { android.provider.DocumentsContract.deleteDocument(contentResolver, uri) }
+                        Toast.makeText(this, "Impossible d'enregistrer le PDF", Toast.LENGTH_LONG).show()
+                    }
             }
         } catch (e: Exception) {
+            runCatching { android.provider.DocumentsContract.deleteDocument(contentResolver, uri) }
             Toast.makeText(this, "Impossible de générer le PDF : ${e.message ?: "erreur inconnue"}", Toast.LENGTH_LONG).show()
         }
     }
