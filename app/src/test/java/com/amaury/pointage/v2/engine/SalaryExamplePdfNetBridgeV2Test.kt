@@ -55,6 +55,36 @@ class SalaryExamplePdfNetBridgeV2Test {
         grossReliable = grossReliable
     )
 
+    @Test
+    fun contributionDetailsDoNotInventMissingAmountsOrCertifyPartialTotals() {
+        val lines = SalaryExamplePdfV2.contributionLines(payroll()).toMap()
+        assertEquals("100,00 € / À confirmer", lines["Retraite complémentaire"])
+        assertEquals("À confirmer", lines["Accidents du travail / maladies professionnelles"])
+        assertEquals("À confirmer — sous-total partiel", lines["Fiabilité du coût employeur"])
+        assertEquals("À confirmer", lines["Sous-total patronal connu après réductions"])
+    }
+
+    @Test
+    fun contributionAmountsAreSuppressedForUnreliableGross() {
+        val lines = SalaryExamplePdfV2.contributionLines(payroll(grossReliable = false)).toMap()
+        assertEquals("À confirmer / À confirmer", lines["Retraite complémentaire"])
+        assertEquals("À confirmer", lines["Sous-total patronal connu après réductions"])
+    }
+
+    @Test
+    fun absentPayrollKeepsContributionDetailsExplicitlyUnknown() {
+        val lines = SalaryExamplePdfV2.contributionLines(null).toMap()
+        assertEquals("À confirmer / À confirmer", lines["Prévoyance conventionnelle"])
+        assertEquals("À confirmer — calcul partiel", lines["Fiabilité des retenues salarié"])
+    }
+
+    @Test
+    fun reliableGrossDoesNotCertifyIncompleteContributionFallbacks() {
+        val lines = SalaryExamplePdfV2.contributionLines(payroll(complete = false)).toMap()
+        assertEquals("À confirmer / À confirmer", lines["Prévoyance conventionnelle"])
+        assertEquals("À confirmer", lines["Retenues propres à l'entreprise"])
+    }
+
     private fun bridge(
         grossReliable: Boolean = true,
         paidTimeReliable: Boolean = true,
@@ -96,7 +126,7 @@ class SalaryExamplePdfNetBridgeV2Test {
         val lines = SalaryExamplePdfV2.estimatedGrossLines(result.salary, result)
         val values = lines.toMap()
 
-        assertEquals("2500,00 €", values["Brut social estimé HoraTrack hors paniers"])
+        assertEquals("2500,00 €", values["Brut social estimé AGKGMG hors paniers"])
         assertEquals("2000,00 €", values["Net estimé avant impôt"])
         assertEquals("2050,00 €", values["Net imposable estimé"])
         assertEquals("-100,00 €", values["Prélèvement à la source"])
@@ -108,7 +138,7 @@ class SalaryExamplePdfNetBridgeV2Test {
     fun unreliableGrossHidesEveryEmployeeAndEmployerAmount() {
         val values = values(bridge(grossReliable = false))
 
-        assertEquals("À confirmer", values["Brut social estimé HoraTrack hors paniers"])
+        assertEquals("À confirmer", values["Brut social estimé AGKGMG hors paniers"])
         assertEquals("À confirmer", values["Majoration heures supplémentaires"])
         assertEquals("À confirmer", values["Net estimé avant impôt"])
         assertEquals("À confirmer", values["Net imposable estimé"])
@@ -122,7 +152,7 @@ class SalaryExamplePdfNetBridgeV2Test {
     fun unreliablePaidTimeAlsoBlocksAllDerivedAmounts() {
         val values = values(bridge(paidTimeReliable = false))
 
-        assertEquals("À confirmer", values["Brut social estimé HoraTrack hors paniers"])
+        assertEquals("À confirmer", values["Brut social estimé AGKGMG hors paniers"])
         assertEquals("À confirmer", values["Majoration heures supplémentaires"])
         assertEquals("À confirmer", values["Net estimé avant impôt"])
         assertEquals("À confirmer", values["Réductions / exonérations patronales"])
@@ -138,7 +168,7 @@ class SalaryExamplePdfNetBridgeV2Test {
         val lines = SalaryExamplePdfV2.estimatedGrossLines(result.salary, result)
         val values = lines.toMap()
 
-        assertEquals("À confirmer", values["Brut social estimé HoraTrack hors paniers"])
+        assertEquals("À confirmer", values["Brut social estimé AGKGMG hors paniers"])
         assertFalse(lines.any { it.first == "Dont avantages en nature" })
         assertFalse(lines.any { it.first == "Avantages en nature non versés en espèces" })
         assertEquals("À confirmer", values["Réductions / exonérations patronales"])

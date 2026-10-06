@@ -116,11 +116,11 @@ object AnalyticsEngineV2 {
 
 enum class PdfFieldV2 { IDENTITY, COMPANY, PERIOD, HOURS, PAUSES, PREMIUMS, BASKETS, CONTRIBUTIONS, DEDUCTIONS, COUNTERS, DISCREPANCIES, SOURCES }
 data class PdfSelectionV2(val fields:Set<PdfFieldV2>)
-data class PdfDocumentV2(val title:String,val subtitle:String,val sections:List<Pair<String,String>>,val footer:String="© HoraTrack")
+data class PdfDocumentV2(val title:String,val subtitle:String,val sections:List<Pair<String,String>>,val footer:String="© AGKGMG")
 object PdfEngineV2 {
     fun salaryExample(selection:PdfSelectionV2,sections:Map<PdfFieldV2,String>):PdfDocumentV2 {
         val content=selection.fields.mapNotNull{field->sections[field]?.let{field.name to it}}
-        return PdfDocumentV2("FICHE DE PAIE EXEMPLE","ESTIMATION HORATRACK",content)
+        return PdfDocumentV2("FICHE DE PAIE EXEMPLE","ESTIMATION AGKGMG",content)
     }
-    fun report(title:String,selection:PdfSelectionV2,sections:Map<PdfFieldV2,String>)=PdfDocumentV2(title,"Document généré par HoraTrack",selection.fields.mapNotNull{f->sections[f]?.let{f.name to it}})
+    fun report(title:String,selection:PdfSelectionV2,sections:Map<PdfFieldV2,String>)=PdfDocumentV2(title,"Document généré par AGKGMG",selection.fields.mapNotNull{f->sections[f]?.let{f.name to it}})
 }
