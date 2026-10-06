@@ -8,7 +8,6 @@ import android.database.MatrixCursor
 import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
-import com.amaury.pointage.billing.BillingPdfGate
 import com.amaury.pointage.billing.BillingContract
 import com.amaury.pointage.DriveBackupManager
 import com.amaury.pointage.V2MonthlyPdfActivity
@@ -35,11 +34,20 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class,
-    shadows = [DestinationDocumentsShadow::class, DestinationResolverShadow::class, PdfIntegrationAuthShadow::class, DestinationGateShadow::class],
+    shadows = [DestinationDocumentsShadow::class, DestinationResolverShadow::class, PdfIntegrationAuthShadow::class, PdfSaveGateShadow::class],
     instrumentedPackages = ["com.google.firebase.auth", "com.amaury.pointage.billing"])
 class PdfDestinationCleanupV2Test {
     private val parent = Uri.parse("content://pdf-test/tree/root/document/root")
-    @Before fun reset() { DestinationDocumentsShadow.reset(); DestinationGateShadow.calls.set(0) }
+    @Before fun reset() {
+        DestinationDocumentsShadow.reset()
+        PdfSaveGateShadow.allow = true
+        PdfSaveGateShadow.unavailable = false
+        PdfSaveGateShadow.calls.set(0)
+        PdfSaveGateShadow.interactiveCalls.set(0)
+        PdfSaveGateShadow.started = null
+        PdfSaveGateShadow.release = null
+        PdfSaveGateShadow.completed = null
+    }
     private fun source() = File.createTempFile("pdf-test", ".pdf", RuntimeEnvironment.getApplication().cacheDir).apply { writeText("exact purchased bytes") }
 
     @Test fun nullDestinationStreamDeletesNewDocumentAndThrows() {
@@ -98,7 +106,7 @@ class PdfDestinationCleanupV2Test {
         val controller = Robolectric.buildActivity(V2MonthlyPdfActivity::class.java).create(state)
         try {
             assertTrue("Final verification must remove the last-write failure", DestinationDocumentsShadow.deletedLatch.await(3, TimeUnit.SECONDS))
-            assertEquals("The actual copy passed its read-only authorization", 1, DestinationGateShadow.calls.get())
+            assertEquals("The actual copy passed its read-only authorization", 1, PdfSaveGateShadow.calls.get())
             assertFalse(DestinationDocumentsShadow.files.containsKey("partial.pdf"))
         } finally { controller.destroy() }
     }
@@ -166,13 +174,5 @@ class DestinationResolverShadow {
             }
             override fun close() { DestinationDocumentsShadow.files[name] = toByteArray(); super.close() }
         }
-    }
-}
-
-@Implements(value = BillingPdfGate::class, isInAndroidSdk = false)
-class DestinationGateShadow {
-    companion object { val calls = java.util.concurrent.atomic.AtomicInteger() }
-    @Implementation fun authorizeBackgroundBlocking(context: Context, file: File): Boolean {
-        calls.incrementAndGet(); return true
     }
 }
