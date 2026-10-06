@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.billing.BillingPdfGate
+
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
@@ -25,7 +27,7 @@ class AnnualWorkPdfButton @JvmOverloads constructor(
         val year = Calendar.getInstance().get(Calendar.YEAR)
         runCatching {
             val name = "AGKGMG_Bilan_travail_$year.pdf"
-            val file = File(activity.cacheDir, name)
+            val file = File.createTempFile("annual_preview_", ".pdf", activity.cacheDir)
             file.outputStream().use { output ->
                 if (HoraTrackV2.ENABLED) {
                     AnnualPdfReports.writeWork(activity, year, output)
@@ -33,10 +35,12 @@ class AnnualWorkPdfButton @JvmOverloads constructor(
                     AnnualPdfReports.writeWork(activity, PointageStore.load(activity), year, output)
                 }
             }
-            activity.startActivity(Intent(activity, PdfPreviewActivity::class.java).apply {
-                putExtra("pdf_path", file.absolutePath)
-                putExtra("pdf_name", name)
-            })
+            BillingPdfGate.require(activity, file, name) { authorizedFile ->
+                activity.startActivity(Intent(activity, PdfPreviewActivity::class.java).apply {
+                    putExtra("pdf_path", authorizedFile.absolutePath)
+                    putExtra("pdf_name", name)
+                })
+            }
         }.onFailure {
             Toast.makeText(activity, "Impossible de générer le bilan annuel", Toast.LENGTH_LONG).show()
         }
@@ -91,7 +95,7 @@ class AnnualSalaryPdfButton @JvmOverloads constructor(
             .ifBlank { "entreprise" }
         val name = "AGKGMG_Estimation_salaire_${token}_$year.pdf"
         runCatching {
-            val file = File(activity.cacheDir, name)
+            val file = File.createTempFile("annual_preview_", ".pdf", activity.cacheDir)
             file.outputStream().use { output ->
                 if (HoraTrackV2.ENABLED) {
                     AnnualPdfReports.writeSalary(activity, year, output, company)
@@ -105,10 +109,12 @@ class AnnualSalaryPdfButton @JvmOverloads constructor(
                     )
                 }
             }
-            activity.startActivity(Intent(activity, PdfPreviewActivity::class.java).apply {
-                putExtra("pdf_path", file.absolutePath)
-                putExtra("pdf_name", name)
-            })
+            BillingPdfGate.require(activity, file, name) { authorizedFile ->
+                activity.startActivity(Intent(activity, PdfPreviewActivity::class.java).apply {
+                    putExtra("pdf_path", authorizedFile.absolutePath)
+                    putExtra("pdf_name", name)
+                })
+            }
         }.onFailure {
             Toast.makeText(
                 activity,
