@@ -33,7 +33,7 @@ Audit des surfaces applicatives Android, des modules V2, des sources iOS et du s
 | Mini-jeux | `SnakeGameActivity`, `ObjectiveDeliveryGameActivity`, `DiamondLabActivity` | Priorité commerciale faible pour une app de pointage ; pas de vente préparée |
 | Compte, sécurité, diagnostics et assistance | Firebase/Auth, `V2SecuritySettingsView`, `SecurityInfoActivity`, `OwnerFeedbackActivity` | Protection du compte et accès aux données conservés accessibles |
 | Offre entreprises | Sélection employeur présente, pas de véritable portail multi-salariés livré | Projet distinct : administration, consentements, permissions et prix à concevoir |
-| iOS | Moteurs Salaire V2 présents ; pas de StoreKit opérationnel, exports explicitement indisponibles | Ne pas annoncer la parité achats ; adaptateur StoreKit et livraison requis |
+| iOS | Moteurs Salaire V2 et préparation/partage PDF existants conservés, encore gratuits ; aucun achat Apple activé | Tarifs Google Play limités à Android ; migration StoreKit future distincte sans suppression du parcours existant |
 
 ## Autres ventes possibles : propositions, non activées
 

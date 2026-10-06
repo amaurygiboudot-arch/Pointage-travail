@@ -5,6 +5,8 @@ struct SalaryV2View: View {
     @EnvironmentObject private var workStore: WorkStoreV2
     @State private var payrollCoverageAgreed = false
     @State private var payrollCoverageFeedback: String?
+    @State private var salaryPdfURL: URL?
+    @State private var salaryPdfFeedback: String?
     @State private var payslipGrossText = ""
     @State private var payslipNetBeforeTaxText = ""
     @State private var payslipNetTaxableText = ""
@@ -52,13 +54,16 @@ struct SalaryV2View: View {
             .onChange(of: salaryStore.selectedPeriod) { _ in
                 resetPayslipComparison()
                 resetPayrollCoverageConfirmation()
+                clearSalaryPdf()
             }
             .onChange(of: salaryStore.selectedCompany) { _ in
                 resetPayslipComparison()
                 resetPayrollCoverageConfirmation()
+                clearSalaryPdf()
             }
             .onChange(of: salaryStore.snapshot) { _ in
                 clearPayslipComparisonResult()
+                clearSalaryPdf()
             }
             .onChange(of: [payslipGrossText, payslipNetBeforeTaxText, payslipNetTaxableText,
                            payslipIncomeTaxText, payslipNetAfterTaxText]) { _ in
@@ -872,10 +877,39 @@ struct SalaryV2View: View {
                 }
             }
             VStack(alignment: .leading, spacing: 8) {
-                Label("PDF premium", systemImage: "lock.fill")
-                Text(SalaryPdfPurchaseGateV2.unavailableMessage)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                HStack {
+                    Text("PDF paie")
+                    Spacer()
+                    Button("Préparer le PDF") {
+                        do {
+                            salaryPdfURL = try SalaryV2PdfExporter.export(
+                                snapshot: salaryStore.snapshot,
+                                company: salaryStore.selectedCompany
+                            )
+                            salaryPdfFeedback = "PDF généré depuis le snapshot canonique affiché."
+                        } catch {
+                            salaryPdfURL = nil
+                            salaryPdfFeedback = "Impossible de générer le PDF."
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                if let salaryPdfURL {
+                    ShareLink(
+                        item: salaryPdfURL,
+                        subject: Text("HoraTrack — estimation de salaire"),
+                        message: Text("Export Salaire V2 HoraTrack")
+                    ) {
+                        Label("Partager le PDF", systemImage: "square.and.arrow.up")
+                    }
+                }
+
+                if let salaryPdfFeedback {
+                    Text(salaryPdfFeedback)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding()
@@ -1020,6 +1054,11 @@ struct SalaryV2View: View {
             return (false, nil)
         }
         return (true, value)
+    }
+
+    private func clearSalaryPdf() {
+        salaryPdfURL = nil
+        salaryPdfFeedback = nil
     }
 
     private func clearPayslipComparisonResult() {

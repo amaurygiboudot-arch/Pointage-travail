@@ -41,7 +41,7 @@ L'archive des octets PDF est conservée sur l'appareil, par compte connecté. La
 5. Tester achat accepté, paiement en attente, annulation utilisateur, compte différent, changement de téléphone, relance après achat, remboursement, expiration et re-téléchargement du même PDF.
 6. Activer les achats uniquement après validation du serveur, de la version Google Play et de la chaîne de contrôle du dépôt.
 
-Le déploiement, la création des produits, l'attribution des permissions et l'activation du compte propriétaire ne sont pas accomplis par la simple présence de ce code. Les achats iOS nécessitent un raccordement StoreKit et une vérification serveur propre à Apple ; sans ce raccordement, les PDF restent explicitement indisponibles à l'export.
+Le déploiement, la création des produits, l'attribution des permissions et l'activation du compte propriétaire ne sont pas accomplis par la simple présence de ce code. Cette mise à jour monétise uniquement Android via Google Play. Le parcours PDF salaire iOS existant reste disponible et gratuit ; aucun achat iOS n’est activé. Une future monétisation iOS nécessitera un raccordement StoreKit et une vérification serveur propre à Apple, sans retirer les fonctions existantes avant leur migration opérationnelle.
 
 ## Sources techniques
 
