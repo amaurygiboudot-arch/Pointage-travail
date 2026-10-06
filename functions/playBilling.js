@@ -1,9 +1,10 @@
 "use strict";
 
 const { createHash } = require("node:crypto");
-const { SERVICES, validateServiceOrder } = require("./billingServiceCatalog");
+const { SERVICES } = require("./billingServiceCatalog");
+const { createReportBilling } = require("./reportBilling");
 const PACKAGE = "com.amaury.pointage";
-const PRODUCTS = Object.freeze({ horatrack_premium: "premium", horatrack_plus: "plus", horatrack_analysis: "analysis", horatrack_pdf: "pdf" });
+const PRODUCTS = Object.freeze({ horatrack_premium: "premium", horatrack_plus: "plus", horatrack_analysis: "analysis", horatrack_pdf: "pdf", horatrack_payslip_comparison: "payslip_comparison", horatrack_annual_review: "annual_review", horatrack_claim_dossier: "claim_dossier" });
 const sha = value => createHash("sha256").update(value).digest("hex");
 class BillingError extends Error { constructor(code, message) { super(message); this.code = code; } }
 const deny = message => { throw new BillingError("permission-denied", message); };
@@ -12,13 +13,11 @@ function documentKey(value) {
   return value;
 }
 function purchaseRequest(data) {
-  if (data && Object.hasOwn(SERVICES, data.productId) && data.productId !== "horatrack_analysis") {
-    throw new BillingError("failed-precondition", "Service non disponible : aucun achat autorisé.");
-  }
   if (!data || !Object.hasOwn(PRODUCTS, data.productId) || typeof data.purchaseToken !== "string" || !data.purchaseToken.length || data.purchaseToken.length > 4096) {
     throw new BillingError("invalid-argument", "Achat non reconnu.");
   }
-  return { productId: data.productId, token: data.purchaseToken, kind: PRODUCTS[data.productId], documentSha256: data.productId === "horatrack_pdf" ? documentKey(data.documentSha256) : null };
+  const legacyAnalysis = data.productId === "horatrack_analysis" && data.documentSha256 == null;
+  return { productId: data.productId, token: data.purchaseToken, kind: PRODUCTS[data.productId], documentSha256: !legacyAnalysis && (data.productId === "horatrack_pdf" || Object.hasOwn(SERVICES, data.productId)) ? documentKey(data.documentSha256) : null, reportId: data.reportId || null };
 }
 function verifyState(raw, purchase, uid, now = Date.now()) {
   if (purchase.kind === "premium" || purchase.kind === "plus") {
@@ -29,7 +28,7 @@ function verifyState(raw, purchase, uid, now = Date.now()) {
     return { expiryMs: Date.parse(line.expiryTime), orderId: line.latestSuccessfulOrderId || raw.latestOrderId || null, acknowledged: raw.acknowledgementState === "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED", linkedToken: raw.linkedPurchaseToken || null };
   }
   if (raw.obfuscatedExternalAccountId !== sha(uid)) deny("Achat associé à un autre compte.");
-  if (purchase.kind === "pdf" && raw.obfuscatedExternalProfileId !== purchase.documentSha256) deny("Paiement associé à un autre document.");
+  if (!purchase.legacy && (purchase.kind === "pdf" || Object.hasOwn(SERVICES, purchase.productId)) && raw.obfuscatedExternalProfileId !== purchase.documentSha256) deny("Paiement associé à un autre document.");
   if (raw.purchaseState !== 0) deny("Paiement non finalisé ou remboursé.");
   return { expiryMs: null, acknowledged: raw.acknowledgementState === 1, consumed: raw.consumptionState === 1 };
 }
@@ -53,8 +52,21 @@ function createPlayClient({ credential, fetchImpl = fetch }) {
 function createBillingService({ db, play, now = Date.now }) {
   const records = db.collection("billingPurchasesV1");
   const user = uid => db.collection("billingUsersV1").doc(uid);
+  const reportBilling = createReportBilling({ db, records, user, livePurchases, play, now, BillingError, documentKey });
   async function verify(uid, data) {
     const p = purchaseRequest(data);
+    if (p.kind === "analysis" && p.documentSha256 == null) {
+      const previous = await records.doc(sha(p.token)).get();
+      if (!previous.exists || previous.data().uid !== uid || previous.data().productId !== p.productId || previous.data().documentSha256 != null || previous.data().reportId != null || p.reportId != null) deny("Seul un crédit bulletin déjà vérifié peut être restauré sans rapport.");
+      p.legacy = true;
+    }
+    if (p.kind === "pdf" && await reportBilling.documentMarker(uid, p.documentSha256)) deny("Ce document nécessite le droit de sa prestation, pas un achat PDF ordinaire.");
+    if (Object.hasOwn(SERVICES, p.productId) && !p.legacy) {
+      const marker = await reportBilling.documentMarker(uid, p.documentSha256);
+      if (!marker || marker.productId !== p.productId || (p.reportId && p.reportId !== marker.reportId)) deny("Rapport préparé correspondant requis.");
+      p.reportId = marker.reportId;
+      await reportBilling.validatePurchase(uid, p);
+    }
     const state = verifyState(await play.get(p), p, uid, now());
     const ref = records.doc(sha(p.token));
     await db.runTransaction(async tx => {
@@ -65,15 +77,17 @@ function createBillingService({ db, play, now = Date.now }) {
         const linked = await tx.get(linkedRef);
         if (linked.exists && linked.data().uid !== uid) deny("Abonnement remplacé associé à un autre compte.");
       }
+      if (p.reportId) await reportBilling.validatePurchase(uid, p, tx);
       if (existing.exists) {
         const old = existing.data();
         if (old.supersededBy) deny("Abonnement remplacé : ancien jeton désactivé.");
-        if (old.uid !== uid || old.productId !== p.productId || old.documentSha256 !== p.documentSha256) deny("Jeton déjà associé à un autre achat.");
+        if (old.uid !== uid || old.productId !== p.productId || old.documentSha256 !== p.documentSha256 || (old.reportId || null) !== p.reportId) deny("Jeton déjà associé à un autre achat.");
       } else {
         if (state.consumed) deny("Achat déjà consommé sans preuve serveur.");
-        tx.create(ref, { uid, productId: p.productId, kind: p.kind, token: p.token, documentSha256: p.documentSha256, createdAtMs: now(), analysisUsed: false });
+        tx.create(ref, { uid, productId: p.productId, kind: p.kind, token: p.token, documentSha256: p.documentSha256, reportId: p.reportId, createdAtMs: now(), analysisUsed: false });
       }
       if (linkedRef) tx.set(linkedRef, { uid, supersededBy: ref.id || sha(p.token) }, { merge: true });
+      if (p.reportId) reportBilling.deliverPurchase(tx, uid, p, sha(p.token));
       tx.set(ref, { expiryMs: state.expiryMs, orderId: state.orderId || null, verifiedAtMs: now(), active: true }, { merge: true });
     });
     // Settlement after durable claim: retrying the same token never creates a second credit.
@@ -86,6 +100,7 @@ function createBillingService({ db, play, now = Date.now }) {
     for (const doc of snapshot.docs) {
       const p = doc.data();
       if (p.supersededBy || !relevant(p, doc.id)) continue;
+      if (p.kind === "analysis" && p.documentSha256 == null && p.reportId == null) p.legacy = true;
       try {
         const state = verifyState(await play.get(p), p, uid, now());
         active.push({ ...p, id: doc.id, expiryMs: state.expiryMs, orderId: state.orderId || p.orderId });
@@ -98,17 +113,21 @@ function createBillingService({ db, play, now = Date.now }) {
     return active;
   }
   async function entitlements(uid, owner = false) {
-    if (owner) return { owner: true, premium: true, plus: true, analysisCredits: 1, pdfIds: [], obfuscatedAccountId: sha(uid) };
+    if (owner) return { owner: true, premium: true, plus: true, analysisCredits: 0, legacyAnalysisCredits: 0, plusAnalysisCreditAvailable: false, pdfIds: [], obfuscatedAccountId: sha(uid) };
     const active = await livePurchases(uid);
     const plus = active.some(p => p.kind === "plus");
     const period = new Date(now()).toISOString().slice(0, 7);
     const usage = await user(uid).collection("analysisPeriods").doc(period).get();
+    const legacyAnalysisCredits = active.filter(p => p.kind === "analysis" && !p.reportId && !p.analysisUsed).length;
+    const plusAnalysisCreditAvailable = plus && !usage.exists;
     return { owner: false, premium: plus || active.some(p => p.kind === "premium"), plus,
-      analysisCredits: active.filter(p => p.kind === "analysis" && !p.analysisUsed).length + (plus && !usage.exists ? 1 : 0),
+      analysisCredits: legacyAnalysisCredits + (plusAnalysisCreditAvailable ? 1 : 0), legacyAnalysisCredits, plusAnalysisCreditAvailable,
       pdfIds: active.filter(p => p.kind === "pdf").map(p => p.documentSha256), obfuscatedAccountId: sha(uid) };
   }
   async function authorizePdf(uid, data, owner = false) {
     const key = documentKey(data?.documentSha256);
+    const serviceMarker = await reportBilling.documentMarker(uid, key);
+    if (serviceMarker) return reportBilling.authorize(uid, { reportId: serviceMarker.reportId, documentSha256: key }, owner, false);
     if (owner) return { authorized: true, documentSha256: key };
     const grant = user(uid).collection("ownedPdfs").doc(key);
     const previous = await grant.get();
@@ -146,35 +165,11 @@ function createBillingService({ db, play, now = Date.now }) {
     deny("Paiement vérifié requis avant de générer ou prévisualiser ce PDF.");
   }
   async function reserveAnalysis(uid, data, owner = false) {
-    // Keep legacy purchased bulletin credits readable, but never spend them for a missing service.
-    try {
-      const order = validateServiceOrder({ ...data, productId: data?.productId || "horatrack_analysis" });
-      if (order.productId !== "horatrack_analysis") throw new BillingError("failed-precondition", "Un crédit bulletin ne donne pas accès à un autre service.");
-    } catch (error) { throw new BillingError(error.code || "invalid-argument", error.message); }
-    const requestId = data?.requestId;
-    if (typeof requestId !== "string" || !/^[a-zA-Z0-9_-]{16,128}$/.test(requestId)) throw new BillingError("invalid-argument", "Identifiant idempotent requis.");
-    const active = owner ? [] : await livePurchases(uid);
-    const period = new Date(now()).toISOString().slice(0, 7);
-    const reservation = user(uid).collection("analysisReservations").doc(requestId);
-    const monthly = user(uid).collection("analysisPeriods").doc(period);
-    return db.runTransaction(async tx => {
-      const previous = await tx.get(reservation);
-      if (previous.exists) return { reservationId: requestId, reserved: true };
-      const month = await tx.get(monthly);
-      let purchaseId = null;
-      if (!owner && !(active.some(p => p.kind === "plus") && !month.exists)) {
-        for (const p of active.filter(p => p.kind === "analysis")) {
-          const current = await tx.get(records.doc(p.id));
-          if (!current.data()?.analysisUsed) { purchaseId = p.id; break; }
-        }
-        if (!purchaseId) deny("Crédit d'analyse requis.");
-      }
-      if (purchaseId) tx.update(records.doc(purchaseId), { analysisUsed: true, analysisRequestId: requestId });
-      else if (!owner) tx.create(monthly, { requestId, reservedAtMs: now() });
-      tx.create(reservation, { purchaseId, period: purchaseId || owner ? null : period, owner, reservedAtMs: now(), status: "reserved" });
-      return { reservationId: requestId, reserved: true };
-    });
+    // Quota can only be consumed by an immutable already-built prepared report.
+    if (!data?.reportId) throw new BillingError("failed-precondition", "Prépare le rapport avant de réserver un crédit.");
+    return reportBilling.authorize(uid, data, owner);
+
   }
-  return { verify, entitlements, authorizePdf, reserveAnalysis };
+  return { verify, entitlements, authorizePdf, reserveAnalysis, prepareReport: reportBilling.prepare, authorizeReport: reportBilling.authorize };
 }
 module.exports = { PACKAGE, PRODUCTS, sha, BillingError, documentKey, purchaseRequest, verifyState, createPlayClient, createBillingService };

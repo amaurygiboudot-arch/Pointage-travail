@@ -16,12 +16,19 @@ class BillingServiceCatalogTest {
         assertEquals(4, BillingServiceCatalog.services.map { it.productId }.toSet().size)
     }
 
-    @Test fun missingDeliveryCannotBePurchasedAndPdfIsIncluded() {
+    @Test fun readyPreparationDoesNotPromiseAStorePurchaseAndPdfIsIncluded() {
         BillingServiceCatalog.services.forEach { service ->
-            assertEquals(BillingServiceCatalog.Availability.DELIVERY_NOT_READY, service.availability)
+            assertEquals(BillingServiceCatalog.Availability.READY, service.availability)
+            assertTrue(service.readyForPreparation)
             assertFalse(service.purchasable)
             assertTrue(service.pdfIncluded)
         }
+    }
+
+    @Test fun unavailablePreparationCannotBeMarkedReadyByDefault() {
+        val unavailable = BillingServiceCatalog.services.first().copy(availability = BillingServiceCatalog.Availability.DELIVERY_NOT_READY)
+        assertFalse(unavailable.readyForPreparation)
+        assertFalse(unavailable.purchasable)
     }
 
     @Test fun targetPricesUseEuroCentsWithoutFloatingPointRounding() {

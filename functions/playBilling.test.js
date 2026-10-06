@@ -5,13 +5,8 @@ const { sha, verifyState, purchaseRequest, createBillingService, createPlayClien
 const UID = "user";
 const PDF = sha("pdf bytes");
 const good = () => ({ purchaseState: 0, consumptionState: 0, acknowledgementState: 0, obfuscatedExternalAccountId: sha(UID), obfuscatedExternalProfileId: PDF });
-function memoryDb() {
-  const rows = new Map();
-  const ref = path => ({ path, collection: name => collection(path + "/" + name), async get() { return snap(path); }, async set(data, options) { rows.set(path, options?.merge ? { ...rows.get(path), ...data } : data); } });
-  const snap = path => ({ exists: rows.has(path), data: () => rows.get(path), id: path.split("/").at(-1), ref: ref(path) });
-  const collection = path => ({ doc: id => ref(path + "/" + id), where: (field, op, value) => ({ async get() { return { docs: [...rows].filter(([key, data]) => key.startsWith(path + "/") && data[field] === value).map(([key]) => snap(key)) }; } }) });
-  return { collection, rows, async runTransaction(fn) { const pending = []; const result = await fn({ get: async r => snap(r.path), create: (r, d) => { assert(!rows.has(r.path)); pending.push([r.path, d]); }, set: (r, d) => pending.push([r.path, { ...rows.get(r.path), ...d }]), update: (r, d) => pending.push([r.path, { ...rows.get(r.path), ...d }]) }); for (const [path, data] of pending) rows.set(path, { ...rows.get(path), ...data }); return result; } };
-}
+const { memoryDb } = require("./billingTestFixtures");
+
 test("purchase parser rejects forged products and missing document identity", () => {
   assert.throws(() => purchaseRequest({ productId: "free", purchaseToken: "x" }));
   assert.throws(() => purchaseRequest({ productId: "horatrack_pdf", purchaseToken: "x", documentSha256: "document1" }));
@@ -41,14 +36,13 @@ test("PDF token is idempotent document-bound redownloadable and revoked on refun
   raw = { ...raw, purchaseState: 1 };
   await assert.rejects(service.authorizePdf(UID, { documentSha256: PDF }));
 });
-test("legacy bulletin credits retained while missing pipeline cannot reserve or grant arbitrary PDF", async () => {
+test("service receipt requires a prepared report and never grants arbitrary PDF", async () => {
   const service = createBillingService({ db: memoryDb(), play: { get: async () => good(), settle: async () => {} } });
-  await service.verify(UID, { productId: "horatrack_analysis", purchaseToken: "analysis-token" });
-  const requestId = "analysis_request_1";
-  await assert.rejects(service.reserveAnalysis(UID, { requestId, inputSha256: PDF }), error => error.code === "failed-precondition");
-  assert.equal((await service.entitlements(UID)).analysisCredits, 1);
-  await assert.rejects(service.authorizePdf(UID, { documentSha256: PDF, analysisId: requestId }));
+  await assert.rejects(service.verify(UID, { productId: "horatrack_analysis", purchaseToken: "analysis-token", documentSha256: PDF }), e => e.code === "permission-denied");
+  await assert.rejects(service.reserveAnalysis(UID, { requestId: "analysis_request_1", inputSha256: PDF }), e => e.code === "failed-precondition");
+  await assert.rejects(service.authorizePdf(UID, { documentSha256: PDF }));
 });
+
 test("owner entitlement comes from trusted argument and API outages deny access", async () => {
   const db = memoryDb(); let broken = false;
   const service = createBillingService({ db, play: { get: async () => { if (broken) throw Error("offline"); return good(); }, settle: async () => {} } });

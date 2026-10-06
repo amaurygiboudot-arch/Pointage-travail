@@ -18,7 +18,7 @@ object BillingOffers {
             return
         }
         AlertDialog.Builder(activity).setTitle("Premium et services")
-            .setItems(arrayOf("Abonnements et offres Google Play", "Services à venir et tarifs prévus", "Restaurer les achats", "Mes PDF")) { _, index ->
+            .setItems(arrayOf("Abonnements et offres Google Play", "Analyses et rapports", "Restaurer les achats", "Mes PDF", "Mes rapports préparés", "Gérer mes abonnements")) { _, index ->
                 when (index) {
                     0 -> showPurchasable(activity, null, onVerified)
                     1 -> showServiceCatalog(activity)
@@ -27,18 +27,64 @@ object BillingOffers {
                         HoraTrackBilling.restore(activity) { ok -> if (ok) onVerified() }
                     }
                     3 -> showArchive(activity)
+                    4 -> BillingServiceFlow.showPending(activity)
+                    5 -> runCatching {
+                        activity.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://play.google.com/store/account/subscriptions?package=com.amaury.pointage")))
+                    }.onFailure { Toast.makeText(activity, "Impossible d'ouvrir la gestion Google Play.", Toast.LENGTH_LONG).show() }
                 }
             }.setNegativeButton("Fermer", null).show()
     }
 
     private fun showServiceCatalog(activity: Activity) {
-        AlertDialog.Builder(activity).setTitle("Services à venir — achat indisponible")
-            .setItems(BillingServiceCatalog.services.map { "${it.title} — tarif prévu ${it.targetPriceLabel}" }.toTypedArray()) { _, index ->
+        AlertDialog.Builder(activity).setTitle("Analyses et rapports — PDF inclus")
+            .setItems(BillingServiceCatalog.services.map { it.title }.toTypedArray()) { _, index ->
                 val service = BillingServiceCatalog.services[index]
-                AlertDialog.Builder(activity).setTitle(service.title)
-                    .setMessage("${service.description}\n\nTarif prévu : ${service.targetPriceLabel}. Ce tarif n'est pas une offre Google Play active.\n\nEn préparation : livrable indisponible, aucun achat ni paiement possible actuellement.")
-                    .setPositiveButton("Compris", null).show()
+                if (service.availability != BillingServiceCatalog.Availability.READY) {
+                    AlertDialog.Builder(activity).setTitle(service.title)
+                        .setMessage("${service.description}\n\nEn préparation : aucun paiement disponible.")
+                        .setPositiveButton("Compris", null).show()
+                } else {
+                    AlertDialog.Builder(activity).setTitle(service.title)
+                        .setMessage("${service.description}\n\nLes données nécessaires seront vérifiées avant toute proposition d'achat. Seul le prix fourni par Google Play sera affiché au paiement.")
+                        .setPositiveButton("Préparer le rapport") { _, _ -> BillingServiceFlow.start(activity, service.productId) }
+                        .setNegativeButton("Annuler", null).show()
+                }
             }.setNegativeButton("Fermer", null).show()
+    }
+
+    fun showServicePurchase(activity: Activity, report: BillingServiceFlow.Report, onUsePlusCredit: () -> Unit, onUseLegacyCredit: () -> Unit, onVerified: () -> Unit) {
+        val uid = BillingBackend.uid() ?: return
+        if (BillingServiceFlow.prepared(activity, uid, report.documentId)?.reportId != report.reportId) return
+        BillingBackend.call("billingGetEntitlements").addOnCompleteListener { entitlementTask ->
+            val entitlement = entitlementTask.resultOrNull() as? Map<*, *>
+            if (activity.isFinishing || activity.isDestroyed || BillingBackend.uid() != uid || entitlement == null ||
+                entitlement["obfuscatedAccountId"] != BillingContract.accountId(uid)) return@addOnCompleteListener
+            val included = entitlement["owner"] == true || entitlement["premium"] == true || entitlement["plus"] == true
+            HoraTrackBilling.queryOffers(activity) { offers ->
+            if (activity.isFinishing || activity.isDestroyed || BillingBackend.uid() != uid) return@queryOffers
+            val available = offers.filter { it.details.productId == report.productId ||
+                (!included && report.productId == BillingContract.ANALYSIS && it.details.productId == BillingContract.PLUS) }
+            val builder = AlertDialog.Builder(activity).setTitle("Débloquer ce rapport — PDF inclus")
+                .setMessage("Le rapport est préparé. Aucun aperçu avant validation serveur.\n\n" +
+                    if (available.isEmpty()) "Aucune offre Google Play active pour ce service. Aucun achat possible actuellement ; une analyse mensuelle Plus peut être utilisée si ton compte en dispose."
+                    else "Achat unique pour ce rapport, ou Premium + analyses pour un bulletin par mois. Les prix et périodes ci-dessous sont ceux de Google Play.")
+                .setNeutralButton("Restaurer et vérifier") { _, _ -> HoraTrackBilling.restore(activity) { ok -> if (ok && BillingBackend.uid() == uid) onVerified() } }
+                .setNegativeButton("Plus tard", null)
+            val plusCredit = report.productId == BillingContract.ANALYSIS && entitlement["plusAnalysisCreditAvailable"] == true
+            val legacyCredit = report.productId == BillingContract.ANALYSIS && (entitlement["legacyAnalysisCredits"] as? Number)?.toInt()?.let { it > 0 } == true
+            if (available.isNotEmpty() || plusCredit || legacyCredit) builder.setPositiveButton("Choisir") { _, _ ->
+                val actions = mutableListOf<Pair<String, () -> Unit>>()
+                if (plusCredit) actions += "Utiliser mon analyse mensuelle Plus" to onUsePlusCredit
+                if (legacyCredit) actions += "Utiliser un ancien crédit d'analyse" to onUseLegacyCredit
+                available.forEach { offer -> actions += offer.label to { HoraTrackBilling.purchase(activity, offer, report.documentId, onVerified) } }
+                AlertDialog.Builder(activity).setTitle("Débloquer le rapport — PDF inclus")
+                    .setItems(actions.map { it.first }.toTypedArray()) { _, index ->
+                        if (BillingBackend.uid() == uid) actions[index].second()
+                    }.setNegativeButton("Annuler", null).show()
+            }
+            builder.show()
+            }
+        }
     }
 
     private fun showPurchasable(activity: Activity, documentId: String?, onVerified: () -> Unit) {
@@ -54,14 +100,15 @@ object BillingOffers {
             val included = entitlements["owner"] == true || entitlements["premium"] == true || entitlements["plus"] == true
             HoraTrackBilling.queryOffers(activity) { offers ->
                 if (activity.isFinishing || activity.isDestroyed || BillingBackend.uid() != uid) return@queryOffers
-                val available = offers.filter { (!included && it.details.productId == BillingContract.PREMIUM) ||
+                val analysisReady = BillingServiceCatalog.services.any { it.productId == BillingContract.ANALYSIS && it.availability == BillingServiceCatalog.Availability.READY }
+                val available = offers.filter { (!included && (it.details.productId == BillingContract.PREMIUM || (analysisReady && it.details.productId == BillingContract.PLUS))) ||
                     (documentId != null && !included && it.details.productId == BillingContract.PDF) }
                 val labels = available.map { it.label }.toTypedArray()
                 AlertDialog.Builder(activity)
                     .setTitle(if (documentId == null) "HoraTrack Premium" else "Débloquer ce PDF")
                     .setMessage(
                         (if (included) "Ton compte dispose des PDF inclus.\n\n" else "Premium inclut les PDF. Un PDF acheté séparément reste téléchargeable sans repayer pour ce même document.\n\n") +
-                            "Aucun aperçu avant paiement vérifié. Plus et analyses : en préparation, achat indisponible.\n\n" +
+                            "Aucun aperçu avant paiement vérifié. Premium + analyses inclut un bulletin par mois ; les autres prestations sont des achats séparés.\n\n" +
                             if (available.isEmpty()) "Aucune offre Google Play disponible actuellement. Les produits doivent être activés dans Play Console." else "Choisis une offre ci-dessous. Les tarifs sont ceux de Google Play."
                     )
                     .setPositiveButton("Voir les offres") { _, _ ->

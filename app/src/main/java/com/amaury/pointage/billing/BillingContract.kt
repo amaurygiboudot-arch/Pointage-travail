@@ -9,7 +9,11 @@ object BillingContract {
     const val PLUS = "horatrack_plus"
     const val ANALYSIS = "horatrack_analysis"
     const val PDF = "horatrack_pdf"
-    val products = setOf(PREMIUM, PLUS, ANALYSIS, PDF)
+    const val COMPARISON = "horatrack_payslip_comparison"
+    const val ANNUAL_REVIEW = "horatrack_annual_review"
+    const val CLAIM_DOSSIER = "horatrack_claim_dossier"
+    val serviceProducts = setOf(ANALYSIS, COMPARISON, ANNUAL_REVIEW, CLAIM_DOSSIER)
+    val products = setOf(PREMIUM, PLUS, PDF) + serviceProducts
     fun accountId(uid: String): String = hex(MessageDigest.getInstance("SHA-256").digest(uid.toByteArray(Charsets.UTF_8)))
     fun documentId(file: File): String {
         check(file.isFile && file.length() > 0) { "PDF introuvable" }

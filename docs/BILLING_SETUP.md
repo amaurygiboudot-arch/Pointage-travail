@@ -14,9 +14,9 @@
 
 Les montants sont les prix cibles approuvés, pas des produits déjà créés dans Play Console. Le client affiche les prix et périodes renvoyés par Google Play. L'application reste gratuite à télécharger.
 
-Les quatre prestations ont été approuvées le 6 octobre 2026. Leur prix inclut leur propre rapport PDF, sans supplément de 0,99 €. Le catalogue Android les présente comme indisponibles : leurs parcours de livraison ne sont pas encore construits. Premium inclut les exports ordinaires, pas ces prestations approfondies.
+Les quatre prestations ont été approuvées le 6 octobre 2026. Leur prix inclut leur propre rapport PDF, sans supplément de 0,99 €. Le catalogue Android prépare des rapports factuels privés à partir des données confirmées, puis propose les prix réels Google Play. Le déblocage reste soumis à la vérification serveur et aux configurations externes. Le statut de code prêt ne signifie pas que les offres sont déjà actives dans le Store. Premium inclut les exports ordinaires, pas ces prestations approfondies.
 
-Un abonnement Plus prévoit une analyse de bulletin par mois, pas une comparaison, un bilan ou un dossier. Ce périmètre doit être confirmé dans la fiche de l’offre avant activation. L'offre Plus et l'analyse ponctuelle restent indisponibles à l'achat tant que le service d'analyse correspondant n'est pas raccordé et testé. Ne pas vendre un service indisponible.
+Un abonnement Plus prévoit une analyse de bulletin par mois, pas une comparaison, un bilan ou un dossier. La fiche de l’offre doit présenter ce périmètre. Le quota est d’une analyse de bulletin par mois civil UTC, non reportable ; aucune consommation n’a lieu en arrière-plan ou sur une simple restauration. L’utilisateur demande explicitement son utilisation après préparation du PDF. Les anciens crédits achetés sont proposés séparément : le choix de l’un ne consomme jamais l’autre.
 
 Dans cette première intégration, les PDF et leur archive sont raccordés aux droits Premium. Les autres avantages envisagés (sans publicité, statistiques avancées, sauvegarde Premium) ne doivent pas être annoncés comme des exclusivités payantes tant que leurs consommateurs ne sont pas raccordés aux droits serveur.
 
@@ -55,3 +55,25 @@ Les prix et le comportement ont été approuvés par l'utilisateur. L'intégrati
 ## Audit de monétisation
 
 Voir [MONETIZATION_AUDIT.md](MONETIZATION_AUDIT.md) pour les fonctionnalités examinées, les quatre prestations approuvées, les propositions supplémentaires et les conditions de livraison. Les propositions supplémentaires ne constituent pas des tarifs approuvés ni des droits actifs.
+
+## Rapports dédiés et achat Google Play
+
+Le parcours prépare les octets dans un dossier privé propre au compte, sans aperçu. Il vérifie les données nécessaires puis enregistre un manifeste serveur (produit, empreinte des entrées, empreinte du PDF et identifiant idempotent), sans transmettre salaire, bulletin, lieu ou pointages bruts au backend de paiement.
+
+- `billingPrepareReport` : enregistrement du manifeste ; aucune charge et aucun crédit consommé.
+- `billingVerifyPurchase` : preuve Google Play liée au compte, au produit et à l’empreinte immuable du PDF via `obfuscatedProfileId`.
+- `billingAuthorizeReport` : vérifie le droit propre du rapport. L’analyse Plus exige `usePlusCredit=true`, après une action explicite, et conserve la commande financeuse pour les remboursements.
+- `billingAuthorizePdf` : reconnaît les rapports dédiés avant les droits ordinaires. Un abonnement Premium ou un PDF à 0,99 € ne peut pas contourner le prix d’une prestation.
+
+Le compte propriétaire est exempté sur preuve serveur. Les anciens crédits de bulletin déjà prouvés côté serveur doivent rester restaurables. La restauration des achats ne restaure pas les fichiers effacés ; les rapports préparés et achetés restent conservés localement par compte. Une nouvelle génération utilise la même copie pour les mêmes entrées confirmées ; une modification du courrier ou des données constitue un nouveau résultat explicitement préparé avant achat.
+
+La comparaison rapide reste gratuite. Le contrôle payant porte sur neuf familles de montants confirmés au maximum : il ne remplace pas une vérification de toutes les bases, tous les taux ou toutes les lignes d’un bulletin. Les références inconnues sont laissées à confirmer. Le bilan annuel signale les mois non contrôlés et distingue les cumuls partiels ; il exige suffisamment de données exploitables avant achat. Le dossier comporte une chronologie, les écarts et un courrier modifiable, avec une liste de pièces originales à joindre par l’utilisateur, sans envoi automatique.
+
+## Essais supplémentaires avant activation
+
+- Quatre achats distincts : produit erroné, empreinte erronée, même jeton réutilisé, paiement en attente, reprise après fermeture, refus réseau et remboursement.
+- Premium/PDF ordinaire incapables de déverrouiller un rapport dédié.
+- Plus : action explicite seulement, concurrence de deux rapports, même rapport rejoué, limite mensuelle, changement de mois, expiration naturelle et remboursement de la commande financeuse.
+- Données insuffisantes : aucun paiement proposé ; couverture réelle et limites affichées avant achat.
+- Courrier modifié : nouvelle empreinte ; aucun original de bulletin supprimé ou bloqué.
+- Abonnements actifs : empêcher un deuxième abonnement simultané sans parcours de remplacement vérifié. Le lien de gestion Google Play reste accessible.

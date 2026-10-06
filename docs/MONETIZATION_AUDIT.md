@@ -4,14 +4,14 @@
 
 Application gratuite à télécharger. Premium reste à 4,99 €/mois ou 49,99 €/an ; PDF ordinaire à 0,99 €, sans aperçu avant achat vérifié. Quatre nouvelles prestations distinctes sont approuvées ci-dessous. Leur PDF est inclus. Pas de nouveau paiement pour récupérer le même résultat acheté ; un nouvel audit portant sur des données différentes est une nouvelle prestation clairement annoncée.
 
-| Prestation | Prix cible | Livrable supplémentaire | Existant réutilisable | Travail manquant |
+| Prestation | Prix cible | Livrable supplémentaire | Existant réutilisable | Portée livrée / extension restante |
 |---|---:|---|---|---|
-| Analyse du bulletin | 4,99 € | Contrôle documenté des lignes, bases, taux, retenues et incohérences | `PayslipDocumentParserV2`, `V2PayslipStore`, `PayslipLineComparisonEngineV2` | Couverture des lignes, confirmations utilisateur, rapport détaillé et livraison |
-| Comparaison pointage/bulletin | 6,99 € | Rapprochement heures, majorations, absences et écarts de montants justifiés | `V2PayslipStore.comparison`, `SegmentedPayslipComparisonValuesV2`, moteur salarial canonique | Rapport par poste, preuves et portée employeur/mois, droit propre |
-| Bilan annuel approfondi | 9,99 € | Audit de 12 mois, cumuls comparés aux bulletins, périodes manquantes et anomalies répétées | `AnnualPdfReports`, comparaisons mensuelles | Rapprochement annuel approfondi ; le PDF annuel ordinaire existe déjà |
-| Dossier de réclamation | 14,99 € | Chronologie, justificatifs, écarts documentés et courrier modifiable | Historique, comparaisons, sources officielles datées | Assembleur de dossier et courrier ; vérification des pièces et formulations |
+| Analyse du bulletin | 4,99 € | Contrôle documenté des lignes, bases, taux, retenues et incohérences | `PayslipDocumentParserV2`, `V2PayslipStore`, `PayslipLineComparisonEngineV2` | Rapport factuel des montants confirmés ; contrôle complet des bases/taux/lignes non implémenté |
+| Comparaison pointage/bulletin | 6,99 € | Chronologie des heures et rapprochement des familles de montants disponibles avec écarts expliqués | `V2PayslipStore.comparison`, `SegmentedPayslipComparisonValuesV2`, moteur salarial canonique | Comparaison des familles fiables avec chronologie et références ; lignes non recalculables clairement exclues |
+| Bilan annuel approfondi | 9,99 € | Audit de 12 mois, cumuls comparés aux bulletins, périodes manquantes et anomalies répétées | `AnnualPdfReports`, comparaisons mensuelles | Couverture des douze mois, cumuls des mois exploitables et écarts répétés ; sources insuffisantes signalées |
+| Dossier de réclamation | 14,99 € | Chronologie, justificatifs, écarts documentés et courrier modifiable | Historique, comparaisons, sources officielles datées | Chronologie, écarts, courrier modifiable et liste des originaux à joindre ; aucun envoi ni expertise juridique |
 
-Les quatre services sont en préparation. Aucun achat ne doit être proposé avant un livrable opérationnel. Le catalogue montre des prix cibles, pas des offres actives Google Play. Les calculs peuvent être déterministes : aucune IA ne doit être revendiquée sans service réellement raccordé. Les données absentes restent « à confirmer ». Le dossier présente des faits à vérifier ; il ne promet ni validation juridique, ni récupération certaine de salaire.
+Les quatre parcours disposent désormais de rapports factuels déterministes et d’un raccordement au paiement par rapport. Ils restent à valider sur une version Google Play réelle avant activation commerciale. Le catalogue décrit leur portée ; le paiement utilise uniquement les offres et prix actifs retournés par Google Play. Les calculs peuvent être déterministes : aucune IA ne doit être revendiquée sans service réellement raccordé. Les données absentes restent « à confirmer ». Le dossier présente des faits à vérifier ; il ne promet ni validation juridique, ni récupération certaine de salaire.
 
 ## Inventaire des fonctions et décision proposée
 
@@ -58,7 +58,7 @@ Les propositions ne sont pas approuvées à la vente : aucun changement de prix 
 6. Même rapport : téléchargement sans repayer ; document modifié : prévenir avant toute nouvelle prestation. Le compte propriétaire reste exempté uniquement sur décision serveur.
 7. Tester chaque prestation de bout en bout, droits et remboursements inclus ; configurer Google Play/Firebase et StoreKit séparément. Ne pas activer les offres non livrables.
 
-Le backend actuel réserve un crédit d’analyse ; il ne produit pas de rapport complet. Les objets `completedAnalyses` et l’archive PDF ne remplacent pas un pipeline de prestation.
+Les PDF factuels sont générés sur l’appareil à partir des données confirmées. Le backend de paiement conserve seulement les identifiants et empreintes, vérifie les reçus et accorde les droits sur ces octets. Il ne certifie pas les calculs salariaux. Les anciens objets `completedAnalyses` ne remplacent pas ce parcours par rapport.
 
 ## Revenus : mesurer plutôt que promettre
 
@@ -69,3 +69,7 @@ Objectif utilisateur : au moins 1 000 € par mois. Les prix listés sont des ob
 - Politique des paiements et présentation fidèle des prix/services : https://support.google.com/googleplay/android-developer/answer/9858738
 - Achat consommable et types de produits : https://support.google.com/googleplay/android-developer/answer/14590082
 - Prix retournés par Play et droits de paiement : https://developer.android.com/google/play/billing/integrate
+
+## Portée effectivement développée
+
+Analyse : table de neuf familles de montants maximum, cohérence des données confirmées et limites, pas contrôle exhaustif des lignes/bases/taux. Comparaison : valeurs observées contre références canoniques fiables et chronologie des pointages. Annuel : mois contrôlés et manquants, cumuls partiels et écarts récurrents, sans additionner brut/net/composants entre eux. Dossier : écarts factuels, chronologie et courrier modifiable ; liste des pièces à joindre, originaux non joints automatiquement. Les descriptions commerciales doivent respecter cette portée au lieu de promettre la couverture complète envisagée dans le tableau initial.

@@ -88,9 +88,11 @@ function billingCallable(action) {
       if (action === "verify") return await backend.verify(uid, request.data);
       if (action === "entitlements") return await backend.entitlements(uid, owner);
       if (action === "pdf") return await backend.authorizePdf(uid, request.data, owner);
+      if (action === "prepareReport") return await backend.prepareReport(uid, request.data);
+      if (action === "authorizeReport") return await backend.authorizeReport(uid, request.data, owner);
       return await backend.reserveAnalysis(uid, request.data, owner);
     } catch (error) {
-      if (error instanceof BillingError) throw new HttpsError(error.code, error.message);
+      if (error instanceof BillingError) throw new HttpsError(error.code, error.message, error.details);
       throw new HttpsError("unavailable", "Vérification du paiement indisponible.");
     }
   });
@@ -99,6 +101,8 @@ exports.billingVerifyPurchase = billingCallable("verify");
 exports.billingGetEntitlements = billingCallable("entitlements");
 exports.billingAuthorizePdf = billingCallable("pdf");
 exports.billingReserveAnalysis = billingCallable("analysis");
+exports.billingPrepareReport = billingCallable("prepareReport");
+exports.billingAuthorizeReport = billingCallable("authorizeReport");
 
 class UpstreamError extends Error {
   constructor(stage, status = 0, upstreamBody = "") {
