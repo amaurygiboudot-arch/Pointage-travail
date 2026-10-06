@@ -24,6 +24,11 @@ object BillingContract {
         }
         return hex(digest.digest())
     }
+    /** A missing profile may only be forwarded for server-known legacy bulletin credit restoration. */
+    fun validPurchaseDocument(productId: String, documentId: String?): Boolean =
+        (productId == ANALYSIS && documentId == null) ||
+            (productId in serviceProducts + PDF && documentId != null && Regex("[a-f0-9]{64}").matches(documentId))
+
     fun authorizedPdf(data: Any?, documentId: String): Boolean {
         val map = data as? Map<*, *> ?: return false
         return map["authorized"] == true && map["documentSha256"] == documentId &&

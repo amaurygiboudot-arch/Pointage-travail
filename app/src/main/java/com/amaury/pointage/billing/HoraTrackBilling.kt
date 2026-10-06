@@ -259,9 +259,9 @@ object HoraTrackBilling : PurchasesUpdatedListener {
             val payload = mutableMapOf<String, Any>("productId" to product!!, "purchaseToken" to purchase.purchaseToken)
             if (product == BillingContract.PDF || product in BillingContract.serviceProducts) {
                 val hash = purchase.accountIdentifiers?.obfuscatedProfileId
-                if (hash == null || !Regex("[a-f0-9]{64}").matches(hash)) { pending = true; next(index + 1); return }
-                payload["documentSha256"] = hash
-                if (product in BillingContract.serviceProducts) {
+                if (!BillingContract.validPurchaseDocument(product, hash)) { pending = true; next(index + 1); return }
+                if (hash != null) payload["documentSha256"] = hash
+                if (hash != null && product in BillingContract.serviceProducts) {
                     purchaseActivity?.get()?.let { context ->
                         BillingServiceFlow.prepared(context, uid, hash)?.let { payload["reportId"] = it.reportId }
                     }

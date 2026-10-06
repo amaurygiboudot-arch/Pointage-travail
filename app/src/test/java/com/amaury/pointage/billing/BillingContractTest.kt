@@ -32,4 +32,13 @@ class BillingContractTest {
         assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", BillingContract.accountId("abc"))
         assertNotEquals(BillingContract.accountId("user-a"), BillingContract.accountId("user-b"))
     }
+    @org.junit.Test fun legacyBulletinRestorationOnlyForwardsMissingHashToServer() {
+        org.junit.Assert.assertTrue(BillingContract.validPurchaseDocument(BillingContract.ANALYSIS, null))
+        org.junit.Assert.assertFalse(BillingContract.validPurchaseDocument(BillingContract.ANALYSIS, "malformed"))
+        (BillingContract.serviceProducts - BillingContract.ANALYSIS + BillingContract.PDF).forEach {
+            org.junit.Assert.assertFalse(BillingContract.validPurchaseDocument(it, null))
+            org.junit.Assert.assertTrue(BillingContract.validPurchaseDocument(it, "a".repeat(64)))
+        }
+        org.junit.Assert.assertFalse(BillingContract.validPurchaseDocument("unknown", "a".repeat(64)))
+    }
 }
