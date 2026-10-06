@@ -275,6 +275,10 @@ object SalaryExamplePdfV2 {
             if (Field.ESTIMATED_GROSS in fields) {
                 add(PdfSection("ESTIMATION DE RÉMUNÉRATION",
                     if (segmentedConsumer) estimatedGrossLines(canonical) else estimatedGrossLines(salary, salaryNet)))
+                add(PdfSection("COTISATIONS — SALARIÉ / EMPLOYEUR", contributionLines(payroll?.takeIf {
+                    if (segmentedConsumer) canonical?.cashGrossReliable == true
+                    else salaryNet?.salary?.let { it.monthlyGrossReliable && it.paidTimeReliable } == true
+                })))
             }
 
             if (Field.COUNTERS in fields) {
@@ -315,7 +319,7 @@ object SalaryExamplePdfV2 {
                     references = boccRefs
                 )
                 add(PdfSection("SOURCES & CONTRÔLES", buildList {
-                    add("Source des heures" to "Moteur HoraTrack V2")
+                    add("Source des heures" to "Moteur AGKGMG V2")
                     add("Entreprise de calcul" to if (company != null) companyName else "Profil historique principal")
                     add("Convention" to if (convention != null) "IDCC ${convention.idcc}" else "À confirmer")
                     add("Code du travail — LEGI" to legalStatus.summary)
@@ -340,11 +344,19 @@ object SalaryExamplePdfV2 {
             }
         }
 
-        val pages = paginateSections(sections)
-        val pdf = PdfDocument()
-        val title = PdfVisualStyle.boldPaint(16f)
-        val bold = PdfVisualStyle.boldPaint(10f)
         val body = PdfVisualStyle.bodyPaint(9f)
+        val wrappedSections = sections.map { section ->
+            section.copy(lines = section.lines.flatMap { (label, value) ->
+                val labels = wrapText(label, body, 267f)
+                val values = wrapText(value, body, 242f)
+                List(maxOf(labels.size, values.size)) { index ->
+                    labels.getOrElse(index) { "" } to values.getOrElse(index) { "" }
+                }
+            })
+        }
+        val pages = paginateSections(wrappedSections)
+        val pdf = PdfDocument()
+        val bold = PdfVisualStyle.boldPaint(10f)
         val muted = PdfVisualStyle.bodyPaint(8f).apply { color = Color.rgb(95, 95, 95) }
         val line = Paint(1).apply { color = PdfVisualStyle.line; strokeWidth = 0.8f }
         try {
@@ -352,20 +364,12 @@ object SalaryExamplePdfV2 {
                 val pageNumber = pageIndex + 1
                 val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, pageNumber).create())
                 val canvas = page.canvas
-                var y = 42f
-                canvas.drawText("FICHE DE PAIE EXEMPLE — ESTIMATION HORATRACK", 28f, y, title)
-                y += 18f
-                canvas.drawText(
-                    "$monthName $year • document personnel d'estimation • non officiel • page $pageNumber/${pages.size}",
-                    28f,
-                    y,
-                    muted
-                )
-                y += 18f
-                canvas.drawLine(28f, y, 567f, y, line)
-                y = PDF_CONTENT_TOP
+                PdfVisualStyle.header(canvas, 595, "FICHE DE SALAIRE — ESTIMATION", "")
+                canvas.drawText("$monthName $year • document personnel non officiel • page $pageNumber/${pages.size}", 28f, 82f, muted)
+                var y = PDF_CONTENT_TOP
 
                 plannedPage.fragments.forEach { fragment ->
+                    canvas.drawRect(28f, y - 11f, 567f, y + 3f, Paint().apply { color = PdfVisualStyle.panel })
                     canvas.drawText(
                         if (fragment.continuation) "${fragment.name} (suite)" else fragment.name,
                         28f,
@@ -383,18 +387,62 @@ object SalaryExamplePdfV2 {
                     y += 18f
                 }
 
-                canvas.drawText(
-                    "© HoraTrack • FICHE DE PAIE EXEMPLE — ESTIMATION HORATRACK • page $pageNumber/${pages.size}",
-                    28f,
-                    816f,
-                    muted
-                )
+                PdfVisualStyle.footer(canvas, 595, 842, pageNumber)
                 pdf.finishPage(page)
             }
             pdf.writeTo(output)
         } finally {
             pdf.close()
         }
+    }
+
+    private fun wrapText(text: String, paint: Paint, width: Float): List<String> {
+        if (text.isEmpty()) return listOf("")
+        val lines = mutableListOf<String>()
+        text.split('\n').forEach { paragraph ->
+            var remaining = paragraph
+            while (paint.measureText(remaining) > width) {
+                val count = paint.breakText(remaining, true, width, null).coerceAtLeast(1)
+                val space = remaining.lastIndexOf(' ', count - 1)
+                val end = if (space > 0) space else count
+                lines += remaining.substring(0, end)
+                remaining = remaining.substring(end).trimStart()
+            }
+            lines += remaining
+        }
+        return lines
+    }
+
+    internal fun contributionLines(payroll: NetSalaryEngineV2.Result?): List<Pair<String, String>> {
+        fun amount(value: Double?, confirmed: Boolean = payroll?.employerCostComplete == true): String = value?.takeIf {
+            confirmed && payroll?.grossReliable == true && it.isFinite() && it >= 0.0
+        }?.let(::money) ?: "À confirmer"
+        fun row(label: String, employee: Double?, employer: Double?) =
+            label to "${amount(employee, payroll?.complete == true)} / ${amount(employer)}"
+        return listOf(
+            "Lecture des montants" to "Part salarié / part employeur",
+            "Socle légal (sécurité sociale, CSG/CRDS)" to "${amount(payroll?.statutory, payroll?.complete == true)} / ${amount(payroll?.statutoryEmployerContributions)}",
+            row("Retraite complémentaire", payroll?.complementaryRetirement, payroll?.complementaryRetirementEmployer),
+            row("Prévoyance conventionnelle", payroll?.conventionProvidentEmployee, payroll?.conventionProvidentEmployer),
+            "Retenues propres à l'entreprise" to amount(payroll?.companyEmployeeDeductions, payroll?.complete == true),
+            "Cotisations patronales liées au statut" to amount(payroll?.employerStatusContributions),
+            "Accidents du travail / maladies professionnelles" to amount(payroll?.employerAtMpContribution),
+            "Versement mobilité (employeur)" to amount(payroll?.employerMobilityContribution),
+            "Assurance chômage (employeur)" to amount(payroll?.employerUnemploymentContribution),
+            "AGS (employeur)" to amount(payroll?.employerAgsContribution),
+            "FNAL (employeur)" to amount(payroll?.employerFnalContribution),
+            "Formation professionnelle (employeur)" to amount(payroll?.employerTrainingContribution),
+            "Maladie (employeur)" to amount(payroll?.employerHealthContribution),
+            "Famille (employeur)" to amount(payroll?.employerFamilyContribution),
+            "Apprentissage — part principale" to amount(payroll?.employerApprenticeshipPrincipalContribution),
+            "Apprentissage — provision du solde" to amount(payroll?.employerApprenticeshipBalanceAccrual),
+            "Réductions / exonérations patronales" to amount(payroll?.confirmedEmployerReductions),
+            "Sous-total patronal connu avant réductions" to amount(payroll?.knownEmployerContributions),
+            "Sous-total patronal connu après réductions" to amount(payroll?.knownEmployerContributionsAfterReductions),
+            "Fiabilité des retenues salarié" to if (payroll?.complete == true) "Calcul complet" else "À confirmer — calcul partiel",
+            "Fiabilité du coût employeur" to if (payroll?.employerCostComplete == true) "Calcul complet" else "À confirmer — sous-total partiel",
+            "Bases et taux détaillés" to "Non exposés par ce moteur ; à confirmer"
+        )
     }
 
     internal data class TimeSectionValues(
@@ -491,7 +539,7 @@ object SalaryExamplePdfV2 {
 
         return buildList {
             add(
-                "Brut social estimé HoraTrack hors paniers" to
+                "Brut social estimé AGKGMG hors paniers" to
                     (socialGross?.let(::money) ?: "À confirmer")
             )
             if (reliablePayrollGross && (payroll?.benefitsInKindDeduction ?: 0.0) > 0.0) {
@@ -553,7 +601,7 @@ object SalaryExamplePdfV2 {
         val presentation = salaryNet?.let(V2SalaryNetPresentationV2::from)
         return buildList {
             add(
-                "Brut social estimé HoraTrack hors paniers" to
+                "Brut social estimé AGKGMG hors paniers" to
                     (payroll
                         ?.takeIf { reliablePayrollGross }
                         ?.let(NetSalaryReferencePolicyV2::socialGross)

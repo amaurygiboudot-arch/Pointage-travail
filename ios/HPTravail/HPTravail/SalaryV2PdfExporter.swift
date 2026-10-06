@@ -20,7 +20,7 @@ enum SalaryV2PdfExporter {
             )
             .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
         let suffix = (companyToken?.isEmpty == false ? companyToken! : "entreprise")
-        let name = "HoraTrack_Salaire_\(snapshot.period.description)_\(suffix).pdf"
+        let name = "AGKGMG_Salaire_\(snapshot.period.description)_\(suffix).pdf"
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
         try data.write(to: url, options: .atomic)
         return url
@@ -33,66 +33,80 @@ enum SalaryV2PdfExporter {
         let page = CGRect(x: 0, y: 0, width: 595, height: 842)
         let renderer = UIGraphicsPDFRenderer(bounds: page)
         return renderer.pdfData { context in
-            var y: CGFloat = 36
+            let green = UIColor(red: 0.13, green: 0.34, blue: 0.27, alpha: 1)
+            let paleGreen = UIColor(red: 0.92, green: 0.96, blue: 0.93, alpha: 1)
+            let ink = UIColor(red: 0.15, green: 0.20, blue: 0.18, alpha: 1)
+            var y: CGFloat = 112
+            var pageNumber = 0
+            var rowNumber = 0
+
+            func fill(_ rect: CGRect, _ color: UIColor) {
+                context.cgContext.setFillColor(color.cgColor)
+                context.cgContext.fill(rect)
+            }
 
             func beginPage() {
                 context.beginPage()
-                y = 36
+                pageNumber += 1
+                y = 112
+                fill(CGRect(x: 0, y: 0, width: 595, height: 92), green)
                 draw(
-                    "HORATRACK — ESTIMATION DE SALAIRE",
-                    x: 32,
-                    y: y,
-                    width: 531,
-                    font: .boldSystemFont(ofSize: 16)
+                    "AGKGMG",
+                    x: 32, y: 24, width: 531,
+                    font: .boldSystemFont(ofSize: 21), color: .white
                 )
-                y += 28
+                draw(
+                    "ESTIMATION DE SALAIRE • \(snapshot.period.description)",
+                    x: 32, y: 55, width: 531,
+                    font: .boldSystemFont(ofSize: 11), color: .white
+                )
+                fill(CGRect(x: 32, y: 803, width: 531, height: 1), paleGreen)
                 draw(
                     "Document personnel d'estimation — non officiel",
-                    x: 32,
-                    y: y,
-                    width: 531,
-                    font: .systemFont(ofSize: 9)
+                    x: 32, y: 812, width: 440,
+                    font: .systemFont(ofSize: 8), color: ink
                 )
-                y += 28
+                draw(
+                    "Page \(pageNumber)",
+                    x: 475, y: 812, width: 88,
+                    font: .systemFont(ofSize: 8), alignment: .right, color: ink
+                )
             }
 
             func ensure(_ height: CGFloat) {
-                if y + height > 800 {
+                if y + height > 788 {
                     beginPage()
                 }
             }
 
             func row(_ label: String, _ value: String) {
-                ensure(30)
-                draw(
-                    label,
-                    x: 32,
-                    y: y,
-                    width: 260,
-                    font: .systemFont(ofSize: 10)
+                let labelFont = UIFont.systemFont(ofSize: 10)
+                let valueFont = UIFont.boldSystemFont(ofSize: 10)
+                let height = max(
+                    28,
+                    max(textHeight(label, width: 244, font: labelFont),
+                        textHeight(value, width: 259, font: valueFont)) + 14
                 )
-                draw(
-                    value,
-                    x: 300,
-                    y: y,
-                    width: 263,
-                    font: .boldSystemFont(ofSize: 10),
-                    alignment: .right
-                )
-                y += 24
+                ensure(height)
+                if rowNumber.isMultiple(of: 2) {
+                    fill(CGRect(x: 32, y: y, width: 531, height: height), paleGreen)
+                }
+                draw(label, x: 40, y: y + 7, width: 244, font: labelFont, color: ink)
+                draw(value, x: 296, y: y + 7, width: 259, font: valueFont,
+                     alignment: .right, color: ink)
+                rowNumber += 1
+                y += height
             }
 
             func section(_ title: String) {
-                ensure(38)
-                y += 8
-                draw(
-                    title,
-                    x: 32,
-                    y: y,
-                    width: 531,
-                    font: .boldSystemFont(ofSize: 11)
-                )
-                y += 22
+                // Reserve room for the title and the first row together.
+                ensure(76)
+                y += 12
+                fill(CGRect(x: 32, y: y, width: 531, height: 26), green)
+                draw(title, x: 40, y: y + 6, width: 515,
+                     font: .boldSystemFont(ofSize: 10), color: .white)
+                y += 26
+                rowNumber = 0
             }
 
             beginPage()
@@ -104,7 +118,7 @@ enum SalaryV2PdfExporter {
                 company.map(companyLabel) ?? "À confirmer"
             )
 
-            section("RÉFÉRENCE CANONIQUE")
+            section("SYNTHÈSE DU SALAIRE")
             row("Brut social estimé", money(snapshot.socialGross))
             row("Net estimé avant impôt", money(snapshot.netBeforeIncomeTax))
             row("Net imposable estimé", money(snapshot.netTaxable))
@@ -151,7 +165,7 @@ enum SalaryV2PdfExporter {
             ensure(52)
             y += 18
             draw(
-                "HoraTrack n'utilise aucune valeur de remplacement lorsqu'une donnée nécessaire n'est pas certifiable.",
+                "AGKGMG n'utilise aucune valeur de remplacement lorsqu'une donnée nécessaire n'est pas certifiable.",
                 x: 32,
                 y: y,
                 width: 531,
@@ -166,7 +180,8 @@ enum SalaryV2PdfExporter {
         y: CGFloat,
         width: CGFloat,
         font: UIFont,
-        alignment: NSTextAlignment = .left
+        alignment: NSTextAlignment = .left,
+        color: UIColor = UIColor(red: 0.15, green: 0.20, blue: 0.18, alpha: 1)
     ) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = alignment
@@ -175,6 +190,7 @@ enum SalaryV2PdfExporter {
             in: CGRect(x: x, y: y, width: width, height: 10_000),
             withAttributes: [
                 .font: font,
+                .foregroundColor: color,
                 .paragraphStyle: paragraph
             ]
         )

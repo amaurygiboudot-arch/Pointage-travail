@@ -11,6 +11,7 @@ import android.text.InputType
 import android.widget.EditText
 import android.widget.ScrollView
 import android.widget.Toast
+import com.amaury.pointage.PdfVisualStyle
 import com.amaury.pointage.ConventionCatalog
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.V2SalaryNetBridgeV2
@@ -269,10 +270,11 @@ object PaidServiceReports {
             output + ""
         }
         try {
-            wrapped.chunked(46).forEachIndexed { index, lines ->
+            wrapped.chunked(42).forEachIndexed { index, lines ->
                 val page = document.startPage(PdfDocument.PageInfo.Builder(595, 842, index + 1).create())
-                lines.forEachIndexed { row, text -> page.canvas.drawText(text, 40f, 45f + row * 16f, paint) }
-                page.canvas.drawText("HoraTrack — rapport factuel — page ${index + 1}", 40f, 815f, paint)
+                PdfVisualStyle.header(page.canvas, 595, report.title, "")
+                lines.forEachIndexed { row, text -> page.canvas.drawText(text, 40f, 90f + row * 16f, paint) }
+                PdfVisualStyle.footer(page.canvas, 595, 842, index + 1)
                 document.finishPage(page)
             }
             file.outputStream().use { document.writeTo(it) }

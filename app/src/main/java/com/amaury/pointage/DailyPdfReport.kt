@@ -35,11 +35,11 @@ object DailyPdfReport {
         }
         val pdf = PdfDocument()
         val title = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(35,35,35); textSize = 21f; typeface = Typeface.DEFAULT_BOLD }
-        val head = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(138,98,0); textSize = 12f; typeface = Typeface.DEFAULT_BOLD }
+        val head = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = PdfVisualStyle.accent; textSize = 12f; typeface = Typeface.DEFAULT_BOLD }
         val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(45,45,45); textSize = 10f }
         val bold = Paint(text).apply { typeface = Typeface.DEFAULT_BOLD }
         val muted = Paint(text).apply { color = Color.rgb(105,105,105); textSize = 9f }
-        val line = Paint().apply { color = Color.rgb(205,205,205); strokeWidth = 1f }
+        val line = Paint().apply { color = PdfVisualStyle.line; strokeWidth = 1f }
         val dateF = SimpleDateFormat("EEEE dd MMMM yyyy", Locale.FRANCE)
         val timeF = SimpleDateFormat("HH:mm", Locale.FRANCE)
         val dayLabel = dateF.format(Date(dayStart)).replaceFirstChar { it.uppercase() }
@@ -63,7 +63,7 @@ object DailyPdfReport {
             page = pdf.startPage(PdfDocument.PageInfo.Builder(W, H, pageNo).create())
             val c = page!!.canvas
             y = M
-            c.drawText(if (continuation) "RAPPORT JOURNALIER HORATRACK — SUITE" else "RAPPORT JOURNALIER HORATRACK", M, y + 18, title)
+            c.drawText(if (continuation) "RAPPORT JOURNALIER AGKGMG — SUITE" else "RAPPORT JOURNALIER AGKGMG", M, y + 18, title)
             y += 34
             c.drawText(dayLabel, M, y + 12, head)
             y += 28
@@ -126,11 +126,11 @@ object DailyPdfReport {
         val page = pdf.startPage(PdfDocument.PageInfo.Builder(W, H, 1).create())
         val c = page.canvas
         val title = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(35,35,35); textSize = 21f; typeface = Typeface.DEFAULT_BOLD }
-        val head = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(138,98,0); textSize = 12f; typeface = Typeface.DEFAULT_BOLD }
+        val head = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = PdfVisualStyle.accent; textSize = 12f; typeface = Typeface.DEFAULT_BOLD }
         val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(45,45,45); textSize = 10f }
         val bold = Paint(text).apply { typeface = Typeface.DEFAULT_BOLD }
         val muted = Paint(text).apply { color = Color.rgb(105,105,105); textSize = 9f }
-        val line = Paint().apply { color = Color.rgb(205,205,205); strokeWidth = 1f }
+        val line = Paint().apply { color = PdfVisualStyle.line; strokeWidth = 1f }
         val dateF = SimpleDateFormat("EEEE dd MMMM yyyy", Locale.FRANCE)
         val timeF = SimpleDateFormat("HH:mm", Locale.FRANCE)
         var y = M
