@@ -18,6 +18,23 @@ final class WorkSessionMutationV2Tests: XCTestCase {
         )
     }
 
+    func testCorrectedGpsDepartureUsesRealExitAndPreservesUnpaidLunch() throws {
+        // Eight hours of presence, including one unpaid hour: GPS detects seven minutes late.
+        let original = [openSession(pauses: [pause(start: 4 * 3_600, end: 5 * 3_600, paid: false)])]
+        let actualDeparture = entry.addingTimeInterval(8 * 3_600)
+        let detectedDeparture = actualDeparture.addingTimeInterval(7 * 60)
+        let closed = try XCTUnwrap(WorkSessionMutationV2.closingSession(
+            in: original, at: actualDeparture, expectedSessionId: original[0].id
+        ))
+        XCTAssertEqual(closed[0].exit, actualDeparture)
+        XCTAssertNotEqual(closed[0].exit, detectedDeparture)
+        XCTAssertEqual(closed[0].pauses, original[0].pauses)
+        let presence = try XCTUnwrap(closed[0].exit).timeIntervalSince(closed[0].entry)
+        let lunch = try XCTUnwrap(closed[0].pauses[0].end).timeIntervalSince(closed[0].pauses[0].start)
+        XCTAssertEqual(presence - lunch, 7 * 3_600)
+        XCTAssertNil(original[0].exit)
+    }
+
     func testClockRollbackCannotStartPauseBeforeEntry() {
         let original = [openSession()]
         XCTAssertNil(WorkSessionMutationV2.togglingPause(

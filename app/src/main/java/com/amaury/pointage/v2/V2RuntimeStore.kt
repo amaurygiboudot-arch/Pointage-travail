@@ -484,12 +484,9 @@ object V2RuntimeStore {
             pauses = appendPause(pauses, pauseStart, nowMs, source, paid) ?: return false
         }
 
-        val knownExpectedEnd = expectedEndMs
-            ?: safeLong(prefs.all[KEY_EXPECTED_END]).takeIf { it > 0L }
-            ?: session.employerId?.trim()?.takeIf { it.isNotBlank() }?.let { companyId ->
-                V2ScheduleStore.expectedEnd(context, companyId, entry, nowMs)
-            }
-        val countedExit = countedExitForClosure(nowMs, knownExpectedEnd, session.countedEntryMs)
+        val countedExit = countedExitForClosure(
+            nowMs, resolvedExpectedEnd(context, session, nowMs, expectedEndMs), session.countedEntryMs
+        )
         val closedPauses = pauseArrayOrNull(pauses)?.let(::parsePauseArray) ?: return false
         val closedSession = session.copy(
             countedExitMs = countedExit,
@@ -532,6 +529,29 @@ object V2RuntimeStore {
      * Une présence courte peut se terminer avant l'entrée arrondie. La sortie réelle reste
      * enregistrable ; seul le temps compté est laissé à confirmer, sans fabriquer de durée.
      */
+    private fun resolvedExpectedEnd(
+        context: Context,
+        session: WorkSessionV2,
+        exitMs: Long,
+        explicitEndMs: Long? = null
+    ): Long? = explicitEndMs
+        ?: expectedEnd(context)
+        ?: session.employerId?.trim()?.takeIf { it.isNotBlank() }?.let { companyId ->
+            session.realArrivalMs?.let { entry ->
+                V2ScheduleStore.expectedEnd(context, companyId, entry, exitMs)
+            }
+        }
+
+    /** Même résolution et même calcul que la fermeture, sans écrire de pointage. */
+    fun previewCountedExit(context: Context, exitMs: Long): Long? {
+        if (exitMs <= 0L) return null
+        val session = snapshot(context, exitMs).session ?: return null
+        if (session.status != SessionStatusV2.OPEN) return null
+        return countedExitForClosure(
+            exitMs, resolvedExpectedEnd(context, session, exitMs), session.countedEntryMs
+        )
+    }
+
     internal fun countedExitForClosure(
         realExitMs: Long,
         expectedEndMs: Long?,

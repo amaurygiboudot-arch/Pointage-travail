@@ -225,15 +225,24 @@ object GpsWorkStateCoordinatorV2 {
     fun confirmExit(
         context: Context,
         expectedPendingId: String,
-        expectedEndMs: Long? = null
-    ): Boolean {
+        expectedEndMs: Long? = null,
+        confirmedExitMs: Long? = null,
+        expectedSessionId: String? = null
+    ): Boolean = V2RuntimeStore.withTransaction {
         val pending = pending(context)
             ?.takeIf { matchesPendingId(it, expectedPendingId) }
-            ?: return false
-        if (pending.kind != Pending.Kind.EXIT_WORKSITE) return false
-        val ok = V2RuntimeStore.exit(context, pending.atMs, expectedEndMs)
+            ?: return@withTransaction false
+        if (pending.kind != Pending.Kind.EXIT_WORKSITE) return@withTransaction false
+        val session = V2RuntimeStore.snapshot(context, pending.atMs).session
+            ?: return@withTransaction false
+        val exitMs = confirmedExitMs ?: pending.atMs
+        if (!GpsExitConfirmationPolicyV2.canConfirm(
+                session, expectedSessionId ?: session.id, pending.atMs, exitMs
+            )
+        ) return@withTransaction false
+        val ok = V2RuntimeStore.exit(context, exitMs, expectedEndMs)
         if (ok) clearPending(context)
-        return ok
+        ok
     }
 
     /**
