@@ -136,8 +136,9 @@ object BillingOffers {
     private fun showArchive(activity: Activity) {
         val uid = BillingBackend.uid() ?: return
         val folder = File(activity.filesDir, "billing_pdf_archive/${BillingContract.accountId(uid)}")
-        val files = folder.listFiles().orEmpty().filter { it.isFile && Regex("[a-f0-9]{64}\\.pdf").matches(it.name) }
-            .sortedByDescending { it.lastModified() }
+        val archived = folder.listFiles().orEmpty().filter { it.isFile && Regex("[a-f0-9]{64}\\.pdf").matches(it.name) }
+        val pending = PdfPendingVault.documents(activity.filesDir, BillingContract.accountId(uid))
+        val files = (archived + pending).distinctBy { it.nameWithoutExtension }.sortedByDescending { it.lastModified() }
         if (files.isEmpty()) {
             Toast.makeText(activity, "Aucun PDF conservé sur cet appareil pour ce compte.", Toast.LENGTH_LONG).show(); return
         }
@@ -146,15 +147,20 @@ object BillingOffers {
         fun name(file: File): String {
             val stored = names.getString("${BillingContract.accountId(uid)}_${file.nameWithoutExtension}", null)
             return stored?.takeUnless { it.matches(Regex("[a-f0-9]{64}\\.pdf")) }
+                ?: PdfPendingVault.name(file)
                 ?: "PDF du ${dates.format(Date(file.lastModified()))}"
         }
-        AlertDialog.Builder(activity).setTitle("Mes PDF conservés sur cet appareil")
+        AlertDialog.Builder(activity).setTitle("Mes PDF — droits à vérifier avant ouverture")
             .setItems(files.map { "${name(it)} — ${dates.format(Date(it.lastModified()))}" }.toTypedArray()) { _, index ->
                 if (BillingBackend.uid() != uid) return@setItems
-                activity.startActivity(Intent(activity, PdfPreviewActivity::class.java).apply {
-                    putExtra("pdf_path", files[index].absolutePath)
-                    putExtra("pdf_name", name(files[index]).let { if (it.endsWith(".pdf")) it else "HoraTrack.pdf" })
-                })
+                val displayName = name(files[index]).let { if (it.endsWith(".pdf")) it else "HoraTrack.pdf" }
+                BillingPdfGate.require(activity, files[index], displayName) { authorized ->
+                    if (BillingBackend.uid() != uid) return@require
+                    activity.startActivity(Intent(activity, PdfPreviewActivity::class.java).apply {
+                        putExtra("pdf_path", authorized.absolutePath)
+                        putExtra("pdf_name", displayName)
+                    })
+                }
             }.setNegativeButton("Fermer", null).show()
     }
 

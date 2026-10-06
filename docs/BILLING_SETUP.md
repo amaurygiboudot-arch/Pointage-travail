@@ -22,13 +22,15 @@ Dans cette première intégration, les PDF et leur archive sont raccordés aux d
 
 ## PDF
 
-Pas d'aperçu avant autorisation serveur. La préparation des octets dans le cache privé ne constitue pas une autorisation de visualisation, d'export ou de partage. Une empreinte SHA-256 des octets identifie le document acheté. Les mêmes octets restent accessibles sans nouvel achat, y compris après la résiliation de Premium. Un document modifié a une nouvelle empreinte.
+Pas d'aperçu avant autorisation serveur. Avant toute proposition d'achat, les octets et le nom du PDF sont conservés dans un dossier privé durable propre au compte. Cette copie ne constitue pas une autorisation de visualisation, d'export ou de partage. Une empreinte SHA-256 des octets identifie le document acheté. Les mêmes octets restent accessibles sans nouvel achat, y compris après la résiliation de Premium. Un document modifié a une nouvelle empreinte.
 
 Premium inclut les PDF. Le compte propriétaire est exempté seulement sur décision serveur ; un réglage local ou un email déclaré par le client ne suffit pas. Aucun paiement en attente n'accorde de droit. Les annulations/remboursements doivent être vérifiés auprès de Google avant d'accorder un accès.
 
 Les données de pointage et les sauvegardes de données brutes ne sont pas supprimées ni bloquées par l'expiration d'un abonnement. Un export PDF automatique en arrière-plan ne lance jamais une fenêtre d'achat.
 
 L'archive des octets PDF est conservée sur l'appareil, par compte connecté. La restauration des droits Google Play ne restaure pas les fichiers perdus après désinstallation ou changement d'appareil. Ne pas promettre une archive PDF cloud tant que cette synchronisation n'est pas intégrée.
+
+« Mes PDF » donne accès aux copies préparées et aux archives autorisées. Après un paiement différé ou une fermeture du processus, l'utilisateur peut retrouver la copie exacte même si ses pointages ou son bulletin ont changé. Toute ouverture vérifie à nouveau les droits serveur ; une copie privée, un paiement en attente ou un état d'écran sauvegardé ne débloque jamais l'aperçu.
 
 ## Raccordement avant activation
 
@@ -78,4 +80,6 @@ Les pointages fermés qui traversent une borne de mois utilisent la sélection e
 - Plus : action explicite seulement, concurrence de deux rapports, même rapport rejoué, limite mensuelle, changement de mois, expiration naturelle et remboursement de la commande financeuse.
 - Données insuffisantes : aucun paiement proposé ; couverture réelle et limites affichées avant achat.
 - Courrier modifié : nouvelle empreinte ; aucun original de bulletin supprimé ou bloqué.
+- PDF ordinaire : paiement différé, fermeture puis modification des données ; la copie préparée reste retrouvable sans régénération ni nouvel achat du même document.
+- Export mensuel : rotation ou redimensionnement pendant préparation, paiement, choix d'emplacement et copie ; reprendre les octets exacts et revérifier les droits, sans relancer automatiquement l'achat ni ouvrir un deuxième sélecteur.
 - Abonnements actifs : empêcher un deuxième abonnement simultané sans parcours de remplacement vérifié. Le lien de gestion Google Play reste accessible.

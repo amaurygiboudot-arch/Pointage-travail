@@ -12,6 +12,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.billing.BillingContract
 import com.amaury.pointage.billing.BillingPdfGate
+import com.amaury.pointage.billing.HoraTrackBilling
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.model.SessionStatusV2
 import com.amaury.pointage.v2.V2RuntimeReader
@@ -25,28 +26,58 @@ import java.util.concurrent.Executors
 
 /** A destination is requested only after server authorization of immutable PDF bytes. */
 class V2MonthlyPdfActivity : Activity() {
-    companion object { private const val REQUEST_CREATE = 9401 }
-    private val worker = Executors.newSingleThreadExecutor()
+    companion object {
+        private const val REQUEST_CREATE = 9401
+        // Serialize restarted copies with the departing instance: never two writers for one URI.
+        private val worker = Executors.newSingleThreadExecutor()
+    }
     private lateinit var status: TextView
     private var ownerUid: String? = null
     private var authorizedFile: File? = null
     private var authorizedHash: String? = null
     private var destinationRequested = false
     private var fileName = "HoraTrack.pdf"
+    private var phase = MonthlyPdfRecovery.Phase.CHOOSE
+    private var selectedYear = -1
+    private var selectedMonth = -1
+    private var destinationUri: Uri? = null
+    private var restoredVerification = false
+    private var checkingRecovery = false
+    private var stateSaved = false
+    private lateinit var resumeButton: Button
+    private lateinit var offersButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Never restore an in-memory authorization or replay payment after process death/rotation.
-        if (savedInstanceState != null) { finish(); return }
-        ownerUid = currentUid()
-        if (ownerUid == null) { toast("Connecte ton compte avant l'export PDF."); finish(); return }
+        ownerUid = savedInstanceState?.getString("owner_uid") ?: currentUid()
+        if (ownerUid == null || ownerUid != currentUid()) { toast("Connecte ton compte avant l'export PDF."); finish(); return }
         status = TextView(this).apply { text = "Choisis le mois à exporter."; textSize = 16f }
         setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 32, 24, 24)
             addView(status)
+            resumeButton = Button(this@V2MonthlyPdfActivity).apply {
+                text = "Reprendre la vérification"; visibility = android.view.View.GONE
+                setOnClickListener {
+                    val uid = ownerUid ?: return@setOnClickListener
+                    HoraTrackBilling.initialize(this@V2MonthlyPdfActivity)
+                    HoraTrackBilling.restore(this@V2MonthlyPdfActivity, quiet = true) {
+                        if (active(uid)) checkRestoredAuthorization()
+                    }
+                }
+            }
+            addView(resumeButton)
+            offersButton = Button(this@V2MonthlyPdfActivity).apply {
+                text = "Voir les options de déblocage"; visibility = android.view.View.GONE
+                setOnClickListener { authorizedFile?.let { requestAuthorization(it) } }
+            }
+            addView(offersButton)
             addView(Button(this@V2MonthlyPdfActivity).apply { text = "Annuler"; setOnClickListener { finish() } })
         })
+        if (savedInstanceState != null) {
+            restoreExport(savedInstanceState)
+            return
+        }
         if (intent.hasExtra("report_year") || intent.hasExtra("report_month")) {
             val year = intent.getIntExtra("report_year", -1)
             val month = intent.getIntExtra("report_month", -1)
@@ -64,12 +95,14 @@ class V2MonthlyPdfActivity : Activity() {
         val format = SimpleDateFormat("MMMM yyyy", Locale.FRANCE)
         AlertDialog.Builder(this).setTitle("Mois du rapport")
             .setItems(months.map { format.format(it.time).replaceFirstChar(Char::uppercase) }.toTypedArray()) { _, index -> prepare(months[index]) }
-            .setNegativeButton("Annuler") { _, _ -> finish() }.setOnCancelListener { finish() }.show()
+            .setNegativeButton("Annuler") { _, _ -> if (!isChangingConfigurations && !isDestroyed) finish() }
+            .setOnCancelListener { if (!isChangingConfigurations && !isDestroyed) finish() }.show()
     }
 
     private fun prepare(selected: Calendar) {
         val uid = ownerUid ?: return finish()
         val year = selected.get(Calendar.YEAR); val month = selected.get(Calendar.MONTH)
+        selectedYear = year; selectedMonth = month; phase = MonthlyPdfRecovery.Phase.PREPARING
         fileName = "HoraTrack_${SimpleDateFormat("yyyy_MM", Locale.FRANCE).format(selected.time)}.pdf"
         status.text = "Préparation privée et vérification des droits PDF…"
         worker.execute {
@@ -102,18 +135,9 @@ class V2MonthlyPdfActivity : Activity() {
             runOnUiThread {
                 if (!active(uid)) return@runOnUiThread
                 prepared.onSuccess { file ->
-                    BillingPdfGate.require(this, file, fileName, onDenied = { finish() }) { verified ->
-                        if (!active(uid) || destinationRequested) return@require
-                        runCatching {
-                            authorizedFile = verified
-                            authorizedHash = BillingContract.documentId(verified)
-                            destinationRequested = true
-                            status.text = "PDF autorisé. Choisis son emplacement."
-                            startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                                addCategory(Intent.CATEGORY_OPENABLE); type = "application/pdf"; putExtra(Intent.EXTRA_TITLE, fileName)
-                            }, REQUEST_CREATE)
-                        }.onFailure { toast("Impossible d'ouvrir le choix d'emplacement."); finish() }
-                    }
+                    authorizedFile = file
+                    authorizedHash = BillingContract.documentId(file)
+                    requestAuthorization(file)
                 }.onFailure { toast(it.message?.takeIf { message -> message == "Termine ou confirme les pointages du mois avant de générer ce PDF." } ?: "Impossible de préparer le PDF. Aucun fichier extérieur créé."); finish() }
             }
         }
@@ -124,8 +148,17 @@ class V2MonthlyPdfActivity : Activity() {
         if (requestCode != REQUEST_CREATE) return
         if (resultCode != RESULT_OK) { finish(); return }
         val uri = data?.data ?: run { finish(); return }
+        if (uri.scheme != "content") { toast("Emplacement PDF invalide."); finish(); return }
         val uid = ownerUid; val file = authorizedFile; val hash = authorizedHash
         if (uid == null || file == null || hash == null || !destinationRequested) { cleanup(uri); finish(); return }
+        destinationUri = uri
+        runCatching { contentResolver.takePersistableUriPermission(uri,
+            data.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)) }
+        copyAuthorized(uid, file, hash, uri)
+    }
+
+    private fun copyAuthorized(uid: String, file: File, hash: String, uri: Uri) {
+        phase = MonthlyPdfRecovery.Phase.COPYING
         status.text = "Vérification finale et enregistrement du PDF…"
         worker.execute {
             val result = runCatching {
@@ -139,18 +172,124 @@ class V2MonthlyPdfActivity : Activity() {
                     while (true) { val count = input.read(buffer); if (count < 0) break; check(active(uid)); output.write(buffer, 0, count) }
                 } } ?: error("Destination inaccessible")
             }
-            if (result.isFailure) cleanup(uri)
+            if (result.isFailure && !isChangingConfigurations) cleanup(uri)
             runOnUiThread {
-                if (!isDestroyed) { toast(if (result.isSuccess) "PDF HoraTrack enregistré" else "Export annulé : droits, compte ou fichier à vérifier."); finish() }
+                if (!isDestroyed && !isChangingConfigurations) { toast(if (result.isSuccess) "PDF HoraTrack enregistré" else "Export annulé : droits, compte ou fichier à vérifier."); finish() }
             }
         }
     }
 
     private fun currentUid() = runCatching { FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
-    private fun active(uid: String) = !isFinishing && !isDestroyed && currentUid() == uid
+    private fun active(uid: String) = !isFinishing && !isDestroyed && !isChangingConfigurations && currentUid() == uid
     private fun cleanup(uri: Uri) { runCatching { DocumentsContract.deleteDocument(contentResolver, uri) } }
     private fun toast(message: String) { Toast.makeText(this, message, Toast.LENGTH_LONG).show() }
-    override fun onDestroy() { worker.shutdown(); super.onDestroy() }
+    override fun onSaveInstanceState(outState: Bundle) {
+        stateSaved = true
+        outState.putString("owner_uid", ownerUid)
+        outState.putString("phase", phase.name)
+        outState.putInt("year", selectedYear); outState.putInt("month", selectedMonth)
+        outState.putString("file", authorizedFile?.absolutePath)
+        outState.putString("hash", authorizedHash); outState.putString("name", fileName)
+        outState.putString("destination", destinationUri?.toString())
+        super.onSaveInstanceState(outState)
+    }
+
+    private fun restoreExport(state: Bundle) {
+        selectedYear = state.getInt("year", -1); selectedMonth = state.getInt("month", -1)
+        phase = runCatching { MonthlyPdfRecovery.Phase.valueOf(state.getString("phase") ?: "CHOOSE") }.getOrDefault(MonthlyPdfRecovery.Phase.CHOOSE)
+        fileName = state.getString("name") ?: "HoraTrack.pdf"
+        val uid = ownerUid ?: return finish()
+        val file = state.getString("file")?.let(::File)
+        authorizedHash = state.getString("hash")
+        val ownedPath = file != null && runCatching {
+            val path = file.canonicalPath
+            listOf("monthly_pdf_pending", "billing_pdf_archive").any { root ->
+                path.startsWith(File(filesDir, "$root/${BillingContract.accountId(uid)}").canonicalPath + File.separator)
+            }
+        }.getOrDefault(false)
+        when (MonthlyPdfRecovery.action(phase, uid, currentUid(), ownedPath, authorizedHash)) {
+            MonthlyPdfRecovery.Action.CHOOSE -> chooseMonth()
+            MonthlyPdfRecovery.Action.PREPARE -> {
+                if (!MonthlyPdfExportPolicy.validPeriod(selectedYear, selectedMonth)) { finish(); return }
+                prepare(Calendar.getInstance(Locale.FRANCE).apply { clear(); set(selectedYear, selectedMonth, 1) })
+            }
+            MonthlyPdfRecovery.Action.REVERIFY -> {
+                authorizedFile = file
+                restoredVerification = true
+                status.text = "Vérification du paiement et du PDF préparé…"
+                resumeButton.visibility = android.view.View.VISIBLE
+                offersButton.visibility = android.view.View.VISIBLE
+                checkRestoredAuthorization()
+            }
+            MonthlyPdfRecovery.Action.WAIT_PICKER -> {
+                authorizedFile = file; destinationRequested = true
+                status.text = "Choix d'emplacement en cours…"
+            }
+            MonthlyPdfRecovery.Action.COPY -> {
+                authorizedFile = file; destinationRequested = true
+                val uri = state.getString("destination")?.let(Uri::parse)
+                if (uri == null || uri.scheme != "content") { finish(); return }
+                destinationUri = uri
+                copyAuthorized(uid, file!!, authorizedHash!!, uri)
+            }
+            MonthlyPdfRecovery.Action.REJECT -> { toast("Reprise impossible : compte ou PDF à vérifier."); finish() }
+        }
+    }
+
+    private fun requestAuthorization(file: File) {
+        phase = MonthlyPdfRecovery.Phase.AUTHORIZING
+        restoredVerification = false
+        resumeButton.visibility = android.view.View.GONE
+        offersButton.visibility = android.view.View.GONE
+        BillingPdfGate.require(this, file, fileName, onDenied = { if (!isChangingConfigurations && !isDestroyed) finish() }) { verified ->
+            val uid = ownerUid ?: return@require
+            if (!active(uid) || destinationRequested || isChangingConfigurations) return@require
+            authorizedFile = verified
+            authorizedHash = BillingContract.documentId(verified)
+            launchDestination()
+        }
+    }
+
+    private fun launchDestination() {
+        if (destinationRequested) return
+        if (stateSaved) { restoredVerification = true; return }
+        runCatching {
+            phase = MonthlyPdfRecovery.Phase.WAIT_PICKER
+            destinationRequested = true
+            status.text = "PDF autorisé. Choisis son emplacement."
+            resumeButton.visibility = android.view.View.GONE
+            offersButton.visibility = android.view.View.GONE
+            startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE); type = "application/pdf"; putExtra(Intent.EXTRA_TITLE, fileName)
+            }, REQUEST_CREATE)
+        }.onFailure { toast("Impossible d'ouvrir le choix d'emplacement."); finish() }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        stateSaved = false
+        if (restoredVerification) checkRestoredAuthorization()
+    }
+
+    private fun checkRestoredAuthorization() {
+        if (checkingRecovery || !restoredVerification) return
+        val uid = ownerUid ?: return
+        val file = authorizedFile ?: return
+        val hash = authorizedHash ?: return
+        checkingRecovery = true
+        worker.execute {
+            val verified = runCatching {
+                MonthlyPdfExportPolicy.allows(uid, currentUid(), hash, BillingContract.documentId(file)) &&
+                    BillingPdfGate.authorizeBackgroundBlocking(this, file)
+            }.getOrDefault(false)
+            runOnUiThread {
+                checkingRecovery = false
+                if (!active(uid) || isChangingConfigurations) return@runOnUiThread
+                if (verified) { restoredVerification = false; launchDestination() }
+                else status.text = "Aucun export débloqué. Si le paiement est en cours, attends sa confirmation puis reprends la vérification."
+            }
+        }
+    }
 }
 
 /** Final copy cannot rely on a previous account or mutable PDF contents. */

@@ -22,7 +22,7 @@ object BillingPdfGate {
         val uid = BillingBackend.uid()
         if (uid == null) { message(activity, "Connecte ton compte pour vérifier les droits PDF."); onDenied(); return }
         val requested = runCatching { file.canonicalFile }.getOrNull()
-        val roots = listOf("billing_pdf_archive", "billing_service_pending", "billing_service_drafts", "paid_service_prepared", "monthly_pdf_pending")
+        val roots = listOf("billing_pdf_archive", "billing_service_pending", "billing_service_drafts", "paid_service_prepared", "monthly_pdf_pending", "billing_pdf_pending")
         if (requested == null || roots.any { root ->
                 val shared = File(activity.filesDir, root).canonicalFile
                 val own = File(shared, BillingContract.accountId(uid)).canonicalFile
@@ -32,10 +32,17 @@ object BillingPdfGate {
             return
         }
         io.execute {
-            val hash = runCatching { BillingContract.documentId(file) }.getOrNull()
+            val preserved = runCatching {
+                check(BillingBackend.uid() == uid)
+                val snapshot = PdfPendingVault.capture(activity.filesDir, BillingContract.accountId(uid), file, displayName)
+                check(BillingBackend.uid() == uid)
+                snapshot to BillingContract.documentId(snapshot)
+            }.getOrNull()
             main.post {
                 if (!active(activity) || BillingBackend.uid() != uid) { onDenied(); return@post }
-                if (hash == null) { message(activity, "PDF introuvable ou vide."); onDenied(); return@post }
+                if (preserved == null) { message(activity, "PDF introuvable, corrompu ou impossible à conserver. Aucun achat lancé."); onDenied(); return@post }
+                val file = preserved.first
+                val hash = preserved.second
                 val service = BillingServiceFlow.prepared(activity, uid, hash)
                 val endpoint = if (service == null) "billingAuthorizePdf" else "billingAuthorizeReport"
                 val payload = if (service == null) mapOf("documentSha256" to hash)
@@ -98,12 +105,12 @@ object BillingPdfGate {
         val uid = BillingBackend.uid() ?: return false
         return runCatching {
             val requested = file.canonicalFile
-            check(listOf("billing_pdf_archive", "billing_service_pending", "billing_service_drafts", "paid_service_prepared", "monthly_pdf_pending").none { root ->
+            check(listOf("billing_pdf_archive", "billing_service_pending", "billing_service_drafts", "paid_service_prepared", "monthly_pdf_pending", "billing_pdf_pending").none { root ->
                 val shared = File(context.filesDir, root).canonicalFile
                 val own = File(shared, BillingContract.accountId(uid)).canonicalFile
                 requested.path.startsWith(shared.path + File.separator) && !requested.path.startsWith(own.path + File.separator)
             })
-            val hash = BillingContract.documentId(file)
+            val hash = PdfPendingVault.validate(context.filesDir, BillingContract.accountId(uid), file)
             val result = Tasks.await(BillingBackend.call("billingAuthorizePdf", mapOf("documentSha256" to hash)), 20, TimeUnit.SECONDS)
             BillingBackend.uid() == uid && BillingContract.authorizedPdf(result, hash) && BillingContract.documentId(file) == hash
         }.getOrDefault(false)
