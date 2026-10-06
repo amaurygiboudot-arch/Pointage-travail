@@ -150,3 +150,70 @@ test("invalid historical PDF proof allows verified repurchase but not transient 
   assert.equal((await service.authorizePdf(UID, { documentSha256: PDF })).authorized, true);
   assert.equal(db.rows.get("billingUsersV1/user/ownedPdfs/" + PDF).orderId, "GPA.new");
 });
+
+test("suspended known subscription blocks a second subscription without granting access and resumes same token", async () => {
+  const db = memoryDb(); const now = Date.parse("2026-10-06");
+  let state = "SUBSCRIPTION_STATE_ACTIVE";
+  const service = createBillingService({ db, now: () => now, play: {
+    get: async () => ({ externalAccountIdentifiers: { obfuscatedExternalAccountId: sha(UID) }, subscriptionState: state,
+      lineItems: [{ productId: "horatrack_premium", expiryTime: state === "SUBSCRIPTION_STATE_ON_HOLD" ? "2026-09-01T00:00:00Z" : "2026-12-01T00:00:00Z" }] }),
+    settle: async () => {},
+  } });
+  await service.verify(UID, { productId: "horatrack_premium", purchaseToken: "existing-sub" });
+  for (state of ["SUBSCRIPTION_STATE_PAUSED", "SUBSCRIPTION_STATE_ON_HOLD", "SUBSCRIPTION_STATE_PENDING"]) {
+    const rights = await service.entitlements(UID);
+    assert.equal(rights.hasExistingSubscription, true);
+    assert.equal(rights.hasSuspendedSubscription, state !== "SUBSCRIPTION_STATE_PENDING");
+    assert.equal(rights.premium, false); assert.equal(rights.plus, false);
+    await assert.rejects(service.authorizePdf(UID, { documentSha256: PDF }));
+  }
+  // active:false records must still be queried: resuming the same token blocks another purchase.
+  state = "SUBSCRIPTION_STATE_ACTIVE";
+  const resumed = await service.entitlements(UID);
+  assert.equal(resumed.hasExistingSubscription, true); assert.equal(resumed.hasSuspendedSubscription, false);
+  assert.equal(resumed.premium, true); assert.equal(db.rows.size, 1);
+  state = "SUBSCRIPTION_STATE_EXPIRED"; // revocation/refund and normal expiry both release exclusion, not rights.
+  const revoked = await service.entitlements(UID);
+  assert.equal(revoked.hasExistingSubscription, false); assert.equal(revoked.hasSuspendedSubscription, false);
+  assert.equal(revoked.premium, false);
+});
+
+test("subscription exclusion distinguishes pending paused active expired and malformed states", () => {
+  const { subscriptionExclusion } = require("./playBilling");
+  const now = Date.parse("2026-10-06"); const p = { productId: "horatrack_plus", kind: "plus" };
+  const raw = { externalAccountIdentifiers: { obfuscatedExternalAccountId: sha(UID) }, lineItems: [{ productId: p.productId, expiryTime: "2026-12-01T00:00:00Z" }] };
+  for (const subscriptionState of ["SUBSCRIPTION_STATE_ACTIVE", "SUBSCRIPTION_STATE_IN_GRACE_PERIOD", "SUBSCRIPTION_STATE_CANCELED", "SUBSCRIPTION_STATE_PENDING"])
+    assert.deepEqual(subscriptionExclusion({ ...raw, subscriptionState }, p, UID, now), { existing: true, suspended: false });
+  for (const subscriptionState of ["SUBSCRIPTION_STATE_ON_HOLD", "SUBSCRIPTION_STATE_PAUSED"])
+    assert.deepEqual(subscriptionExclusion({ ...raw, subscriptionState }, p, UID, now), { existing: true, suspended: true });
+  for (const subscriptionState of ["SUBSCRIPTION_STATE_EXPIRED", "SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED"])
+    assert.deepEqual(subscriptionExclusion({ ...raw, subscriptionState }, p, UID, now), { existing: false, suspended: false });
+  assert.equal(subscriptionExclusion({ ...raw, subscriptionState: "SUBSCRIPTION_STATE_CANCELED" }, p, UID, Date.parse("2027-01-01")).existing, false);
+  for (const lineItems of [undefined, [], [{ productId: "unknown_product", expiryTime: "2026-12-01T00:00:00Z" }]])
+    assert.throws(() => subscriptionExclusion({ ...raw, lineItems, subscriptionState: "SUBSCRIPTION_STATE_PAUSED" }, p, UID, now), error => error.code === "unavailable");
+  assert.throws(() => subscriptionExclusion({ ...raw, subscriptionState: "UNRECOGNIZED" }, p, UID, now), error => error.code === "unavailable");
+  assert.throws(() => subscriptionExclusion({ ...raw, subscriptionState: "SUBSCRIPTION_STATE_ACTIVE", lineItems: [{ productId: p.productId, expiryTime: "garbage" }] }, p, UID, now), error => error.code === "unavailable");
+  assert.throws(() => subscriptionExclusion({ ...raw, subscriptionState: "SUBSCRIPTION_STATE_PAUSED" }, p, "other", now));
+});
+
+test("server subscription preflight fails closed on unavailable Play instead of trusting cached active false", async () => {
+  const db = memoryDb(); let offline = false;
+  const service = createBillingService({ db, now: () => Date.parse("2026-10-06"), play: {
+    get: async () => { if (offline) throw new BillingError("unavailable", "offline"); return { externalAccountIdentifiers: { obfuscatedExternalAccountId: sha(UID) }, subscriptionState: "SUBSCRIPTION_STATE_ACTIVE", lineItems: [{ productId: "horatrack_plus", expiryTime: "2026-12-01T00:00:00Z" }] }; }, settle: async () => {},
+  } });
+  await service.verify(UID, { productId: "horatrack_plus", purchaseToken: "known-other-device" });
+  db.rows.get("billingPurchasesV1/" + sha("known-other-device")).active = false;
+  offline = true;
+  await assert.rejects(service.entitlements(UID), error => error.code === "unavailable");
+});
+
+test("malformed suspended Play response never reports absence of a known subscription", async () => {
+  const db = memoryDb(); let malformed = false;
+  const service = createBillingService({ db, now: () => Date.parse("2026-10-06"), play: {
+    get: async () => ({ externalAccountIdentifiers: { obfuscatedExternalAccountId: sha(UID) }, subscriptionState: malformed ? "SUBSCRIPTION_STATE_PAUSED" : "SUBSCRIPTION_STATE_ACTIVE",
+      ...(malformed ? {} : { lineItems: [{ productId: "horatrack_plus", expiryTime: "2026-12-01T00:00:00Z" }] }) }), settle: async () => {},
+  } });
+  await service.verify(UID, { productId: "horatrack_plus", purchaseToken: "known-malformed" });
+  malformed = true;
+  await assert.rejects(service.entitlements(UID), error => error.code === "unavailable");
+});

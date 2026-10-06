@@ -19,6 +19,22 @@ function purchaseRequest(data) {
   const legacyAnalysis = data.productId === "horatrack_analysis" && data.documentSha256 == null;
   return { productId: data.productId, token: data.purchaseToken, kind: PRODUCTS[data.productId], documentSha256: !legacyAnalysis && (data.productId === "horatrack_pdf" || Object.hasOwn(SERVICES, data.productId)) ? documentKey(data.documentSha256) : null, reportId: data.reportId || null };
 }
+// Purchase exclusion is separate from access rights: paused/on-hold subscriptions can resume.
+function subscriptionExclusion(raw, purchase, uid, now = Date.now()) {
+  if (raw.externalAccountIdentifiers?.obfuscatedExternalAccountId !== sha(uid)) deny("Achat associé à un autre compte.");
+  if (!Array.isArray(raw.lineItems)) throw new BillingError("unavailable", "Détail abonnement inconnu.");
+  const lines = raw.lineItems.filter(item => item && item.productId === purchase.productId);
+  if (!lines.length) throw new BillingError("unavailable", "Produit abonnement non déterminé.");
+  const state = raw.subscriptionState;
+  const suspended = ["SUBSCRIPTION_STATE_ON_HOLD", "SUBSCRIPTION_STATE_PAUSED"].includes(state);
+  if (suspended || state === "SUBSCRIPTION_STATE_PENDING") return { existing: true, suspended };
+  if (["SUBSCRIPTION_STATE_EXPIRED", "SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED"].includes(state)) return { existing: false, suspended: false };
+  if (["SUBSCRIPTION_STATE_ACTIVE", "SUBSCRIPTION_STATE_IN_GRACE_PERIOD", "SUBSCRIPTION_STATE_CANCELED"].includes(state)) {
+    if (lines.some(item => !Number.isFinite(Date.parse(item.expiryTime)))) throw new BillingError("unavailable", "Échéance abonnement inconnue.");
+    return { existing: lines.some(item => Date.parse(item.expiryTime) > now), suspended: false };
+  }
+  throw new BillingError("unavailable", "État abonnement inconnu.");
+}
 function verifyState(raw, purchase, uid, now = Date.now()) {
   if (purchase.kind === "premium" || purchase.kind === "plus") {
     if (raw.externalAccountIdentifiers?.obfuscatedExternalAccountId !== sha(uid)) deny("Achat associé à un autre compte.");
@@ -96,7 +112,7 @@ function createBillingService({ db, play, now = Date.now }) {
     await play.settle(p, state);
     return entitlements(uid);
   }
-  async function livePurchases(uid, relevant = () => true) {
+  async function livePurchases(uid, relevant = () => true, exclusion = null) {
     const snapshot = await records.where("uid", "==", uid).get();
     const active = [];
     for (const doc of snapshot.docs) {
@@ -104,7 +120,13 @@ function createBillingService({ db, play, now = Date.now }) {
       if (p.supersededBy || !relevant(p, doc.id)) continue;
       if (p.kind === "analysis" && p.documentSha256 == null && p.reportId == null) p.legacy = true;
       try {
-        const state = verifyState(await play.get(p), p, uid, now());
+        const raw = await play.get(p);
+        if (exclusion && ["premium", "plus"].includes(p.kind)) {
+          const status = subscriptionExclusion(raw, p, uid, now());
+          exclusion.existing ||= status.existing;
+          exclusion.suspended ||= status.suspended;
+        }
+        const state = verifyState(raw, p, uid, now());
         active.push({ ...p, id: doc.id, expiryMs: state.expiryMs, orderId: state.orderId || p.orderId });
       } catch (error) {
         if (error instanceof BillingError && error.code === "permission-denied") {
@@ -115,14 +137,15 @@ function createBillingService({ db, play, now = Date.now }) {
     return active;
   }
   async function entitlements(uid, owner = false) {
-    if (owner) return { owner: true, premium: true, plus: true, analysisCredits: 0, legacyAnalysisCredits: 0, plusAnalysisCreditAvailable: false, pdfIds: [], obfuscatedAccountId: sha(uid) };
-    const active = await livePurchases(uid);
+    if (owner) return { owner: true, premium: true, plus: true, analysisCredits: 0, legacyAnalysisCredits: 0, plusAnalysisCreditAvailable: false, pdfIds: [], hasExistingSubscription: false, hasSuspendedSubscription: false, obfuscatedAccountId: sha(uid) };
+    const exclusion = { existing: false, suspended: false };
+    const active = await livePurchases(uid, () => true, exclusion);
     const plus = active.some(p => p.kind === "plus");
     const period = new Date(now()).toISOString().slice(0, 7);
     const usage = await user(uid).collection("analysisPeriods").doc(period).get();
     const legacyAnalysisCredits = active.filter(p => p.kind === "analysis" && !p.reportId && !p.analysisUsed).length;
     const plusAnalysisCreditAvailable = plus && !usage.exists;
-    return { owner: false, premium: plus || active.some(p => p.kind === "premium"), plus,
+    return { owner: false, hasExistingSubscription: exclusion.existing, hasSuspendedSubscription: exclusion.suspended, premium: plus || active.some(p => p.kind === "premium"), plus,
       analysisCredits: legacyAnalysisCredits + (plusAnalysisCreditAvailable ? 1 : 0), legacyAnalysisCredits, plusAnalysisCreditAvailable,
       pdfIds: active.filter(p => p.kind === "pdf").map(p => p.documentSha256), obfuscatedAccountId: sha(uid) };
   }
@@ -174,4 +197,4 @@ function createBillingService({ db, play, now = Date.now }) {
   }
   return { verify, entitlements, authorizePdf, reserveAnalysis, prepareReport: reportBilling.prepare, authorizeReport: reportBilling.authorize };
 }
-module.exports = { PACKAGE, PRODUCTS, sha, BillingError, documentKey, purchaseRequest, verifyState, createPlayClient, createBillingService };
+module.exports = { PACKAGE, PRODUCTS, sha, BillingError, documentKey, purchaseRequest, subscriptionExclusion, verifyState, createPlayClient, createBillingService };

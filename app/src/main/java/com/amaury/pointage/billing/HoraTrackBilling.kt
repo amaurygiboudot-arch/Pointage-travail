@@ -145,8 +145,8 @@ object HoraTrackBilling : PurchasesUpdatedListener {
             }
             }
             if (offer.details.productId in setOf(BillingContract.PREMIUM, BillingContract.PLUS)) {
-                client!!.queryPurchasesAsync(QueryPurchasesParams.newBuilder().setProductType(BillingClient.ProductType.SUBS).build()) { query, subscriptions ->
-                    val overlapping = subscriptions.any { it.purchaseState != Purchase.PurchaseState.UNSPECIFIED_STATE &&
+                client!!.queryPurchasesAsync(QueryPurchasesParams.newBuilder().setProductType(BillingClient.ProductType.SUBS).includeSuspendedSubscriptions(true).build()) { query, subscriptions ->
+                    val overlapping = subscriptions.any {
                         it.products.any { product -> product in setOf(BillingContract.PREMIUM, BillingContract.PLUS) } }
                     if (query.responseCode != BillingClient.BillingResponseCode.OK || overlapping || BillingBackend.uid() != uid) {
                         purchasing = false; completion = null; terminal = null; onTerminal(TerminalOutcome.FAILED)
@@ -154,7 +154,8 @@ object HoraTrackBilling : PurchasesUpdatedListener {
                     } else BillingBackend.call("billingGetEntitlements").addOnCompleteListener { task ->
                         val rights = if (task.isSuccessful) task.result as? Map<*, *> else null
                         if (BillingBackend.uid() != uid || rights == null || rights["obfuscatedAccountId"] != BillingContract.accountId(uid) ||
-                            rights["owner"] == true || rights["premium"] == true || rights["plus"] == true) {
+                            rights["owner"] == true || rights["premium"] == true || rights["plus"] == true ||
+                            !SubscriptionPurchasePolicy.serverAllowsNewSubscription(rights["hasExistingSubscription"], rights["hasSuspendedSubscription"])) {
                             purchasing = false; completion = null; terminal = null; onTerminal(TerminalOutcome.FAILED)
                             toast(activity, "Aucun second abonnement lancé. Vérifie ou gère ton abonnement Google Play.")
                         } else launchVerifiedOffer()

@@ -8,6 +8,8 @@ import android.os.Bundle
 import android.provider.DocumentsContract
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.view.ViewGroup
 import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.billing.BillingContract
@@ -52,11 +54,11 @@ class V2MonthlyPdfActivity : Activity() {
         ownerUid = savedInstanceState?.getString("owner_uid") ?: currentUid()
         if (ownerUid == null || ownerUid != currentUid()) { toast("Connecte ton compte avant l'export PDF."); finish(); return }
         status = TextView(this).apply { text = "Choisis le mois à exporter."; textSize = 16f }
-        setContentView(LinearLayout(this).apply {
+        val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(24, 32, 24, 24)
-            addView(status)
-            resumeButton = Button(this@V2MonthlyPdfActivity).apply {
+            setPadding(dp(24), dp(32), dp(24), dp(24))
+            addView(status, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            resumeButton = actionButton().apply {
                 text = "Reprendre la vérification"; visibility = android.view.View.GONE
                 setOnClickListener {
                     val uid = ownerUid ?: return@setOnClickListener
@@ -66,13 +68,19 @@ class V2MonthlyPdfActivity : Activity() {
                     }
                 }
             }
-            addView(resumeButton)
-            offersButton = Button(this@V2MonthlyPdfActivity).apply {
+            addView(resumeButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            offersButton = actionButton().apply {
                 text = "Voir les options de déblocage"; visibility = android.view.View.GONE
                 setOnClickListener { authorizedFile?.let { requestAuthorization(it) } }
             }
-            addView(offersButton)
-            addView(Button(this@V2MonthlyPdfActivity).apply { text = "Annuler"; setOnClickListener { finish() } })
+            addView(offersButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(actionButton().apply { text = "Annuler"; setOnClickListener { finish() } },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        setContentView(ScrollView(this).apply {
+            isFillViewport = true
+            fitsSystemWindows = true
+            addView(content, ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         })
         if (savedInstanceState != null) {
             restoreExport(savedInstanceState)
@@ -84,6 +92,16 @@ class V2MonthlyPdfActivity : Activity() {
             if (!MonthlyPdfExportPolicy.validPeriod(year, month)) { toast("Période PDF invalide."); finish(); return }
             prepare(Calendar.getInstance(Locale.FRANCE).apply { clear(); set(year, month, 1) })
         } else chooseMonth()
+    }
+
+    private fun dp(value: Int) = (value * resources.displayMetrics.density + 0.5f).toInt()
+
+    private fun actionButton() = Button(this).apply {
+        minHeight = dp(48)
+        minimumHeight = dp(48)
+        minWidth = dp(48)
+        minimumWidth = dp(48)
+        setSingleLine(false)
     }
 
     private fun chooseMonth() {

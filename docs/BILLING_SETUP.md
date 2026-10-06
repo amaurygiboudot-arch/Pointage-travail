@@ -83,3 +83,5 @@ Les pointages fermés qui traversent une borne de mois utilisent la sélection e
 - PDF ordinaire : paiement différé, fermeture puis modification des données ; la copie préparée reste retrouvable sans régénération ni nouvel achat du même document.
 - Export mensuel : rotation ou redimensionnement pendant préparation, paiement, choix d'emplacement et copie ; reprendre les octets exacts et revérifier les droits, sans relancer automatiquement l'achat ni ouvrir un deuxième sélecteur.
 - Abonnements actifs : empêcher un deuxième abonnement simultané sans parcours de remplacement vérifié. Le lien de gestion Google Play reste accessible.
+- Abonnements suspendus ou en pause : ils ne donnent aucun droit Premium/Plus, mais leur existence bloque un second abonnement ; vérifier la reprise du premier sans double facturation et le déblocage après expiration réelle.
+- Écran d'export : vérifier que les actions de reprise, de déblocage et d'annulation restent accessibles par défilement en paysage, en fenêtre partagée et avec une grande taille de texte.
