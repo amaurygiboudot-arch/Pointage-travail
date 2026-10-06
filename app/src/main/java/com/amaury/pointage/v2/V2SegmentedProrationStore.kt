@@ -55,13 +55,12 @@ object V2SegmentedProrationStore {
         return SegmentedProrationSourceV2(value, true, emptyList())
     }
 
-    @Synchronized
     fun save(
         context: Context,
         companyId: String,
         period: YearMonth,
         proration: ConfirmedSegmentedMonthlyProrationV2
-    ): Boolean = SalaryCompanyStore.withConfirmedCompany(context, companyId.trim()) {
+    ): Boolean = V2RuntimeStore.withTransaction { SalaryCompanyStore.withConfirmedCompany(context, companyId.trim()) {
         val raw = encode(proration) ?: return@withConfirmedCompany false
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (!prefs.edit().putString(key(companyId.trim(), period), raw).commit()) {
@@ -69,16 +68,59 @@ object V2SegmentedProrationStore {
         }
         val read = resolve(context, companyId, period)
         read.reliable && read.proration == proration
-    } ?: false
+    } ?: false }
 
-    @Synchronized
     fun remove(context: Context, companyId: String, period: YearMonth): Boolean =
-        SalaryCompanyStore.withConfirmedCompany(context, companyId.trim()) {
+        V2RuntimeStore.withTransaction { SalaryCompanyStore.withConfirmedCompany(context, companyId.trim()) {
             val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             val k = key(companyId.trim(), period)
             if (!prefs.contains(k)) return@withConfirmedCompany true
             prefs.edit().remove(k).commit() && !prefs.contains(k)
-        } ?: false
+        } ?: false }
+
+    /** Keys keep the existing company/month namespace; no alternate preference store is introduced. */
+    internal fun isStorageKey(key: String): Boolean {
+        if (!key.startsWith(PREFIX)) return false
+        val tail = key.removePrefix(PREFIX)
+        val split = tail.lastIndexOf('.')
+        if (split <= 0 || tail.substring(0, split).trim() != tail.substring(0, split)) return false
+        val month = tail.substring(split + 1)
+        return runCatching { YearMonth.parse(month).toString() == month }.getOrDefault(false)
+    }
+
+    internal fun readRaw(context: Context): Map<String, String>? {
+        val all = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).all
+        val raw = linkedMapOf<String, String>()
+        for ((key, value) in all) raw[key] = value as? String ?: return null
+        return raw.takeIf { mergeRaw(emptyMap(), it) != null }
+    }
+
+    /** Equal facts are idempotent; a different confirmed planning must never replace the local one silently. */
+    internal fun mergeRaw(current: Map<String, String>, saved: Map<String, String>): Map<String, String>? {
+        fun facts(raw: Map<String, String>): Map<String, ConfirmedSegmentedMonthlyProrationV2>? {
+            val decoded = linkedMapOf<String, ConfirmedSegmentedMonthlyProrationV2>()
+            for ((key, value) in raw) {
+                if (!isStorageKey(key)) return null
+                val item = decode(value) ?: return null
+                decoded[key] = item.copy(segments = item.segments.sortedWith(
+                    compareBy({ it.startEpochDay }, { it.endEpochDay }, { it.versionId })))
+            }
+            return decoded
+        }
+        val local = facts(current) ?: return null
+        val remote = facts(saved) ?: return null
+        if (remote.any { (key, value) -> local[key]?.let { it != value } == true }) return null
+        return current + saved.filterKeys { it !in current }
+    }
+
+    internal fun replaceAllForRestore(context: Context, values: Map<String, String>): Boolean =
+        V2RuntimeStore.withTransaction {
+            if (mergeRaw(emptyMap(), values) == null) return@withTransaction false
+            val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val editor = prefs.edit().clear()
+            values.forEach { (key, value) -> editor.putString(key, value) }
+            editor.commit() && readRaw(context) == values
+        }
 
     internal fun decode(raw: String): ConfirmedSegmentedMonthlyProrationV2? {
         if (raw.isBlank()) return null

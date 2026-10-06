@@ -109,7 +109,10 @@ object V2BackupManager {
             require(isRestorablePreferencePayload(name, saved)){"Préférences $name invalides"}
             saved
         }
-        val restoredResult = V2RuntimeStore.withTransaction {
+        val restoredResult = withProrationRestorePlan(
+            payloads[V2SegmentedProrationStore.PREFS],
+            readCurrent = { V2SegmentedProrationStore.readRaw(context) }
+        ) { prorationPlan ->
             val runtimePlan=payloads[RUNTIME_PREFS]?.let{prepareRuntimeMerge(context,it)}
             val coveragePlan=payloads[V2PayrollCoverageStore.PREFS]
                 ?.let{prepareCoverageMerge(context,it)}
@@ -125,6 +128,12 @@ object V2BackupManager {
                     V2PayrollCoverageStore.PREFS->{
                         val plan=coveragePlan?:error("Couverture paie de sauvegarde indisponible")
                         applyCoverageMerge(context,plan)
+                    }
+                    V2SegmentedProrationStore.PREFS->{
+                        val plan=prorationPlan?:error("Proratisation de sauvegarde indisponible")
+                        check(V2SegmentedProrationStore.replaceAllForRestore(context,plan)){
+                            "Impossible d’enregistrer le planning de référence fusionné"
+                        }
                     }
                     else->mergePreferences(context,name,saved)
                 }
@@ -336,11 +345,7 @@ object V2BackupManager {
         return when (name) {
             RUNTIME_PREFS -> runCatching { decodeBackupHistory(saved) }.isSuccess
             V2PayrollCoverageStore.PREFS -> runCatching { decodeBackupCoverage(saved) }.isSuccess
-            V2SegmentedProrationStore.PREFS -> saved.keys().asSequence().all { key ->
-                val item = saved.optJSONObject(key)
-                val raw = item?.opt("v") as? String
-                item?.optString("t") == "s" && raw != null && V2SegmentedProrationStore.decode(raw) != null
-            }
+            V2SegmentedProrationStore.PREFS -> runCatching { decodeBackupProrations(saved) }.isSuccess
             else -> true
         }
     }
@@ -451,6 +456,31 @@ object V2BackupManager {
         val current=V2RuntimeHistoryGuardV2.read(context)
         require(current.reliable){"Historique local illisible : restauration bloquée"}
         return mergeHistories(current.history,decodeBackupHistory(saved))
+    }
+
+    internal fun decodeBackupProrations(saved: JSONObject): Map<String, String> {
+        val raw = linkedMapOf<String, String>()
+        saved.keys().forEach { key ->
+            val item = saved.optJSONObject(key) ?: error("Planning de sauvegarde mal typé")
+            require(item.optString("t") == "s") { "Planning de sauvegarde mal typé" }
+            raw[key] = item.opt("v") as? String ?: error("Planning de sauvegarde illisible")
+        }
+        return V2SegmentedProrationStore.mergeRaw(emptyMap(), raw)
+            ?: error("Clé ou planning de sauvegarde invalide")
+    }
+
+    /** Called by restoreFromJson before its first preference mutation, under the same writer lock. */
+    internal fun <T> withProrationRestorePlan(
+        saved: JSONObject?,
+        readCurrent: () -> Map<String, String>?,
+        applyOtherPreferencesAndPlan: (Map<String, String>?) -> T
+    ): T = V2RuntimeStore.withTransaction {
+        val plan = saved?.let {
+            val local = readCurrent() ?: error("Planning local illisible : restauration bloquée")
+            V2SegmentedProrationStore.mergeRaw(local, decodeBackupProrations(it))
+                ?: error("Planning de référence différent pour la même entreprise et le même mois : restauration bloquée")
+        }
+        applyOtherPreferencesAndPlan(plan)
     }
 
     private fun prepareCoverageMerge(
