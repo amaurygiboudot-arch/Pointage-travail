@@ -38,9 +38,7 @@ object BillingServiceFlow {
             val record = runCatching {
                 check(productId in BillingContract.serviceProducts && Regex("[a-f0-9]{64}").matches(reportId))
                 check(BillingContract.documentId(file) == hash && BillingBackend.uid() == uid)
-                val folder = File(activity.filesDir, "billing_service_pending/${BillingContract.accountId(uid)}").apply { mkdirs() }
-                val snapshot = File(folder, "$hash.pdf")
-                if (!snapshot.exists()) file.copyTo(snapshot)
+                val snapshot = PdfPendingVault.publish(activity.filesDir, BillingContract.accountId(uid), file, hash, "billing_service_pending")
                 check(BillingContract.documentId(snapshot) == hash && BillingBackend.uid() == uid)
                 check(prefs(activity).edit().putString(key(uid, hash), JSONObject()
                     .put("productId", productId).put("reportId", reportId).put("name", name).toString()).commit())
@@ -61,9 +59,7 @@ object BillingServiceFlow {
                 val result = runCatching {
                     check(active(activity, uid))
                     val hash = BillingContract.documentId(draft.file)
-                    val folder = File(activity.filesDir, "billing_service_pending/${BillingContract.accountId(uid)}").apply { mkdirs() }
-                    val snapshot = File(folder, "$hash.pdf")
-                    if (!snapshot.exists()) draft.file.copyTo(snapshot)
+                    val snapshot = PdfPendingVault.publish(activity.filesDir, BillingContract.accountId(uid), draft.file, hash, "billing_service_pending")
                     check(BillingContract.documentId(snapshot) == hash)
                     check(BillingBackend.uid() == uid)
                     val result = Tasks.await(BillingBackend.call("billingPrepareReport", mapOf(

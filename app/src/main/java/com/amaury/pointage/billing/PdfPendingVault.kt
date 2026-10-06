@@ -13,17 +13,8 @@ object PdfPendingVault {
     fun capture(filesDir: File, accountId: String, source: File, displayName: String): File = synchronized(lock) {
         check(hashPattern.matches(accountId)) { "Compte PDF invalide" }
         val hash = validate(filesDir, accountId, source)
-        val folder = File(filesDir, "billing_pdf_pending/$accountId").apply { check(mkdirs() || isDirectory) }
-        val snapshot = File(folder, "$hash.pdf")
-        if (snapshot.exists()) check(BillingContract.documentId(snapshot) == hash) { "PDF conservé corrompu" }
-        else {
-            val temporary = File.createTempFile("capture_", ".tmp", folder)
-            try {
-                FileOutputStream(temporary).use { output -> source.inputStream().use { it.copyTo(output) }; output.fd.sync() }
-                check(BillingContract.documentId(temporary) == hash) { "Le PDF a changé pendant sa conservation" }
-                check(temporary.renameTo(snapshot)) { "Impossible de conserver ce PDF" }
-            } finally { temporary.delete() }
-        }
+        val snapshot = publish(filesDir, accountId, source, hash, "billing_pdf_pending")
+        val folder = snapshot.parentFile
         val title = displayName.substringAfterLast('/').substringAfterLast('\\').replace('\n', ' ').replace('\r', ' ').take(160).ifBlank { "HoraTrack.pdf" }
         val manifest = File(folder, "$hash.title")
         if (!manifest.exists()) {
@@ -36,12 +27,39 @@ object PdfPendingVault {
         snapshot
     }
 
-    fun documents(filesDir: File, accountId: String): List<File> {
-        if (!hashPattern.matches(accountId)) return emptyList()
-        return File(filesDir, "billing_pdf_pending/$accountId").listFiles().orEmpty()
-            .filter { it.isFile && Regex("[a-f0-9]{64}\\.pdf").matches(it.name) }
-            .filter { file -> runCatching { checkOwnedPath(filesDir, accountId, file); BillingContract.documentId(file) == file.nameWithoutExtension }.getOrDefault(false) }
+    /** Publish only complete, synced, verified bytes; a failed copy never exposes a partial final PDF. */
+    internal fun publish(filesDir: File, accountId: String, source: File, hash: String, root: String,
+        copy: (File, FileOutputStream) -> Unit = { input, output -> input.inputStream().use { it.copyTo(output) } }
+    ): File = synchronized(lock) {
+        check(root in listOf("billing_pdf_pending", "billing_pdf_archive", "billing_service_pending"))
+        check(hashPattern.matches(hash) && validate(filesDir, accountId, source) == hash)
+        val folder = File(filesDir, "$root/$accountId").apply { check(mkdirs() || isDirectory) }
+        val snapshot = File(folder, "$hash.pdf")
+        checkOwnedPath(filesDir, accountId, snapshot)
+        if (runCatching { validate(filesDir, accountId, snapshot) == hash }.getOrDefault(false)) return snapshot
+        // Also replaces partial files left by older versions, but only from an intact source.
+        val temporary = File.createTempFile("capture_", ".tmp", folder)
+        try {
+            FileOutputStream(temporary).use { output -> copy(source, output); output.fd.sync() }
+            check(BillingContract.documentId(temporary) == hash) { "Le PDF a changé pendant sa conservation" }
+            check(temporary.renameTo(snapshot)) { "Impossible de conserver ce PDF" }
+        } finally { temporary.delete() }
+        snapshot
     }
+
+    fun documents(filesDir: File, accountId: String): List<File> = validDocuments(filesDir, accountId, "billing_pdf_pending")
+
+    private fun validDocuments(filesDir: File, accountId: String, root: String): List<File> {
+        if (!hashPattern.matches(accountId)) return emptyList()
+        return File(filesDir, "$root/$accountId").listFiles().orEmpty()
+            .filter { it.isFile && Regex("[a-f0-9]{64}\\.pdf").matches(it.name) }
+            .filter { file -> runCatching { validate(filesDir, accountId, file) == file.nameWithoutExtension }.getOrDefault(false) }
+    }
+
+    /** Validate before deduplication so an interrupted old archive cannot hide intact pending bytes. */
+    fun availableDocuments(filesDir: File, accountId: String): List<File> =
+        (validDocuments(filesDir, accountId, "billing_pdf_archive") + documents(filesDir, accountId))
+            .distinctBy { it.nameWithoutExtension }.sortedByDescending { it.lastModified() }
 
     fun name(file: File): String? = runCatching {
         val title = File(file.parentFile, "${file.nameWithoutExtension}.title")

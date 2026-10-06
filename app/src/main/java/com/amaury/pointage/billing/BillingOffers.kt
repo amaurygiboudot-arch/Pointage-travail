@@ -135,10 +135,7 @@ object BillingOffers {
 
     private fun showArchive(activity: Activity) {
         val uid = BillingBackend.uid() ?: return
-        val folder = File(activity.filesDir, "billing_pdf_archive/${BillingContract.accountId(uid)}")
-        val archived = folder.listFiles().orEmpty().filter { it.isFile && Regex("[a-f0-9]{64}\\.pdf").matches(it.name) }
-        val pending = PdfPendingVault.documents(activity.filesDir, BillingContract.accountId(uid))
-        val files = (archived + pending).distinctBy { it.nameWithoutExtension }.sortedByDescending { it.lastModified() }
+        val files = PdfPendingVault.availableDocuments(activity.filesDir, BillingContract.accountId(uid))
         if (files.isEmpty()) {
             Toast.makeText(activity, "Aucun PDF conservé sur cet appareil pour ce compte.", Toast.LENGTH_LONG).show(); return
         }

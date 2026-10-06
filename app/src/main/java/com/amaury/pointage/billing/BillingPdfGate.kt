@@ -56,9 +56,7 @@ object BillingPdfGate {
                         io.execute {
                             val verifiedSnapshot = runCatching {
                                 check(BillingContract.documentId(file) == hash)
-                                val folder = File(activity.filesDir, "billing_pdf_archive/${BillingContract.accountId(uid)}").apply { mkdirs() }
-                                val snapshot = File(folder, "$hash.pdf")
-                                if (!snapshot.exists()) file.copyTo(snapshot)
+                                val snapshot = PdfPendingVault.publish(activity.filesDir, BillingContract.accountId(uid), file, hash, "billing_pdf_archive")
                                 check(BillingContract.documentId(snapshot) == hash)
                                 activity.getSharedPreferences("billing_pdf_names", Context.MODE_PRIVATE).edit()
                                     .putString("${BillingContract.accountId(uid)}_$hash", displayName.substringAfterLast('/').take(160)).commit()
