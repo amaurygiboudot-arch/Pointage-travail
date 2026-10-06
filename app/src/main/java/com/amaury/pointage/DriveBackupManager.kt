@@ -1,5 +1,8 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.billing.BillingPdfGate
+import java.io.File
+
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -65,7 +68,7 @@ object DriveBackupManager {
                     syncCompletedDays(app)
                     syncClosedMonths(app)
                 }
-            }
+            }.onFailure { android.util.Log.w("DriveBackup", "Sauvegarde des rapports non effectuée", it) }
         }
     }
 
@@ -145,9 +148,9 @@ object DriveBackupManager {
             val yearFolder = ensureDirectory(context, placeFolder, year.toString())
             val monthFolder = ensureDirectory(context, yearFolder, safeName(monthLabel))
             val dailyFolder = ensureDirectory(context, monthFolder, "Journées")
-            val file = ensureFile(context, dailyFolder, "Pointage_$dateName.pdf", "application/pdf")
-            context.contentResolver.openOutputStream(file, "w")?.use { DailyPdfReport.write(context, data, dayStart, dayEnd, it) }
-                ?: error("Impossible d'écrire le PDF quotidien")
+            publishAuthorizedPdf(context, dailyFolder, "Pointage_$dateName.pdf") { output ->
+                DailyPdfReport.write(context, data, dayStart, dayEnd, output)
+            }
         }
     }
 
@@ -189,10 +192,26 @@ object DriveBackupManager {
         val yearFolder = ensureDirectory(context, placeFolder, year.toString())
         val monthFolder = ensureDirectory(context, yearFolder, safeName(monthLabel))
         val fileName = "Récapitulatif_${year}_${String.format(Locale.FRANCE, "%02d", month + 1)}.pdf"
-        val pdfUri = ensureFile(context, monthFolder, fileName, "application/pdf")
-        context.contentResolver.openOutputStream(pdfUri, "w")?.use { out ->
-            MonthlyPdfReport.write(context, all, year, month, out)
-        } ?: error("Impossible d'écrire $fileName")
+        publishAuthorizedPdf(context, monthFolder, fileName) { output ->
+            MonthlyPdfReport.write(context, all, year, month, output)
+        }
+    }
+
+    /** A background backup never starts a purchase or exports an unpaid PDF. */
+    private fun publishAuthorizedPdf(context: Context, folder: Uri, name: String, write: (java.io.OutputStream) -> Unit) {
+        val prepared = File.createTempFile("drive_report_", ".pdf", context.cacheDir)
+        try {
+            prepared.outputStream().use(write)
+            check(BillingPdfGate.authorizeBackground(context, prepared)) {
+                "PDF Drive non exporté : achat ou abonnement à vérifier dans l'application. Les données de pointage restent conservées."
+            }
+            val destination = ensureFile(context, folder, name, "application/pdf")
+            context.contentResolver.openOutputStream(destination, "w")?.use { output ->
+                prepared.inputStream().use { it.copyTo(output) }
+            } ?: error("Impossible d'écrire $name")
+        } finally {
+            prepared.delete()
+        }
     }
 
     private fun startOfDay(time: Long): Long = Calendar.getInstance(Locale.FRANCE).apply {

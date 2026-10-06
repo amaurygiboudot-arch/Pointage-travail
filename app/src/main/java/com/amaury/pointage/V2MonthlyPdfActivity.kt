@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.billing.BillingPdfGate
+
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
@@ -65,21 +67,22 @@ class V2MonthlyPdfActivity : Activity() {
         if (requestCode != REQUEST_CREATE) return
         if (resultCode != RESULT_OK) { finish(); return }
         val uri = data?.data ?: run { finish(); return }
-        val result = runCatching {
-            contentResolver.openOutputStream(uri)?.use { output ->
-                MonthlyPdfReportV2.write(
-                    V2RuntimeReader.allSessions(this).requireReliable(),
-                    year,
-                    month,
-                    output
-                )
-            } ?: error("Impossible d'ouvrir le fichier")
+        runCatching {
+            val file = java.io.File.createTempFile("monthly_export_", ".pdf", cacheDir)
+            file.outputStream().use { output ->
+                MonthlyPdfReportV2.write(V2RuntimeReader.allSessions(this).requireReliable(), year, month, output)
+            }
+            BillingPdfGate.require(this, file, "HoraTrack_${year}_${month + 1}.pdf") { authorizedFile ->
+                val result = runCatching {
+                    contentResolver.openOutputStream(uri)?.use { output -> authorizedFile.inputStream().use { it.copyTo(output) } }
+                        ?: error("Impossible d'ouvrir le fichier")
+                }
+                Toast.makeText(this, if (result.isSuccess) "PDF HoraTrack enregistré" else "Impossible d'enregistrer le PDF", Toast.LENGTH_LONG).show()
+                finish()
+            }
+        }.onFailure {
+            Toast.makeText(this, "Impossible de générer le PDF", Toast.LENGTH_LONG).show()
+            finish()
         }
-        Toast.makeText(
-            this,
-            if (result.isSuccess) "PDF HoraTrack enregistré" else "Impossible de générer le PDF : ${result.exceptionOrNull()?.message ?: "erreur inconnue"}",
-            Toast.LENGTH_LONG
-        ).show()
-        finish()
     }
 }

@@ -11,20 +11,47 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Toast
 import java.io.File
+import com.amaury.pointage.billing.BillingPdfGate
+import com.google.firebase.auth.FirebaseAuth
 
 class PdfPreviewActivity : Activity() {
     companion object { private const val REQUEST_SAVE = 4102 }
     private lateinit var pdfFile: File
     private var fileName: String = "Pointage.pdf"
+    private var documentAccountUid: String? = null
+    private var resumed = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_pdf_preview)
         pdfFile = File(intent.getStringExtra("pdf_path") ?: "")
         fileName = intent.getStringExtra("pdf_name") ?: "Pointage.pdf"
+        documentAccountUid = runCatching { FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
         findViewById<Button>(R.id.pdfPreviewBack).setOnClickListener { finish() }
         findViewById<Button>(R.id.pdfPreviewSave).setOnClickListener { savePdf() }
-        renderPdf()
+        findViewById<Button>(R.id.pdfPreviewSave).isEnabled = false
+    }
+
+    override fun onResume() {
+        super.onResume()
+        resumed = true
+        val currentUid = runCatching { FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
+        if (currentUid != documentAccountUid) { finish(); return }
+        BillingPdfGate.require(this, pdfFile, displayName = fileName) { authorizedFile ->
+            if (!resumed) return@require
+            pdfFile = authorizedFile
+            findViewById<LinearLayout>(R.id.pdfPagesContainer).removeAllViews()
+            runCatching { renderPdf() }.onFailure {
+                Toast.makeText(this, "Impossible d'afficher ce PDF", Toast.LENGTH_LONG).show()
+            }.onSuccess { findViewById<Button>(R.id.pdfPreviewSave).isEnabled = true }
+        }
+    }
+
+    override fun onPause() {
+        resumed = false
+        findViewById<LinearLayout>(R.id.pdfPagesContainer).removeAllViews()
+        findViewById<Button>(R.id.pdfPreviewSave).isEnabled = false
+        super.onPause()
     }
 
     private fun renderPdf() {
@@ -51,6 +78,13 @@ class PdfPreviewActivity : Activity() {
     }
 
     private fun savePdf() {
+        BillingPdfGate.require(this, pdfFile, displayName = fileName) { authorizedFile ->
+            pdfFile = authorizedFile
+            requestSaveDestination()
+        }
+    }
+
+    private fun requestSaveDestination() {
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "application/pdf"
@@ -63,10 +97,10 @@ class PdfPreviewActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != REQUEST_SAVE || resultCode != RESULT_OK) return
         val uri = data?.data ?: return
-        runCatching {
-            contentResolver.openOutputStream(uri)?.use { out -> pdfFile.inputStream().use { it.copyTo(out) } }
+        BillingPdfGate.require(this, pdfFile, displayName = fileName) { authorizedFile -> runCatching {
+            contentResolver.openOutputStream(uri)?.use { out -> authorizedFile.inputStream().use { it.copyTo(out) } }
         }.onSuccess { Toast.makeText(this, "PDF enregistré", Toast.LENGTH_LONG).show() }
-         .onFailure { Toast.makeText(this, "Impossible d'enregistrer le PDF", Toast.LENGTH_LONG).show() }
+         .onFailure { Toast.makeText(this, "Impossible d'enregistrer le PDF", Toast.LENGTH_LONG).show() } }
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()

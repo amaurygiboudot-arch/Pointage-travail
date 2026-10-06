@@ -1,5 +1,8 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.billing.BillingPdfGate
+import com.amaury.pointage.billing.BillingOffers
+
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
@@ -149,6 +152,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.amaury.pointage.billing.HoraTrackBilling.initialize(this)
         setContentView(R.layout.activity_main)
         if (HoraTrackV2.ENABLED) V2RuntimeStore.bind(this)
 
@@ -164,6 +168,10 @@ class MainActivity : Activity() {
         gpsSettingsPanel = requiredView(R.id.gpsSettingsPanel, "gpsSettingsPanel")
         celestialGlobeModeGroup = requiredView(R.id.celestialGlobeModeGroup, "celestialGlobeModeGroup")
         analyticsPdfPanel = requiredView(R.id.analyticsPdfPanel, "analyticsPdfPanel")
+        analyticsPdfPanel.addView(Button(this).apply {
+            text = "PREMIUM ET ACHATS"
+            setOnClickListener { BillingOffers.show(this@MainActivity) }
+        })
         workplaceAddress = requiredView(R.id.workplaceAddress, "workplaceAddress")
         geofenceRadius = requiredView(R.id.geofenceRadius, "geofenceRadius")
         autoGpsSwitch = requiredView(R.id.autoGpsSwitch, "autoGpsSwitch")
@@ -357,20 +365,22 @@ class MainActivity : Activity() {
         if (requestCode != REQUEST_CREATE_MONTHLY_PDF || resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         try {
-            contentResolver.openOutputStream(uri)?.use { output ->
+            val file = java.io.File.createTempFile("monthly_export_", ".pdf", cacheDir)
+            file.outputStream().use { output ->
                 if (HoraTrackV2.ENABLED) {
-                    MonthlyPdfReportV2.write(
-                        V2RuntimeReader.allSessions(this).requireReliable(),
-                        pendingPdfYear,
-                        pendingPdfMonth,
-                        output
-                    )
+                    MonthlyPdfReportV2.write(V2RuntimeReader.allSessions(this).requireReliable(), pendingPdfYear, pendingPdfMonth, output)
                 } else {
                     V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
                     MonthlyPdfReport.write(this, PointageStore.load(this), pendingPdfYear, pendingPdfMonth, output)
                 }
-            } ?: throw IllegalStateException("Impossible d'ouvrir le fichier")
-            Toast.makeText(this, "PDF mensuel enregistré", Toast.LENGTH_LONG).show()
+            }
+            BillingPdfGate.require(this, file, "HoraTrack_${pendingPdfYear}_${pendingPdfMonth + 1}.pdf") { authorizedFile ->
+                runCatching {
+                    contentResolver.openOutputStream(uri)?.use { output -> authorizedFile.inputStream().use { it.copyTo(output) } }
+                        ?: error("Impossible d'ouvrir le fichier")
+                }.onSuccess { Toast.makeText(this, "PDF mensuel enregistré", Toast.LENGTH_LONG).show() }
+                    .onFailure { Toast.makeText(this, "Impossible d'enregistrer le PDF", Toast.LENGTH_LONG).show() }
+            }
         } catch (e: Exception) {
             Toast.makeText(this, "Impossible de générer le PDF : ${e.message ?: "erreur inconnue"}", Toast.LENGTH_LONG).show()
         }

@@ -10,6 +10,7 @@ enum SalaryV2PdfExporter {
         snapshot: SalaryWorkspaceSnapshotV2,
         company: SalaryCompanyV2?
     ) throws -> URL {
+        try SalaryPdfPurchaseGateV2.requireVerifiedPurchase()
         let data = render(snapshot: snapshot, company: company)
         let companyToken = company?.id
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -26,7 +27,7 @@ enum SalaryV2PdfExporter {
         return url
     }
 
-    static func render(
+    private static func render(
         snapshot: SalaryWorkspaceSnapshotV2,
         company: SalaryCompanyV2?
     ) -> Data {

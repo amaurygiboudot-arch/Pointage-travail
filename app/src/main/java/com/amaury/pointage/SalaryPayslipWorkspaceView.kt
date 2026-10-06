@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.billing.BillingPdfGate
+
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
@@ -70,9 +72,9 @@ class SalaryPayslipWorkspaceView(context:Context,private val company:SalaryCompa
   val companyToken=company.siret.ifBlank{company.id}.replace(Regex("[^A-Za-z0-9_-]"),"_").take(32).ifBlank{"entreprise"}
   val fileName="Fiche_paie_exemple_HoraTrack_${companyToken}_${year}_${month+1}.pdf"
   runCatching{
-   val file=File(activity.cacheDir,fileName)
+   val file=File.createTempFile("salary_preview_",".pdf",activity.cacheDir)
    file.outputStream().use{SalaryExamplePdfV2.write(activity,company,year,month,fields,it)}
-   activity.startActivity(Intent(activity,PdfPreviewActivity::class.java).apply{putExtra("pdf_path",file.absolutePath);putExtra("pdf_name",fileName)})
+   BillingPdfGate.require(activity,file,fileName){authorizedFile->activity.startActivity(Intent(activity,PdfPreviewActivity::class.java).apply{putExtra("pdf_path",authorizedFile.absolutePath);putExtra("pdf_name",fileName)})}
   }.onFailure{Toast.makeText(activity,"Impossible de générer la fiche exemple",Toast.LENGTH_LONG).show()}
  }
  private fun renderImportActions(){addButton("PRENDRE UNE PHOTO"){launchPhoto()};addButton("IMPORTER UN FICHIER"){launchImport()}}

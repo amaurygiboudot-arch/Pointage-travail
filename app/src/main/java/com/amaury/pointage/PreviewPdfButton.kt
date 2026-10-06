@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.billing.BillingPdfGate
+
 import android.content.Context
 import android.content.Intent
 import android.util.AttributeSet
@@ -36,7 +38,7 @@ class PreviewPdfButton @JvmOverloads constructor(
         }
 
         runCatching {
-            val file = File(activity.cacheDir, "Pointage_${cal.get(Calendar.YEAR)}_${cal.get(Calendar.MONTH) + 1}.pdf")
+            val file = File.createTempFile("monthly_preview_", ".pdf", activity.cacheDir)
             file.outputStream().use { out ->
                 if (HoraTrackV2.ENABLED) {
                     MonthlyPdfReportV2.write(
@@ -58,10 +60,12 @@ class PreviewPdfButton @JvmOverloads constructor(
             val pretty = SimpleDateFormat("MMMM_yyyy", Locale.FRANCE).format(cal.time)
                 .replaceFirstChar { it.uppercase() }
                 .replace("é","e").replace("è","e").replace("ê","e").replace("à","a").replace("ç","c")
-            activity.startActivity(Intent(activity, PdfPreviewActivity::class.java).apply {
-                putExtra("pdf_path", file.absolutePath)
-                putExtra("pdf_name", "Pointage_$pretty.pdf")
-            })
+            BillingPdfGate.require(activity, file, "Pointage_$pretty.pdf") { authorizedFile ->
+                activity.startActivity(Intent(activity, PdfPreviewActivity::class.java).apply {
+                    putExtra("pdf_path", authorizedFile.absolutePath)
+                    putExtra("pdf_name", "Pointage_$pretty.pdf")
+                })
+            }
         }.onFailure {
             Toast.makeText(activity, "Impossible de générer l'aperçu PDF", Toast.LENGTH_LONG).show()
         }
