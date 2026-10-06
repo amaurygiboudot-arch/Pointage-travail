@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
+import com.amaury.pointage.v2.DailyReportSessionsV2
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2LegacyPolicy
 import com.amaury.pointage.v2.V2RuntimeReader
@@ -13,6 +14,7 @@ import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 object DailyPdfReport {
     private const val W = 595
@@ -29,10 +31,8 @@ object DailyPdfReport {
 
     private fun writeV2(context: Context, dayStart: Long, dayEnd: Long, output: OutputStream) {
         val runtime = V2RuntimeReader.allSessions(context)
-        val sessions = runtime.requireReliable().filter { s ->
-            val entry = s.countedEntryMs ?: s.realArrivalMs ?: return@filter false
-            entry in dayStart until dayEnd && s.realExitMs != null
-        }
+        val sessions = DailyReportSessionsV2.rows(runtime.requireReliable(), dayStart, dayEnd)
+        val reportZone = TimeZone.getDefault()
         val pdf = PdfDocument()
         val title = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(35,35,35); textSize = 21f; typeface = Typeface.DEFAULT_BOLD }
         val head = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(138,98,0); textSize = 12f; typeface = Typeface.DEFAULT_BOLD }
@@ -40,8 +40,8 @@ object DailyPdfReport {
         val bold = Paint(text).apply { typeface = Typeface.DEFAULT_BOLD }
         val muted = Paint(text).apply { color = Color.rgb(105,105,105); textSize = 9f }
         val line = Paint().apply { color = Color.rgb(205,205,205); strokeWidth = 1f }
-        val dateF = SimpleDateFormat("EEEE dd MMMM yyyy", Locale.FRANCE)
-        val timeF = SimpleDateFormat("HH:mm", Locale.FRANCE)
+        val dateF = SimpleDateFormat("EEEE dd MMMM yyyy", Locale.FRANCE).apply { timeZone = reportZone }
+        val timeF = SimpleDateFormat("dd/MM HH:mm Z", Locale.FRANCE).apply { timeZone = reportZone }
         val dayLabel = dateF.format(Date(dayStart)).replaceFirstChar { it.uppercase() }
         val contentBottom = H - 82f
 
@@ -66,7 +66,11 @@ object DailyPdfReport {
             c.drawText(if (continuation) "RAPPORT JOURNALIER HORATRACK — SUITE" else "RAPPORT JOURNALIER HORATRACK", M, y + 18, title)
             y += 34
             c.drawText(dayLabel, M, y + 12, head)
-            y += 28
+            y += 20
+            c.drawText("Période : ${timeF.format(Date(dayStart))} → ${timeF.format(Date(dayEnd))}", M, y + 12, muted)
+            y += 16
+            c.drawText("Fuseau : ${reportZone.id} — bornes de la portion comptée dans cette journée", M, y + 12, muted)
+            y += 24
         }
 
         fun ensureSpace(required: Float) {
@@ -78,23 +82,24 @@ object DailyPdfReport {
         var totalWorked = 0L
 
         sessions.forEachIndexed { index, s ->
-            val entry = s.countedEntryMs ?: s.realArrivalMs ?: return@forEachIndexed
-            val exit = s.countedExitMs ?: s.realExitMs ?: return@forEachIndexed
-            val result = HoraTrackV2.time.calculate(s)
-            totalWorked += result.paidWorkMs
+            totalWorked += s.paidMs
 
-            ensureSpace(90f)
+            ensureSpace(if (s.allocatedFixedUnpaidMs > 0L) 122f else 100f)
             val c = page!!.canvas
             c.drawText("Session ${index + 1}", M, y + 12, head); y += 20
-            c.drawText("Entrée comptée : ${timeF.format(Date(entry))}", M, y + 12, text); y += 16
-            c.drawText("Sortie comptée : ${timeF.format(Date(exit))}", M, y + 12, text); y += 16
-            c.drawText("Pauses non payées : ${format(result.unpaidPauseMs)}", M, y + 12, text); y += 16
-            c.drawText("Temps payé : ${format(result.paidWorkMs)}", M, y + 12, bold); y += 22
+            c.drawText("Début de portion : ${timeF.format(Date(s.startMs))}", M, y + 12, text); y += 16
+            c.drawText("Fin de portion : ${timeF.format(Date(s.endMs))}", M, y + 12, text); y += 16
+            c.drawText("Pauses enregistrées non payées : ${format(s.explicitUnpaidMs)}", M, y + 12, text); y += 16
+            if (s.allocatedFixedUnpaidMs > 0L) {
+                c.drawText("Déduction fixe historique répartie : ${format(s.allocatedFixedUnpaidMs)} (sans horaire)", M, y + 12, text); y += 16
+            }
+            c.drawText("Temps payé : ${format(s.paidMs)}", M, y + 12, bold); y += 22
 
             s.pauses.forEach { p ->
                 val end = p.endMs ?: return@forEach
                 ensureSpace(24f)
-                page!!.canvas.drawText("• ${timeF.format(Date(p.startMs))} → ${timeF.format(Date(end))} (${format(end - p.startMs)})", M + 20, y + 11, text)
+                val qualification = if (p.paid == true) "payée" else "non payée"
+                page!!.canvas.drawText("• ${timeF.format(Date(p.startMs))} → ${timeF.format(Date(end))} (${format(end - p.startMs)}, $qualification)", M + 20, y + 11, text)
                 y += 15
             }
 
