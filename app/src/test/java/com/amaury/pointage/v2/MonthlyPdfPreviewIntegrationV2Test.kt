@@ -12,6 +12,12 @@ import com.amaury.pointage.R
 import com.amaury.pointage.V2MonthlyPdfActivity
 import com.amaury.pointage.v2.engine.ConfirmedWorkPdfPolicyV2
 import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseOptions
+import com.google.android.gms.tasks.Tasks
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.CollectionReference
+import com.google.firebase.firestore.DocumentReference
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.functions.FirebaseFunctions
@@ -38,8 +44,8 @@ import java.util.concurrent.atomic.AtomicInteger
 /** Real XML view, MainActivity listener and runtime-store preflight: the replaced listener bug fails these tests. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class,
-    shadows = [PdfIntegrationAuthShadow::class, PdfIntegrationFunctionsShadow::class],
-    instrumentedPackages = ["com.google.firebase.auth", "com.google.firebase.functions"])
+    shadows = [PdfIntegrationAuthShadow::class, PdfIntegrationFunctionsShadow::class, PdfIntegrationFirestoreShadow::class],
+    instrumentedPackages = ["com.google.firebase.auth", "com.google.firebase.functions", "com.google.firebase.firestore"])
 @LooperMode(LooperMode.Mode.PAUSED)
 class MonthlyPdfPreviewIntegrationV2Test {
     @Before fun authenticatedWithoutNetwork() {
@@ -49,7 +55,28 @@ class MonthlyPdfPreviewIntegrationV2Test {
         Mockito.`when`(auth.currentUser).thenReturn(user)
         PdfIntegrationAuthShadow.auth = auth
         PdfIntegrationFunctionsShadow.calls.set(0)
-        ConventionCatalog.initialize(RuntimeEnvironment.getApplication())
+        val application = RuntimeEnvironment.getApplication()
+        // A real Main layout reads the unrelated suggestion owner's profile during inflation.
+        // Return a completed non-owner profile so the real constructor/listener executes offline.
+        val profile = Mockito.mock(DocumentSnapshot::class.java)
+        Mockito.`when`(profile.getBoolean("owner")).thenReturn(false)
+        val document = Mockito.mock(DocumentReference::class.java)
+        Mockito.`when`(document.get()).thenReturn(Tasks.forResult(profile))
+        val users = Mockito.mock(CollectionReference::class.java)
+        Mockito.`when`(users.document("pdf-integration-user")).thenReturn(document)
+        val firestore = Mockito.mock(FirebaseFirestore::class.java)
+        Mockito.`when`(firestore.collection("users")).thenReturn(users)
+        PdfIntegrationFirestoreShadow.firestore = firestore
+        if (FirebaseApp.getApps(application).none { it.name == FirebaseApp.DEFAULT_APP_NAME }) {
+            // Ambient SDK initialization only: no paid backend or Firestore operation uses this app.
+            FirebaseApp.initializeApp(application, FirebaseOptions.Builder()
+                .setApplicationId("1:123456789:android:pdfintegration")
+                .setApiKey("AIzaSy000000000000000000000000000000000")
+                .setProjectId("horatrack-integration-test").build())
+        }
+        // initialize() would synchronously refresh the remote Légifrance catalogue. Cached/built-in
+        // entries are sufficient for these pointage tests and keep paid backend calls forbidden.
+        ConventionCatalog.all(application)
     }
 
     @Test fun actualXmlPreviewButtonHonorsTheSuppliedClickListener() {
@@ -152,5 +179,15 @@ class PdfIntegrationFunctionsShadow {
             calls.incrementAndGet()
             throw AssertionError("A monthly PDF reached the paid backend before stable-session preflight")
         }
+    }
+}
+
+
+@Implements(value = FirebaseFirestore::class, isInAndroidSdk = false)
+class PdfIntegrationFirestoreShadow {
+    companion object {
+        lateinit var firestore: FirebaseFirestore
+        @JvmStatic @Implementation fun getInstance(): FirebaseFirestore = firestore
+        @JvmStatic @Implementation fun getInstance(app: FirebaseApp): FirebaseFirestore = firestore
     }
 }

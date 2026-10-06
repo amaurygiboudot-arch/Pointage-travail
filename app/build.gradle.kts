@@ -46,6 +46,7 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
+            it.testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
             it.jvmArgs(
                 "--add-opens=java.base/java.lang=ALL-UNNAMED",
                 "--add-opens=java.base/java.util=ALL-UNNAMED",
@@ -116,6 +117,8 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.16.1")
+    // Robolectric declares bcprov 1.81; use the patched version already selected for the build tools.
+    testImplementation("org.bouncycastle:bcprov-jdk18on:1.86")
     testImplementation("org.mockito:mockito-core:5.14.2")
     // Android fournit org.json à l'exécution, mais les tests JVM utilisent android.jar où
     // JSONObject/JSONArray sont des stubs. Cette dépendance donne l'implémentation réelle aux tests.
