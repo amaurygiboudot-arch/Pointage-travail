@@ -33,8 +33,9 @@ enum SalaryV2PdfExporter {
         let page = CGRect(x: 0, y: 0, width: 595, height: 842)
         let renderer = UIGraphicsPDFRenderer(bounds: page)
         return renderer.pdfData { context in
-            let green = UIColor(red: 0.13, green: 0.34, blue: 0.27, alpha: 1)
-            let paleGreen = UIColor(red: 0.92, green: 0.96, blue: 0.93, alpha: 1)
+            let green = UIColor(red: 11.0 / 255, green: 119.0 / 255, blue: 119.0 / 255, alpha: 1)
+            let rowGray = UIColor(white: 0.96, alpha: 1)
+            let gridGray = UIColor(white: 0.82, alpha: 1)
             let ink = UIColor(red: 0.15, green: 0.20, blue: 0.18, alpha: 1)
             var y: CGFloat = 112
             var pageNumber = 0
@@ -49,18 +50,23 @@ enum SalaryV2PdfExporter {
                 context.beginPage()
                 pageNumber += 1
                 y = 112
-                fill(CGRect(x: 0, y: 0, width: 595, height: 92), green)
                 draw(
                     "AGKGMG",
-                    x: 32, y: 24, width: 531,
-                    font: .boldSystemFont(ofSize: 21), color: .white
+                    x: 32, y: 28, width: 180,
+                    font: .boldSystemFont(ofSize: 21), color: green
                 )
                 draw(
-                    "ESTIMATION DE SALAIRE • \(snapshot.period.description)",
-                    x: 32, y: 55, width: 531,
-                    font: .boldSystemFont(ofSize: 11), color: .white
+                    "ESTIMATION DE SALAIRE",
+                    x: 220, y: 30, width: 343,
+                    font: .boldSystemFont(ofSize: 13), alignment: .right, color: ink
                 )
-                fill(CGRect(x: 32, y: 803, width: 531, height: 1), paleGreen)
+                draw(
+                    snapshot.period.description,
+                    x: 220, y: 52, width: 343,
+                    font: .systemFont(ofSize: 10), alignment: .right, color: ink
+                )
+                fill(CGRect(x: 32, y: 80, width: 531, height: 2), green)
+                fill(CGRect(x: 32, y: 803, width: 531, height: 0.5), gridGray)
                 draw(
                     "Document personnel d'estimation — non officiel",
                     x: 32, y: 812, width: 440,
@@ -79,21 +85,31 @@ enum SalaryV2PdfExporter {
                 }
             }
 
-            func row(_ label: String, _ value: String) {
-                let labelFont = UIFont.systemFont(ofSize: 10)
-                let valueFont = UIFont.boldSystemFont(ofSize: 10)
+            func row(_ label: String, _ value: String, emphasized: Bool = false) {
+                let labelFont = emphasized ? UIFont.boldSystemFont(ofSize: 11) : UIFont.systemFont(ofSize: 10)
+                let valueFont = UIFont.boldSystemFont(ofSize: emphasized ? 13 : 10)
                 let height = max(
                     28,
                     max(textHeight(label, width: 244, font: labelFont),
                         textHeight(value, width: 259, font: valueFont)) + 14
                 )
                 ensure(height)
-                if rowNumber.isMultiple(of: 2) {
-                    fill(CGRect(x: 32, y: y, width: 531, height: height), paleGreen)
+                if emphasized || rowNumber.isMultiple(of: 2) {
+                    fill(CGRect(x: 32, y: y, width: 531, height: height), rowGray)
                 }
-                draw(label, x: 40, y: y + 7, width: 244, font: labelFont, color: ink)
+                let grid = context.cgContext
+                grid.setStrokeColor(gridGray.cgColor)
+                grid.setLineWidth(0.5)
+                grid.stroke(CGRect(x: 32, y: y, width: 531, height: height))
+                grid.move(to: CGPoint(x: 288, y: y))
+                grid.addLine(to: CGPoint(x: 288, y: y + height))
+                grid.strokePath()
+                if emphasized {
+                    fill(CGRect(x: 32, y: y, width: 3, height: height), green)
+                }
+                draw(label, x: 40, y: y + 7, width: 244, font: labelFont, color: emphasized ? green : ink)
                 draw(value, x: 296, y: y + 7, width: 259, font: valueFont,
-                     alignment: .right, color: ink)
+                     alignment: .right, color: emphasized ? green : ink)
                 rowNumber += 1
                 y += height
             }
@@ -105,6 +121,7 @@ enum SalaryV2PdfExporter {
                 fill(CGRect(x: 32, y: y, width: 531, height: 26), green)
                 draw(title, x: 40, y: y + 6, width: 515,
                      font: .boldSystemFont(ofSize: 10), color: .white)
+                fill(CGRect(x: 32, y: y + 25.5, width: 531, height: 0.5), gridGray)
                 y += 26
                 rowNumber = 0
             }
@@ -126,7 +143,7 @@ enum SalaryV2PdfExporter {
                 "Prélèvement à la source",
                 snapshot.incomeTax.map { "-\(money($0))" } ?? "À confirmer"
             )
-            row("Net après impôt", money(snapshot.netAfterIncomeTax))
+            row("Net après impôt", money(snapshot.netAfterIncomeTax), emphasized: true)
 
             section("FIABILITÉ")
             row(
