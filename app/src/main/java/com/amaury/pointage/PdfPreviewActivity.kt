@@ -174,14 +174,12 @@ class PdfPreviewActivity : Activity() {
             runOnUiThread {
                 if (isDestroyed || isChangingConfigurations) return@runOnUiThread
                 clearSave()
-                if (result.isSuccess && resumed && active(uid)) {
-                    pdfFile = file
-                    findViewById<LinearLayout>(R.id.pdfPagesContainer).removeAllViews()
-                    runCatching { renderPdf() }
-                    findViewById<Button>(R.id.pdfPreviewSave).isEnabled = true
-                } else if (currentUid() == uid) {
-                    // Retry is an explicit click; never reopen offers from this callback.
-                    findViewById<Button>(R.id.pdfPreviewSave).isEnabled = true
+                if (currentUid() == uid) {
+                    // onPause removed the pages and onResume may have returned while
+                    // the copy was pending. Restore them after either outcome, with
+                    // fresh read-only authorization; retry remains an explicit click.
+                    enableManualRetry()
+                    if (resumed && active(uid)) restorePreviewReadOnly()
                 } else finish()
                 toast(if (result.isSuccess) "PDF enregistré" else "Impossible d'enregistrer le PDF. Le document incomplet a été supprimé si le fournisseur le permet.")
             }

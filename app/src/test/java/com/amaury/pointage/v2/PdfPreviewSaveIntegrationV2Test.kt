@@ -44,7 +44,7 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class,
-    shadows = [PdfSaveAuthShadow::class, PdfSaveGateShadow::class, PdfSaveResolverShadow::class],
+    shadows = [PdfSaveAuthShadow::class, PdfSaveGateShadow::class, PdfSaveResolverShadow::class, PdfSaveRendererShadow::class, PdfSavePageShadow::class],
     instrumentedPackages = ["com.amaury.pointage.billing", "com.google.firebase.auth"])
 @LooperMode(LooperMode.Mode.PAUSED)
 class PdfPreviewSaveIntegrationV2Test {
@@ -206,6 +206,51 @@ class PdfPreviewSaveIntegrationV2Test {
         } finally { controller.destroy() }
     }
 
+    @Test fun partialOutputFailureRestoresPagesAfterResumeDuringCopy() = assertFailureRestoresPages("partial", true)
+    @Test fun inaccessibleOutputRestoresPagesAfterResumeDuringCopy() = assertFailureRestoresPages("null", true)
+    @Test fun refusedReadOnlyAuthorizationKeepsPagesHiddenAfterResumeDuringCopy() = assertFailureRestoresPages("denied", false)
+
+    private fun assertFailureRestoresPages(mode: String, authorized: Boolean) {
+        val state = Bundle().apply {
+            putString("pdf_owner", "save-user"); putString("save_file", source.absolutePath)
+            putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true)
+            putBoolean("save_read_only_return", true)
+        }
+        val controller = Robolectric.buildActivity(PdfPreviewActivity::class.java,
+            Intent(RuntimeEnvironment.getApplication(), PdfPreviewActivity::class.java).putExtra("pdf_path", source.absolutePath)).create(state)
+        PdfSaveGateShadow.started = CountDownLatch(1)
+        PdfSaveGateShadow.release = CountDownLatch(1)
+        PdfSaveGateShadow.allow = authorized
+        PdfSaveResolverShadow.mode = mode
+        try {
+            val activity = controller.get()
+            val pages = activity.findViewById<android.widget.LinearLayout>(com.amaury.pointage.R.id.pdfPagesContainer)
+            // An existing visible page is cleared by the real lifecycle when SAF takes focus.
+            pages.addView(android.widget.ImageView(activity))
+            PdfPreviewActivity::class.java.getDeclaredMethod("onPause").apply { isAccessible = true }.invoke(activity)
+            assertEquals(0, pages.childCount)
+            PdfPreviewActivity::class.java.getDeclaredMethod("onActivityResult", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Intent::class.java)
+                .apply { isAccessible = true }.invoke(activity, 4102, Activity.RESULT_OK, Intent().setData(uri))
+            assertTrue("Export must be in flight before foreground return", PdfSaveGateShadow.started!!.await(5, TimeUnit.SECONDS))
+            PdfPreviewActivity::class.java.getDeclaredMethod("onResume").apply { isAccessible = true }.invoke(activity)
+            assertEquals("Resume during copy cannot render prematurely", 0, pages.childCount)
+            assertEquals(0, PdfSaveGateShadow.interactiveCalls.get())
+            PdfSaveGateShadow.release!!.countDown()
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+            while (System.nanoTime() < deadline && PdfSaveGateShadow.calls.get() < 2) {
+                shadowOf(Looper.getMainLooper()).idle(); Thread.yield()
+            }
+            drainExportWorker()
+            shadowOf(Looper.getMainLooper()).idle()
+            assertFalse("Failed public export must be cleaned up", destination.exists())
+            assertEquals("Completion must independently authorize preview restoration", 2, PdfSaveGateShadow.calls.get())
+            assertEquals("Authorized PDF pages must return after export failure", if (authorized) 1 else 0, pages.childCount)
+            assertTrue(activity.findViewById<android.widget.Button>(com.amaury.pointage.R.id.pdfPreviewSave).isEnabled)
+            assertEquals("Restoration must never reopen purchasing", 0, PdfSaveGateShadow.interactiveCalls.get())
+            assertNull(shadowOf(activity).nextStartedActivity)
+        } finally { PdfSaveGateShadow.release?.countDown(); drainExportWorker(); controller.destroy() }
+    }
+
     private fun exportWorker(): java.util.concurrent.ExecutorService =
         PdfPreviewActivity::class.java.getDeclaredField("exportWorker").apply { isAccessible = true }
             .get(null) as java.util.concurrent.ExecutorService
@@ -330,4 +375,22 @@ class PdfSaveDocumentsProvider : DocumentsProvider() {
     override fun queryChildDocuments(parentDocumentId: String, projection: Array<out String>?, sortOrder: String?): Cursor = MatrixCursor(projection ?: arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID))
     override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor = ParcelFileDescriptor.open(document, ParcelFileDescriptor.parseMode(mode))
     override fun deleteDocument(documentId: String) { deletions.incrementAndGet(); check(document.delete()) }
+}
+
+/** Deterministic raster surface; the Activity still executes its real renderPdf and adds real views. */
+@Implements(android.graphics.pdf.PdfRenderer::class)
+class PdfSaveRendererShadow {
+    @Implementation fun __constructor__(descriptor: ParcelFileDescriptor) {}
+    @Implementation fun getPageCount(): Int = 1
+    @Implementation fun openPage(index: Int): android.graphics.pdf.PdfRenderer.Page =
+        org.robolectric.shadow.api.Shadow.newInstanceOf(android.graphics.pdf.PdfRenderer.Page::class.java)
+    @Implementation fun close() {}
+}
+
+@Implements(android.graphics.pdf.PdfRenderer.Page::class)
+class PdfSavePageShadow {
+    @Implementation fun getWidth(): Int = 200
+    @Implementation fun getHeight(): Int = 300
+    @Implementation fun render(destination: android.graphics.Bitmap, clip: android.graphics.Rect?, matrix: android.graphics.Matrix?, mode: Int) {}
+    @Implementation fun close() {}
 }
