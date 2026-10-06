@@ -32,6 +32,7 @@ class PdfPreviewActivity : Activity() {
     private var pickerRequested = false
     private var destination: Uri? = null
     private var stateSaved = false
+    private var readOnlyReturn = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,6 +50,7 @@ class PdfPreviewActivity : Activity() {
         pendingHash = savedInstanceState?.getString("save_hash")
         pickerRequested = savedInstanceState?.getBoolean("save_picker", false) ?: false
         destination = savedInstanceState?.getString("save_uri")?.let(Uri::parse)
+        readOnlyReturn = (savedInstanceState?.getBoolean("save_read_only_return", false) ?: false) || pickerRequested || destination != null
         findViewById<Button>(R.id.pdfPreviewBack).setOnClickListener { finish() }
         findViewById<Button>(R.id.pdfPreviewSave).setOnClickListener { savePdf() }
         findViewById<Button>(R.id.pdfPreviewSave).isEnabled = false
@@ -63,6 +65,7 @@ class PdfPreviewActivity : Activity() {
         if (currentUid != documentAccountUid) { finish(); return }
         // The existing picker/copy is finalized by read-only authorization only.
         if (pickerRequested || destination != null) return
+        if (readOnlyReturn) { restorePreviewReadOnly(); return }
         BillingPdfGate.require(this, pdfFile, displayName = fileName) { authorizedFile ->
             if (!resumed || documentAccountUid != currentUid()) return@require
             pdfFile = authorizedFile
@@ -113,6 +116,7 @@ class PdfPreviewActivity : Activity() {
                 pendingFile = authorizedFile
                 pendingHash = BillingContract.documentId(authorizedFile)
                 pickerRequested = true
+                readOnlyReturn = true
                 startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
                     type = "application/pdf"
@@ -186,6 +190,7 @@ class PdfPreviewActivity : Activity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         stateSaved = true
+        outState.putBoolean("save_read_only_return", readOnlyReturn)
         outState.putString("pdf_owner", documentAccountUid)
         outState.putString("save_file", pendingFile?.absolutePath)
         outState.putString("save_hash", pendingHash)

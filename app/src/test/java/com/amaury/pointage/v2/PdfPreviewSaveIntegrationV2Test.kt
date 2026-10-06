@@ -86,7 +86,7 @@ class PdfPreviewSaveIntegrationV2Test {
     @Test fun restoredCopyWithChangedAccountQueuesActualDocumentCleanup() {
         val state = Bundle().apply {
             putString("pdf_owner", "former-user"); putString("save_file", source.absolutePath)
-            putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true)
+            putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true); putBoolean("save_read_only_return", true)
             putString("save_uri", uri.toString())
         }
         destination.writeText("interrupted partial export")
@@ -106,7 +106,7 @@ class PdfPreviewSaveIntegrationV2Test {
     @Test fun resumeDuringSaveUsesNoInteractiveGateAndAllowsManualRetryAfterRefusal() {
         val state = Bundle().apply {
             putString("pdf_owner", "save-user"); putString("save_file", source.absolutePath)
-            putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true)
+            putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true); putBoolean("save_read_only_return", true)
         }
         val controller = Robolectric.buildActivity(PdfPreviewActivity::class.java,
             Intent(RuntimeEnvironment.getApplication(), PdfPreviewActivity::class.java).putExtra("pdf_path", source.absolutePath)).create(state)
@@ -135,7 +135,7 @@ class PdfPreviewSaveIntegrationV2Test {
         PdfSaveGateShadow.completed = CountDownLatch(1)
         val state = Bundle().apply {
             putString("pdf_owner", "save-user"); putString("save_file", source.absolutePath)
-            putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true)
+            putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true); putBoolean("save_read_only_return", true)
         }
         val controller = Robolectric.buildActivity(PdfPreviewActivity::class.java,
             Intent(RuntimeEnvironment.getApplication(), PdfPreviewActivity::class.java).putExtra("pdf_path", source.absolutePath)).create(state)
@@ -152,6 +152,7 @@ class PdfPreviewSaveIntegrationV2Test {
             val deadline = System.nanoTime() + 5_000_000_000L
             while (System.nanoTime() < deadline && !save.isEnabled) { shadowOf(Looper.getMainLooper()).idle(); Thread.yield() }
             assertTrue(PdfSaveGateShadow.completed!!.await(5, TimeUnit.SECONDS))
+            drainExportWorker()
             shadowOf(Looper.getMainLooper()).idle()
             assertTrue("Read-only terminal callback completed before teardown", save.isEnabled)
             assertEquals("Cancel restores preview through read-only authorization", 1, PdfSaveGateShadow.calls.get())
@@ -160,11 +161,50 @@ class PdfPreviewSaveIntegrationV2Test {
         } finally { controller.destroy() }
     }
 
+    @Test fun cancelBeforeResumeAndFurtherResumesStayReadOnly() {
+        PdfSaveGateShadow.allow = false
+        val state = Bundle().apply {
+            putString("pdf_owner", "save-user"); putString("save_file", source.absolutePath)
+            putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true)
+            putBoolean("save_read_only_return", true)
+        }
+        val controller = Robolectric.buildActivity(PdfPreviewActivity::class.java,
+            Intent(RuntimeEnvironment.getApplication(), PdfPreviewActivity::class.java).putExtra("pdf_path", source.absolutePath)).create(state)
+        try {
+            val activity = controller.get()
+            PdfPreviewActivity::class.java.getDeclaredMethod("onActivityResult", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Intent::class.java)
+                .apply { isAccessible = true }.invoke(activity, 4102, Activity.RESULT_CANCELED, null)
+            val resume = PdfPreviewActivity::class.java.getDeclaredMethod("onResume").apply { isAccessible = true }
+            resume.invoke(activity)
+            resume.invoke(activity) // Later foreground return must still require explicit user action for offers.
+            val save = activity.findViewById<android.widget.Button>(com.amaury.pointage.R.id.pdfPreviewSave)
+            save.isEnabled = false
+            val deadline = System.nanoTime() + 5_000_000_000L
+            while (System.nanoTime() < deadline && !save.isEnabled) { shadowOf(Looper.getMainLooper()).idle(); Thread.yield() }
+            drainExportWorker()
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(save.isEnabled)
+            assertEquals(0, PdfSaveGateShadow.interactiveCalls.get())
+            assertTrue(PdfSaveGateShadow.calls.get() >= 1)
+            val saved = Bundle()
+            PdfPreviewActivity::class.java.getDeclaredMethod("onSaveInstanceState", Bundle::class.java)
+                .apply { isAccessible = true }.invoke(activity, saved)
+            assertTrue("Read-only return is routing state, persisted across recreation", saved.getBoolean("save_read_only_return"))
+            assertNull(shadowOf(activity).nextStartedActivity)
+        } finally { controller.destroy() }
+    }
+
+    private fun drainExportWorker() {
+        val worker = PdfPreviewActivity::class.java.getDeclaredField("exportWorker").apply { isAccessible = true }
+            .get(null) as java.util.concurrent.ExecutorService
+        worker.submit {}.get(5, TimeUnit.SECONDS)
+    }
+
     private fun runSave(mode: String) {
         // Restore the non-authoritative state saved when the actual picker was launched.
         val state = Bundle().apply {
             putString("pdf_owner", "save-user"); putString("save_file", source.absolutePath)
-            putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true)
+            putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true); putBoolean("save_read_only_return", true)
         }
         val intent = Intent(RuntimeEnvironment.getApplication(), PdfPreviewActivity::class.java)
             .putExtra("pdf_path", source.absolutePath).putExtra("pdf_name", "rapport.pdf")
