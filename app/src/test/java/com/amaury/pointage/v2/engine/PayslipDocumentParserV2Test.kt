@@ -85,4 +85,45 @@ class PayslipDocumentParserV2Test {
         assertNull(result.gross.amount)
         assertFalse(result.gross.highConfidence)
     }
+    @Test
+    fun `un cumul annuel ne remplace pas le montant du mois`() {
+        val result = PayslipDocumentParserV2.parse("Total brut annuel 28 000,00 €\nTotal brut 2 000,00 €\nNet imposable cumulé 21 000,00 €\nPrime annuelle cumul 1 500,00 €")
+        assertEquals(2000.0, result.gross.amount!!, 0.001)
+        assertNull(result.netTaxable.amount)
+        assertNull(result.premiumsGross.amount)
+    }
+
+    @Test
+    fun `une correction negative ne devient pas le taux positif qui la precede`() {
+        val result = PayslipDocumentParserV2.parse("Heures supplémentaires 25 % 8,00 17,13 -137,04 €")
+        assertNull(result.overtimeGross.amount)
+        assertFalse(result.overtimeGross.highConfidence)
+    }
+    @Test
+    fun `les colonnes mensuelles annuelles et patronales ne sont pas devinees`() {
+        val result = PayslipDocumentParserV2.parse("Total brut 2 000,00 24 000,00\nMutuelle part salariale 28,40 42,60\nAgirc-Arrco part salariale 86,20 129,30")
+        assertNull(result.gross.amount)
+        assertNull(result.mutualEmployee.amount)
+        assertNull(result.complementaryRetirementEmployee.amount)
+    }
+
+    @Test
+    fun `une prime annuelle du mois reste observable et une correction bloque le total partiel`() {
+        val result = PayslipDocumentParserV2.parse("Prime annuelle 1 500,00 €\nHeures supplémentaires 25 % 8,00 17,13 137,04 €\nHeures supplémentaires 25 % 1,00 17,13 -17,13 €")
+        assertEquals(1500.0, result.premiumsGross.amount!!, 0.001)
+        assertNull(result.overtimeGross.amount)
+    }
+    @Test
+    fun `le taux et le salaire de base ne deviennent pas le brut total`() {
+        val result = PayslipDocumentParserV2.parse("Salaire brut horaire 13,63 €\nSalaire brut de base 2 000,00 €")
+        assertNull(result.gross.amount)
+    }
+    @Test
+    fun `les signes negatifs OCR et parentheses comptables ne deviennent pas positifs`() {
+        listOf("Total brut −100,00 €", "Total brut (100,00)", "Prime correction −100,00 €", "Total brut - 100,00", "Total brut –100,00", "Total brut —100,00").forEach { text ->
+            val result = PayslipDocumentParserV2.parse(text)
+            assertNull(result.gross.amount)
+            assertNull(result.premiumsGross.amount)
+        }
+    }
 }

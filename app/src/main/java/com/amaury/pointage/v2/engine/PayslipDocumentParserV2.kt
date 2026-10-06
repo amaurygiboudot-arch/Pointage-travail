@@ -96,13 +96,20 @@ object PayslipDocumentParserV2 {
 
     private fun singleTotal(lines: List<String>, scorer: (String) -> Double): Candidate {
         val found = mutableListOf<Triple<Double, Double, String>>()
+        var incomplete = false
         lines.forEach { line ->
-            val score = scorer(normalize(line))
+            val normalized = normalize(line)
+            if (isCumulative(normalized)) return@forEach
+            val score = scorer(normalized)
             if (score <= 0.0) return@forEach
-            val amount = lastMoneyAmount(line) ?: return@forEach
+            val amount = lastMoneyAmount(line, allowMultiple = false)
+            if (amount == null) {
+                incomplete = true
+                return@forEach
+            }
             found += Triple(amount, score, line.take(180))
         }
-        if (found.isEmpty()) return Candidate(null, 0.0)
+        if (incomplete || found.isEmpty()) return Candidate(null, 0.0)
         val sorted = found.sortedByDescending { it.second }
         val best = sorted.first()
         val competing = sorted.drop(1).firstOrNull {
@@ -117,14 +124,21 @@ object PayslipDocumentParserV2 {
      * est considérée comme le montant de ligne. Quantité et taux peuvent la précéder.
      */
     private fun aggregateRows(lines: List<String>, scorer: (String) -> Double): Candidate {
+        var incomplete = false
         val rows = lines.mapNotNull { line ->
             val normalized = normalize(line)
+            if (isCumulative(normalized)) return@mapNotNull null
             val score = scorer(normalized)
             if (score < 0.85) return@mapNotNull null
-            val amount = lastMoneyAmount(line) ?: return@mapNotNull null
+            val employeeContribution = complementaryRetirementEmployeeScore(normalized) > 0.0
+            val amount = lastMoneyAmount(line, allowMultiple = !employeeContribution)
+            if (amount == null) {
+                incomplete = true
+                return@mapNotNull null
+            }
             Triple(amount, score, line.take(180))
         }
-        if (rows.isEmpty()) return Candidate(null, 0.0)
+        if (incomplete || rows.isEmpty()) return Candidate(null, 0.0)
         val distinct = rows.distinctBy { it.third }
         return Candidate(
             amount = distinct.sumOf { it.first },
@@ -133,8 +147,14 @@ object PayslipDocumentParserV2 {
         )
     }
 
+    /** Annual/cumulative rows cannot supply a monthly observed amount. */
+    private fun isCumulative(text: String): Boolean =
+        Regex("\\b(cumul|cumuls|cumule|cumules)\\b").containsMatchIn(text) ||
+            (Regex("\\b(annuel|annuelle|annuels|annuelles)\\b").containsMatchIn(text) &&
+                (grossScore(text) > 0.0 || netBeforeTaxScore(text) > 0.0 || netTaxableScore(text) > 0.0))
+
     private fun grossScore(text: String): Double = when {
-        text.contains("net") -> 0.0
+        text.contains("net") || text.contains("horaire") || text.contains("de base") -> 0.0
         text.contains("total brut") -> 1.0
         text.contains("salaire brut") && (text.contains("total") || text.startsWith("salaire brut")) -> 0.95
         text.matches(Regex(".*\\bbrut\\s+(mensuel|soumis|fiscal)\\b.*")) -> 0.88
@@ -203,7 +223,9 @@ object PayslipDocumentParserV2 {
         return if (employee) 0.92 else 0.0
     }
 
-    private fun lastMoneyAmount(raw: String): Double? {
+    private fun lastMoneyAmount(raw: String, allowMultiple: Boolean = true): Double? {
+        // OCR can preserve a Unicode minus or accounting parentheses. Neither is a positive amount.
+        if (Regex("[-−﹣－–—][\\s\\u00A0\\u202F]*\\d|\\(\\s*[+-]?\\d[\\d ,.\\u00A0]*\\s*€?\\s*\\)").containsMatchIn(raw)) return null
         val regex = Regex(
             "(?<![\\d/])([+-]?\\d{1,3}(?:[ .\\u00A0]\\d{3})*|[+-]?\\d+)(?:[,.](\\d{2}))?\\s*(€|eur|euros?)?",
             RegexOption.IGNORE_CASE
@@ -218,9 +240,10 @@ object PayslipDocumentParserV2 {
             if (!hasCurrency && !hasDecimals) return@mapNotNull null
             val integer = match.groupValues[1].replace(" ", "").replace(".", "").replace("\u00A0", "")
             val decimals = match.groupValues[2].ifBlank { "00" }
-            "$integer.$decimals".toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.0..10_000_000.0 }
+            "$integer.$decimals".toDoubleOrNull()
         }.toList()
-        return candidates.lastOrNull()
+        if (!allowMultiple && candidates.size != 1) return null
+        return candidates.lastOrNull()?.takeIf { it.isFinite() && it in 0.0..10_000_000.0 }
     }
 
     private fun normalize(value: String): String {

@@ -42,6 +42,7 @@ class V2PayslipImportActivity : Activity() {
     private val companyName by lazy { intent.getStringExtra(EXTRA_COMPANY_NAME).orEmpty() }
     private val executor = Executors.newSingleThreadExecutor()
     private var status: TextView? = null
+    private var profileDraft: PayslipProfileDraftV2? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -96,7 +97,9 @@ class V2PayslipImportActivity : Activity() {
                     runOnUiThread { if (!isFinishing && !isDestroyed) status?.text = message }
                 }
                 temporary = document.temporaryFile
-                val payslipParsed = PayslipDocumentParserV2.parse(document.extractedText)
+                profileDraft = if (document.truncated) null else PayslipProfileDraftParserV2.parse(document.extractedText)
+                // An incomplete document cannot establish complete monthly totals.
+                val payslipParsed = if (document.truncated) null else PayslipDocumentParserV2.parse(document.extractedText)
                 val providentParsed = if (shouldInspectForProvident()) {
                     ProvidentRelayDocumentParserV2.parse(document.extractedText)
                 } else null
@@ -252,8 +255,9 @@ class V2PayslipImportActivity : Activity() {
         }
 
         val month = Calendar.getInstance(Locale.FRANCE).apply { set(Calendar.DAY_OF_MONTH, 1) }
+        var periodConfirmed = false
         val monthButton = Button(this).apply {
-            text = SimpleDateFormat("MMMM yyyy", Locale.FRANCE).format(month.time).replaceFirstChar { it.uppercase() }
+            text = "Choisir la période du bulletin — requis"
             isAllCaps = false
             setBackgroundResource(R.drawable.hp_panel)
         }
@@ -273,6 +277,11 @@ class V2PayslipImportActivity : Activity() {
         val info = TextView(this).apply {
             text = buildString {
                 append("Lecture locale du bulletin. Vérifie les valeurs avant validation : seules les valeurs confirmées sont enregistrées.")
+                parsed?.confirmedCandidates()?.forEach { (key, candidate) ->
+                    if (candidate.highConfidence && !candidate.sourceLabel.isNullOrBlank()) {
+                        append("\n\n").append(key).append(" — source lue : ").append(candidate.sourceLabel)
+                    }
+                }
                 parsed?.warnings?.takeIf { it.isNotEmpty() }?.let {
                     append("\n\n⚠ ").append(it.joinToString("\n⚠ "))
                 }
@@ -284,6 +293,20 @@ class V2PayslipImportActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(8), dp(18), dp(8))
             addView(info)
+            profileDraft?.takeIf { it.hourlyRate != null && companyId.isNotBlank() }?.let { draft ->
+                addView(Button(this@V2PayslipImportActivity).apply {
+                    text = "Vérifier le taux horaire dans ma fiche salaire"
+                    isAllCaps = false
+                    setOnClickListener {
+                        val form = SalaryInformationSheetView(this@V2PayslipImportActivity)
+                            .bindCompany(companyId).prefillPayslipDraft(draft)
+                        AlertDialog.Builder(this@V2PayslipImportActivity)
+                            .setTitle("Fiche salaire — données à confirmer")
+                            .setView(ScrollView(this@V2PayslipImportActivity).apply { addView(form) })
+                            .setNegativeButton("FERMER", null).show()
+                    }
+                })
+            }
             addView(monthButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
             listOf(
                 gross,
@@ -300,7 +323,7 @@ class V2PayslipImportActivity : Activity() {
             }
         }
         val scroll = ScrollView(this).apply { addView(box) }
-        monthButton.setOnClickListener { chooseMonth(month, monthButton) }
+        monthButton.setOnClickListener { chooseMonth(month, monthButton) { periodConfirmed = true } }
         val title = if (companyName.isBlank()) "Contrôle du bulletin" else "Bulletin — $companyName"
         val dialog = AlertDialog.Builder(this)
             .setTitle(title)
@@ -311,6 +334,17 @@ class V2PayslipImportActivity : Activity() {
             .create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                if (!periodConfirmed) {
+                    Toast.makeText(this, "Choisis explicitement la période inscrite sur le bulletin", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                val amountFields = listOf(gross, netBeforeTax, netTaxable, overtime, premiums, baskets, mutual, provident, complementaryRetirement)
+                val invalidField = amountFields.firstOrNull { !PayslipImportConfirmationPolicyV2.isOptionalAmountValid(it.text.toString()) }
+                if (invalidField != null) {
+                    invalidField.error = "Montant invalide : corrige-le ou laisse le champ vide"
+                    invalidField.requestFocus()
+                    return@setOnClickListener
+                }
                 val grossValue = parseAmount(gross.text.toString())
                 if (grossValue == null || grossValue < 0.0) {
                     gross.error = "Montant brut requis"
@@ -351,8 +385,13 @@ class V2PayslipImportActivity : Activity() {
                     ).show()
                     return@setOnClickListener
                 }
-                PayslipObservedValuesStoreV2.put(this, record.id, confirmed)
-                Toast.makeText(this, "Bulletin importé • valeurs confirmées enregistrées", Toast.LENGTH_LONG).show()
+                val observedSaved = PayslipObservedValuesStoreV2.put(this, record.id, confirmed)
+                Toast.makeText(
+                    this,
+                    if (observedSaved) "Bulletin importé • valeurs confirmées enregistrées"
+                    else "Document et brut enregistrés, mais les valeurs détaillées n’ont pas pu être sauvegardées. Vérifie le bulletin avant toute comparaison.",
+                    Toast.LENGTH_LONG
+                ).show()
                 dialog.setOnCancelListener(null)
                 dialog.dismiss()
                 finish()
@@ -361,14 +400,14 @@ class V2PayslipImportActivity : Activity() {
         dialog.show()
     }
 
-    private fun chooseMonth(selected: Calendar, button: Button) {
+    private fun chooseMonth(selected: Calendar, button: Button, onConfirmed: () -> Unit) {
         val labels = ArrayList<String>(); val months = ArrayList<Calendar>(); val format = SimpleDateFormat("MMMM yyyy", Locale.FRANCE)
         val cursor = Calendar.getInstance(Locale.FRANCE).apply { set(Calendar.DAY_OF_MONTH, 1) }
         repeat(36) { months += cursor.clone() as Calendar; labels += format.format(cursor.time).replaceFirstChar { it.uppercase() }; cursor.add(Calendar.MONTH, -1) }
-        AlertDialog.Builder(this).setTitle("Période du bulletin").setItems(labels.toTypedArray()) { _, which -> selected.timeInMillis = months[which].timeInMillis; button.text = labels[which] }.setNegativeButton("Annuler", null).show()
+        AlertDialog.Builder(this).setTitle("Période du bulletin").setItems(labels.toTypedArray()) { _, which -> selected.timeInMillis = months[which].timeInMillis; button.text = labels[which]; onConfirmed() }.setNegativeButton("Annuler", null).show()
     }
 
-    private fun parseAmount(raw:String):Double? = raw.trim().replace(" ", "").replace(',', '.').toDoubleOrNull()
+    private fun parseAmount(raw: String): Double? = PayslipImportConfirmationPolicyV2.parseAmount(raw)
     private fun dp(v:Int)=(v*resources.displayMetrics.density).toInt()
 
     override fun onDestroy() {

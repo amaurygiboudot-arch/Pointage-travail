@@ -99,10 +99,10 @@ object PayrollEngineV2 {
         }
 
         val regularGross = regularMinutes / 60.0 * rate
-        val fixed = premiums.sumOf { it.amount }
-        val basketTotal = baskets.sumOf { it.amount }
-        val gross = regularGross + overtimeGross + extras + fixed
-        val deductionsTotal = deductions.sumOf { it.amount }.coerceAtLeast(0.0)
+        val fixed = validatedMoneyTotal(premiums.map { it.amount }, "Primes")
+        val basketTotal = validatedMoneyTotal(baskets.map { it.amount }, "Paniers")
+        val gross = validatedMoneyTotal(listOf(regularGross, overtimeGross, extras, fixed), "Brut")
+        val deductionsTotal = validatedMoneyTotal(deductions.map { it.amount }, "Retenues")
 
         trace += "Temps payé V2 + durée contractuelle/règles confirmées"
         when {
@@ -148,10 +148,10 @@ object PayrollEngineV2 {
             else -> error("Type de forfait incohérent")
         }
 
-        val fixed = premiums.sumOf { it.amount }
-        val basketTotal = baskets.sumOf { it.amount }
-        val gross = monthlyGross + fixed
-        val deductionsTotal = deductions.sumOf { it.amount }.coerceAtLeast(0.0)
+        val fixed = validatedMoneyTotal(premiums.map { it.amount }, "Primes")
+        val basketTotal = validatedMoneyTotal(baskets.map { it.amount }, "Paniers")
+        val gross = validatedMoneyTotal(listOf(monthlyGross, fixed), "Brut")
+        val deductionsTotal = validatedMoneyTotal(deductions.map { it.amount }, "Retenues")
         val trace = mutableListOf<String>()
         trace += when (contract.type) {
             ContractTypeV2.FORFAIT_HOURS -> "Forfait heures : salaire brut mensuel convenu utilisé comme base ; les heures du forfait ne sont pas reconverties artificiellement en taux horaire."
@@ -172,6 +172,13 @@ object PayrollEngineV2 {
             netBeforeUnknownContributions = (gross - deductionsTotal).coerceAtLeast(0.0),
             traces = trace
         )
+    }
+
+    private fun validatedMoneyTotal(amounts: List<Double>, label: String): Double {
+        require(amounts.all { it.isFinite() && it >= 0.0 }) { "$label : montant invalide" }
+        val total = amounts.sum()
+        require(total.isFinite()) { "$label : total invalide" }
+        return total
     }
 
     private fun validateWeek(week: PayrollWeekV2) {

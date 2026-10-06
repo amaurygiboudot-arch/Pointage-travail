@@ -223,6 +223,7 @@ enum PayrollEngineErrorV2: Error, Equatable {
     case invalidForfaitHours
     case missingForfaitAnnualDays
     case invalidForfaitAnnualDays
+    case invalidMoneyAmount
     case incoherentForfaitType
 }
 
@@ -337,10 +338,10 @@ enum PayrollEngineV2 {
         }
 
         let regularGross = Double(regularMinutes) / 60.0 * rate
-        let fixed = premiums.reduce(0.0) { $0 + $1.amount }
-        let basketTotal = baskets.reduce(0.0) { $0 + $1.amount }
-        let gross = regularGross + overtimeGross + extras + fixed
-        let deductionsTotal = max(0, deductions.reduce(0.0) { $0 + $1.amount })
+        let fixed = try validatedMoneyTotal(premiums.map { $0.amount })
+        let basketTotal = try validatedMoneyTotal(baskets.map { $0.amount })
+        let gross = try validatedMoneyTotal([regularGross, overtimeGross, extras, fixed])
+        let deductionsTotal = try validatedMoneyTotal(deductions.map { $0.amount })
 
         traces.append("Temps payé V2 + durée contractuelle/règles confirmées")
         if overtimeTiersRejected {
@@ -400,10 +401,10 @@ enum PayrollEngineV2 {
 
         let regularGross = fullTime.monthlyRegularMinutes / 60.0 * rate
         let overtimeGross = fullTime.structuralOvertimeGross + fullTime.variableOvertimeGross
-        let fixed = premiums.reduce(0.0) { $0 + $1.amount }
-        let basketTotal = baskets.reduce(0.0) { $0 + $1.amount }
-        let gross = fullTime.monthlyBaseGross + fullTime.variableOvertimeGross + extras + fixed
-        let deductionsTotal = max(0, deductions.reduce(0.0) { $0 + $1.amount })
+        let fixed = try validatedMoneyTotal(premiums.map { $0.amount })
+        let basketTotal = try validatedMoneyTotal(baskets.map { $0.amount })
+        let gross = try validatedMoneyTotal([fullTime.monthlyBaseGross, fullTime.variableOvertimeGross, extras, fixed])
+        let deductionsTotal = try validatedMoneyTotal(deductions.map { $0.amount })
         var traces = fullTime.warnings
 
         traces.append("Salaire de base mensualisé temps plein : durée régulière + éventuelles heures structurelles majorées ; les pointages ajoutent seulement les dépassements du contrat.")
@@ -464,10 +465,10 @@ enum PayrollEngineV2 {
 
         let monthlyBaseMinutes = Double(contractualWeeklyMinutes) * 52.0 / 12.0
         let regularGross = monthlyBaseMinutes / 60.0 * rate
-        let fixed = premiums.reduce(0.0) { $0 + $1.amount }
-        let basketTotal = baskets.reduce(0.0) { $0 + $1.amount }
-        let gross = regularGross + complementaryGross + extras + fixed
-        let deductionsTotal = max(0, deductions.reduce(0.0) { $0 + $1.amount })
+        let fixed = try validatedMoneyTotal(premiums.map { $0.amount })
+        let basketTotal = try validatedMoneyTotal(baskets.map { $0.amount })
+        let gross = try validatedMoneyTotal([regularGross, complementaryGross, extras, fixed])
+        let deductionsTotal = try validatedMoneyTotal(deductions.map { $0.amount })
         let provisionalComplementaryRateUsed = complementaryMinutes > 0
 
         traces.append("Salaire de base mensualisé temps partiel : durée contractuelle × 52/12 × taux horaire.")
@@ -529,10 +530,10 @@ enum PayrollEngineV2 {
             throw PayrollEngineErrorV2.incoherentForfaitType
         }
 
-        let fixed = premiums.reduce(0.0) { $0 + $1.amount }
-        let basketTotal = baskets.reduce(0.0) { $0 + $1.amount }
-        let gross = monthlyGross + fixed
-        let deductionsTotal = max(0, deductions.reduce(0.0) { $0 + $1.amount })
+        let fixed = try validatedMoneyTotal(premiums.map { $0.amount })
+        let basketTotal = try validatedMoneyTotal(baskets.map { $0.amount })
+        let gross = try validatedMoneyTotal([monthlyGross, fixed])
+        let deductionsTotal = try validatedMoneyTotal(deductions.map { $0.amount })
         var traces: [String] = []
 
         switch contract.type {
@@ -573,6 +574,15 @@ enum PayrollEngineV2 {
             grossHourlyRate: rate,
             rules: rules
         )
+    }
+
+    private static func validatedMoneyTotal(_ amounts: [Double]) throws -> Double {
+        guard amounts.allSatisfy({ $0.isFinite && $0 >= 0 }) else {
+            throw PayrollEngineErrorV2.invalidMoneyAmount
+        }
+        let total = amounts.reduce(0, +)
+        guard total.isFinite else { throw PayrollEngineErrorV2.invalidMoneyAmount }
+        return total
     }
 
     private static func validateWeek(_ week: PayrollWeekV2) throws {

@@ -45,6 +45,15 @@ class SalaryInformationSheetView @JvmOverloads constructor(context: Context, att
     private val status=TextView(context)
     private var selectedCompanyId:String?=null; private var company:SalaryCompanyStore.Company?=null; private val stopAwake=Runnable{clearKeepAwake()}
     init { tag=TAG; orientation=VERTICAL; setPadding(dp(14),dp(14),dp(14),dp(14)); applyPanelBackground(this); buildUi(); refresh() }
+    /** Prefills an uncommitted form only; a dated contract still requires full user validation. */
+    internal fun prefillPayslipDraft(draft: PayslipProfileDraftV2): SalaryInformationSheetView {
+        draft.hourlyRate?.let { hourlyRate.setText(it.toString().replace('.', ',')) }
+        contractEffectiveDate.setText("")
+        contractSource.setText("")
+        status.text = "À confirmer : taux lu sur le bulletin : ${draft.sourceLine.orEmpty()}. Vérifie l'entreprise, le contrat et la date d'effet ; le mois du bulletin ne prouve pas la date d'effet. Aucune modification n'est enregistrée avant ENREGISTRER."
+        return this
+    }
+
     fun bindCompany(companyId:String):SalaryInformationSheetView { selectedCompanyId=companyId; refresh(); return this }
     override fun onAttachedToWindow(){super.onAttachedToWindow();keepAwakeTemporarily()}; override fun onDetachedFromWindow(){removeCallbacks(stopAwake);clearKeepAwake();super.onDetachedFromWindow()}
     fun refresh(){

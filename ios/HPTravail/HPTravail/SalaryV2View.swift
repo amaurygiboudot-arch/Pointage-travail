@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SalaryV2View: View {
     @EnvironmentObject private var salaryStore: SalaryV2Store
@@ -14,6 +15,14 @@ struct SalaryV2View: View {
     @State private var payslipNetAfterTaxText = ""
     @State private var payslipComparisonResult: SalaryPayslipComparisonResultV2?
     @State private var payslipComparisonFeedback: String?
+
+    @State private var importPicker = false
+    @State private var importBusy = false
+    @State private var importToken = UUID()
+    @State private var importProposals: [SalaryPayslipImportProposalV2] = []
+    @State private var importConfirmed = false
+    @State private var importFeedback: String?
+    @State private var importSources: [String] = []
 
     var body: some View {
         NavigationStack {
@@ -38,6 +47,12 @@ struct SalaryV2View: View {
                 .padding()
             }
             .navigationTitle("Salaire")
+            .fileImporter(isPresented: $importPicker, allowedContentTypes: [.pdf, .image]) { result in
+                switch result {
+                case .success(let url): readPayslip(url)
+                case .failure: clearImportDraft()
+                }
+            }
             .onAppear {
                 salaryStore.refresh()
             }
@@ -824,6 +839,32 @@ struct SalaryV2View: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
+                Button(importBusy ? "Lecture locale en cours…" : "Importer un bulletin PDF ou photo") {
+                    clearImportDraft()
+                    importPicker = true
+                }
+                .disabled(importBusy || salaryStore.selectedCompanyId == nil)
+                if importBusy {
+                    Button("Annuler la lecture") { clearImportDraft() }
+                }
+                Text("Lecture sur cet appareil. Vérifiez chaque montant ; les lignes ambiguës restent à saisir. Cet import remplit la comparaison, sans modifier votre contrat ni les règles de paie.")
+                    .font(.footnote)
+                if let importFeedback { Text(importFeedback).font(.footnote) }
+                if !importProposals.isEmpty {
+                    ForEach(importProposals) { proposal in
+                        VStack(alignment: .leading) {
+                            Text("\(proposal.field.label) : \(NSDecimalNumber(decimal: proposal.amount).stringValue) €")
+                            Text(proposal.source).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    Toggle("Je confirme les montants, l’entreprise \(salaryStore.selectedCompany?.name ?? "") et le mois \(salaryStore.selectedPeriod.description) du bulletin", isOn: $importConfirmed)
+                    Button("Utiliser ces montants vérifiés") { applyImportedPayslip() }
+                        .disabled(!importConfirmed)
+                    Button("Annuler l’import") { clearImportDraft() }
+                }
+                ForEach(importSources, id: \.self) { source in
+                    Text(source).font(.caption).foregroundStyle(.secondary)
+                }
                 TextField("Brut social observé", text: $payslipGrossText)
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
@@ -1066,7 +1107,59 @@ struct SalaryV2View: View {
         payslipComparisonFeedback = nil
     }
 
+    private func clearImportDraft() {
+        importToken = UUID()
+        importProposals = []
+        importConfirmed = false
+        importFeedback = nil
+        importBusy = false
+    }
+
+    private func readPayslip(_ url: URL) {
+        clearImportDraft()
+        importBusy = true
+        let token = importToken
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try SalaryPayslipLocalImporterV2.read(url: url) }
+            DispatchQueue.main.async {
+                guard importToken == token else { return }
+                importBusy = false
+                switch result {
+                case .success(let proposals):
+                    importProposals = proposals
+                    importFeedback = proposals.isEmpty ? "Aucun montant certain identifié. Utilisez la saisie manuelle." : "Vérifiez les propositions et leur provenance avant de confirmer."
+                case .failure(let error): importFeedback = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func applyImportedPayslip() {
+        guard importConfirmed, salaryStore.selectedCompanyId != nil else { return }
+        // Replace the comparison draft, never mix it with another bulletin.
+        payslipGrossText = ""
+        payslipNetBeforeTaxText = ""
+        payslipNetTaxableText = ""
+        payslipIncomeTaxText = ""
+        payslipNetAfterTaxText = ""
+        importSources = importProposals.map { "\($0.field.label) — \($0.source)" }
+        for proposal in importProposals {
+            let value = NSDecimalNumber(decimal: proposal.amount).stringValue
+            switch proposal.field {
+            case .gross: payslipGrossText = value
+            case .netBeforeTax: payslipNetBeforeTaxText = value
+            case .netTaxable: payslipNetTaxableText = value
+            case .incomeTax: payslipIncomeTaxText = value
+            case .netAfterTax: payslipNetAfterTaxText = value
+            }
+        }
+        clearImportDraft()
+        clearPayslipComparisonResult()
+    }
+
     private func resetPayslipComparison() {
+        clearImportDraft()
+        importSources = []
         payslipGrossText = ""
         payslipNetBeforeTaxText = ""
         payslipNetTaxableText = ""
