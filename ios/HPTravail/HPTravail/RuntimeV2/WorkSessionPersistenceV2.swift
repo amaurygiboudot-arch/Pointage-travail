@@ -240,6 +240,29 @@ enum WorkSessionStorageV2 {
     static let legacyKey = "hp_travail_sessions_v1"
     static let paidRepairMarkerKey = "hp_travail_sessions_v2_paid_repair_v1_done"
 
+    /// Complete a migration before consuming its one-shot repair eligibility.
+    /// On failed persistence, retain both the source and marker so the next load can retry.
+    static func load(
+        defaults: UserDefaults,
+        persist: ([WorkSession]) -> Bool
+    ) -> WorkSessionStorageResolutionV2 {
+        let handled = defaults.bool(forKey: paidRepairMarkerKey)
+        let resolution = resolve(
+            primaryData: defaults.data(forKey: primaryKey),
+            legacyData: defaults.data(forKey: legacyKey),
+            allowTransitionalPrimaryRepair: !handled
+        )
+        if case .valid(let sessions, let origin) = resolution,
+           origin != .primary {
+            guard persist(sessions) else { return .corrupt }
+            if origin == .legacyMigration {
+                defaults.removeObject(forKey: legacyKey)
+            }
+        }
+        if !handled { defaults.set(true, forKey: paidRepairMarkerKey) }
+        return resolution
+    }
+
     static func resolve(
         primaryData: Data?,
         legacyData: Data?,
