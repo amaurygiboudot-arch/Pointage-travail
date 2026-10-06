@@ -9,6 +9,7 @@ import android.provider.DocumentsContract
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.FrameLayout
 import android.view.ViewGroup
 import android.widget.TextView
 import android.widget.Toast
@@ -80,7 +81,7 @@ class V2MonthlyPdfActivity : Activity() {
         setContentView(ScrollView(this).apply {
             isFillViewport = true
             fitsSystemWindows = true
-            addView(content, ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         })
         if (savedInstanceState != null) {
             restoreExport(savedInstanceState)
