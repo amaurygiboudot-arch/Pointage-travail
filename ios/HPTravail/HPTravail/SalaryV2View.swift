@@ -23,6 +23,7 @@ struct SalaryV2View: View {
     @State private var importConfirmed = false
     @State private var importFeedback: String?
     @State private var importSources: [String] = []
+    @State private var importedAmountFingerprint: [String]?
 
     var body: some View {
         NavigationStack {
@@ -81,7 +82,11 @@ struct SalaryV2View: View {
                 clearSalaryPdf()
             }
             .onChange(of: [payslipGrossText, payslipNetBeforeTaxText, payslipNetTaxableText,
-                           payslipIncomeTaxText, payslipNetAfterTaxText]) { _ in
+                           payslipIncomeTaxText, payslipNetAfterTaxText]) { values in
+                if let importedAmountFingerprint, values != importedAmountFingerprint {
+                    importSources = []
+                    self.importedAmountFingerprint = nil
+                }
                 clearPayslipComparisonResult()
             }
         }
@@ -1112,18 +1117,20 @@ struct SalaryV2View: View {
         importProposals = []
         importConfirmed = false
         importFeedback = nil
-        importBusy = false
+        // Cancellation invalidates the result, but does not finish the worker.
+        // Keep the import button disabled until the existing OCR worker returns.
     }
 
     private func readPayslip(_ url: URL) {
+        guard !importBusy else { return }
         clearImportDraft()
         importBusy = true
         let token = importToken
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result { try SalaryPayslipLocalImporterV2.read(url: url) }
             DispatchQueue.main.async {
-                guard importToken == token else { return }
                 importBusy = false
+                guard importToken == token else { return }
                 switch result {
                 case .success(let proposals):
                     importProposals = proposals
@@ -1153,6 +1160,9 @@ struct SalaryV2View: View {
             case .netAfterTax: payslipNetAfterTaxText = value
             }
         }
+        importedAmountFingerprint = [payslipGrossText, payslipNetBeforeTaxText,
+                                     payslipNetTaxableText, payslipIncomeTaxText,
+                                     payslipNetAfterTaxText]
         clearImportDraft()
         clearPayslipComparisonResult()
     }
@@ -1160,6 +1170,7 @@ struct SalaryV2View: View {
     private func resetPayslipComparison() {
         clearImportDraft()
         importSources = []
+        importedAmountFingerprint = nil
         payslipGrossText = ""
         payslipNetBeforeTaxText = ""
         payslipNetTaxableText = ""

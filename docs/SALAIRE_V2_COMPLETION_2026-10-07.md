@@ -35,9 +35,13 @@ Ce document distingue code existant, défauts corrigés et exigences non closes.
 
 ## Validation
 
-`git diff --check` et contrôle d’architecture de mise à jour réussis. Les quatre suites ciblées Kotlin ont été compilées indépendamment du SDK Android et exécutées avec JUnit 4 : 27 tests réussis (moteur de paie, parseur bulletin, confirmation et brouillon de taux). Cette preuve ne remplace pas le build Android ni les tests Swift.
+`git diff --check` et contrôle d’architecture de mise à jour réussis. Les quatre suites ciblées Kotlin ont été compilées indépendamment du SDK Android et exécutées avec JUnit 4 : 28 tests réussis (moteur de paie, parseur bulletin, confirmation et brouillon de taux). Cette preuve ne remplace pas le build Android ni les tests Swift.
 La commande officielle Android `bash scripts/agent-toolbox.sh v2-tests` a été tentée ; échec de résolution des dépendances sur `dl.google.com`, avant exécution des tests. Swift/Xcode absents de ce runtime Linux. Ces faits ne valent pas PASS ; les validations CI de la révision finale restent nécessaires.
 
 ## Dépendances restantes
 
 La clôture complète dépend d’entrées légales/contractuelles datées, d’une couverture exhaustive des contributions employeur, de scénarios d’absence indemnisée, de bulletins réels de validation et d’essais sur appareils. Un OCR local utilise la reconnaissance du texte disponible sur la plateforme ; il ne fournit pas à lui seul une interprétation juridique universelle du bulletin.
+
+## Corrections après revue QA
+
+Les espaces fines insécables préservent les milliers. L’annulation iOS garde le verrou de lecture jusqu’à la fin du worker ; une édition manuelle invalide la provenance importée. Le brouillon contractuel Android reste attaché à son entreprise lors des rafraîchissements et est effacé après confirmation canonique. Tests Kotlin ciblés : 28 réussis ; validation complète Android/iOS toujours requise.

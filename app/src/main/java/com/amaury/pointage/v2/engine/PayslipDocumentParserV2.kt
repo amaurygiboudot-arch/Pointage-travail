@@ -56,6 +56,7 @@ object PayslipDocumentParserV2 {
     fun parse(rawText: String): Result {
         val lines = rawText
             .replace('\u00A0', ' ')
+            .replace('\u202F', ' ')
             .lineSequence()
             .map { it.trim().replace(Regex("\\s+"), " ") }
             .filter { it.isNotBlank() }

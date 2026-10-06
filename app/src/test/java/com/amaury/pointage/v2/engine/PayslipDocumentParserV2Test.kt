@@ -126,4 +126,11 @@ class PayslipDocumentParserV2Test {
             assertNull(result.premiumsGross.amount)
         }
     }
+    @Test
+    fun `les espaces fines insecables conservent les milliers du bulletin`() {
+        val result = PayslipDocumentParserV2.parse("Total brut 1\u202f234,56 €\nPrime annuelle 1\u202f500,00 €\nNet imposable 1\u202f010,20 €")
+        assertEquals(1234.56, result.gross.amount!!, 0.001)
+        assertEquals(1500.0, result.premiumsGross.amount!!, 0.001)
+        assertEquals(1010.20, result.netTaxable.amount!!, 0.001)
+    }
 }
