@@ -73,6 +73,15 @@ class PdfPreviewSaveIntegrationV2Test {
         PdfSaveGateShadow.calls.set(0); PdfSaveGateShadow.interactiveCalls.set(0)
         PdfSaveGateShadow.started = null; PdfSaveGateShadow.release = null; PdfSaveGateShadow.completed = null
         PdfSaveResolverShadow.mode = "success"
+        val fixtureHash = BillingContract.documentId(source)
+        exportWorker().submit {
+            assertEquals("Firebase fixture must resolve the same UID on the actual export worker", "save-user", FirebaseAuth.getInstance().currentUser?.uid)
+            val hash = BillingContract.documentId(source)
+            assertEquals("Worker hash must equal the fixture hash", fixtureHash, hash)
+            assertTrue("The configured Gate shadow must be reachable on the export worker", BillingPdfGate.authorizeBackgroundBlocking(app, source))
+        }.get(5, TimeUnit.SECONDS)
+        assertEquals("A direct worker Gate probe must hit its shadow exactly once", 1, PdfSaveGateShadow.calls.get())
+        PdfSaveGateShadow.calls.set(0)
     }
 
     @Test fun deniedAuthorizationDeletesCreatedDocumentWithoutCopy() = runSave("denied")
@@ -115,6 +124,7 @@ class PdfPreviewSaveIntegrationV2Test {
         PdfSaveGateShadow.allow = false
         try {
             val activity = controller.get()
+            assertActiveSaveFixture(activity)
             PdfPreviewActivity::class.java.getDeclaredMethod("onActivityResult", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Intent::class.java)
                 .apply { isAccessible = true }.invoke(activity, 4102, Activity.RESULT_OK, Intent().setData(uri))
             assertTrue("Copy must reach read-only authorization", PdfSaveGateShadow.started!!.await(5, TimeUnit.SECONDS))
@@ -141,6 +151,7 @@ class PdfPreviewSaveIntegrationV2Test {
             Intent(RuntimeEnvironment.getApplication(), PdfPreviewActivity::class.java).putExtra("pdf_path", source.absolutePath)).create(state)
         try {
             val activity = controller.get()
+            assertActiveSaveFixture(activity)
             PdfPreviewActivity::class.java.getDeclaredMethod("onResume").apply { isAccessible = true }.invoke(activity)
             assertFalse(activity.findViewById<android.widget.Button>(com.amaury.pointage.R.id.pdfPreviewSave).isEnabled)
             PdfPreviewActivity::class.java.getDeclaredMethod("onActivityResult", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Intent::class.java)
@@ -172,6 +183,7 @@ class PdfPreviewSaveIntegrationV2Test {
             Intent(RuntimeEnvironment.getApplication(), PdfPreviewActivity::class.java).putExtra("pdf_path", source.absolutePath)).create(state)
         try {
             val activity = controller.get()
+            assertActiveSaveFixture(activity)
             PdfPreviewActivity::class.java.getDeclaredMethod("onActivityResult", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Intent::class.java)
                 .apply { isAccessible = true }.invoke(activity, 4102, Activity.RESULT_CANCELED, null)
             val resume = PdfPreviewActivity::class.java.getDeclaredMethod("onResume").apply { isAccessible = true }
@@ -194,11 +206,25 @@ class PdfPreviewSaveIntegrationV2Test {
         } finally { controller.destroy() }
     }
 
-    private fun drainExportWorker() {
-        val worker = PdfPreviewActivity::class.java.getDeclaredField("exportWorker").apply { isAccessible = true }
+    private fun exportWorker(): java.util.concurrent.ExecutorService =
+        PdfPreviewActivity::class.java.getDeclaredField("exportWorker").apply { isAccessible = true }
             .get(null) as java.util.concurrent.ExecutorService
-        worker.submit {}.get(5, TimeUnit.SECONDS)
+
+    private fun assertActiveSaveFixture(activity: PdfPreviewActivity) {
+        assertFalse("Restored preview fixture must not finish during onCreate", activity.isFinishing)
+        assertFalse("Restored preview fixture must not be destroyed", activity.isDestroyed)
+        assertFalse("Restored preview fixture must not be changing configuration", activity.isChangingConfigurations)
+        exportWorker().submit {
+            val uid = PdfPreviewActivity::class.java.getDeclaredMethod("currentUid").apply { isAccessible = true }.invoke(activity)
+            assertEquals("Activity auth precondition on export worker", "save-user", uid)
+            assertEquals("Activity lifecycle precondition on export worker", true,
+                PdfPreviewActivity::class.java.getDeclaredMethod("active", String::class.java).apply { isAccessible = true }.invoke(activity, "save-user"))
+            val hash = PdfPreviewActivity::class.java.getDeclaredField("pendingHash").apply { isAccessible = true }.get(activity)
+            assertEquals("Pending snapshot must match the actual worker bytes", hash, BillingContract.documentId(source))
+        }.get(5, TimeUnit.SECONDS)
     }
+
+    private fun drainExportWorker() { exportWorker().submit {}.get(5, TimeUnit.SECONDS) }
 
     private fun runSave(mode: String) {
         // Restore the non-authoritative state saved when the actual picker was launched.
@@ -211,6 +237,7 @@ class PdfPreviewSaveIntegrationV2Test {
         val controller = Robolectric.buildActivity(PdfPreviewActivity::class.java, intent).create(state)
         try {
             val activity = controller.get()
+            assertActiveSaveFixture(activity)
             when (mode) {
                 "denied" -> PdfSaveGateShadow.allow = false
                 "unavailable" -> PdfSaveGateShadow.unavailable = true
