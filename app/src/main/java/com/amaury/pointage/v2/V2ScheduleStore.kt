@@ -196,6 +196,14 @@ object V2ScheduleStore {
         return expectedEnd(schedule(context, companyId, mode), entryMs)
     }
 
+    /** Fin déterminée uniquement par l'arrivée ; une égalité de profils reste à confirmer. */
+    fun unambiguousExpectedEndForArrival(context: Context, companyId: String, entryMs: Long): Long? {
+        val mode = selectedMode(context, companyId)
+        val shiftId = if (mode in SHIFT_IDS) mode
+            else bestConfiguredShiftIdForEntry(context, companyId, entryMs) ?: return null
+        return expectedEnd(schedule(context, companyId, shiftId), entryMs)
+    }
+
     /**
      * En automatique, compare l’entrée ET la sortie réelles aux profils explicitement configurés.
      * Un profil sans fin prévue n’est jamais utilisé pour la règle de sortie +20 min.

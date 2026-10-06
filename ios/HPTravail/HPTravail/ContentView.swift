@@ -19,6 +19,8 @@ struct ContentView: View {
     @State private var editingGpsZone: GpsZoneV2?
     @State private var gpsZonePendingDeletion: GpsZoneV2?
     @State private var showGpsConfirmation = false
+    @State private var correctingGpsDeparture: GpsPendingEventV2?
+    @State private var correctedGpsDepartureDate = Date()
     @State private var clockCompanies = SalaryCompanyStoreV2.readConfirmed()
     @State private var clockEmployerChoice: ClockEmployerChoice = .unresolved
     @State private var clockInFeedback: String?
@@ -53,6 +55,37 @@ struct ContentView: View {
         .sheet(isPresented: $showGpsZoneEditor) {
             GpsZoneEditorSheetV2(existingZone: editingGpsZone)
         }
+        .sheet(item: $correctingGpsDeparture) { event in
+            NavigationStack {
+                Form {
+                    Text("Sortie détectée le \(event.occurredAt.formatted(date: .abbreviated, time: .shortened)). Le GPS peut détecter le départ avec retard : indique ton heure réelle de sortie.")
+                    if let session = store.currentSession,
+                       session.id == event.expectedSessionId,
+                       session.entry < event.occurredAt {
+                        DatePicker("Sortie réelle", selection: $correctedGpsDepartureDate,
+                                   in: session.entry...event.occurredAt,
+                                   displayedComponents: [.date, .hourAndMinute])
+                        Button("Enregistrer cette sortie") {
+                            if confirmGpsDeparture(event: event, at: correctedGpsDepartureDate) {
+                                correctingGpsDeparture = nil
+                            }
+                        }
+                        .disabled(WorkSessionMutationV2.closingSession(
+                            in: store.sessions, at: correctedGpsDepartureDate,
+                            expectedSessionId: event.expectedSessionId) == nil)
+                    } else {
+                        Text("Cette sortie ne correspond plus au pointage en cours.")
+                    }
+                    if let feedback = gpsFeedback { Text(feedback).foregroundColor(.red) }
+                }
+                .navigationTitle("Corriger la sortie")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Annuler") { correctingGpsDeparture = nil }
+                    }
+                }
+            }
+        }
         .confirmationDialog(
             "Supprimer cette zone GPS ?",
             isPresented: Binding(
@@ -85,8 +118,12 @@ struct ContentView: View {
                         }
                     }
                 } else {
-                    Button("Confirmer la sortie", role: .destructive) {
-                        confirmGpsDeparture(event: event)
+                    Button("Confirmer la sortie à \(event.occurredAt.formatted(date: .abbreviated, time: .shortened))", role: .destructive) {
+                        _ = confirmGpsDeparture(event: event, at: event.occurredAt)
+                    }
+                    Button("Corriger l'heure réelle de sortie") {
+                        correctedGpsDepartureDate = event.occurredAt
+                        correctingGpsDeparture = event
                     }
                 }
                 Button("Ignorer cet événement", role: .destructive) {
@@ -655,27 +692,33 @@ struct ContentView: View {
         }
     }
 
-    private func confirmGpsDeparture(event: GpsPendingEventV2) {
+    @discardableResult
+    private func confirmGpsDeparture(event: GpsPendingEventV2, at exitDate: Date) -> Bool {
         guard locationManager.reconcileSession(openSessionId: store.currentSession?.id) else {
             gpsFeedback = "État GPS à vérifier avant de confirmer cet événement."
-            return
+            return false
         }
         guard let currentSession = store.currentSession else {
             gpsFeedback = "Aucune entrée en cours : sortie GPS ignorée."
             locationManager.clearPendingEvent()
-            return
+            return false
         }
         if store.currentPauseNeedsQualification {
             gpsFeedback = "Qualifie d'abord la pause en cours avant de confirmer la sortie."
             showPausePaymentChoice = true
-            return
+            return false
         }
         guard event.expectedSessionId == currentSession.id else {
             gpsFeedback = "Cette sortie GPS ne correspond pas au pointage en cours."
-            return
+            return false
+        }
+        guard locationManager.pendingEvent?.id == event.id,
+              exitDate <= event.occurredAt else {
+            gpsFeedback = "Événement GPS expiré ou heure réelle après la détection : sortie non enregistrée."
+            return false
         }
         if store.clockOut(
-            at: event.occurredAt,
+            at: exitDate,
             expectedSessionId: currentSession.id
         ) {
             if locationManager.confirmDeparture(
@@ -688,8 +731,10 @@ struct ContentView: View {
                 gpsFeedback = "Sortie enregistrée, mais le suivi GPS est à vérifier."
             }
             refreshClockEmployerSelection()
+            return true
         } else {
             gpsFeedback = "Sortie GPS non enregistrée : chronologie ou historique à vérifier."
+            return false
         }
     }
 

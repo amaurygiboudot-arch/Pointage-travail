@@ -28,6 +28,7 @@ object GpsWorkStateCoordinatorV2 {
         ENTRY_STARTED,
         RETURNED_TO_POSTE,
         EXIT_PENDING_CONFIRMATION,
+        EXIT_AUTOMATICALLY_RECORDED,
         AMBIGUOUS_PENDING_CONFIRMATION,
         NO_CHANGE
     }
@@ -49,7 +50,10 @@ object GpsWorkStateCoordinatorV2 {
         enum class Kind { EXIT_WORKSITE, AMBIGUOUS }
     }
 
-    fun route(context: Context, event: GpsEventV2, decision: GpsDecisionV2): Outcome {
+    fun route(context: Context, event: GpsEventV2, decision: GpsDecisionV2): Outcome =
+        V2RuntimeStore.withTransaction { routeLocked(context, event, decision) }
+
+    private fun routeLocked(context: Context, event: GpsEventV2, decision: GpsDecisionV2): Outcome {
         if (!decision.accepted || decision.duplicate) {
             return Outcome(Action.IGNORED, false, decision.reason)
         }
@@ -103,6 +107,17 @@ object GpsWorkStateCoordinatorV2 {
                     true,
                     "Une transition GPS attend déjà une confirmation"
                 )
+            }
+            val expectedEnd = V2RuntimeStore.expectedEndForAutomaticGpsExit(context, current)
+            if (currentPending == null && current.placeId != null && current.placeId == event.placeId &&
+                GpsExitConfirmationPolicyV2.canAutomaticallyClose(current, event.atMs, expectedEnd)
+            ) {
+                val closed = V2RuntimeStore.exit(context, event.atMs, expectedEnd)
+                if (closed) {
+                    clearPending(context)
+                    return Outcome(Action.EXIT_AUTOMATICALLY_RECORDED, false,
+                        "Fin prévue atteinte : sortie GPS enregistrée automatiquement")
+                }
             }
             savePending(context, event, Pending.Kind.EXIT_WORKSITE)
             return Outcome(Action.EXIT_PENDING_CONFIRMATION, true, "Sortie du poste détectée : fin de journée à confirmer")
@@ -225,15 +240,24 @@ object GpsWorkStateCoordinatorV2 {
     fun confirmExit(
         context: Context,
         expectedPendingId: String,
-        expectedEndMs: Long? = null
-    ): Boolean {
+        expectedEndMs: Long? = null,
+        confirmedExitMs: Long? = null,
+        expectedSessionId: String? = null
+    ): Boolean = V2RuntimeStore.withTransaction {
         val pending = pending(context)
             ?.takeIf { matchesPendingId(it, expectedPendingId) }
-            ?: return false
-        if (pending.kind != Pending.Kind.EXIT_WORKSITE) return false
-        val ok = V2RuntimeStore.exit(context, pending.atMs, expectedEndMs)
+            ?: return@withTransaction false
+        if (pending.kind != Pending.Kind.EXIT_WORKSITE) return@withTransaction false
+        val session = V2RuntimeStore.snapshot(context, pending.atMs).session
+            ?: return@withTransaction false
+        val exitMs = confirmedExitMs ?: pending.atMs
+        if (!GpsExitConfirmationPolicyV2.canConfirm(
+                session, expectedSessionId ?: session.id, pending.atMs, exitMs
+            )
+        ) return@withTransaction false
+        val ok = V2RuntimeStore.exit(context, exitMs, expectedEndMs)
         if (ok) clearPending(context)
-        return ok
+        ok
     }
 
     /**
