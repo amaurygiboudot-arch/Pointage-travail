@@ -185,6 +185,7 @@ class V2MonthlyPdfActivity : Activity() {
                     val buffer = ByteArray(8192)
                     while (true) { val count = input.read(buffer); if (count < 0) break; check(active(uid)); output.write(buffer, 0, count) }
                 } } ?: error("Destination inaccessible")
+                check(active(uid) && MonthlyPdfExportPolicy.allows(uid, currentUid(), hash, BillingContract.documentId(file)))
             }
             if (result.isFailure && !isChangingConfigurations) cleanup(uri)
             runOnUiThread {

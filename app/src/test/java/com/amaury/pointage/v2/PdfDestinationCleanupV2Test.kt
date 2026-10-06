@@ -1,12 +1,15 @@
 package com.amaury.pointage.v2
 
 import android.app.Application
+import android.content.Context
 import android.content.ContentResolver
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
+import com.amaury.pointage.billing.BillingPdfGate
+import com.amaury.pointage.billing.BillingContract
 import com.amaury.pointage.DriveBackupManager
 import com.amaury.pointage.V2MonthlyPdfActivity
 import com.google.firebase.auth.FirebaseAuth
@@ -32,11 +35,11 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class,
-    shadows = [DestinationDocumentsShadow::class, DestinationResolverShadow::class, PdfIntegrationAuthShadow::class],
-    instrumentedPackages = ["com.google.firebase.auth"])
+    shadows = [DestinationDocumentsShadow::class, DestinationResolverShadow::class, PdfIntegrationAuthShadow::class, DestinationGateShadow::class],
+    instrumentedPackages = ["com.google.firebase.auth", "com.amaury.pointage.billing"])
 class PdfDestinationCleanupV2Test {
     private val parent = Uri.parse("content://pdf-test/tree/root/document/root")
-    @Before fun reset() { DestinationDocumentsShadow.reset() }
+    @Before fun reset() { DestinationDocumentsShadow.reset(); DestinationGateShadow.calls.set(0) }
     private fun source() = File.createTempFile("pdf-test", ".pdf", RuntimeEnvironment.getApplication().cacheDir).apply { writeText("exact purchased bytes") }
 
     @Test fun nullDestinationStreamDeletesNewDocumentAndThrows() {
@@ -68,6 +71,36 @@ class PdfDestinationCleanupV2Test {
         DestinationDocumentsShadow.onWrite = { valid = false }
         assertThrows(Exception::class.java) { DriveBackupManager.publishPreparedPdf(RuntimeEnvironment.getApplication(), parent, "report.pdf", source()) { valid } }
         assertTrue(DestinationDocumentsShadow.files.isEmpty())
+    }
+    @Test fun actualMonthlyCopyDeletesDestinationWhenAccountChangesOnLastWrite() {
+        monthlyLastWriteFailure { _, auth -> Mockito.`when`(auth.currentUser).thenReturn(null) }
+    }
+    @Test fun actualMonthlyCopyDeletesDestinationWhenSourceChangesOnLastWrite() {
+        monthlyLastWriteFailure { file, _ -> file.writeBytes(ByteArray(file.length().toInt()) { 120 }) }
+    }
+    private fun monthlyLastWriteFailure(change: (File, FirebaseAuth) -> Unit) {
+        val uid = "monthly-copy-owner"
+        val user = Mockito.mock(FirebaseUser::class.java)
+        Mockito.`when`(user.uid).thenReturn(uid)
+        val auth = Mockito.mock(FirebaseAuth::class.java)
+        Mockito.`when`(auth.currentUser).thenReturn(user)
+        PdfIntegrationAuthShadow.auth = auth
+        val app = RuntimeEnvironment.getApplication()
+        val folder = File(app.filesDir, "monthly_pdf_pending/${BillingContract.accountId(uid)}").apply { mkdirs() }
+        val file = File(folder, "last-write.pdf").apply { writeText("original exact bytes") }
+        DestinationDocumentsShadow.files["partial.pdf"] = byteArrayOf()
+        DestinationDocumentsShadow.onWrite = { change(file, auth) }
+        val state = Bundle().apply {
+            putString("owner_uid", uid); putString("phase", "COPYING")
+            putString("file", file.absolutePath); putString("hash", BillingContract.documentId(file))
+            putString("destination", DestinationDocumentsShadow.uri("partial.pdf").toString())
+        }
+        val controller = Robolectric.buildActivity(V2MonthlyPdfActivity::class.java).create(state)
+        try {
+            assertTrue("Final verification must remove the last-write failure", DestinationDocumentsShadow.deletedLatch.await(3, TimeUnit.SECONDS))
+            assertEquals("The actual copy passed its read-only authorization", 1, DestinationGateShadow.calls.get())
+            assertFalse(DestinationDocumentsShadow.files.containsKey("partial.pdf"))
+        } finally { controller.destroy() }
     }
     @Test fun actualMonthlyRecreationUnderDifferentAccountDeletesSavedDestination() {
         val user = Mockito.mock(FirebaseUser::class.java)
@@ -133,5 +166,13 @@ class DestinationResolverShadow {
             }
             override fun close() { DestinationDocumentsShadow.files[name] = toByteArray(); super.close() }
         }
+    }
+}
+
+@Implements(value = BillingPdfGate::class, isInAndroidSdk = false)
+class DestinationGateShadow {
+    companion object { val calls = java.util.concurrent.atomic.AtomicInteger() }
+    @Implementation fun authorizeBackgroundBlocking(context: Context, file: File): Boolean {
+        calls.incrementAndGet(); return true
     }
 }

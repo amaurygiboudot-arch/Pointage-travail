@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2
 
 import android.app.Application
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ProviderInfo
@@ -38,6 +39,8 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.io.OutputStream
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class,
@@ -67,7 +70,8 @@ class PdfPreviewSaveIntegrationV2Test {
         })
         ShadowContentResolver.registerProviderInternal("pdf.save.test", provider)
         PdfSaveGateShadow.allow = true; PdfSaveGateShadow.unavailable = false
-        PdfSaveGateShadow.calls.set(0)
+        PdfSaveGateShadow.calls.set(0); PdfSaveGateShadow.interactiveCalls.set(0)
+        PdfSaveGateShadow.started = null; PdfSaveGateShadow.release = null
         PdfSaveResolverShadow.mode = "success"
     }
 
@@ -97,6 +101,33 @@ class PdfPreviewSaveIntegrationV2Test {
             assertEquals(1, PdfSaveDocumentsProvider.deletions.get())
             assertEquals(0, PdfSaveGateShadow.calls.get())
         } finally { controller.destroy() }
+    }
+
+    @Test fun resumeDuringSaveUsesNoInteractiveGateAndAllowsManualRetryAfterRefusal() {
+        val state = Bundle().apply {
+            putString("pdf_owner", "save-user"); putString("save_file", source.absolutePath)
+            putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true)
+        }
+        val controller = Robolectric.buildActivity(PdfPreviewActivity::class.java,
+            Intent(RuntimeEnvironment.getApplication(), PdfPreviewActivity::class.java).putExtra("pdf_path", source.absolutePath)).create(state)
+        PdfSaveGateShadow.started = CountDownLatch(1)
+        PdfSaveGateShadow.release = CountDownLatch(1)
+        PdfSaveGateShadow.allow = false
+        try {
+            val activity = controller.get()
+            PdfPreviewActivity::class.java.getDeclaredMethod("onActivityResult", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Intent::class.java)
+                .apply { isAccessible = true }.invoke(activity, 4102, Activity.RESULT_OK, Intent().setData(uri))
+            assertTrue("Copy must reach read-only authorization", PdfSaveGateShadow.started!!.await(5, TimeUnit.SECONDS))
+            PdfPreviewActivity::class.java.getDeclaredMethod("onResume").apply { isAccessible = true }.invoke(activity)
+            assertEquals("Returning from SAF cannot open offers", 0, PdfSaveGateShadow.interactiveCalls.get())
+            PdfSaveGateShadow.release!!.countDown()
+            val deadline = System.nanoTime() + 5_000_000_000L
+            while (System.nanoTime() < deadline && ShadowToast.getTextOfLatestToast() == null) { shadowOf(Looper.getMainLooper()).idle(); Thread.yield() }
+            shadowOf(Looper.getMainLooper()).idle()
+            assertFalse(destination.exists())
+            assertEquals(0, PdfSaveGateShadow.interactiveCalls.get())
+            assertTrue("Retry must remain available as an explicit click", activity.findViewById<android.widget.Button>(com.amaury.pointage.R.id.pdfPreviewSave).isEnabled)
+        } finally { PdfSaveGateShadow.release?.countDown(); controller.destroy() }
     }
 
     private fun runSave(mode: String) {
@@ -156,9 +187,19 @@ class PdfSaveGateShadow {
         @Volatile var allow = true
         @Volatile var unavailable = false
         val calls = AtomicInteger()
+        val interactiveCalls = AtomicInteger()
+        @Volatile var started: CountDownLatch? = null
+        @Volatile var release: CountDownLatch? = null
+    }
+    @Implementation fun require(activity: Activity, file: File, displayName: String, usePlusCredit: Boolean,
+        useAnalysisCredit: Boolean, onDenied: () -> Unit, onAuthorized: (File) -> Unit) {
+        interactiveCalls.incrementAndGet()
+        throw AssertionError("An interactive gate opened while a save destination exists")
     }
     @Implementation fun authorizeBackgroundBlocking(context: Context, file: File): Boolean {
         calls.incrementAndGet()
+        started?.countDown()
+        check(release?.await(5, TimeUnit.SECONDS) != false)
         if (unavailable) throw IOException("Backend unavailable")
         return allow
     }

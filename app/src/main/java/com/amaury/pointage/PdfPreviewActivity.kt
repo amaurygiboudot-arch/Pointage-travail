@@ -61,6 +61,8 @@ class PdfPreviewActivity : Activity() {
         stateSaved = false
         val currentUid = runCatching { FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
         if (currentUid != documentAccountUid) { finish(); return }
+        // The existing picker/copy is finalized by read-only authorization only.
+        if (pickerRequested || destination != null) return
         BillingPdfGate.require(this, pdfFile, displayName = fileName) { authorizedFile ->
             if (!resumed || documentAccountUid != currentUid()) return@require
             pdfFile = authorizedFile
@@ -166,6 +168,15 @@ class PdfPreviewActivity : Activity() {
             runOnUiThread {
                 if (isDestroyed || isChangingConfigurations) return@runOnUiThread
                 clearSave()
+                if (result.isSuccess && resumed && active(uid)) {
+                    pdfFile = file
+                    findViewById<LinearLayout>(R.id.pdfPagesContainer).removeAllViews()
+                    runCatching { renderPdf() }
+                    findViewById<Button>(R.id.pdfPreviewSave).isEnabled = true
+                } else if (currentUid() == uid) {
+                    // Retry is an explicit click; never reopen offers from this callback.
+                    findViewById<Button>(R.id.pdfPreviewSave).isEnabled = true
+                } else finish()
                 toast(if (result.isSuccess) "PDF enregistré" else "Impossible d'enregistrer le PDF. Le document incomplet a été supprimé si le fournisseur le permet.")
             }
         }
