@@ -129,9 +129,11 @@ class PdfPreviewActivity : Activity() {
         if (resultCode != RESULT_OK || uri == null) {
             if (uri?.scheme == "content") cleanup(uri)
             clearSave()
+            enableManualRetry()
+            restorePreviewReadOnly()
             return
         }
-        if (uri.scheme != "content") { clearSave(); toast("Emplacement PDF invalide."); return }
+        if (uri.scheme != "content") { clearSave(); enableManualRetry(); restorePreviewReadOnly(); toast("Emplacement PDF invalide."); return }
         destination = uri
         runCatching { contentResolver.takePersistableUriPermission(uri,
             (data?.flags ?: 0) and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)) }
@@ -195,6 +197,32 @@ class PdfPreviewActivity : Activity() {
     private fun active(uid: String) = !isFinishing && !isDestroyed && !isChangingConfigurations && currentUid() == uid
     private fun currentUid() = runCatching { FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
     private fun cleanup(uri: Uri) { runCatching { DocumentsContract.deleteDocument(contentResolver, uri) } }
+    private fun restorePreviewReadOnly() {
+        val uid = documentAccountUid ?: return
+        val file = pdfFile
+        exportWorker.execute {
+            val verified = runCatching {
+                check(active(uid))
+                val hash = BillingContract.documentId(file)
+                check(BillingPdfGate.authorizeBackgroundBlocking(this, file))
+                check(active(uid) && BillingContract.documentId(file) == hash)
+            }.isSuccess
+            runOnUiThread {
+                if (!active(uid) || !resumed || pickerRequested || destination != null) return@runOnUiThread
+                if (verified) {
+                    findViewById<LinearLayout>(R.id.pdfPagesContainer).removeAllViews()
+                    runCatching { renderPdf() }
+                }
+                enableManualRetry()
+            }
+        }
+    }
+
+    private fun enableManualRetry() {
+        if (documentAccountUid != null && documentAccountUid == currentUid() && !isFinishing && !isDestroyed)
+            findViewById<Button>(R.id.pdfPreviewSave).isEnabled = true
+        else finish()
+    }
     private fun clearSave() { pendingFile = null; pendingHash = null; pickerRequested = false; destination = null }
     private fun toast(text: String) { Toast.makeText(this, text, Toast.LENGTH_LONG).show() }
 

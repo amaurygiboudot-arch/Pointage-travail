@@ -53,7 +53,7 @@ class PdfPreviewSaveIntegrationV2Test {
     private val uri = DocumentsContract.buildDocumentUri("pdf.save.test", "created")
 
     @Before fun setupCreatedDocument() {
-        val app = RuntimeEnvironment.getApplication<Application>()
+        val app = RuntimeEnvironment.getApplication()
         val user = Mockito.mock(FirebaseUser::class.java)
         Mockito.`when`(user.uid).thenReturn("save-user")
         PdfSaveAuthShadow.auth = Mockito.mock(FirebaseAuth::class.java)
@@ -71,7 +71,7 @@ class PdfPreviewSaveIntegrationV2Test {
         ShadowContentResolver.registerProviderInternal("pdf.save.test", provider)
         PdfSaveGateShadow.allow = true; PdfSaveGateShadow.unavailable = false
         PdfSaveGateShadow.calls.set(0); PdfSaveGateShadow.interactiveCalls.set(0)
-        PdfSaveGateShadow.started = null; PdfSaveGateShadow.release = null
+        PdfSaveGateShadow.started = null; PdfSaveGateShadow.release = null; PdfSaveGateShadow.completed = null
         PdfSaveResolverShadow.mode = "success"
     }
 
@@ -128,6 +128,36 @@ class PdfPreviewSaveIntegrationV2Test {
             assertEquals(0, PdfSaveGateShadow.interactiveCalls.get())
             assertTrue("Retry must remain available as an explicit click", activity.findViewById<android.widget.Button>(com.amaury.pointage.R.id.pdfPreviewSave).isEnabled)
         } finally { PdfSaveGateShadow.release?.countDown(); controller.destroy() }
+    }
+
+    @Test fun cancelAfterResumeRestoresManualRetryWithoutInteractiveGate() {
+        PdfSaveGateShadow.allow = false
+        PdfSaveGateShadow.completed = CountDownLatch(1)
+        val state = Bundle().apply {
+            putString("pdf_owner", "save-user"); putString("save_file", source.absolutePath)
+            putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true)
+        }
+        val controller = Robolectric.buildActivity(PdfPreviewActivity::class.java,
+            Intent(RuntimeEnvironment.getApplication(), PdfPreviewActivity::class.java).putExtra("pdf_path", source.absolutePath)).create(state)
+        try {
+            val activity = controller.get()
+            PdfPreviewActivity::class.java.getDeclaredMethod("onResume").apply { isAccessible = true }.invoke(activity)
+            assertFalse(activity.findViewById<android.widget.Button>(com.amaury.pointage.R.id.pdfPreviewSave).isEnabled)
+            PdfPreviewActivity::class.java.getDeclaredMethod("onActivityResult", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Intent::class.java)
+                .apply { isAccessible = true }.invoke(activity, 4102, Activity.RESULT_CANCELED, null)
+            assertTrue(activity.findViewById<android.widget.Button>(com.amaury.pointage.R.id.pdfPreviewSave).isEnabled)
+            assertEquals(0, PdfSaveGateShadow.interactiveCalls.get())
+            val save = activity.findViewById<android.widget.Button>(com.amaury.pointage.R.id.pdfPreviewSave)
+            save.isEnabled = false // Observe the final worker callback rather than its earlier immediate retry state.
+            val deadline = System.nanoTime() + 5_000_000_000L
+            while (System.nanoTime() < deadline && !save.isEnabled) { shadowOf(Looper.getMainLooper()).idle(); Thread.yield() }
+            assertTrue(PdfSaveGateShadow.completed!!.await(5, TimeUnit.SECONDS))
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue("Read-only terminal callback completed before teardown", save.isEnabled)
+            assertEquals("Cancel restores preview through read-only authorization", 1, PdfSaveGateShadow.calls.get())
+            assertEquals(0, PdfSaveGateShadow.interactiveCalls.get())
+            assertNull(shadowOf(activity).nextStartedActivity)
+        } finally { controller.destroy() }
     }
 
     private fun runSave(mode: String) {
@@ -190,6 +220,7 @@ class PdfSaveGateShadow {
         val interactiveCalls = AtomicInteger()
         @Volatile var started: CountDownLatch? = null
         @Volatile var release: CountDownLatch? = null
+        @Volatile var completed: CountDownLatch? = null
     }
     @Implementation fun require(activity: Activity, file: File, displayName: String, usePlusCredit: Boolean,
         useAnalysisCredit: Boolean, onDenied: () -> Unit, onAuthorized: (File) -> Unit) {
@@ -201,6 +232,7 @@ class PdfSaveGateShadow {
         started?.countDown()
         check(release?.await(5, TimeUnit.SECONDS) != false)
         if (unavailable) throw IOException("Backend unavailable")
+        completed?.countDown()
         return allow
     }
 }
