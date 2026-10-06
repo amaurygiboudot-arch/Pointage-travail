@@ -3,7 +3,7 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require("firebase-functions/params");
-const { getApps, initializeApp } = require("firebase-admin/app");
+const { defaultAdminApp } = require("./firebaseRuntime");
 const { getFirestore } = require("firebase-admin/firestore");
 const { GoogleAuth } = require("google-auth-library");
 const { createPlayClient, createBillingService, BillingError } = require("./playBilling");
@@ -65,8 +65,7 @@ let firestoreInitAttempted = false;
 let billingService;
 function billingBackend() {
   if (!billingService) {
-    if (!getApps().length) initializeApp();
-    billingService = createBillingService({ db: getFirestore(), play: createPlayClient({
+    billingService = createBillingService({ db: getFirestore(defaultAdminApp()), play: createPlayClient({
       credential: { async getAccessToken() {
         const client = await new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/androidpublisher"] }).getClient();
         const result = await client.getAccessToken();
@@ -80,7 +79,7 @@ function billingCallable(action) {
   return onCall({ enforceAppCheck: true, timeoutSeconds: 60 }, async request => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Connexion requise.");
     const uid = request.auth.uid;
-    const db = (billingBackend(), getFirestore());
+    const db = getFirestore(defaultAdminApp());
     const profile = await db.collection("users").doc(uid).get();
     const owner = request.auth.token.horatrackOwner === true || profile.data()?.owner === true;
     try {
@@ -137,7 +136,7 @@ function legalCacheDb() {
   if (firestoreInitAttempted) return firestoreDb;
   firestoreInitAttempted = true;
   try {
-    const app = getApps().length ? getApps()[0] : initializeApp();
+    const app = defaultAdminApp();
     firestoreDb = getFirestore(app);
   } catch (error) {
     console.warn("Legal cache Firestore init failed", {
