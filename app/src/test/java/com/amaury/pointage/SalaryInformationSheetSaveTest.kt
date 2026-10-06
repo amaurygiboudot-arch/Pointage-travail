@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import android.app.Application
+import android.text.InputType
 import android.widget.Button
 import android.widget.EditText
 import android.widget.Spinner
@@ -50,6 +51,8 @@ class SalaryInformationSheetSaveTest {
         listOf("seniorityRttDifferential", "mutualEmployeeAmount", "providentEmployeeAmount",
             "transportEmployeeAmount", "employerProtectionTaxableAmount", "employeeProvidentNonDeductibleAmount").forEach { name ->
             val form = form()
+            // Inject malformed stored/pasted input without the numeric keyboard filtering it.
+            form.field(name).inputType = InputType.TYPE_CLASS_TEXT
             form.field(name).setText("-1")
             form.save()
             assertTrue(name, V2EmploymentContractHistoryStore.readConfirmed(form.context).snapshots.isEmpty())
