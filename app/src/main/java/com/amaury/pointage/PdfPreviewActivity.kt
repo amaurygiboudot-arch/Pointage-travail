@@ -11,7 +11,6 @@ import java.util.concurrent.Executors
 import com.amaury.pointage.billing.BillingContract
 import android.os.ParcelFileDescriptor
 import android.widget.Button
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Toast
 import java.io.File
@@ -97,11 +96,10 @@ class PdfPreviewActivity : Activity() {
                 bmp.eraseColor(android.graphics.Color.WHITE)
                 page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                 page.close()
-                container.addView(ImageView(this).apply {
+                container.addView(ZoomablePdfPageView(this).apply {
                     setImageBitmap(bmp)
-                    adjustViewBounds = true
                     setPadding(0, dp(6), 0, dp(6))
-                }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+                }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, bmp.height + dp(12)))
             }
         } finally { renderer.close(); fd.close() }
     }
