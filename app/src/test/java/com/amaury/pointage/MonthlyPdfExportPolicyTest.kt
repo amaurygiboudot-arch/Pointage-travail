@@ -3,9 +3,26 @@ package com.amaury.pointage
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.Assert.assertEquals
+import com.amaury.pointage.v2.engine.DefaultTimeEngineV2
+import com.amaury.pointage.v2.model.WorkSessionV2
+import com.amaury.pointage.v2.model.SessionStatusV2
 
 class MonthlyPdfExportPolicyTest {
     private val hash = "a".repeat(64)
+    @Test fun closedReportDurationDoesNotDependOnCurrentTime() {
+        val session = WorkSessionV2("stable", null, 100L, 100L, 200L, 200L, status = SessionStatusV2.CLOSED)
+        assertEquals(DefaultTimeEngineV2.calculate(session, 300L), DefaultTimeEngineV2.calculate(session, 900L))
+    }
+    @Test fun onlyClosedReliableSessionsHaveStableCachedDurations() {
+        assertTrue(MonthlyPdfExportPolicy.stableSession(true, 100L, 100L, 200L, 200L, true, true))
+        assertFalse(MonthlyPdfExportPolicy.stableSession(false, 100L, 100L, 200L, 200L, true, true))
+        assertFalse(MonthlyPdfExportPolicy.stableSession(true, 100L, 100L, null, 200L, true, true))
+        assertFalse(MonthlyPdfExportPolicy.stableSession(true, 100L, 100L, 200L, null, true, true))
+        assertFalse(MonthlyPdfExportPolicy.stableSession(true, 100L, 100L, 200L, 200L, false, true))
+        assertFalse(MonthlyPdfExportPolicy.stableSession(true, 100L, 100L, 200L, 200L, true, false))
+        assertFalse(MonthlyPdfExportPolicy.stableSession(true, 100L, 100L, 50L, 200L, true, true))
+    }
     @Test fun explicitPeriodRequiresBothValidCalendarFields() {
         assertTrue(MonthlyPdfExportPolicy.validPeriod(2026, 0))
         assertTrue(MonthlyPdfExportPolicy.validPeriod(2026, 11))
