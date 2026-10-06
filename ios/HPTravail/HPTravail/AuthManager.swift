@@ -188,6 +188,7 @@ final class AuthManager: NSObject, ObservableObject, ASAuthorizationControllerDe
             return
         }
 
+        IOSAppCheckBootstrap.configureBeforeFirebase()
         FirebaseApp.configure()
         isFirebaseConfigured = FirebaseApp.app() != nil
     }
