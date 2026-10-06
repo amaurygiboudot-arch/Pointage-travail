@@ -216,7 +216,10 @@ object PaidServiceReports {
                             try { writePdf(report, temp); check(temp.renameTo(file)) } finally { temp.delete() }
                         }
                         check(file.isFile && file.length() > 0)
-                        Prepared(file, "HoraTrack_${input.productId.removePrefix("horatrack_")}_${input.year}.pdf", report.inputSha256,
+                        val companyLabel = input.companyName.replace(Regex("[^A-Za-z0-9_-]"), "_").take(32).ifBlank { "entreprise" }
+                        val periodLabel = if (input.productId == "horatrack_annual_review") input.year.toString()
+                            else "%04d_%02d".format(Locale.FRANCE, input.year, input.months.single().month + 1)
+                        Prepared(file, "HoraTrack_${input.productId.removePrefix("horatrack_")}_${companyLabel}_$periodLabel.pdf", report.inputSha256,
                             report.inputSha256, report.scope)
                     }
                     activity.runOnUiThread {

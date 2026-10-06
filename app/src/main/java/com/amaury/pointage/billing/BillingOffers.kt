@@ -66,7 +66,8 @@ object BillingOffers {
                 (!included && report.productId == BillingContract.ANALYSIS && it.details.productId == BillingContract.PLUS) }
             val builder = AlertDialog.Builder(activity).setTitle("Débloquer ce rapport — PDF inclus")
                 .setMessage("Le rapport est préparé. Aucun aperçu avant validation serveur.\n\n" +
-                    if (available.isEmpty()) "Aucune offre Google Play active pour ce service. Aucun achat possible actuellement ; une analyse mensuelle Plus peut être utilisée si ton compte en dispose."
+                    if (available.isEmpty() && report.productId == BillingContract.ANALYSIS) "Aucune offre Google Play active pour ce bulletin. Aucun achat possible actuellement ; un crédit Plus ou un ancien crédit vérifié peut être utilisé si ton compte en dispose."
+                    else if (available.isEmpty()) "Aucune offre Google Play active pour cette prestation. Aucun achat possible actuellement. Premium et Plus ne comprennent pas cette prestation."
                     else if (report.productId == BillingContract.ANALYSIS) "Achat unique pour ce rapport, ou Premium + analyses pour un bulletin par mois. Le contrôle porte sur les montants confirmés disponibles, pas toutes les lignes du bulletin. Les prix et périodes ci-dessous sont ceux de Google Play."
                     else "Achat unique pour ce rapport, PDF inclus. Les abonnements Premium et Plus ne comprennent pas cette prestation. Le prix affiché est celui de Google Play.")
                 .setNeutralButton("Restaurer et vérifier") { _, _ -> HoraTrackBilling.restore(activity) { ok -> if (ok && BillingBackend.uid() == uid) onVerified() } }
