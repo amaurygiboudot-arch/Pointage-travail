@@ -47,4 +47,18 @@ class GpsExitConfirmationPolicyV2Test {
         assertTrue(GpsExitConfirmationPolicyV2.canConfirm(night, "shift", 30 * hour + 420_000L, 30 * hour))
         assertFalse(GpsExitConfirmationPolicyV2.canConfirm(night, "shift", 30 * hour + 420_000L, 6 * hour))
     }
+    @Test fun `automatic departure requires reached configured end and qualified facts`() {
+        val expected = 16 * hour
+        assertTrue(GpsExitConfirmationPolicyV2.canAutomaticallyClose(session(), expected, expected))
+        assertTrue(GpsExitConfirmationPolicyV2.canAutomaticallyClose(session(), expected + 420_000L, expected))
+        assertFalse(GpsExitConfirmationPolicyV2.canAutomaticallyClose(session(), expected - 1, expected))
+        assertFalse(GpsExitConfirmationPolicyV2.canAutomaticallyClose(session(), expected, null))
+        val unqualified = session().copy(pauses = listOf(PauseV2(12 * hour, 13 * hour, null, EventSourceV2.GPS)))
+        assertFalse(GpsExitConfirmationPolicyV2.canAutomaticallyClose(unqualified, expected, expected))
+        val unknownTravel = session().copy(travels = listOf(TravelV2(13 * hour, 14 * hour, "company", "other")))
+        assertFalse(GpsExitConfirmationPolicyV2.canAutomaticallyClose(unknownTravel, expected, expected))
+        assertFalse(GpsExitConfirmationPolicyV2.canAutomaticallyClose(session().copy(status = SessionStatusV2.CLOSED), expected, expected))
+        assertEquals(expected, WorkTimePolicyV2.countedExit(expected + 420_000L, expected))
+        assertEquals(expected + 21 * 60_000L, WorkTimePolicyV2.countedExit(expected + 21 * 60_000L, expected))
+    }
 }

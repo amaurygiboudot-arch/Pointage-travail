@@ -28,6 +28,7 @@ object GpsWorkStateCoordinatorV2 {
         ENTRY_STARTED,
         RETURNED_TO_POSTE,
         EXIT_PENDING_CONFIRMATION,
+        EXIT_AUTOMATICALLY_RECORDED,
         AMBIGUOUS_PENDING_CONFIRMATION,
         NO_CHANGE
     }
@@ -49,7 +50,10 @@ object GpsWorkStateCoordinatorV2 {
         enum class Kind { EXIT_WORKSITE, AMBIGUOUS }
     }
 
-    fun route(context: Context, event: GpsEventV2, decision: GpsDecisionV2): Outcome {
+    fun route(context: Context, event: GpsEventV2, decision: GpsDecisionV2): Outcome =
+        V2RuntimeStore.withTransaction { routeLocked(context, event, decision) }
+
+    private fun routeLocked(context: Context, event: GpsEventV2, decision: GpsDecisionV2): Outcome {
         if (!decision.accepted || decision.duplicate) {
             return Outcome(Action.IGNORED, false, decision.reason)
         }
@@ -103,6 +107,17 @@ object GpsWorkStateCoordinatorV2 {
                     true,
                     "Une transition GPS attend déjà une confirmation"
                 )
+            }
+            val expectedEnd = V2RuntimeStore.expectedEndForAutomaticGpsExit(context, current)
+            if (currentPending == null && current.placeId != null && current.placeId == event.placeId &&
+                GpsExitConfirmationPolicyV2.canAutomaticallyClose(current, event.atMs, expectedEnd)
+            ) {
+                val closed = V2RuntimeStore.exit(context, event.atMs, expectedEnd)
+                if (closed) {
+                    clearPending(context)
+                    return Outcome(Action.EXIT_AUTOMATICALLY_RECORDED, false,
+                        "Fin prévue atteinte : sortie GPS enregistrée automatiquement")
+                }
             }
             savePending(context, event, Pending.Kind.EXIT_WORKSITE)
             return Outcome(Action.EXIT_PENDING_CONFIRMATION, true, "Sortie du poste détectée : fin de journée à confirmer")

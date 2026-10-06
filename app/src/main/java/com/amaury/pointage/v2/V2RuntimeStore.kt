@@ -542,6 +542,15 @@ object V2RuntimeStore {
             }
         }
 
+    /** Autorisation automatique : jamais de sélection de profil depuis l'heure de sortie. */
+    fun expectedEndForAutomaticGpsExit(context: Context, session: WorkSessionV2): Long? {
+        val entry = session.realArrivalMs ?: return null
+        return expectedEnd(context)?.takeIf { it > entry }
+            ?: session.employerId?.takeIf { it.isNotBlank() }?.let { companyId ->
+                V2ScheduleStore.unambiguousExpectedEndForArrival(context, companyId, entry)
+            }?.takeIf { it > entry }
+    }
+
     /** Même résolution et même calcul que la fermeture, sans écrire de pointage. */
     fun previewCountedExit(context: Context, exitMs: Long): Long? {
         if (exitMs <= 0L) return null
