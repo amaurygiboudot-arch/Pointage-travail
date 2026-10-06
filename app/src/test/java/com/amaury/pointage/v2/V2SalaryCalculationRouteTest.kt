@@ -43,4 +43,16 @@ class V2SalaryCalculationRouteTest {
             assertEquals(V2SalaryCalculationRoute.Route.BLOCKED,V2SalaryCalculationRoute.choose(singleContract(),source))
         }
     }
+    @Test fun blockedRouteRetainsContractAndRuleDiagnostics() {
+        val result = V2SalaryCalculationRoute.describe(contracts(emptyList()), rules(emptyList()),
+            listOf("Contrat absent", "Règles absentes", "Contrat absent"))
+        assertEquals(V2SalaryCalculationRoute.Route.BLOCKED, result.route)
+        assertEquals(listOf("Contrat absent", "Règles absentes", V2SalaryCalculationRoute.BLOCKED_WARNING), result.warnings)
+    }
+    @Test fun confirmedRoutePreservesNonBlockingSourceWarnings() {
+        val result = V2SalaryCalculationRoute.describe(singleContract(), singleRule(), listOf("Temps payé incomplet"))
+        assertEquals(V2SalaryCalculationRoute.Route.MONTHLY, result.route)
+        assertEquals(singleContract().contract, result.contract)
+        assertEquals(listOf("Temps payé incomplet"), result.warnings)
+    }
 }
