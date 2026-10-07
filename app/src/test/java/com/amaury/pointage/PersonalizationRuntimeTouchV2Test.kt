@@ -149,7 +149,9 @@ class PersonalizationRuntimeTouchV2Test {
                 shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(160))
                 assertEquals(highContrast, PersonalizationRuntimeV2.isProtectionApplied(late))
                 assertNull("Opaque dialogs must not add photo strips", late.background)
-                assertEquals(Color.WHITE, late.currentTextColor)
+                val panelColor = (root.background as android.graphics.drawable.GradientDrawable).color!!.defaultColor
+                assertTrue("Late rows must contrast with the actual light or dark dialog",
+                    VisualContrastV2.ratio(late.currentTextColor, panelColor) >= 4.5)
                 dialog.dismiss()
             }
         } finally {
