@@ -121,8 +121,8 @@ object CustomColorPickerV2 {
             override fun afterTextChanged(s: Editable?) = Unit
         })
         refresh(true)
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+        dialog.show()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val valid = parseHex(input.text.toString())
                 if (valid == null) {
                     input.error = "Saisissez 6 chiffres hexadécimaux, par exemple #2A80D4"
@@ -132,9 +132,7 @@ object CustomColorPickerV2 {
                     dialog.dismiss()
                 }
             }
-            PersonalizationRuntimeV2.track(dialog)
-        }
-        dialog.show()
+        PersonalizationRuntimeV2.track(dialog)
         return dialog
     }
 

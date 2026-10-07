@@ -147,7 +147,8 @@ class PersonalizationRuntimeTouchV2Test {
                 body.addView(late)
                 root.viewTreeObserver.dispatchOnGlobalLayout()
                 shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(160))
-                assertTrue(PersonalizationRuntimeV2.isProtectionApplied(late))
+                assertEquals(highContrast, PersonalizationRuntimeV2.isProtectionApplied(late))
+                assertNull("Opaque dialogs must not add photo strips", late.background)
                 assertEquals(Color.WHITE, late.currentTextColor)
                 dialog.dismiss()
             }
