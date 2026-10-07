@@ -58,7 +58,7 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
         val update = Runnable {
             if (dialog.isShowing) {
                 AppearanceManager.applyDialog(dialog)
-                apply(root)
+                apply(root, opaqueSurface = true)
             }
         }
         val observer = ViewTreeObserver.OnGlobalLayoutListener {
@@ -76,7 +76,7 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
                 root.removeOnAttachStateChangeListener(this)
             }
         })
-        apply(root)
+        apply(root, opaqueSurface = true)
         return dialog
     }
     private fun refreshDialogs() {
@@ -86,7 +86,7 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
             else {
                 dialog.window?.decorView?.let(::releaseProtection)
                 AppearanceManager.applyDialog(dialog)
-                dialog.window?.decorView?.let(::apply)
+                dialog.window?.decorView?.let { apply(it, opaqueSurface = true) }
             }
         }
     }
@@ -106,13 +106,13 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
     }
     fun reducedMotion(context: android.content.Context): Boolean = PersonalizationStoreV2.read(context).effectiveReduceMotion
 
-    fun apply(root: View) {
+    fun apply(root: View, opaqueSurface: Boolean = false) {
         val profile = PersonalizationStoreV2.read(root.context)
         val protectImage = root.context.getSharedPreferences(AppThemeCatalog.PREFS, android.content.Context.MODE_PRIVATE)
             .getBoolean("custom_image_bg", false)
-        walk(root, profile, protectImage)
+        walk(root, profile, protectImage && !opaqueSurface, opaqueSurface)
     }
-    private fun walk(view: View, profile: PersonalizationProfileV2, protectImage: Boolean) {
+    private fun walk(view: View, profile: PersonalizationProfileV2, protectImage: Boolean, opaqueSurface: Boolean) {
         if (view.tag == "personalization_reader_v2") return
         if (view is android.widget.ImageView) ContentImageReaderV2.attach(view)
         if (view is TextView) {
@@ -173,7 +173,7 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
                 gradientFill != null && Color.alpha(gradientFill.getColorForState(view.drawableState, gradientFill.defaultColor)) < 255
             val needsSupport = profile.highContrast || (protectImage && (bareLabel || transparentInputSurface))
             if (needsSupport) {
-                HighContrastTextStyleV2.apply(view)
+                HighContrastTextStyleV2.apply(view, opaqueSurface)
                 state.protected = true
             } else if (state.protected) {
                 view.background = state.background
@@ -193,7 +193,7 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
                 }
             }
         }
-        if (view is ViewGroup) for (i in 0 until view.childCount) walk(view.getChildAt(i), profile, protectImage)
+        if (view is ViewGroup) for (i in 0 until view.childCount) walk(view.getChildAt(i), profile, protectImage, opaqueSurface)
     }
     private fun hasInteractiveAncestor(view: View): Boolean {
         var ancestor = view.parent

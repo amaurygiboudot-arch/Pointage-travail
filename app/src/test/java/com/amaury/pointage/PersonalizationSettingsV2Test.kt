@@ -6,6 +6,7 @@ import android.app.Application
 import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
 import android.widget.Button
 import android.widget.Switch
 import android.widget.TextView
@@ -33,6 +34,40 @@ class PersonalizationSettingsV2Test {
 
     private fun descendants(view: View): List<View> = listOf(view) +
         if (view is ViewGroup) (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) } else emptyList()
+
+    @Test fun narrowDialogAtDoubleTextSizeKeepsControlsSeparatedAndFullyMeasured() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        val activity = controller.get()
+        assertTrue(PersonalizationStoreV2.save(activity, PersonalizationProfileV2(textScale = 2f), replaceUnreadable = true))
+        PersonalizationSettingsV2.open(activity)
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        val controls = descendants(dialog.window!!.decorView).filterIsInstance<TextView>()
+        val size = controls.filterIsInstance<Button>().single { it.text.startsWith("Taille du texte :") }
+        val content = size.parent as LinearLayout
+        // 280 dp is the content width of a dialog on a small 320 dp screen.
+        val density = activity.resources.displayMetrics.density
+        val width = (280 * density).toInt()
+        content.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        content.layout(0, 0, width, content.measuredHeight)
+        val interactive = (0 until content.childCount).map(content::getChildAt)
+            .filter { it.visibility == View.VISIBLE && (it is Button || it is Switch) }
+        assertTrue(interactive.isNotEmpty())
+        interactive.forEach { view ->
+            val text = view as TextView
+            assertTrue("Touch target must be at least 48 dp", view.height >= 48 * density)
+            assertTrue("Text must fit its measured height", text.height >= text.layout.height + text.compoundPaddingTop + text.compoundPaddingBottom)
+            assertEquals("All wrapped lines must remain visible", 0, text.layout.getEllipsisCount(text.layout.lineCount - 1))
+            assertTrue(view.right <= width - content.paddingRight)
+            assertTrue(view.left >= content.paddingLeft)
+        }
+        interactive.zipWithNext().forEach { (previous, next) ->
+            assertTrue("Controls must keep an 8 dp gap", next.top - previous.bottom >= 8 * density)
+        }
+        assertTrue(interactive.filterIsInstance<Switch>().all { it.compoundPaddingRight > it.paddingRight })
+        dialog.dismiss()
+        controller.pause().stop().destroy()
+    }
 
     @Test fun readerZoomSurvivesChangeFromAlreadyOpenSettings() {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()

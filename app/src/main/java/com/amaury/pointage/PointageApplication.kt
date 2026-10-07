@@ -126,7 +126,7 @@ object AppearanceManager {
                 if (view is EditText) {
                     if (view.hintTextColors !== palette.foregroundTint) view.setHintTextColor(palette.foregroundTint)
                     if (view.backgroundTintList !== palette.foregroundTint) view.backgroundTintList = palette.foregroundTint
-                } else if (view is Button && (!palette.buttonBackgrounds.containsKey(view) || palette.buttonBackgrounds[view] !== view.background)) {
+                } else if (view is Button && view !is android.widget.CompoundButton && (!palette.buttonBackgrounds.containsKey(view) || palette.buttonBackgrounds[view] !== view.background)) {
                     view.backgroundTintList = null
                     val left = view.paddingLeft; val top = view.paddingTop
                     val right = view.paddingRight; val bottom = view.paddingBottom
@@ -512,7 +512,7 @@ object SettingsUiInstaller {
         val colors = arrayOf("#080808", "#242424", "#0D1B2A", "#102A20", "#351015", "#F3F0E8")
         AlertDialog.Builder(activity).setTitle("Fond de l'application").setItems(labels) { _, which ->
             if (which < colors.size) saveAppBg(activity, colors[which])
-            else customColorDialog(activity, "Couleur du fond") { saveAppBg(activity, it) }
+            else customColorDialog(activity, "Couleur du fond", String.format(java.util.Locale.ROOT, "#%06X", AppearanceManager.backgroundColor(activity) and 0xFFFFFF)) { saveAppBg(activity, it) }
         }.show()
     }
 
@@ -528,7 +528,7 @@ object SettingsUiInstaller {
         val colors = arrayOf("#080808", "#242424", "#0D1B2A", "#102A20", "#D6A84B", "#FFFFFF")
         AlertDialog.Builder(activity).setTitle(title).setItems(labels) { _, which ->
             if (which < colors.size) saveWidgetColor(activity, key, colors[which])
-            else customColorDialog(activity, title) { saveWidgetColor(activity, key, it) }
+            else customColorDialog(activity, title, activity.getSharedPreferences(WidgetStyleSettings.PREFS, Context.MODE_PRIVATE).getString(key, "#1A1A1A") ?: "#1A1A1A") { saveWidgetColor(activity, key, it) }
         }.show()
     }
 
@@ -539,14 +539,7 @@ object SettingsUiInstaller {
         Toast.makeText(activity, "Widget mis à jour", Toast.LENGTH_SHORT).show()
     }
 
-    private fun customColorDialog(activity: Activity, title: String, onSave: (String) -> Unit) {
-        val input = EditText(activity).apply { hint = "#1A1A1A"; setText("#1A1A1A") }
-        AlertDialog.Builder(activity).setTitle(title).setView(input)
-            .setPositiveButton("Appliquer") { _, _ ->
-                val value = input.text.toString().trim()
-                if (runCatching { Color.parseColor(value) }.isSuccess) onSave(value)
-                else Toast.makeText(activity, "Couleur invalide", Toast.LENGTH_SHORT).show()
-            }
-            .setNegativeButton("Annuler", null).show()
+    private fun customColorDialog(activity: Activity, title: String, initialColor: String, onSave: (String) -> Unit) {
+        CustomColorPickerV2.show(activity, title, initialColor, onSave)
     }
 }

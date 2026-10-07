@@ -4,18 +4,31 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.text.InputType
+import android.view.Gravity
 import android.view.ViewGroup
+import kotlin.math.roundToInt
 import android.widget.*
 
 /** User-facing settings always change an implemented consumer, never an inert toggle. */
 object PersonalizationSettingsV2 {
     fun open(activity: Activity) {
+        fun dp(value: Int) = (value * activity.resources.displayMetrics.density).roundToInt()
+        fun rowParams() = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(8) }
+        fun TextView.wrapLabel() {
+            setSingleLine(false)
+            setHorizontallyScrolling(false)
+            maxLines = Int.MAX_VALUE
+            ellipsize = null
+            includeFontPadding = true
+        }
         val owner = PersonalizationStoreV2.accountScope()
         fun sameOwner(): Boolean = owner == PersonalizationStoreV2.accountScope()
         fun show(builder: AlertDialog.Builder): AlertDialog = PersonalizationRuntimeV2.track(builder.show())
         val content = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(24, 8, 24, 16)
+            setPadding(dp(20), dp(8), dp(20), dp(16))
         }
         var buttonParent = content
         var binding = false
@@ -37,7 +50,14 @@ object PersonalizationSettingsV2 {
         fun button(label: String, action: () -> Unit): Button {
             val control = Button(activity).apply {
                 text = label; isAllCaps = false
-                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                wrapLabel()
+                minHeight = dp(48)
+                minimumHeight = dp(48)
+                minWidth = 0
+                minimumWidth = 0
+                gravity = Gravity.CENTER
+                setPadding(dp(16), dp(12), dp(16), dp(12))
+                layoutParams = rowParams()
                 setOnClickListener { if (sameOwner()) action() }
             }
             buttonParent.addView(control)
@@ -57,6 +77,13 @@ object PersonalizationSettingsV2 {
         fun toggle(label: String, value: () -> Boolean, change: (PersonalizationProfileV2, Boolean) -> PersonalizationProfileV2) {
             val control = Switch(activity).apply {
                 text = label; isChecked = value()
+                wrapLabel()
+                minHeight = dp(48)
+                minimumHeight = dp(48)
+                gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                switchPadding = dp(12)
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                layoutParams = rowParams()
                 setOnCheckedChangeListener { _, checked -> if (!binding) update { current -> change(current, checked) } }
             }
             content.addView(control)
@@ -85,7 +112,7 @@ object PersonalizationSettingsV2 {
         }
         val transferContent = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(24, 8, 24, 16)
+            setPadding(dp(20), dp(8), dp(20), dp(16))
         }
         button("Sauvegarder ou transférer ces réglages") {
             (transferContent.parent as? ViewGroup)?.removeView(transferContent)

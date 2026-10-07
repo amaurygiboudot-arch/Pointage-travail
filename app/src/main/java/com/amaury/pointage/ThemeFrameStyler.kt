@@ -48,9 +48,9 @@ object ThemeFrameStyler {
         when {
             framedContainer -> clearContainerBackground(view)
             id in tabIds && view is TextView -> NavigationTabContrastV2.style(view, view.isSelected)
+            view is Switch -> styleSwitch(view, localDark)
             view is Button -> styleButton(view)
             view is EditText -> styleInput(view, localDark)
-            view is Switch -> styleSwitch(view, localDark)
             view is TextView -> styleText(view, theme, localDark)
         }
 

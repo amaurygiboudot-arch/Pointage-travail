@@ -239,4 +239,47 @@ class HighContrastTextStyleV2Test {
         }
     }
 
+    @Test fun photoDoesNotAddBlackStripsInsideOpaqueDialog() {
+        val appearance = context.getSharedPreferences(AppThemeCatalog.PREFS, Context.MODE_PRIVATE)
+        val label = TextView(context).apply { text = "Explication" }
+        val toggle = android.widget.Switch(context).apply { text = "Contraste" }
+        val root = LinearLayout(context).apply { addView(label); addView(toggle) }
+        val originalToggle = toggle.background
+        try {
+            appearance.edit().putBoolean("custom_image_bg", true).commit()
+            PersonalizationStoreV2.save(context, PersonalizationProfileV2())
+            PersonalizationRuntimeV2.apply(root, opaqueSurface = true)
+            assertNull(label.background)
+            assertSame(originalToggle, toggle.background)
+            PersonalizationStoreV2.save(context, PersonalizationProfileV2(highContrast = true))
+            PersonalizationRuntimeV2.apply(root, opaqueSurface = true)
+            assertNull(label.background)
+            assertSame(originalToggle, toggle.background)
+            assertTrue(VisualContrastV2.ratio(label.currentTextColor, Color.BLACK) >= 7.0)
+        } finally {
+            appearance.edit().remove("custom_image_bg").commit()
+            PersonalizationStoreV2.save(context, PersonalizationProfileV2())
+        }
+    }
+
+    @Test fun rippleContrastFillsContentWithoutTintingBorderOrLosingRounding() {
+        val shape = GradientDrawable().apply {
+            cornerRadius = 24f
+            setColor(Color.TRANSPARENT)
+            setStroke(2, Color.YELLOW)
+        }
+        val button = Button(context).apply {
+            background = android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(Color.WHITE), shape, null)
+        }
+        HighContrastTextStyleV2.apply(button)
+        assertNull(button.backgroundTintList)
+        val ripple = button.background as android.graphics.drawable.RippleDrawable
+        val fill = ripple.getDrawable(0) as GradientDrawable
+        assertEquals(24f, fill.cornerRadius, 0f)
+        assertEquals(Color.BLACK, fill.color!!.defaultColor)
+        HighContrastTextStyleV2.apply(button)
+        assertSame(ripple, button.background)
+        assertEquals(Color.TRANSPARENT, shape.color!!.defaultColor)
+    }
+
 }
