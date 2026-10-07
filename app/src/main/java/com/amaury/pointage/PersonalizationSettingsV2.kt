@@ -78,6 +78,45 @@ object PersonalizationSettingsV2 {
                 putExtra(Intent.EXTRA_SUBJECT, "AGKGMG — confort visuel")
             }, "Exporter le confort visuel"))
         }
+        content.addView(TextView(activity).apply {
+            text = "Le transfert Android/iOS partage uniquement le contraste, la réduction des mouvements et le zoom de lecture. Copie le texte partagé puis colle-le sur l’autre appareil."
+        })
+        button("Partager le confort Android/iOS") {
+            activity.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, ComfortTransferV2.from(PersonalizationStoreV2.read(activity)).encode())
+                putExtra(Intent.EXTRA_SUBJECT, "AGKGMG — confort Android/iOS")
+            }, "Partager le confort Android/iOS"))
+        }
+        button("Coller le confort Android/iOS") {
+            val input = EditText(activity).apply {
+                hint = "Coller le texte partagé Android/iOS"
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                maxLines = 8
+                filters = arrayOf(android.text.InputFilter.LengthFilter(4097))
+                UniversalWritingInstaller.exclude(this)
+            }
+            val dialog = AlertDialog.Builder(activity).setTitle("Confort Android/iOS").setView(input)
+                .setPositiveButton("Vérifier", null).setNegativeButton("Annuler", null).create()
+            dialog.setOnShowListener {
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                    if (!sameOwner()) { dialog.dismiss(); return@setOnClickListener }
+                    val result = runCatching { ComfortTransferV2.decode(input.text.toString()) }
+                    if (result.isFailure) { input.error = result.exceptionOrNull()?.message ?: "Profil invalide" }
+                    else {
+                        val patch = result.getOrThrow()
+                        show(AlertDialog.Builder(activity).setTitle("Appliquer ce confort partagé ?")
+                            .setMessage("Contraste renforcé : ${if (patch.highContrast) "oui" else "non"}. Mouvements réduits : ${if (patch.reduceMotion) "oui" else "non"}. Zoom de lecture : ${(patch.readerScale * 100).toInt()} %. Les autres réglages restent conservés. Le contexte économie peut continuer à réduire les mouvements.")
+                            .setPositiveButton("Appliquer") { _, _ ->
+                                if (sameOwner()) save(patch.applyTo(PersonalizationStoreV2.read(activity)))
+                                dialog.dismiss()
+                            }.setNegativeButton("Annuler", null))
+                    }
+                }
+            }
+            dialog.show()
+            PersonalizationRuntimeV2.track(dialog)
+        }
         button("Importer des réglages") {
             val input = EditText(activity).apply {
                 hint = "Coller le profil exporté"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS

@@ -41,6 +41,7 @@ struct PersonalizationSettingsV2: View {
                     .font(.caption)
             }
             SystemPermissionsSectionV2()
+            SharedComfortTransferSectionV2()
             Section("Conservation et restauration") {
                 Text("Préférences conservées sur cet appareil, séparément pour chaque compte et pour le visiteur. La synchronisation entre appareils n’est pas activée.")
                     .font(.caption)

@@ -8,7 +8,7 @@ Android : entrée Paramètres > Personnalisation > Confort visuel et écriture ;
 
 iOS : réglages de confort, thème et accents, taille dynamique, surfaces opaques, contraste, mouvements réduits et contexte, import/export et annulation. Les champs natifs existants consomment un composant commun protégeant les champs techniques des corrections de prose.
 
-Les fichiers exportés Android et iOS ont des schémas différents. Ils ne sont pas présentés comme interopérables. Il n’y a pas de synchronisation cloud nouvelle ni de service IA ajouté.
+Les sauvegardes natives complètes Android et iOS ont des schémas différents. Un transfert commun explicite partage trois réglages : contraste renforcé, réduction des mouvements et zoom de lecture. Il conserve les autres réglages propres à chaque plateforme et exige un aperçu puis une confirmation. Il n’y a pas de synchronisation cloud nouvelle ni de service IA ajouté.
 
 ## Suivi des exigences
 
@@ -29,7 +29,7 @@ Les fichiers exportés Android et iOS ont des schémas différents. Ils ne sont 
 | 13 Multi appareils | Non ajouté | Synchronisation versionnée, conflits et suppressions |
 | 14 Modules | Partiel : services communs des applications existantes | Contrat d’enregistrement pour futurs modules et Genesis |
 | 15 Contextes | Partiel : nuit/économie manuels | Règles configurables, priorités et activation horaire |
-| 16 Sauvegarde | Partiel : confort exportable/importable, reset visuel | Restauration globale transactionnelle et schéma interplateforme |
+| 16 Sauvegarde | Partiel : confort exportable/importable, reset visuel ; transfert Android/iOS de trois réglages communs | Restauration globale transactionnelle et portabilité des autres réglages |
 | 17 Écriture commune | Partiel : champs Android éligibles et wrapper SwiftUI | Dialogues Android, champs personnalisés et inventaire exhaustif |
 | 18 Orthographe/grammaire | Partiel : correcteur Android installé, accord explicite et validation ; clavier natif iOS | Véritable correcteur grammatical multilingue ; aucune IA simulée |
 | 19 Frappe | Très limité : erreurs connues proposées | Détection contextuelle complète des fautes de frappe |
@@ -43,7 +43,7 @@ Les fichiers exportés Android et iOS ont des schémas différents. Ils ne sont 
 | 27 Annuler/rétablir | Partiel Android : historique borné du texte | Parité et intégration complète des commandes natives |
 | 28 Performance | Partiel : analyse retardée, historique borné, cache du profil | Mesures réelles appareils modestes, gros textes et rendu |
 | 29 Moteur unique | Partiel : aide manuelle, pas de correction automatique concurrente | Inventaire complet et validation des claviers tiers |
-| 30 Transversalité | Partiel : services partagés dans chaque plateforme | Contrat commun entre plateformes et modules futurs |
+| 30 Transversalité | Partiel : services partagés et contrat de transfert commun pour trois réglages | Extension du contrat aux autres réglages et modules futurs |
 | 31 Propriétaire unique | Confort nouveau canonique par compte | Migration de toutes les préférences historiques avec garanties |
 | 32 Compatibilité | Code Android/iOS ajouté | Builds complets, essais matériels et matrice officielle |
 | 33 Tests globaux | Tests de logique ajoutés, harness écriture exécuté | Exécution CI complète et tests fonctionnels transversaux |
