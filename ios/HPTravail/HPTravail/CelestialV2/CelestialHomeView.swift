@@ -222,7 +222,8 @@ struct CelestialHomeView: View {
         CelestialSkyDialV2(
             state: locationManager.celestialState,
             globeMode: CelestialGlobeModeV2(rawValue: globeModeRaw) ?? .local,
-            renderState: celestialRenderState
+            renderState: celestialRenderState,
+            motionReduced: reduceMotion
         )
             .aspectRatio(1, contentMode: .fit)
             .frame(maxWidth: 470)
@@ -483,6 +484,7 @@ private struct CelestialSkyDialV2: View {
     let state: CelestialTrackingStateV2
     let globeMode: CelestialGlobeModeV2
     let renderState: CelestialRenderStateV2?
+    let motionReduced: Bool
 
     var body: some View {
         GeometryReader { geometry in
@@ -498,7 +500,8 @@ private struct CelestialSkyDialV2: View {
                             .clipShape(Circle())
                     }
                     .background(Color.black, in: Circle())
-                CelestialStarFieldViewV2(state: state, presentation: .dial, renderState: renderState)
+                CelestialStarFieldViewV2(state: state, presentation: .dial, renderState: renderState,
+                                         motionReduced: motionReduced)
                 Circle()
                     .stroke(.white.opacity(0.55), lineWidth: 2)
                     .padding(size * 0.08)

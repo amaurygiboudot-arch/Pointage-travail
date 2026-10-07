@@ -15,6 +15,8 @@ struct CloudComfortSectionV2: View {
             Text("Seuls le contraste, les mouvements réduits, le zoom de lecture et la programmation Nuit sont transférés. Chaque lecture ou écriture est lancée par votre action ; aucun suivi ni envoi automatique.")
                 .font(.caption)
             Text("Le nouveau format de transfert nécessite une application à jour sur l’appareil destinataire.").font(.caption)
+            Text("Ces préférences sont transmises à Google Firebase / Cloud Firestore, associées à votre compte, avec une révision et une date de mise à jour. Cette fonction ne prévoit aucune expiration automatique. Vous pouvez remplacer ou supprimer les préférences sauvegardées ici. La suppression conserve un marqueur lié au compte (révision, date et état supprimé) pour empêcher une réécriture obsolète ; elle ne supprime pas les réglages de vos appareils.")
+                .font(.caption)
             if let uid, auth.isFirebaseConfigured {
                 Button("Lire la sauvegarde du compte") {
                     guard preferences.sessionID == session, auth.user?.uid == uid else { return }

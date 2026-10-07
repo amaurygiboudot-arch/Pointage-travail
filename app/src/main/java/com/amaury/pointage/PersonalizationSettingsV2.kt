@@ -21,13 +21,17 @@ object PersonalizationSettingsV2 {
         val refreshControls = mutableListOf<() -> Unit>()
         fun syncControls() { binding = true; try { refreshControls.forEach { it() } } finally { binding = false } }
         var profile = PersonalizationStoreV2.read(activity)
-        fun save(next: PersonalizationProfileV2) {
-            if (!sameOwner()) return
-            if (PersonalizationStoreV2.save(activity, next)) {
-                profile = next
-                syncControls()
-                PersonalizationRuntimeV2.refresh()
-            } else Toast.makeText(activity, "Réglages non enregistrés", Toast.LENGTH_LONG).show()
+        fun saved(ok: Boolean) {
+            profile = PersonalizationStoreV2.read(activity)
+            syncControls()
+            if (ok) PersonalizationRuntimeV2.refresh()
+            else Toast.makeText(activity, "Réglages non enregistrés. Si le profil est illisible, importe un profil valide ou réinitialise explicitement le confort.", Toast.LENGTH_LONG).show()
+        }
+        fun update(change: (PersonalizationProfileV2) -> PersonalizationProfileV2) {
+            if (sameOwner()) saved(PersonalizationStoreV2.update(activity, owner, change))
+        }
+        fun replace(next: PersonalizationProfileV2) {
+            if (sameOwner()) saved(PersonalizationStoreV2.save(activity, next, replaceUnreadable = true))
         }
         fun button(label: String, action: () -> Unit): Button {
             val control = Button(activity).apply {
@@ -45,23 +49,22 @@ object PersonalizationSettingsV2 {
             val values = floatArrayOf(1f, 1.15f, 1.3f, 1.5f, 1.75f, 2f)
             show(AlertDialog.Builder(activity).setTitle("Taille supplémentaire du texte")
                 .setItems(values.map { "${(it * 100).toInt()} %" }.toTypedArray()) { _, index ->
-                    save(profile.copy(textScale = values[index]))
-                    Toast.makeText(activity, "Taille : ${(values[index] * 100).toInt()} %", Toast.LENGTH_SHORT).show()
+                    update { it.copy(textScale = values[index]) }
                 })
         }
         refreshControls.add { sizeButton.text = "Taille du texte : ${(profile.textScale * 100).toInt()} %" }
-        fun toggle(label: String, value: () -> Boolean, update: (Boolean) -> PersonalizationProfileV2) {
+        fun toggle(label: String, value: () -> Boolean, change: (PersonalizationProfileV2, Boolean) -> PersonalizationProfileV2) {
             val control = Switch(activity).apply {
                 text = label; isChecked = value()
-                setOnCheckedChangeListener { _, checked -> if (!binding) save(update(checked)) }
+                setOnCheckedChangeListener { _, checked -> if (!binding) update { current -> change(current, checked) } }
             }
             content.addView(control)
             refreshControls.add { control.isChecked = value() }
         }
-        toggle("Contraste renforcé des textes", { profile.highContrast }) { profile.copy(highContrast = it) }
-        toggle("Réduire les mouvements du ciel", { profile.reduceMotion }) { profile.copy(reduceMotion = it) }
-        toggle("Outils d’aide à l’écriture", { profile.writingAssistance }) { profile.copy(writingAssistance = it) }
-        toggle("Nuit automatique selon les horaires", { profile.nightScheduleEnabled }) { profile.copy(nightScheduleEnabled = it) }
+        toggle("Contraste renforcé des textes", { profile.highContrast }) { current, checked -> current.copy(highContrast = checked) }
+        toggle("Réduire les mouvements du ciel", { profile.reduceMotion }) { current, checked -> current.copy(reduceMotion = checked) }
+        toggle("Outils d’aide à l’écriture", { profile.writingAssistance }) { current, checked -> current.copy(writingAssistance = checked) }
+        toggle("Nuit automatique selon les horaires", { profile.nightScheduleEnabled }) { current, checked -> current.copy(nightScheduleEnabled = checked) }
         fun hour(minute: Int) = String.format(java.util.Locale.ROOT, "%02d:%02d", minute / 60, minute % 60)
         val scheduleButton = button("Horaire de nuit : ${hour(profile.nightStartMinute)} – ${hour(profile.nightEndMinute)}") {
             val picker = android.app.TimePickerDialog(activity, { _, startHour, startMinute ->
@@ -71,7 +74,7 @@ object PersonalizationSettingsV2 {
                             val start = startHour * 60 + startMinute
                             val end = endHour * 60 + endMinute
                             if (start == end) Toast.makeText(activity, "Début et fin doivent être différents", Toast.LENGTH_LONG).show()
-                            else save(profile.copy(nightStartMinute = start, nightEndMinute = end))
+                            else update { it.copy(nightStartMinute = start, nightEndMinute = end) }
                         }
                     }, profile.nightEndMinute / 60, profile.nightEndMinute % 60, true)
                     endPicker.setTitle("Fin du contexte nuit")
@@ -90,7 +93,7 @@ object PersonalizationSettingsV2 {
             val keys = arrayOf("normal", "work", "home", "night", "economy")
             show(AlertDialog.Builder(activity).setTitle("Contexte manuel")
                 .setSingleChoiceItems(names, keys.indexOf(profile.context)) { dialog, index ->
-                    save(profile.copy(context = keys[index])); dialog.dismiss()
+                    update { it.copy(context = keys[index]) }; dialog.dismiss()
                 }.setNegativeButton("Fermer", null))
         }
         content.addView(TextView(activity).apply {
@@ -137,7 +140,7 @@ object PersonalizationSettingsV2 {
                         show(AlertDialog.Builder(activity).setTitle("Appliquer ce confort partagé ?")
                             .setMessage("${patch.preview()} Les autres réglages restent conservés. Le contexte économie peut continuer à réduire les mouvements.")
                             .setPositiveButton("Appliquer") { _, _ ->
-                                if (sameOwner()) save(patch.applyTo(PersonalizationStoreV2.read(activity)))
+                                if (sameOwner()) update(patch::applyTo)
                                 dialog.dismiss()
                             }.setNegativeButton("Annuler", null))
                     }
@@ -162,7 +165,7 @@ object PersonalizationSettingsV2 {
                         val value = next.getOrThrow()
                         show(AlertDialog.Builder(activity).setTitle("Remplacer ces réglages ?")
                             .setMessage("Texte ${(value.textScale * 100).toInt()} %, contraste ${if (value.highContrast) "renforcé" else "normal"}, zoom ${(value.readerScale * 100).toInt()} %. Mouvements réduits : ${value.reduceMotion}. Contexte : ${value.context}. Aide à l’écriture : ${value.writingAssistance}. Nuit automatique : ${value.nightScheduleEnabled}, ${hour(value.nightStartMinute)}–${hour(value.nightEndMinute)}. Ces réglages du compte courant seront remplacés.")
-                            .setPositiveButton("Appliquer") { _, _ -> save(value); dialog.dismiss() }
+                            .setPositiveButton("Appliquer") { _, _ -> replace(value); dialog.dismiss() }
                             .setNegativeButton("Annuler", null))
                     }
                 }

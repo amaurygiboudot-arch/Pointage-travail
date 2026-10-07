@@ -150,11 +150,7 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
             }
             val needsSupport = profile.highContrast || (protectImage && view !is Button && view !is EditText)
             if (needsSupport) {
-                view.backgroundTintList = null
-                if ((view.background as? android.graphics.drawable.ColorDrawable)?.color != Color.BLACK)
-                    view.background = android.graphics.drawable.ColorDrawable(Color.BLACK)
-                view.setTextColor(Color.WHITE)
-                view.setHintTextColor(Color.LTGRAY)
+                HighContrastTextStyleV2.apply(view)
                 state.protected = true
             } else if (state.protected) {
                 view.background = state.background
@@ -240,7 +236,7 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
         body.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         val dialog = AlertDialog.Builder(context).setTitle("Lecture agrandie").setView(body)
             .setPositiveButton("Fermer", null).setNeutralButton("Mémoriser ce zoom") { _, _ ->
-                if (owner == PersonalizationStoreV2.accountScope() && !PersonalizationStoreV2.save(context, PersonalizationStoreV2.read(context).copy(readerScale = scale)))
+                if (owner == PersonalizationStoreV2.accountScope() && !PersonalizationStoreV2.update(context, owner) { it.copy(readerScale = scale) })
                     android.widget.Toast.makeText(context, "Enregistrement impossible", android.widget.Toast.LENGTH_LONG).show()
             }.create()
         dialog.show()

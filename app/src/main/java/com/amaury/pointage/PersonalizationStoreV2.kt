@@ -31,8 +31,27 @@ object PersonalizationStoreV2 {
         }
         return cachedProfile
     }
-    fun save(context: Context, profile: PersonalizationProfileV2): Boolean =
-        preferences(context).edit().putString("profile", profile.validated().encode()).commit()
+    /** Ordinary saves must not replace an unreadable document with display fallback values. */
+    @Synchronized
+    fun save(context: Context, profile: PersonalizationProfileV2, replaceUnreadable: Boolean = false): Boolean {
+        val prefs = preferences(context)
+        if (!replaceUnreadable && runCatching { storedProfile(prefs) }.isFailure) return false
+        return prefs.edit().putString("profile", profile.validated().encode()).commit()
+    }
+
+    /** Apply a field change to the current canonical value, not a dialog's display snapshot. */
+    @Synchronized
+    fun update(context: Context, owner: String, change: (PersonalizationProfileV2) -> PersonalizationProfileV2): Boolean {
+        if (accountScope() != owner) return false
+        val prefs = preferences(context)
+        val current = runCatching { storedProfile(prefs) }.getOrNull() ?: return false
+        val next = change(current).validated()
+        if (accountScope() != owner) return false
+        return prefs.edit().putString("profile", next.encode()).commit()
+    }
+
+    private fun storedProfile(prefs: android.content.SharedPreferences): PersonalizationProfileV2 =
+        prefs.getString("profile", null)?.let { PersonalizationProfileV2.decode(it) } ?: PersonalizationProfileV2()
 
     fun reset(context: Context): Boolean {
         val prefs = preferences(context)

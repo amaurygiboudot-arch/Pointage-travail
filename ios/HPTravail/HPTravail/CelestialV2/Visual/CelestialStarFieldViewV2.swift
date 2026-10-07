@@ -52,19 +52,21 @@ struct CelestialStarFieldViewV2: View {
     let state: CelestialTrackingStateV2
     let presentation: CelestialStarFieldPresentationV2
     let renderState: CelestialRenderStateV2?
+    let motionReduced: Bool
     @StateObject private var model = CelestialStarFieldModelV2()
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isVisible = false
 
     init(state: CelestialTrackingStateV2, presentation: CelestialStarFieldPresentationV2 = .dial,
-         renderState: CelestialRenderStateV2? = nil) {
+         renderState: CelestialRenderStateV2? = nil, motionReduced: Bool = false) {
         self.state = state; self.presentation = presentation; self.renderState = renderState
+        self.motionReduced = motionReduced
     }
 
     var body: some View {
         let quality = CelestialRenderQualityProviderV2.current
-        let animate = isVisible && scenePhase == .active && !reduceMotion && quality != .reduced &&
+        let animate = isVisible && scenePhase == .active && !reduceMotion && !motionReduced && quality != .reduced &&
             (renderState?.starsVisibility ?? 0) > 0.005
         ZStack {
             // Faint stars are outside the animation timeline.

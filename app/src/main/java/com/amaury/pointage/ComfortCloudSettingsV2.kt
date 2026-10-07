@@ -30,6 +30,9 @@ object ComfortCloudSettingsV2 {
             text = "Sauvegarde volontaire du contraste, des mouvements réduits, du zoom de lecture et de la programmation facultative du mode nuit. Pour recevoir les nouveaux transferts, mets à jour l’application sur l’autre appareil. Utilise le même compte sur Android ou iOS. Les autres réglages et tes données de travail ne sont pas transmis ici. Aucune synchronisation automatique."
         })
         box.addView(status)
+        box.addView(TextView(activity).apply {
+            text = "Ces préférences sont transmises à Google Firebase / Cloud Firestore, associées à ton compte, avec une révision et une date de mise à jour. Cette fonction ne prévoit aucune expiration automatique. Tu peux remplacer ou supprimer les préférences sauvegardées ici. La suppression conserve un marqueur lié au compte (révision, date et état supprimé) pour empêcher une réécriture obsolète ; elle ne supprime pas les réglages de tes appareils."
+        })
         val buttons = mutableListOf<Button>()
         var busy = false
         var loaded: ComfortCloudSnapshotV2? = null
