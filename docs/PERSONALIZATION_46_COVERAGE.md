@@ -1,3 +1,6 @@
+
+Reprise autorisée du 7 octobre 2026 : le lot a été envoyé via la connexion GitHub existante après échec du client Git sans authentification. SHA applicatif publié : 69d5676796645a170b98e753c2811052b945a90b ; arbre identique au lot local revu. L’ancien refus d’envoi ci-dessous est historique et levé. CI Android et iOS démarrée, résultats encore attendus à cette mise à jour. La PR 685 reste en brouillon ; la revue officielle et les essais réels restent requis avant toute fusion. Prochaine action : contrôler les résultats au HEAD distant courant, corriger tout échec, puis produire la revue officielle liée à ce SHA.
+
 # Personnalisation globale — couverture du lot du 7 octobre 2026
 
 Ce lot contient du code branché sur les applications Android et iOS existantes. Il ne réalise pas les 46 exigences intégralement. Aucun point ci-dessous ne vaut preuve de livraison ou certification de compatibilité. Les comportements listés « partiels » nécessitent encore compilation complète et essais sur appareils.

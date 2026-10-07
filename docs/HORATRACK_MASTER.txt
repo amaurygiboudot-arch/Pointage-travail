@@ -1,3 +1,6 @@
+
+Reprise autorisée du 7 octobre 2026 : le lot a été envoyé via la connexion GitHub existante après échec du client Git sans authentification. SHA applicatif publié : 69d5676796645a170b98e753c2811052b945a90b ; arbre identique au lot local revu. L’ancien refus d’envoi ci-dessous est historique et levé. CI Android et iOS démarrée, résultats encore attendus à cette mise à jour. La PR 685 reste en brouillon ; la revue officielle et les essais réels restent requis avant toute fusion. Prochaine action : contrôler les résultats au HEAD distant courant, corriger tout échec, puis produire la revue officielle liée à ce SHA.
+
 POINT DE REPRISE DU 7 OCTOBRE 2026 — PERSONNALISATION
 Les checkpoints ci-dessous restent historiques. Les documents thématiques du 7 octobre confirment Salaire V2 comme priorité générale ; cette reprise de personnalisation est explicitement demandée par Amaury.
 PR active : #685, branche codex/personalisation-46-20261007, en brouillon et non fusionnée lors de la reprise.
