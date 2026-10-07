@@ -27,7 +27,7 @@ jobs:
       # pull_request_target loads this workflow from the default branch. Never
       # execute scripts, actions metadata or prompts from the PR head.
       - name: Checkout trusted default branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
@@ -94,7 +94,7 @@ jobs:
 
       - name: Save validated report for publication
         if: steps.existing.outputs.valid != 'true' && steps.codex-auth.outputs.configured == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: agent-review-${{ github.run_id }}
           path: |
@@ -124,11 +124,11 @@ jobs:
       issues: write
     steps:
       - name: Checkout trusted default branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.repository.default_branch }}
       - name: Download validated report
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: agent-review-${{ github.run_id }}
       - name: Revalidate and publish
