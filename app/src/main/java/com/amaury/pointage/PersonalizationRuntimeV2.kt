@@ -205,6 +205,31 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
         controls.addView(control("Agrandir") { resize(scale + .25f) })
         controls.addView(control("100 %") { resize(1f) })
         body.addView(controls)
+        val speechStatus = TextView(context).apply {
+            this.text = "Lecture vocale uniquement sur demande, avec une voix hors ligne installée."
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.BLACK)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
+        val speech = OfflineReaderSpeechV2(context, owner) { speechStatus.text = it }
+        val speechControls = LinearLayout(context)
+        speechControls.addView(control("Lire") {
+            val content = text.text
+            val start = minOf(text.selectionStart, text.selectionEnd)
+            val end = maxOf(text.selectionStart, text.selectionEnd)
+            val hasSelection = start >= 0 && end > start && end <= content.length
+            if (hasSelection && (!com.amaury.pointage.writing.WritingEngine.safeBoundary(content.toString(), start) ||
+                    !com.amaury.pointage.writing.WritingEngine.safeBoundary(content.toString(), end))) {
+                speechStatus.text = "Sélectionne des caractères complets avant de lancer la lecture."
+                return@control
+            }
+            val selected = if (hasSelection) content.subSequence(start, end) else content
+            speech.read(selected, java.util.Locale.getDefault())
+        })
+        speechControls.addView(control("Arrêter") { speech.stop() })
+        body.addView(speechControls)
+        body.addView(speechStatus)
         val scroll = ScrollView(context).apply { addView(text) }
         val detector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
@@ -219,6 +244,14 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
                     android.widget.Toast.makeText(context, "Enregistrement impossible", android.widget.Toast.LENGTH_LONG).show()
             }.create()
         dialog.show()
+        // Keep existing dismissal/layout callbacks; release speech when the dialog leaves the window.
+        dialog.window?.decorView?.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(view: View) = Unit
+            override fun onViewDetachedFromWindow(view: View) {
+                speech.dispose()
+                view.removeOnAttachStateChangeListener(this)
+            }
+        })
         track(dialog)
         dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,
             (context.resources.displayMetrics.heightPixels * .85f).toInt())

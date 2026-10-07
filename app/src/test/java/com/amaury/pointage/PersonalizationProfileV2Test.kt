@@ -28,6 +28,17 @@ class PersonalizationProfileV2Test {
             PersonalizationProfileV2(context = "unknown")
         ).forEach { assertTrue(runCatching { it.validated() }.isFailure) }
     }
+    @Test fun `old profiles migrate schedule defaults while malformed present values fail`() {
+        val json = org.json.JSONObject(PersonalizationProfileV2().encode())
+        listOf("nightScheduleEnabled", "nightStartMinute", "nightEndMinute").forEach { json.remove(it) }
+        assertEquals(PersonalizationProfileV2(), PersonalizationProfileV2.decode(json.toString()))
+        listOf<Any>(true, "1320", 1.5, -1, 1440, org.json.JSONObject.NULL).forEach { invalid ->
+            assertTrue(runCatching { PersonalizationProfileV2.decode(org.json.JSONObject(json.toString()).put("nightStartMinute", invalid).toString()) }.isFailure)
+        }
+        val scheduled = PersonalizationProfileV2(nightScheduleEnabled = true, nightStartMinute = 60, nightEndMinute = 180)
+        assertEquals(scheduled, PersonalizationProfileV2.decode(scheduled.encode()))
+        assertTrue(runCatching { scheduled.copy(nightEndMinute = 60).validated() }.isFailure)
+    }
     @Test fun `all private account profiles are excluded from generic backup`() {
         assertFalse(BackupSecurityPolicy.canTransferPreferenceFile("personalization_private_v2_accountA"))
         assertFalse(CloudSettingsBackupPolicy.canTransferPreferenceFile("personalization_private_v2_accountA"))

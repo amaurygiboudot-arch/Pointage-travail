@@ -12,15 +12,30 @@ public struct VisualPreferencesV2: Codable, Equatable {
     public var context = "standard"
     public var systemSpelling = false
     public var readerScale = 1.5
+    public var nightScheduleEnabled = false
+    public var nightStartMinute = 1320
+    public var nightEndMinute = 420
 
     public init() {}
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case version, appearance, accent, textSteps, highContrast, reduceMotion
         case opaqueSurfaces, context, systemSpelling, readerScale
+        case nightScheduleEnabled, nightStartMinute, nightEndMinute
+    }
+
+    private struct AnyKey: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { return nil }
     }
 
     public init(from decoder: Decoder) throws {
+        let all = try decoder.container(keyedBy: AnyKey.self)
+        guard Set(all.allKeys.map(\.stringValue)).isSubset(of: Set(CodingKeys.allCases.map(\.rawValue))) else {
+            throw ValidationError.unsupported
+        }
         let values = try decoder.container(keyedBy: CodingKeys.self)
         version = try values.decode(Int.self, forKey: .version)
         appearance = try values.decode(String.self, forKey: .appearance)
@@ -34,6 +49,12 @@ public struct VisualPreferencesV2: Codable, Equatable {
         // Existing v1 exports remain valid; a present malformed value is never defaulted.
         readerScale = values.contains(.readerScale)
             ? try values.decode(Double.self, forKey: .readerScale) : 1.5
+        nightScheduleEnabled = values.contains(.nightScheduleEnabled)
+            ? try values.decode(Bool.self, forKey: .nightScheduleEnabled) : false
+        nightStartMinute = values.contains(.nightStartMinute)
+            ? try values.decode(Int.self, forKey: .nightStartMinute) : 1320
+        nightEndMinute = values.contains(.nightEndMinute)
+            ? try values.decode(Int.self, forKey: .nightEndMinute) : 420
     }
 
     public var valid: Bool {
@@ -41,6 +62,8 @@ public struct VisualPreferencesV2: Codable, Equatable {
             && ["signature", "blue"].contains(accent)
             && (0...5).contains(textSteps)
             && readerScale.isFinite && (1...4).contains(readerScale)
+            && (0...1439).contains(nightStartMinute) && (0...1439).contains(nightEndMinute)
+            && nightStartMinute != nightEndMinute
             && ["standard", "night", "economy"].contains(context)
     }
 
@@ -68,7 +91,24 @@ public struct VisualPreferencesV2: Codable, Equatable {
 
     public enum ValidationError: Error { case unsupported }
     public var effectiveDarkMode: Bool? {
-        if context == "night" { return true }
+        darkMode(minuteOfDay: Self.localMinute(Date()))
+    }
+
+    public static func localMinute(_ date: Date, calendar: Calendar = .current) -> Int {
+        calendar.component(.hour, from: date) * 60 + calendar.component(.minute, from: date)
+    }
+
+    public func resolvedContext(minuteOfDay: Int) -> String {
+        guard context == "standard", nightScheduleEnabled,
+              (0...1439).contains(minuteOfDay), nightStartMinute != nightEndMinute else { return context }
+        let active = nightStartMinute < nightEndMinute
+            ? minuteOfDay >= nightStartMinute && minuteOfDay < nightEndMinute
+            : minuteOfDay >= nightStartMinute || minuteOfDay < nightEndMinute
+        return active ? "night" : context
+    }
+
+    public func darkMode(minuteOfDay: Int) -> Bool? {
+        if resolvedContext(minuteOfDay: minuteOfDay) == "night" { return true }
         switch appearance {
         case "light": return false
         case "dark": return true

@@ -113,4 +113,14 @@ final class VisualPreferencesV2Tests: XCTestCase {
         XCTAssertThrowsError(try VisualPreferencesV2.readImport(from: url))
     }
 
+
+    func testUnknownNativeProfileFieldsRejectedWithoutDroppingThemSilently() throws {
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(VisualPreferencesV2())) as? [String: Any])
+        object["salary"] = 42
+        XCTAssertThrowsError(try VisualPreferencesV2.decode(JSONSerialization.data(withJSONObject: object)))
+        object.removeValue(forKey: "salary")
+        object["futureSetting"] = true
+        XCTAssertThrowsError(try VisualPreferencesV2.decode(JSONSerialization.data(withJSONObject: object)))
+    }
+
 }

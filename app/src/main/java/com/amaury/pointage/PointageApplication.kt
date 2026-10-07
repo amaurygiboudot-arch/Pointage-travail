@@ -31,6 +31,7 @@ class PointageApplication : Application(), Application.ActivityLifecycleCallback
         registerActivityLifecycleCallbacks(this)
         ConventionCatalog.initialize(this)
         PersonalizationRuntimeV2.install(this)
+        NightContextRuntimeV2.install(this)
         UniversalWritingInstaller.install(this)
     }
 

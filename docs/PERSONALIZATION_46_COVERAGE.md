@@ -8,7 +8,7 @@ Android : entrée Paramètres > Personnalisation > Confort visuel et écriture ;
 
 iOS : réglages de confort, thème et accents, taille dynamique, surfaces opaques, contraste, mouvements réduits et contexte, import/export et annulation. Les champs natifs existants consomment un composant commun protégeant les champs techniques des corrections de prose.
 
-Les sauvegardes natives complètes Android et iOS ont des schémas différents. Un transfert commun explicite partage trois réglages : contraste renforcé, réduction des mouvements et zoom de lecture. Il conserve les autres réglages propres à chaque plateforme et exige un aperçu puis une confirmation. Il n’y a pas de synchronisation cloud nouvelle ni de service IA ajouté.
+Les sauvegardes natives complètes Android et iOS ont des schémas différents. Un transfert commun explicite partage trois réglages : contraste renforcé, réduction des mouvements et zoom de lecture. Il conserve les autres réglages propres à chaque plateforme et exige un aperçu puis une confirmation. Une sauvegarde manuelle du même sous-ensemble est également disponible dans le compte Firebase existant, avec révisions, conflits explicites et suppression versionnée. Il n’y a aucun envoi automatique ni nouveau service IA.
 
 ## Suivi des exigences
 
@@ -16,7 +16,7 @@ Les sauvegardes natives complètes Android et iOS ont des schémas différents. 
 | --- | --- | --- |
 | 1 Profil universel | Partiel : profil de confort local par compte | Profil global, identité et toutes les préférences métier |
 | 2 Apparence | Partiel : confort, taille, contraste, contexte | Luminosité, densité et harmonisation de tous les réglages historiques |
-| 3 Accessibilité | Partiel : tailles système, contraste, action lecteur Android, réduction des effets | Revue complète TalkBack/VoiceOver et contrôles sur appareils |
+| 3 Accessibilité | Partiel : tailles système, contraste, lecteurs et lecture vocale native à la demande, réduction des effets | Revue complète TalkBack/VoiceOver et contrôles sur appareils |
 | 4 Langue et région | Non ajouté | Traductions, formats et préférences régionales cohérentes |
 | 5 Personnalité IA | Non ajouté | Moteur conversationnel et préférences consommées |
 | 6 Relation IA | Non ajouté | Identité de communication et consommation par les réponses |
@@ -26,9 +26,9 @@ Les sauvegardes natives complètes Android et iOS ont des schémas différents. 
 | 10 Apprentissage | Non ajouté | Propositions d’habitudes réversibles, sans inférence cachée |
 | 11 Notifications | Partiel : état réel et liens vers réglages système, canaux Android | Catégories, horaires silencieux, appareils et déduplication |
 | 12 Confidentialité | Partiel : isolation, exclusions, brouillons chiffrés Android, état des permissions système | Contrôle global des traitements |
-| 13 Multi appareils | Non ajouté | Synchronisation versionnée, conflits et suppressions |
+| 13 Multi appareils | Partiel : sauvegarde/restauration manuelles de trois réglages Android/iOS, contrôle de révision et suppression versionnée | Synchronisation automatique des catégories autorisées ; essais réels de concurrence et de changements de compte |
 | 14 Modules | Partiel : services communs des applications existantes | Contrat d’enregistrement pour futurs modules et Genesis |
-| 15 Contextes | Partiel : nuit/économie manuels | Règles configurables, priorités et activation horaire |
+| 15 Contextes | Partiel : contextes manuels prioritaires et horaire de nuit local configurable, actif seulement au premier plan | Autres contextes configurables et combinaisons de règles |
 | 16 Sauvegarde | Partiel : confort exportable/importable, reset visuel ; transfert Android/iOS de trois réglages communs | Restauration globale transactionnelle et portabilité des autres réglages |
 | 17 Écriture commune | Partiel : champs Android éligibles et wrapper SwiftUI | Dialogues Android, champs personnalisés et inventaire exhaustif |
 | 18 Orthographe/grammaire | Partiel : correcteur Android installé, accord explicite et validation ; clavier natif iOS | Véritable correcteur grammatical multilingue ; aucune IA simulée |
@@ -65,9 +65,11 @@ Les sauvegardes natives complètes Android et iOS ont des schémas différents. 
 
 - `git diff --check` : aucun défaut de whitespace lors de la revue locale.
 - Moteur d’écriture : harness Kotlin autonome exécuté avec le compilateur embarqué dans Gradle ; corrections acceptées, annulation/rétablissement, versions obsolètes, dictionnaire, Unicode et limite 50 000 caractères testés.
-- `bash scripts/agent-toolbox.sh v2-tests` : ÉCHEC ENVIRONNEMENT, récupération de dépendances Google Maven impossible. Aucun succès de compilation Android annoncé.
-- Commandes iOS locales : BLOQUÉES sur Linux, macOS/Xcode requis. La CI du premier lot `a9f7e67578bb4303f87af2a26a9082dce0d166d3` a compilé iOS ; les tests Swift étaient encore en cours lors de cette mise à jour.
-- CI du premier lot `a9f7e67578bb4303f87af2a26a9082dce0d166d3` : compilation Android, variantes Google Play, tests V2, CodeQL et tests Firebase réussis. Ces résultats ne valident pas les ajouts suivants ; ils doivent être relancés pour leur SHA.
+- Tests Android locaux via Gradle : récupération des dépendances Google Maven indisponible dans cet environnement ; les builds complets sont exécutés par GitHub Actions.
+- Commandes iOS locales : macOS/Xcode requis. Compilation et tests exécutés sur le runner macOS GitHub.
+- CI du lot avec transfert commun `8a57e032bfd4adaee84e3299a57f4804e78dc828` : tous les contrôles réussis, dont Android, variantes Play, tests V2, CodeQL, Firebase, compilation et tests iOS. Ces résultats ne valident pas les ajouts suivants ; ils doivent être relancés pour leur SHA.
+- Nuit automatique : harness Kotlin exécuté sur 10 080 cas minute/contexte et intervalle invalide. Découpage vocal : harness Unicode et longs textes exécuté.
+- Sauvegarde de compte : contrat de révision/tombstone couvert par tests unitaires ajoutés ; revue sécurité source effectuée. Essais réels deux appareils/hors ligne encore requis.
 - Contraste : harness de 5 832 couleurs exécuté avec seuil 4,5:1 ; filtres des corrections fournisseur testés avec harness Kotlin.
 - Prévalidation de source par mobile_platforms/team_lead ; revue sécurité ayant identifié puis fait corriger les changements de compte et la récupération historique. Cela ne remplace pas le rapport obligatoire lié au SHA ni le sas de fusion.
 

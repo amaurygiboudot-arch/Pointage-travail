@@ -74,6 +74,9 @@ struct PersonalizationRootModifierV2: ViewModifier {
     @EnvironmentObject private var preferences: PersonalizationStoreV2
     @Environment(\.dynamicTypeSize) private var systemTextSize
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var scheduleDate = Date()
+    private var scheduleActive: Bool { scenePhase == .active && preferences.value.nightScheduleEnabled }
 
     private var textSize: DynamicTypeSize {
         let sizes = DynamicTypeSize.allCases.sorted()
@@ -83,8 +86,20 @@ struct PersonalizationRootModifierV2: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .preferredColorScheme(preferences.value.effectiveDarkMode.map { $0 ? ColorScheme.dark : .light })
+            .preferredColorScheme(preferences.value.darkMode(minuteOfDay: VisualPreferencesV2.localMinute(scheduleDate)).map { $0 ? ColorScheme.dark : .light })
             .dynamicTypeSize(textSize)
+            .task(id: scheduleActive) {
+                scheduleDate = Date()
+                guard scheduleActive else { return }
+                while !Task.isCancelled {
+                    let now = Date()
+                    let next = Calendar.current.nextDate(after: now, matching: DateComponents(second: 0), matchingPolicy: .nextTime) ?? now.addingTimeInterval(60)
+                    do { try await Task.sleep(nanoseconds: UInt64(max(0.1, min(60, next.timeIntervalSinceNow)) * 1_000_000_000)) }
+                    catch { return }
+                    guard !Task.isCancelled else { return }
+                    scheduleDate = Date()
+                }
+            }
             .transaction { transaction in
                 if systemReduceMotion || preferences.value.effectiveReducedMotion {
                     transaction.animation = nil

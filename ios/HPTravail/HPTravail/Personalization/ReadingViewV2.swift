@@ -50,6 +50,9 @@ private struct ReadingViewV2: View {
     @State private var pinchBase: Double?
     @GestureState private var pinching = false
     @State private var saved = false
+    @StateObject private var speech = ReadingSpeechV2()
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
 
     var body: some View {
         NavigationStack {
@@ -74,6 +77,12 @@ private struct ReadingViewV2: View {
                         Label(error, systemImage: "exclamationmark.triangle")
                             .font(.caption)
                     }
+                    Button(speech.speaking ? "Arrêter la lecture vocale" : "Écouter avec la voix de l’iPhone") {
+                        guard preferences.sessionID == session else { speech.stop(); dismiss(); return }
+                        if speech.speaking { speech.stop() } else { speech.start(text) }
+                    }
+                    .buttonStyle(.bordered)
+                    if let message = speech.message { Text(message).font(.caption) }
                     Text(text)
                         .font(.system(size: bodySize * CGFloat(zoom)))
                         .foregroundStyle(Color.primary)
@@ -103,7 +112,10 @@ private struct ReadingViewV2: View {
             }
             .onAppear { zoom = ReaderZoomPolicyV2.clamped(preferences.value.readerScale) }
             .onChange(of: pinching) { active in if !active { pinchBase = nil } }
-            .onChange(of: preferences.sessionID) { _ in dismiss() }
+            .onChange(of: preferences.sessionID) { _ in speech.stop(); dismiss() }
+            .onChange(of: scenePhase) { phase in if phase != .active { speech.stop() } }
+            .onChange(of: voiceOver) { enabled in if enabled { speech.stop() } }
+            .onDisappear { speech.stop() }
         }
     }
 

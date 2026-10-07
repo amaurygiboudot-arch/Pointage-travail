@@ -61,6 +61,30 @@ object PersonalizationSettingsV2 {
         toggle("Contraste renforcé des textes", { profile.highContrast }) { profile.copy(highContrast = it) }
         toggle("Réduire les mouvements du ciel", { profile.reduceMotion }) { profile.copy(reduceMotion = it) }
         toggle("Outils d’aide à l’écriture", { profile.writingAssistance }) { profile.copy(writingAssistance = it) }
+        toggle("Nuit automatique selon les horaires", { profile.nightScheduleEnabled }) { profile.copy(nightScheduleEnabled = it) }
+        fun hour(minute: Int) = String.format(java.util.Locale.ROOT, "%02d:%02d", minute / 60, minute % 60)
+        val scheduleButton = button("Horaire de nuit : ${hour(profile.nightStartMinute)} – ${hour(profile.nightEndMinute)}") {
+            val picker = android.app.TimePickerDialog(activity, { _, startHour, startMinute ->
+                if (sameOwner()) {
+                    val endPicker = android.app.TimePickerDialog(activity, { _, endHour, endMinute ->
+                        if (sameOwner()) {
+                            val start = startHour * 60 + startMinute
+                            val end = endHour * 60 + endMinute
+                            if (start == end) Toast.makeText(activity, "Début et fin doivent être différents", Toast.LENGTH_LONG).show()
+                            else save(profile.copy(nightStartMinute = start, nightEndMinute = end))
+                        }
+                    }, profile.nightEndMinute / 60, profile.nightEndMinute % 60, true)
+                    endPicker.setTitle("Fin du contexte nuit")
+                    endPicker.show(); PersonalizationRuntimeV2.track(endPicker)
+                }
+            }, profile.nightStartMinute / 60, profile.nightStartMinute % 60, true)
+            picker.setTitle("Début du contexte nuit")
+            picker.show(); PersonalizationRuntimeV2.track(picker)
+        }
+        refreshControls.add { scheduleButton.text = "Horaire de nuit : ${hour(profile.nightStartMinute)} – ${hour(profile.nightEndMinute)}" }
+        content.addView(TextView(activity).apply {
+            text = "L’horaire utilise l’heure locale de l’appareil, y compris après changement de fuseau. Il agit quand le contexte est Normal ; un contexte manuel reste prioritaire. Aucun réveil ni traitement en arrière-plan."
+        })
         button("Contexte visuel") {
             val names = arrayOf("Normal", "Travail", "Maison", "Nuit", "Économie d’énergie")
             val keys = arrayOf("normal", "work", "home", "night", "economy")
@@ -81,6 +105,11 @@ object PersonalizationSettingsV2 {
         content.addView(TextView(activity).apply {
             text = "Le transfert Android/iOS partage uniquement le contraste, la réduction des mouvements et le zoom de lecture. Copie le texte partagé puis colle-le sur l’autre appareil."
         })
+        button("Confort du compte sur mes appareils") {
+            ComfortCloudSettingsV2.open(activity) {
+                if (sameOwner()) { profile = PersonalizationStoreV2.read(activity); syncControls() }
+            }
+        }
         button("Partager le confort Android/iOS") {
             activity.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
@@ -132,7 +161,7 @@ object PersonalizationSettingsV2 {
                     else {
                         val value = next.getOrThrow()
                         show(AlertDialog.Builder(activity).setTitle("Remplacer ces réglages ?")
-                            .setMessage("Texte ${(value.textScale * 100).toInt()} %, contraste ${if (value.highContrast) "renforcé" else "normal"}, zoom ${(value.readerScale * 100).toInt()} %. Mouvements réduits : ${value.reduceMotion}. Contexte : ${value.context}. Aide à l’écriture : ${value.writingAssistance}. Ces réglages du compte courant seront remplacés.")
+                            .setMessage("Texte ${(value.textScale * 100).toInt()} %, contraste ${if (value.highContrast) "renforcé" else "normal"}, zoom ${(value.readerScale * 100).toInt()} %. Mouvements réduits : ${value.reduceMotion}. Contexte : ${value.context}. Aide à l’écriture : ${value.writingAssistance}. Nuit automatique : ${value.nightScheduleEnabled}, ${hour(value.nightStartMinute)}–${hour(value.nightEndMinute)}. Ces réglages du compte courant seront remplacés.")
                             .setPositiveButton("Appliquer") { _, _ -> save(value); dialog.dismiss() }
                             .setNegativeButton("Annuler", null))
                     }

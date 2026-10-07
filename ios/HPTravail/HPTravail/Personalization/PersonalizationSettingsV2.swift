@@ -32,6 +32,13 @@ struct PersonalizationSettingsV2: View {
                     Text("Nuit — apparence sombre").tag("night")
                     Text("Économie — effets réduits").tag("economy")
                 }
+                Toggle("Programmer le contexte Nuit", isOn: preferences.binding(\.nightScheduleEnabled))
+                if preferences.value.nightScheduleEnabled {
+                    DatePicker("Début de la nuit", selection: scheduleTime(\.nightStartMinute), displayedComponents: .hourAndMinute)
+                    DatePicker("Fin de la nuit", selection: scheduleTime(\.nightEndMinute), displayedComponents: .hourAndMinute)
+                }
+                Text("La plage suit l’heure locale, début inclus et fin exclue. Un contexte manuel prioritaire suspend la plage. L’écran est réévalué chaque minute uniquement pendant l’utilisation ; aucune tâche en arrière-plan.")
+                    .font(.caption)
                 Text("Le contexte conserve les préférences de base. Revenez aux réglages habituels pour les retrouver.")
                     .font(.caption)
             }
@@ -42,6 +49,7 @@ struct PersonalizationSettingsV2: View {
             }
             SystemPermissionsSectionV2()
             SharedComfortTransferSectionV2()
+            CloudComfortSectionV2()
             Section("Conservation et restauration") {
                 Text("Préférences conservées sur cet appareil, séparément pour chaque compte et pour le visiteur. La synchronisation entre appareils n’est pas activée.")
                     .font(.caption)
@@ -77,7 +85,7 @@ struct PersonalizationSettingsV2: View {
             Button("Annuler", role: .cancel) { pendingImport = nil }
         } message: {
             if let candidate = pendingImport {
-                Text("Apparence : \(candidate.appearance), agrandissement : +\(candidate.textSteps), contraste renforcé : \(candidate.highContrast ? "oui" : "non"), zoom de lecture : \(Int(candidate.readerScale * 100)) %, contexte : \(candidate.context), thème : \(candidate.accent), mouvements réduits : \(candidate.reduceMotion ? "oui" : "non"), surfaces opaques : \(candidate.opaqueSurfaces ? "oui" : "non"), correction clavier : \(candidate.systemSpelling ? "oui" : "non"). Les données de pointage et de paie restent conservées.")
+                Text("Apparence : \(candidate.appearance), agrandissement : +\(candidate.textSteps), contraste renforcé : \(candidate.highContrast ? "oui" : "non"), zoom de lecture : \(Int(candidate.readerScale * 100)) %, contexte : \(candidate.context), thème : \(candidate.accent), mouvements réduits : \(candidate.reduceMotion ? "oui" : "non"), surfaces opaques : \(candidate.opaqueSurfaces ? "oui" : "non"), correction clavier : \(candidate.systemSpelling ? "oui" : "non"). Nuit programmée : \(candidate.nightScheduleEnabled ? "oui" : "non"), début : \(candidate.nightStartMinute / 60) h \(candidate.nightStartMinute % 60), fin : \(candidate.nightEndMinute / 60) h \(candidate.nightEndMinute % 60). Les données de pointage et de paie restent conservées.")
             }
         }
         .confirmationDialog("Réinitialiser le confort visuel ?", isPresented: $showReset, titleVisibility: .visible) {
@@ -86,4 +94,18 @@ struct PersonalizationSettingsV2: View {
         } message: { Text("Seuls les réglages visuels de ce profil seront réinitialisés. L’annulation restera disponible.") }
         }
     }
+
+    private func scheduleTime(_ key: WritableKeyPath<VisualPreferencesV2, Int>) -> Binding<Date> {
+        let session = preferences.sessionID
+        return Binding(get: {
+            let minute = preferences.value[keyPath: key]
+            return Calendar.current.date(bySettingHour: minute / 60, minute: minute % 60, second: 0, of: Date()) ?? Date()
+        }, set: { value in
+            guard preferences.sessionID == session else { return }
+            var next = preferences.value
+            next[keyPath: key] = VisualPreferencesV2.localMinute(value)
+            preferences.set(next)
+        })
+    }
+
 }
