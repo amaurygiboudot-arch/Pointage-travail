@@ -19,3 +19,7 @@ Il reste nécessaire de tester réellement les moteurs installés, les interrupt
 Le profil natif peut activer un horaire local : par défaut 22 h–7 h, désactivé initialement. Début inclus, fin exclue ; un intervalle traversant minuit est accepté. Un début égal à la fin est refusé. Le contexte manuel reste prioritaire. La vérification s’effectue au premier plan à la minute, sans alarme, service, réveil ou traitement en arrière-plan. Les changements d’heure/fuseau sont pris en compte par l’horloge locale.
 
 Les anciens profils restent lisibles et reçoivent les valeurs par défaut si les nouveaux champs sont absents. Les valeurs présentes invalides sont rejetées. L’horaire reste une préférence native et ne fait pas partie des trois réglages transférés.
+
+## Preuve émulateur locale
+
+Le 7 octobre 2026, `npm --prefix firestore-rules-tests test` a exécuté les règles réelles dans l’émulateur Firestore du projet local `demo-horatrack` : 7 tests réussis. Les trois nouveaux scénarios vérifient accès du propriétaire/refus d’un autre compte ou invité, deux transactions concurrentes sur la même révision, et rejet d’une ancienne écriture après suppression versionnée. Aucune donnée de production utilisée. Ces tests exercent le serveur et des clients SDK simulés ; ils ne remplacent pas les parcours tactiles, audio et changements de session sur téléphones.
