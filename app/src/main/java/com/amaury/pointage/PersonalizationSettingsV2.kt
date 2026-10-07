@@ -103,7 +103,7 @@ object PersonalizationSettingsV2 {
             }, "Exporter le confort visuel"))
         }
         content.addView(TextView(activity).apply {
-            text = "Le transfert Android/iOS partage uniquement le contraste, la réduction des mouvements et le zoom de lecture. Copie le texte partagé puis colle-le sur l’autre appareil."
+            text = "Le transfert Android/iOS partage le contraste, la réduction des mouvements, le zoom de lecture et la programmation facultative du mode nuit. Pour recevoir les nouveaux transferts, mets à jour l’application sur l’autre appareil. Copie le texte partagé puis colle-le sur l’autre appareil."
         })
         button("Confort du compte sur mes appareils") {
             ComfortCloudSettingsV2.open(activity) {
@@ -135,7 +135,7 @@ object PersonalizationSettingsV2 {
                     else {
                         val patch = result.getOrThrow()
                         show(AlertDialog.Builder(activity).setTitle("Appliquer ce confort partagé ?")
-                            .setMessage("Contraste renforcé : ${if (patch.highContrast) "oui" else "non"}. Mouvements réduits : ${if (patch.reduceMotion) "oui" else "non"}. Zoom de lecture : ${(patch.readerScale * 100).toInt()} %. Les autres réglages restent conservés. Le contexte économie peut continuer à réduire les mouvements.")
+                            .setMessage("${patch.preview()} Les autres réglages restent conservés. Le contexte économie peut continuer à réduire les mouvements.")
                             .setPositiveButton("Appliquer") { _, _ ->
                                 if (sameOwner()) save(patch.applyTo(PersonalizationStoreV2.read(activity)))
                                 dialog.dismiss()

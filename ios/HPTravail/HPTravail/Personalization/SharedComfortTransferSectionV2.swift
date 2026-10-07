@@ -7,8 +7,9 @@ struct SharedComfortTransferSectionV2: View {
     var body: some View {
         let session = preferences.sessionID
         Section("Confort Android / iOS") {
-            Text("Transfert manuel du contraste, des mouvements réduits et du zoom de lecture. Le thème, la taille native, le contexte et la saisie restent propres à cet appareil.")
+            Text("Transfert manuel du contraste, des mouvements réduits, du zoom de lecture et de la programmation Nuit. Le thème, la taille native, le contexte et la saisie restent propres à cet appareil.")
                 .font(.caption)
+            Text("Le nouveau format de transfert nécessite une application à jour sur l’appareil destinataire.").font(.caption)
             if let transfer = try? ComfortTransferV2(profile: preferences.value),
                let text = try? transfer.encodedText() {
                 ShareLink(item: text) {
@@ -57,17 +58,18 @@ private struct SharedComfortPasteViewV2: View {
                     }
                 }
                 if let candidate = pending {
-                    Section("Aperçu des trois réglages") {
+                    Section("Aperçu des réglages") {
                         Text("Contraste renforcé : \(candidate.highContrast ? "oui" : "non")")
                         Text("Mouvements réduits : \(candidate.reduceMotion ? "oui" : "non")")
                         Text("Zoom de lecture : × \(String(candidate.readerScale))")
-                        Text("Les préférences d’accessibilité iOS restent prioritaires. Le transfert ne change pas le contexte actif.")
+                        Text(candidate.nightSchedulePreview)
+                        Text("Les préférences d’accessibilité iOS restent prioritaires. Le transfert ne change pas le contexte manuel.")
                             .font(.caption)
                         if preferences.value.context == "economy" {
                             Text("Le contexte Économie actif maintient les mouvements réduits même si le réglage importé est désactivé.")
                                 .font(.caption)
                         }
-                        Button("Appliquer ces trois réglages") {
+                        Button("Appliquer ces réglages") {
                             guard preferences.sessionID == session else { dismiss(); return }
                             // Re-read now: native changes made since the preview are preserved.
                             preferences.set(candidate.applying(to: preferences.value))

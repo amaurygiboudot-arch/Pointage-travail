@@ -53,12 +53,12 @@ final class NightScheduleV2Tests: XCTestCase {
         XCTAssertThrowsError(try VisualPreferencesV2.decode(JSONSerialization.data(withJSONObject: json)))
     }
 
-    func testSharedTransferDoesNotCarryOrOverwriteSchedule() throws {
+    func testLegacySharedTransferDoesNotCarryOrOverwriteSchedule() throws {
         var local = VisualPreferencesV2()
         local.nightScheduleEnabled = true
         local.nightStartMinute = 1230
         local.nightEndMinute = 480
-        let shared = try ComfortTransferV2(profile: VisualPreferencesV2())
+        let shared = try ComfortTransferV2.decode(#"{"format":"agkgmg.comfort","version":1,"highContrast":false,"reduceMotion":false,"readerScale":1.5}"#)
         let result = shared.applying(to: local)
         XCTAssertEqual(result.nightScheduleEnabled, local.nightScheduleEnabled)
         XCTAssertEqual(result.nightStartMinute, local.nightStartMinute)

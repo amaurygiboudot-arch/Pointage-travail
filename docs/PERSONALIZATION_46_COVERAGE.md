@@ -8,7 +8,7 @@ Android : entrée Paramètres > Personnalisation > Confort visuel et écriture ;
 
 iOS : réglages de confort, thème et accents, taille dynamique, surfaces opaques, contraste, mouvements réduits et contexte, import/export et annulation. Les champs natifs existants consomment un composant commun protégeant les champs techniques des corrections de prose.
 
-Les sauvegardes natives complètes Android et iOS ont des schémas différents. Un transfert commun explicite partage trois réglages : contraste renforcé, réduction des mouvements et zoom de lecture. Il conserve les autres réglages propres à chaque plateforme et exige un aperçu puis une confirmation. Une sauvegarde manuelle du même sous-ensemble est également disponible dans le compte Firebase existant, avec révisions, conflits explicites et suppression versionnée. Il n’y a aucun envoi automatique ni nouveau service IA.
+Les sauvegardes natives complètes Android et iOS ont des schémas différents. Un transfert commun explicite partage le contraste renforcé, la réduction des mouvements, le zoom de lecture et la programmation de nuit (activation et deux horaires locaux). Les anciens transferts restent lisibles et conservent la programmation locale. Il conserve les autres réglages propres à chaque plateforme et exige un aperçu puis une confirmation. Une sauvegarde manuelle du même sous-ensemble est également disponible dans le compte Firebase existant, avec révisions, conflits explicites et suppression versionnée. Il n’y a aucun envoi automatique ni nouveau service IA.
 
 ## Suivi des exigences
 
@@ -26,10 +26,10 @@ Les sauvegardes natives complètes Android et iOS ont des schémas différents. 
 | 10 Apprentissage | Non ajouté | Propositions d’habitudes réversibles, sans inférence cachée |
 | 11 Notifications | Partiel : état réel et liens vers réglages système, canaux Android | Catégories, horaires silencieux, appareils et déduplication |
 | 12 Confidentialité | Partiel : isolation, exclusions, brouillons chiffrés Android, état des permissions système | Contrôle global des traitements |
-| 13 Multi appareils | Partiel : sauvegarde/restauration manuelles de trois réglages Android/iOS, contrôle de révision et suppression versionnée | Synchronisation automatique des catégories autorisées ; essais réels de concurrence et de changements de compte |
+| 13 Multi appareils | Partiel : sauvegarde/restauration manuelles du confort et de la programmation de nuit Android/iOS, contrôle de révision et suppression versionnée | Synchronisation automatique des catégories autorisées ; essais réels de concurrence et de changements de compte |
 | 14 Modules | Partiel : services communs des applications existantes | Contrat d’enregistrement pour futurs modules et Genesis |
 | 15 Contextes | Partiel : contextes manuels prioritaires et horaire de nuit local configurable, actif seulement au premier plan | Autres contextes configurables et combinaisons de règles |
-| 16 Sauvegarde | Partiel : confort exportable/importable, reset visuel ; transfert Android/iOS de trois réglages communs | Restauration globale transactionnelle et portabilité des autres réglages |
+| 16 Sauvegarde | Partiel : confort exportable/importable, reset visuel ; transfert Android/iOS du confort et de la programmation de nuit | Restauration globale transactionnelle et portabilité des autres réglages |
 | 17 Écriture commune | Partiel : champs Android éligibles et wrapper SwiftUI | Dialogues Android, champs personnalisés et inventaire exhaustif |
 | 18 Orthographe/grammaire | Partiel : correcteur Android installé, accord explicite et validation ; clavier natif iOS | Véritable correcteur grammatical multilingue ; aucune IA simulée |
 | 19 Frappe | Très limité : erreurs connues proposées | Détection contextuelle complète des fautes de frappe |
@@ -43,7 +43,7 @@ Les sauvegardes natives complètes Android et iOS ont des schémas différents. 
 | 27 Annuler/rétablir | Partiel Android : historique borné du texte | Parité et intégration complète des commandes natives |
 | 28 Performance | Partiel : analyse retardée, historique borné, cache du profil | Mesures réelles appareils modestes, gros textes et rendu |
 | 29 Moteur unique | Partiel : aide manuelle, pas de correction automatique concurrente | Inventaire complet et validation des claviers tiers |
-| 30 Transversalité | Partiel : services partagés et contrat de transfert commun pour trois réglages | Extension du contrat aux autres réglages et modules futurs |
+| 30 Transversalité | Partiel : services partagés et contrat de transfert commun pour le confort et la programmation de nuit | Extension du contrat aux autres réglages et modules futurs |
 | 31 Propriétaire unique | Confort nouveau canonique par compte | Migration de toutes les préférences historiques avec garanties |
 | 32 Compatibilité | Code Android/iOS ajouté | Builds complets, essais matériels et matrice officielle |
 | 33 Tests globaux | Tests de logique ajoutés, harness écriture exécuté | Exécution CI complète et tests fonctionnels transversaux |
@@ -74,3 +74,9 @@ Les sauvegardes natives complètes Android et iOS ont des schémas différents. 
 - Prévalidation de source par mobile_platforms/team_lead ; revue sécurité ayant identifié puis fait corriger les changements de compte et la récupération historique. Cela ne remplace pas le rapport obligatoire lié au SHA ni le sas de fusion.
 
 La branche doit rester en brouillon tant que les contrôles requis et la validation fonctionnelle ne sont pas satisfaits. Pas de publication Google Play à partir d’un build non vérifié.
+
+## Reprise du 7 octobre 2026
+
+Extension du transfert commun au mode nuit sur Android/iOS, avec aperçu local/compte, rétrocompatibilité des profils version 1 et rejet des horaires malformés. Tests contractuels et de restauration cloud enrichis sur les deux plateformes. Le lot reste en cours de validation : les tests Android locaux sont bloqués avant compilation par l’accès réseau à Google Maven ; les tests Swift nécessitent le runner macOS. Aucun résultat CI du précédent SHA ne vaut validation de cette extension.
+
+Point de reprise final : commit applicatif local 03c723d5941f295bd6989cbcd9d34acd7e6b39bb non poussé, envoi rejeté par le contrôle automatique d’autorisation. Revues de source incrémentales team_lead puis QA sans défaut nouveau démontré ; contrôle final bloqué faute des preuves exigées. CI du nouveau code non déclenchée. La PR distante 685 reste à 1f49bb046be9f5cc7479cc41dcf295fb0e0f5553. Les documents maîtres thématiques Paramètres et Point de reprise ont été actualisés.

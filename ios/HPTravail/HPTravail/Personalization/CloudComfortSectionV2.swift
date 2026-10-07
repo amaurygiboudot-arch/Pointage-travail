@@ -12,8 +12,9 @@ struct CloudComfortSectionV2: View {
         let session = preferences.sessionID
         let uid = auth.user?.uid
         Section("Sauvegarde manuelle du compte") {
-            Text("Seuls le contraste, les mouvements réduits et le zoom de lecture sont transférés. Chaque lecture ou écriture est lancée par votre action ; aucun suivi ni envoi automatique.")
+            Text("Seuls le contraste, les mouvements réduits, le zoom de lecture et la programmation Nuit sont transférés. Chaque lecture ou écriture est lancée par votre action ; aucun suivi ni envoi automatique.")
                 .font(.caption)
+            Text("Le nouveau format de transfert nécessite une application à jour sur l’appareil destinataire.").font(.caption)
             if let uid, auth.isFirebaseConfigured {
                 Button("Lire la sauvegarde du compte") {
                     guard preferences.sessionID == session, auth.user?.uid == uid else { return }
@@ -26,7 +27,7 @@ struct CloudComfortSectionV2: View {
                         Text("Sauvegarde supprimée. La révision est conservée pour bloquer les anciennes écritures.")
                     } else if let transfer = snapshot.transfer {
                         preview(transfer)
-                        Button("Restaurer ces trois réglages") { restore = transfer }
+                        Button("Restaurer ces réglages") { restore = transfer }
                             .disabled(cloud.busy)
                     }
                 }
@@ -48,7 +49,7 @@ struct CloudComfortSectionV2: View {
             }
         }
         .confirmationDialog("Restaurer le confort lu sur le serveur ?", isPresented: Binding(get: { restore != nil }, set: { if !$0 { restore = nil } }), titleVisibility: .visible) {
-            Button("Appliquer les trois réglages") {
+            Button("Appliquer les réglages") {
                 guard preferences.sessionID == session, auth.user?.uid == uid else { return }
                 if let transfer = restore { preferences.set(transfer.applying(to: preferences.value)) }
                 restore = nil
@@ -58,7 +59,7 @@ struct CloudComfortSectionV2: View {
             if let restore { Text(description(restore)) }
         }
         .confirmationDialog("Sauvegarder ce confort dans le compte ?", isPresented: Binding(get: { save != nil }, set: { if !$0 { save = nil } }), titleVisibility: .visible) {
-            Button("Sauvegarder les trois réglages") {
+            Button("Sauvegarder les réglages") {
                 guard preferences.sessionID == session, let uid, auth.user?.uid == uid, let transfer = save else { return }
                 save = nil
                 Task { await cloud.write(uid: uid, session: session, transfer: transfer) }
@@ -81,7 +82,7 @@ struct CloudComfortSectionV2: View {
     }
 
     private func description(_ value: ComfortTransferV2) -> String {
-        "Contraste renforcé : \(value.highContrast ? "oui" : "non"). Mouvements réduits : \(value.reduceMotion ? "oui" : "non"). Zoom de lecture : × \(String(value.readerScale)). Les choix système et le contexte actif restent prioritaires."
+        "Contraste renforcé : \(value.highContrast ? "oui" : "non"). Mouvements réduits : \(value.reduceMotion ? "oui" : "non"). Zoom de lecture : × \(String(value.readerScale)). \(value.nightSchedulePreview) Les choix système et le contexte manuel restent prioritaires."
     }
     private func preview(_ value: ComfortTransferV2) -> some View { Text(description(value)) }
     private func clear() { restore = nil; save = nil; delete = false; cloud.cancel() }

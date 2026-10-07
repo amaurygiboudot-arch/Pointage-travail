@@ -1,3 +1,15 @@
+POINT DE REPRISE DU 7 OCTOBRE 2026 — PERSONNALISATION
+Les checkpoints ci-dessous restent historiques. Les documents thématiques du 7 octobre confirment Salaire V2 comme priorité générale ; cette reprise de personnalisation est explicitement demandée par Amaury.
+PR active : #685, branche codex/personalisation-46-20261007, en brouillon et non fusionnée lors de la reprise.
+Travail ajouté : transfert commun Android/iOS version 2 du confort et de la programmation de nuit (activation, début, fin), aperçu avant confirmation, maintien de l’horaire local lors d’une restauration version 1.
+Portée : export/import explicites et sauvegarde manuelle du compte ; aucune synchronisation automatique, aucune modification des règles salariales ou de pointage.
+Contrôles : tests contractuels enrichis ; Gradle local bloqué avant compilation par Google Maven inaccessible ; validation iOS sur runner macOS nécessaire. Les résultats du SHA précédent 1f49bb046be9f5cc7479cc41dcf295fb0e0f5553 ne valident pas ce changement.
+Prévalidation de source team_lead : aucune anomalie bloquante détectée dans cette extension ; coquilles corrigées. Ceci ne vaut pas revue complète.
+Fusion : commande officielle agent-review bloquée dans cet environnement car Codex CLI est absent ; chaîne de revue liée au SHA exact toujours requise par AGENTS.md. Aucun PASS ni aucune publication Google Play annoncé.
+État final de cette session : commit applicatif local 03c723d5941f295bd6989cbcd9d34acd7e6b39bb. Envoi GitHub refusé par le contrôle automatique pour autorisation explicite insuffisante de publier le code privé dans ce dépôt. PR distante revérifiée inchangée à 1f49bb046be9f5cc7479cc41dcf295fb0e0f5553.
+Revue QA incrémentale : aucun nouveau défaut démontré. Control_gate incrémental : BLOQUÉ, FUSION AUTORISÉE NON, faute de tests/CI et de rapport officiel.
+Suite exacte : obtenir l’autorisation d’envoyer le lot dans cette branche, puis contrôler la CI au nouveau SHA, réaliser les revues requises et les parcours réels Android/iOS, puis continuer les exigences incomplètes de docs/PERSONALIZATION_46_COVERAGE.md. Ne pas déclarer 46/46 terminé.
+
 AGKGMG / HORATRACK — DOCUMENT MAITRE V2.24 — CHECKPOINT 31
 MISE A JOUR DU 26 SEPTEMBRE 2026 — PARAMETRES V2 / PUBLICATION / TRAVAIL PARALLELE SALAIRE V2
 

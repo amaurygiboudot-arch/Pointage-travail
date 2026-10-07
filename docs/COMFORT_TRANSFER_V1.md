@@ -1,17 +1,27 @@
-# Transfert de confort Android/iOS
+# Transfert de confort Android et iOS
 
-Le partage est manuel et porte uniquement sur trois préférences consommées sur les deux plateformes. Il n’ajoute pas de synchronisation cloud ni de transmission automatique.
+Le transfert reste manuel. Le format actuel `agkgmg.comfort` version 2 transporte le contraste, la réduction des mouvements, le zoom de lecture et la programmation du mode nuit. La sauvegarde du compte utilise le même contrat. Aucune transmission automatique n’est ajoutée.
 
-Dans Personnalisation, utiliser « Partager le confort Android/iOS », copier le texte transmis et utiliser « Coller le confort Android/iOS » sur l’autre appareil. Vérifier l’aperçu avant de confirmer. Les exports natifs complets restent disponibles séparément.
+Dans Personnalisation, partager le texte puis le coller sur l’autre appareil. Vérifier l’aperçu avant de confirmer. Les exports natifs complets restent disponibles séparément.
 
-## Contrat
+## Contrat actuel
+
+```json
+{"format":"agkgmg.comfort","version":2,"highContrast":true,"reduceMotion":false,"readerScale":2.25,"nightScheduleEnabled":true,"nightStartMinute":1320,"nightEndMinute":420}
+```
+
+Tous les champs sont obligatoires. Les champs inconnus, types incorrects, versions incompatibles et documents dépassant 4 096 octets UTF-8 sont refusés. Le zoom est fini et compris entre 1 et 4. Les minutes sont des entiers de 0 à 1439 ; début et fin doivent différer, même quand la programmation est désactivée.
+
+Les horaires sont des heures locales, sans fuseau transporté : 22 h signifie 22 h sur l’appareil destinataire. L’aperçu indique les heures et l’activation avant confirmation. Le contexte manuel et les préférences système d’accessibilité restent prioritaires. Le transfert ne change ni le contexte manuel, ni le thème, ni la taille native, ni la saisie, ni les données métier.
+
+## Compatibilité des sauvegardes
+
+Le format historique version 1 reste accepté :
 
 ```json
 {"format":"agkgmg.comfort","version":1,"highContrast":true,"reduceMotion":false,"readerScale":2.25}
 ```
 
-Tous les champs sont obligatoires. Les champs inconnus, types incorrects, versions incompatibles et documents dépassant 4 096 octets UTF-8 sont refusés. Le zoom est un nombre fini compris entre 1 et 4. Aucun identifiant de compte, texte saisi, brouillon, salaire ou pointage n’est inclus.
+Restaurer une version 1 conserve intégralement la programmation de nuit locale, y compris son activation. Réexporter cet objet sans l’enrichir conserve son format version 1. Un nouvel export du profil courant utilise la version 2. Les anciennes applications qui ne comprennent que la version 1 refuseront la version 2 : mettre à jour l’application destinataire, sans abaisser silencieusement le format.
 
-Les trois champs sont appliqués au profil courant seulement après confirmation. Le thème, la taille native, le contexte actif, la correction de saisie et les autres préférences restent conservés. Le mode économie ou une préférence système d’accessibilité peut continuer à réduire les mouvements même si la préférence importée vaut false. Un changement de compte invalide l’import en attente.
-
-Le transfert reproduit les préférences, pas un rendu pixel pour pixel entre Android et iOS. Les tests contractuels utilisent le même exemple, rejettent des entrées malformées et vérifient la conservation des préférences locales.
+Au moment de la confirmation, les valeurs sont appliquées au profil alors courant. Un changement de compte invalide la restauration en attente. Aucun identifiant, texte saisi, brouillon, salaire ou pointage n’est transporté. Le fichier documentaire conserve son ancien nom pour préserver les références existantes.

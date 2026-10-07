@@ -2,7 +2,7 @@
 
 ## Sauvegarde volontaire entre appareils
 
-Les trois réglages portables du format `agkgmg.comfort` peuvent être sauvegardés dans le compte déjà connecté. L’écran n’effectue aucune lecture ou écriture réseau sans action de l’utilisateur. Il faut lire la version du serveur avant d’enregistrer. Le bouton de restauration affiche la version et les valeurs concernées ; la confirmation modifie seulement les trois réglages locaux.
+Les réglages portables et la programmation de nuit du format `agkgmg.comfort` peuvent être sauvegardés dans le compte déjà connecté. L’écran n’effectue aucune lecture ou écriture réseau sans action de l’utilisateur. Il faut lire la version du serveur avant d’enregistrer. Le bouton de restauration affiche la version et les valeurs concernées ; la confirmation applique les réglages annoncés dans l’aperçu. Une ancienne sauvegarde version 1 conserve la programmation de nuit locale.
 
 Le document existant dans la collection autorisée est `users/{uid}/app_backup/comfort_shared_v1`. Les règles Firestore existantes imposent le propriétaire ; elles ne sont pas modifiées. Le contrat client exige cinq champs : `schemaVersion:1`, `revision` entier entre 1 et 1 milliard, `payload` au format commun, `deleted` booléen et `updatedAt` timestamp serveur. Une transaction compare la révision attendue, puis l’incrémente. Les conflits sont refusés et nécessitent une nouvelle lecture explicite.
 
@@ -18,7 +18,7 @@ Il reste nécessaire de tester réellement les moteurs installés, les interrupt
 
 Le profil natif peut activer un horaire local : par défaut 22 h–7 h, désactivé initialement. Début inclus, fin exclue ; un intervalle traversant minuit est accepté. Un début égal à la fin est refusé. Le contexte manuel reste prioritaire. La vérification s’effectue au premier plan à la minute, sans alarme, service, réveil ou traitement en arrière-plan. Les changements d’heure/fuseau sont pris en compte par l’horloge locale.
 
-Les anciens profils restent lisibles et reçoivent les valeurs par défaut si les nouveaux champs sont absents. Les valeurs présentes invalides sont rejetées. L’horaire reste une préférence native et ne fait pas partie des trois réglages transférés.
+Les anciens profils restent lisibles et reçoivent les valeurs par défaut si les nouveaux champs sont absents. Les valeurs présentes invalides sont rejetées. La version 2 du transfert commun transporte maintenant l’activation et les deux horaires, en heures locales de l’appareil destinataire. La version 1 reste lisible et conserve la programmation locale. L’enveloppe Firestore et le document comfort_shared_v1 restent identiques ; seule la version du payload évolue. Les clients anciens refusent ce nouveau payload explicitement.
 
 ## Preuve émulateur locale
 

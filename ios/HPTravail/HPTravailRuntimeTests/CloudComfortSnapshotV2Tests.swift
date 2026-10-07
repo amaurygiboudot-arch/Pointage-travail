@@ -16,7 +16,7 @@ final class CloudComfortSnapshotV2Tests: XCTestCase {
         let parsed = try CloudComfortSnapshotV2.parse(source, timestampIsValid: true)
         XCTAssertEqual(parsed.revision, 3)
         XCTAssertFalse(parsed.deleted)
-        XCTAssertNotNil(parsed.transfer)
+        XCTAssertEqual(parsed.transfer?.version, 2)
         var deleted = source
         deleted["deleted"] = true
         XCTAssertThrowsError(try CloudComfortSnapshotV2.parse(deleted, timestampIsValid: true))
@@ -25,6 +25,34 @@ final class CloudComfortSnapshotV2Tests: XCTestCase {
         XCTAssertTrue(tombstone.deleted)
         XCTAssertNil(tombstone.transfer)
         XCTAssertEqual(tombstone.revision, 3)
+    }
+
+    func testVersionTwoCloudPayloadRoundTrip() throws {
+        var source = try fields()
+        source["payload"] = #"{"format":"agkgmg.comfort","version":2,"highContrast":true,"reduceMotion":false,"readerScale":2.25,"nightScheduleEnabled":true,"nightStartMinute":1320,"nightEndMinute":420}"#
+        let transfer = try XCTUnwrap(CloudComfortSnapshotV2.parse(source, timestampIsValid: true).transfer)
+        source["payload"] = try transfer.encodedText()
+        let restored = try CloudComfortSnapshotV2.parse(source, timestampIsValid: true)
+        XCTAssertEqual(restored.transfer, transfer)
+        XCTAssertEqual(restored.transfer?.nightStartMinute, 1320)
+        XCTAssertEqual(restored.transfer?.nightEndMinute, 420)
+        XCTAssertEqual(restored.transfer?.nightScheduleEnabled, true)
+    }
+
+    func testLegacyPayloadRemainsReadableInSameCloudEnvelope() throws {
+        var source = try fields()
+        source["payload"] = #"{"format":"agkgmg.comfort","version":1,"highContrast":true,"reduceMotion":false,"readerScale":2}"#
+        let parsed = try CloudComfortSnapshotV2.parse(source, timestampIsValid: true)
+        let transfer = try XCTUnwrap(parsed.transfer)
+        XCTAssertEqual(transfer.version, 1)
+        var local = VisualPreferencesV2()
+        local.nightScheduleEnabled = true
+        local.nightStartMinute = 600
+        local.nightEndMinute = 720
+        let result = transfer.applying(to: local)
+        XCTAssertTrue(result.nightScheduleEnabled)
+        XCTAssertEqual(result.nightStartMinute, 600)
+        XCTAssertEqual(result.nightEndMinute, 720)
     }
 
     func testStrictFieldsTypesBoundsAndTimestamp() throws {

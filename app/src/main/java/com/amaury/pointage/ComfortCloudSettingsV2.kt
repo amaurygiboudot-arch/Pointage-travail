@@ -27,7 +27,7 @@ object ComfortCloudSettingsV2 {
         val box = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 16, 24, 16) }
         val status = TextView(activity)
         box.addView(TextView(activity).apply {
-            text = "Sauvegarde volontaire de trois réglages : contraste, mouvements réduits et zoom de lecture. Utilise le même compte sur Android ou iOS. Les autres réglages et tes données de travail ne sont pas transmis ici. Aucune synchronisation automatique."
+            text = "Sauvegarde volontaire du contraste, des mouvements réduits, du zoom de lecture et de la programmation facultative du mode nuit. Pour recevoir les nouveaux transferts, mets à jour l’application sur l’autre appareil. Utilise le même compte sur Android ou iOS. Les autres réglages et tes données de travail ne sont pas transmis ici. Aucune synchronisation automatique."
         })
         box.addView(status)
         val buttons = mutableListOf<Button>()
@@ -36,7 +36,7 @@ object ComfortCloudSettingsV2 {
         lateinit var dialog: AlertDialog
         fun active() = operationAllowed.get() && !activity.isDestroyed && dialog.isShowing && owner == PersonalizationStoreV2.accountScope()
             && FirebaseAuth.getInstance().currentUser?.uid == uid
-        fun describe(value: ComfortTransferV2) = "Contraste renforcé : ${if (value.highContrast) "oui" else "non"}. Mouvements réduits : ${if (value.reduceMotion) "oui" else "non"}. Zoom : ${(value.readerScale * 100).toInt()} %."
+        fun describe(value: ComfortTransferV2) = value.preview()
         fun display() {
             val value = loaded
             status.text = when {
@@ -98,7 +98,7 @@ object ComfortCloudSettingsV2 {
             val current = loaded
             if (current == null) { display(); return@button }
             val proposed = ComfortTransferV2.from(PersonalizationStoreV2.read(activity))
-            PersonalizationRuntimeV2.track(AlertDialog.Builder(activity).setTitle("Sauvegarder ces trois réglages ?")
+            PersonalizationRuntimeV2.track(AlertDialog.Builder(activity).setTitle("Sauvegarder ce confort ?")
                 .setMessage("${describe(proposed)} Ils remplaceront la sauvegarde du compte à la révision ${current.revision}.")
                 .setPositiveButton("Sauvegarder") { _, _ -> write(proposed, current.revision) }
                 .setNegativeButton("Annuler", null).show())
@@ -107,7 +107,7 @@ object ComfortCloudSettingsV2 {
             val current = loaded
             val value = current?.comfort
             if (value == null) { display(); return@button }
-            PersonalizationRuntimeV2.track(AlertDialog.Builder(activity).setTitle("Restaurer ces trois réglages ?")
+            PersonalizationRuntimeV2.track(AlertDialog.Builder(activity).setTitle("Restaurer ce confort ?")
                 .setMessage("Révision ${current.revision}. ${describe(value)} Les autres réglages restent conservés ; le contexte économie peut continuer à réduire les mouvements.")
                 .setPositiveButton("Restaurer") { _, _ ->
                     if (!active()) return@setPositiveButton
@@ -120,7 +120,7 @@ object ComfortCloudSettingsV2 {
             val current = loaded
             if (current == null || current.comfort == null) { display(); return@button }
             PersonalizationRuntimeV2.track(AlertDialog.Builder(activity).setTitle("Supprimer la sauvegarde distante ?")
-                .setMessage("Les trois réglages sauvegardés seront effacés. Le confort de tes appareils reste conservé. Un numéro de révision sans préférences évite qu’un ancien appareil réécrive cette sauvegarde sans la relire.")
+                .setMessage("Les réglages de confort sauvegardés seront effacés. Le confort de tes appareils reste conservé. Un numéro de révision sans préférences évite qu’un ancien appareil réécrive cette sauvegarde sans la relire.")
                 .setPositiveButton("Supprimer") { _, _ -> write(null, current.revision) }
                 .setNegativeButton("Annuler", null).show())
         }

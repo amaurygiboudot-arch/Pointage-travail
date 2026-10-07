@@ -27,4 +27,13 @@ class ComfortCloudSnapshotV2Test {
         invalid.forEach { assertTrue(runCatching { ComfortCloudSnapshotV2.decode(it) }.isFailure) }
         assertTrue(runCatching { ComfortCloudSnapshotV2(ComfortCloudSnapshotV2.MAX_REVISION, null).nextRevision }.isFailure)
     }
+    @Test fun `existing cloud envelope carries new shared schedule without losing fields`() {
+        val transfer = ComfortTransferV2.from(PersonalizationProfileV2(highContrast = true,
+            nightScheduleEnabled = true, nightStartMinute = 1320, nightEndMinute = 420))
+        val snapshot = ComfortCloudSnapshotV2.decode(data(payload = transfer.encode()))
+        assertEquals(4L, snapshot.revision)
+        assertEquals(transfer, snapshot.comfort)
+        assertEquals(transfer, ComfortCloudSnapshotV2.decode(data(payload = snapshot.comfort!!.encode())).comfort)
+    }
+
 }
