@@ -80,6 +80,15 @@ object AppearanceManager {
         return if (prefs.getBoolean("custom_bg", false)) parseColor(prefs.getString("app_bg", null), fallback) else fallback
     }
 
+    private data class DialogPalette(
+        val panel: Int,
+        val foreground: Int,
+        val colors: ColorStateList,
+        val foregroundTint: ColorStateList,
+        val buttonBackgrounds: java.util.WeakHashMap<Button, android.graphics.drawable.Drawable> = java.util.WeakHashMap()
+    )
+    private val dialogPalettes = java.util.WeakHashMap<AlertDialog, DialogPalette>()
+
     fun applyDialog(dialog: AlertDialog) {
         val root = dialog.window?.decorView ?: return
         // The reader deliberately owns its high-contrast canvas and speech controls.
@@ -87,36 +96,45 @@ object AppearanceManager {
         val bg = backgroundColor(root.context)
         val panel = if (PersonalizationStoreV2.read(root.context).highContrast) Color.BLACK
             else shift(bg, if (isDark(bg)) 1.24f else .91f)
-        val foreground = bestTextColor(panel)
-        val disabledColor = if (foreground == Color.WHITE) Color.LTGRAY else Color.DKGRAY
-        val colors = ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
-            intArrayOf(if (contrastRatio(disabledColor, panel) >= 4.5) disabledColor else foreground, foreground))
-        dialog.window?.setBackgroundDrawable(android.graphics.drawable.GradientDrawable().apply {
-            setColor(panel)
-            cornerRadius = 20f * root.resources.displayMetrics.density
-        })
+        val previous = dialogPalettes[dialog]
+        val palette = previous?.takeIf { it.panel == panel } ?: run {
+            val foreground = bestTextColor(panel)
+            val disabledColor = if (foreground == Color.WHITE) Color.LTGRAY else Color.DKGRAY
+            DialogPalette(panel, foreground,
+                ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
+                    intArrayOf(if (contrastRatio(disabledColor, panel) >= 4.5) disabledColor else foreground, foreground)),
+                ColorStateList.valueOf(foreground)).also {
+                dialogPalettes[dialog] = it
+                dialog.window?.setBackgroundDrawable(android.graphics.drawable.GradientDrawable().apply {
+                    setColor(panel)
+                    cornerRadius = 20f * root.resources.displayMetrics.density
+                })
+            }
+        }
         fun style(view: View) {
             val name = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
             if (view is ViewGroup) {
                 if (name in setOf("parentPanel", "topPanel", "contentPanel", "customPanel", "buttonPanel")) {
-                    view.backgroundTintList = null
-                    view.setBackgroundColor(Color.TRANSPARENT)
+                    if (view.backgroundTintList != null) view.backgroundTintList = null
+                    if ((view.background as? android.graphics.drawable.ColorDrawable)?.color != Color.TRANSPARENT)
+                        view.setBackgroundColor(Color.TRANSPARENT)
                 }
                 for (i in 0 until view.childCount) style(view.getChildAt(i))
             }
-            if (view is TextView) {
-                view.setTextColor(colors)
+            if (view is TextView && !PersonalizationRuntimeV2.isProtectionApplied(view)) {
+                if (view.textColors !== palette.colors) view.setTextColor(palette.colors)
                 if (view is EditText) {
-                    view.setHintTextColor(foreground)
-                    view.backgroundTintList = ColorStateList.valueOf(foreground)
-                } else if (view is Button) {
+                    if (view.hintTextColors !== palette.foregroundTint) view.setHintTextColor(palette.foregroundTint)
+                    if (view.backgroundTintList !== palette.foregroundTint) view.backgroundTintList = palette.foregroundTint
+                } else if (view is Button && (!palette.buttonBackgrounds.containsKey(view) || palette.buttonBackgrounds[view] !== view.background)) {
                     view.backgroundTintList = null
                     val left = view.paddingLeft; val top = view.paddingTop
                     val right = view.paddingRight; val bottom = view.paddingBottom
                     val shape = view.resources.getDrawable(R.drawable.hp_panel, view.context.theme).mutate()
                     (shape as? android.graphics.drawable.GradientDrawable)?.setColor(panel)
                     view.background = android.graphics.drawable.RippleDrawable(
-                        ColorStateList.valueOf(if (foreground == Color.WHITE) 0x33FFFFFF else 0x33000000), shape, null)
+                        ColorStateList.valueOf(if (palette.foreground == Color.WHITE) 0x33FFFFFF else 0x33000000), shape, null)
+                    palette.buttonBackgrounds[view] = view.background
                     view.setPadding(left, top, right, bottom)
                 }
             }

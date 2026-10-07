@@ -55,7 +55,12 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
         if (dialogs.containsKey(dialog)) return dialog
         AppearanceManager.applyDialog(dialog)
         val root = dialog.window?.decorView ?: return dialog
-        val update = Runnable { if (dialog.isShowing) apply(root) }
+        val update = Runnable {
+            if (dialog.isShowing) {
+                AppearanceManager.applyDialog(dialog)
+                apply(root)
+            }
+        }
         val observer = ViewTreeObserver.OnGlobalLayoutListener {
             root.removeCallbacks(update); root.postDelayed(update, 120)
         }
@@ -90,6 +95,8 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
         if (view is TextView) { texts.remove(view); readerActions.remove(view) }
         if (view is ViewGroup) for (i in 0 until view.childCount) forget(view.getChildAt(i))
     }
+    internal fun isProtectionApplied(view: TextView): Boolean = texts[view]?.protected == true
+
     private fun releaseProtection(view: View) {
         if (view is TextView) texts[view]?.takeIf { it.protected }?.let {
             view.background = it.background; view.backgroundTintList = it.tint
@@ -161,7 +168,10 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
                 !view.hasOnClickListeners() && !view.isFocusable &&
                 (state.background == null ||
                     (state.background as? android.graphics.drawable.ColorDrawable)?.color == Color.TRANSPARENT)
-            val needsSupport = profile.highContrast || (protectImage && bareLabel)
+            val gradientFill = (state.background as? android.graphics.drawable.GradientDrawable)?.color
+            val transparentInputSurface = (view is Button || view is EditText) &&
+                gradientFill != null && Color.alpha(gradientFill.getColorForState(view.drawableState, gradientFill.defaultColor)) < 255
+            val needsSupport = profile.highContrast || (protectImage && (bareLabel || transparentInputSurface))
             if (needsSupport) {
                 HighContrastTextStyleV2.apply(view)
                 state.protected = true

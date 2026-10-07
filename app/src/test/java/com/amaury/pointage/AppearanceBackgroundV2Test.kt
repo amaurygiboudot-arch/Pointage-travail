@@ -74,6 +74,31 @@ class AppearanceBackgroundV2Test {
         controller.pause().stop().destroy()
     }
 
+    @Test fun repeatDialogStylingKeepsExistingGeometryAndStylesNewContent() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        val activity = controller.get()
+        activity.getSharedPreferences(AppThemeCatalog.PREFS, 0).edit()
+            .putBoolean("custom_bg", true).putString("app_bg", "#101B35").commit()
+        val content = LinearLayout(activity)
+        val button = Button(activity).apply { text = "Choisir" }
+        content.addView(button)
+        val dialog = AlertDialog.Builder(activity).setView(content).show()
+        AppearanceManager.applyDialog(dialog)
+        val originalWindowBackground = dialog.window!!.decorView.background
+        val originalButtonBackground = button.background
+        val originalColors = button.textColors
+        val delayedRow = TextView(activity).apply { text = "Option créée après ouverture"; setTextColor(Color.BLACK) }
+        content.addView(delayedRow)
+        AppearanceManager.applyDialog(dialog)
+        assertSame(originalWindowBackground, dialog.window!!.decorView.background)
+        assertSame(originalButtonBackground, button.background)
+        assertSame(originalColors, button.textColors)
+        val fill = ((button.background as android.graphics.drawable.RippleDrawable).getDrawable(0) as GradientDrawable).color!!.defaultColor
+        assertTrue(VisualContrastV2.ratio(delayedRow.currentTextColor, fill) >= 4.5)
+        dialog.dismiss()
+        controller.pause().stop().destroy()
+    }
+
     @Test fun frameStylingRespectsCustomLightColorEvenInDarkMode() {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()

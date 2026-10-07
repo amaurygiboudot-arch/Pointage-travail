@@ -216,4 +216,27 @@ class HighContrastTextStyleV2Test {
         assertEquals(Color.LTGRAY, tab.currentTextColor)
     }
 
+    @Test fun imageGivesTransparentPanelButtonAReadableFillWithoutLosingItsCorners() {
+        val appearance = context.getSharedPreferences(AppThemeCatalog.PREFS, Context.MODE_PRIVATE)
+        val original = GradientDrawable().apply { cornerRadius = 24f; setColor(Color.TRANSPARENT) }
+        val button = Button(context).apply { background = original; text = "Valider" }
+        try {
+            PersonalizationStoreV2.save(context, PersonalizationProfileV2())
+            appearance.edit().putBoolean("custom_image_bg", true).commit()
+            repeat(2) { PersonalizationRuntimeV2.apply(button) }
+            val filled = button.background as GradientDrawable
+            assertEquals(24f, filled.cornerRadius, 0f)
+            val fill = filled.color!!.getColorForState(button.drawableState, 0)
+            assertEquals(255, Color.alpha(fill))
+            assertTrue(VisualContrastV2.ratio(button.currentTextColor, fill) >= 4.5)
+            assertEquals(Color.TRANSPARENT, original.color!!.defaultColor)
+            appearance.edit().putBoolean("custom_image_bg", false).commit()
+            PersonalizationRuntimeV2.apply(button)
+            assertSame(original, button.background)
+        } finally {
+            appearance.edit().remove("custom_image_bg").commit()
+            PersonalizationStoreV2.save(context, PersonalizationProfileV2())
+        }
+    }
+
 }
