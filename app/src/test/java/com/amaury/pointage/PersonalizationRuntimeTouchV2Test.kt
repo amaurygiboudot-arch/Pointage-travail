@@ -19,6 +19,8 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.shadow.api.Shadow
+import org.robolectric.shadows.ShadowViewRootImpl
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
 import java.time.Duration
@@ -52,13 +54,20 @@ class PersonalizationRuntimeTouchV2Test {
                 val dialog = AlertDialog.Builder(activity).setItems(labels) { _, index -> selected = index }.create()
                 dialog.show()
                 if (tracked) PersonalizationRuntimeV2.track(dialog)
-                // A shown Robolectric dialog is attached but does not necessarily
-                // receive window focus. AbsListView's deferred click requires it.
-                val decor = dialog.window!!.decorView
-                val viewRoot = View::class.java.getDeclaredMethod("getViewRootImpl").invoke(decor)
-                viewRoot.javaClass.getDeclaredMethod("windowFocusChanged", Boolean::class.javaPrimitiveType,
-                    Boolean::class.javaPrimitiveType).invoke(viewRoot, true, false)
+                // PAUSED mode queues the initial traversal: show() alone has not
+                // attached the decor yet. Flush it before asking for its ViewRoot.
                 shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200))
+                val decor = dialog.window!!.decorView
+                assertTrue("Dialog decor must attach after its first traversal", decor.isAttachedToWindow)
+                val viewRoot = View::class.java.getDeclaredMethod("getViewRootImpl").invoke(decor)
+                assertNotNull("An attached dialog must have its own ViewRoot", viewRoot)
+                // Use the same public Robolectric hooks as ActivityController.visible()
+                // and windowFocusChanged(), instead of an Android-version-specific call.
+                val shadowRoot = Shadow.extract<ShadowViewRootImpl>(viewRoot)
+                shadowRoot.callDispatchResized()
+                shadowOf(Looper.getMainLooper()).idle()
+                shadowRoot.callWindowFocusChanged(true)
+                shadowOf(Looper.getMainLooper()).idle()
                 val list = dialog.listView
                 list.measure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY),
                     View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.AT_MOST))
