@@ -44,8 +44,29 @@ class SalaryInformationSheetView @JvmOverloads constructor(context: Context, att
     private val contractSource=field("Source qui confirme cette version — ex. contrat signé / avenant")
     private val status=TextView(context)
     private var selectedCompanyId:String?=null; private var company:SalaryCompanyStore.Company?=null; private val stopAwake=Runnable{clearKeepAwake()}
+    private var pendingPayslipDraft: Pair<String, PayslipProfileDraftV2>? = null
     init { tag=TAG; orientation=VERTICAL; setPadding(dp(14),dp(14),dp(14),dp(14)); applyPanelBackground(this); buildUi(); refresh() }
-    fun bindCompany(companyId:String):SalaryInformationSheetView { selectedCompanyId=companyId; refresh(); return this }
+    /** Prefills an uncommitted form only; a dated contract still requires full user validation. */
+    internal fun prefillPayslipDraft(draft: PayslipProfileDraftV2): SalaryInformationSheetView {
+        val companyId = company?.id ?: return this
+        pendingPayslipDraft = companyId to draft
+        applyPendingPayslipDraft()
+        return this
+    }
+
+    private fun applyPendingPayslipDraft() {
+        val (draftCompanyId, draft) = pendingPayslipDraft ?: return
+        if (draftCompanyId != selectedCompanyId || company?.id != draftCompanyId) return
+        draft.hourlyRate?.let { hourlyRate.setText(it.toString().replace('.', ',')) }
+        contractEffectiveDate.setText("")
+        contractSource.setText("")
+        status.text = "À confirmer : taux lu sur le bulletin : ${draft.sourceLine.orEmpty()}. Vérifie l'entreprise, le contrat et la date d'effet ; le mois du bulletin ne prouve pas la date d'effet. Aucune modification n'est enregistrée avant ENREGISTRER."
+    }
+
+    fun bindCompany(companyId:String):SalaryInformationSheetView {
+        if (selectedCompanyId != companyId) pendingPayslipDraft = null
+        selectedCompanyId=companyId; refresh(); return this
+    }
     override fun onAttachedToWindow(){super.onAttachedToWindow();keepAwakeTemporarily()}; override fun onDetachedFromWindow(){removeCallbacks(stopAwake);clearKeepAwake();super.onDetachedFromWindow()}
     fun refresh(){
         val id=selectedCompanyId
@@ -69,6 +90,7 @@ class SalaryInformationSheetView @JvmOverloads constructor(context: Context, att
             }
         }
         setFormEnabled(c!=null&&storeReliable)
+        if (c != null && storeReliable) applyPendingPayslipDraft()
         applyThemeRecursively(this)
     }
     private fun buildUi(){
@@ -141,6 +163,8 @@ class SalaryInformationSheetView @JvmOverloads constructor(context: Context, att
             Toast.makeText(context,message,Toast.LENGTH_LONG).show()
             return
         }
+        // The authoritative dated contract has now been explicitly accepted.
+        pendingPayslipDraft = null
         val saved=SalaryCompanyStore.withConfirmedCompany(context,c.id){confirmed->val e=SalaryCompanyStore.prefs(context,confirmed.id).edit().putString("contract_type",contract).putString("entry_date",date).putString("contract_effective_date",effectiveDate).putString("contract_confirmation_source",source).putString("convention_coefficient",conventionCoefficient.text.toString().trim());when(alsaceMoselleRegime.selectedItemPosition){1->e.putString("alsace_moselle_local_regime","YES");2->e.putString("alsace_moselle_local_regime","NO");else->e.remove("alsace_moselle_local_regime")};if(seniorityDate.isBlank())e.remove("convention_seniority_date")else e.putString("convention_seniority_date",seniorityDate);fun put(k:String,v:Double?){if(v!=null)e.putString(k,v.toString())else e.remove(k)};put("contract_weekly_hours",if(contract in listOf("FULL_TIME","PART_TIME","OTHER"))weekly else null);put("forfait_annual_hours",if(contract=="FORFAIT_HEURES")fh else null);put("forfait_annual_days",if(contract=="FORFAIT_JOURS")fd else null);put("monthly_gross_salary",if(isForfait)gross else null);put("hourly_rate",if(!isForfait)rate else null);put("seniority_rtt_differential_monthly",seniorityRtt);put("income_tax_rate_percent",tax);put("mutual_employee_amount",mutual);put("provident_employee_amount",provident);put("transport_employee_amount",transport);put("employer_protection_taxable_amount",employerProtection);put("employee_provident_nondeductible_amount",employeeNonDeductible);e.commit()}==true
         if(!saved){Toast.makeText(context,"La version contractuelle datée est enregistrée, mais les autres champs de la fiche n’ont pas tous pu être persistés.",Toast.LENGTH_LONG).show();refresh();return}
         refresh();Toast.makeText(context,"Fiche et version contractuelle datée enregistrées pour ${c.name.ifBlank{"l’entreprise"}}",Toast.LENGTH_SHORT).show()

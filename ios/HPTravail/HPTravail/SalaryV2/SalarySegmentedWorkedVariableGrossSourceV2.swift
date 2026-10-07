@@ -5,6 +5,7 @@ struct SalarySegmentedPayrollWeekEvidenceV2: Equatable {
     let weekOfYear: Int
     let week: PayrollWeekV2
     let fullWeekContextReliable: Bool
+    var temporalPremiumsNonOverlappingProven: Bool = false
 }
 
 struct SalarySegmentedPayrollSliceEvidenceV2: Equatable {
@@ -127,6 +128,7 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
         "Variables segmentées : des heures complémentaires temps partiel existent mais leur barème conventionnel structuré n'est pas prouvé ; variable bloquée."
     static let overtimeWarning =
         "Variables segmentées : les heures supplémentaires variables ne sont pas entièrement couvertes par des paliers confirmés."
+    static let cumulWarning = "Variables segmentées : cumul de majorations non prouvé ; variable bloquée."
     static let amountWarning =
         "Variables segmentées : montant variable non fini ou négatif ; calcul bloqué."
 
@@ -264,6 +266,9 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
                 return blocked(warnings + [amountWarning])
             }
 
+            if supplied.weeks.contains(where: { hasUnprovenCumul($0, contract: contract, rules: slice.ruleSnapshot.rules) }) {
+                return blocked(warnings + [cumulWarning])
+            }
             let payrollWeeks = supplied.weeks.map { item in item.week }
             let variable: VariableAmounts
             switch contract.type {
@@ -287,7 +292,9 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
                     weeks: payrollWeeks,
                     rules: slice.ruleSnapshot.rules,
                     evidence: supplied.evidence,
-                    warnings: &warnings
+                    warnings: &warnings,
+                    startEpochDay: slice.startEpochDay,
+                    endEpochDay: slice.endEpochDay
                 ) else {
                     return blocked(warnings + [partTimeComplementaryWarning])
                 }
@@ -408,6 +415,21 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
         )
     }
 
+    static func hasUnprovenCumul(_ evidence: SalarySegmentedPayrollWeekEvidenceV2, contract: ContractV2,
+                                rules: PayrollRulesV2) -> Bool {
+        let week = evidence.week
+        let night = week.nightMinutes > 0 && (rules.nightMultiplier ?? 1) > 1
+        let saturday = week.saturdayMinutes > 0 && (rules.saturdayMultiplier ?? 1) > 1
+        let sunday = week.sundayMinutes > 0 && (rules.sundayMultiplier ?? 1) > 1
+        let holiday = week.publicHolidayMinutes > 0 && (rules.publicHolidayMultiplier ?? 1) > 1
+        guard night || saturday || sunday || holiday else { return false }
+        let threshold = contract.type == .partTime ? contract.contractualWeeklyMinutes : rules.weeklyRegularMinutes
+        guard let limit = threshold else { return true }
+        if week.paidMinutes > limit || (contract.type == .fullTime && (contract.contractualWeeklyMinutes ?? 0) > limit) { return true }
+        let possible = (night && (saturday || sunday || holiday)) || (holiday && (saturday || sunday))
+        return possible && !evidence.temporalPremiumsNonOverlappingProven
+    }
+
     private static func fullTimeVariable(
         contract: ContractV2,
         rate: Double,
@@ -490,7 +512,9 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
         weeks: [PayrollWeekV2],
         rules: PayrollRulesV2,
         evidence: PayrollInputEvidenceV2,
-        warnings: inout [String]
+        warnings: inout [String],
+        startEpochDay: Int64,
+        endEpochDay: Int64
     ) -> VariableAmounts? {
         guard let contractual = contract.contractualWeeklyMinutes,
               contractual > 0,
@@ -499,18 +523,22 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
         }
 
         var complementaryMinutes = 0
+        var complementaryGross = 0.0
         for week in weeks {
             do {
                 let complementary = try PartTimeComplementaryHoursV2.calculateWeek(
                     contractualMinutes: contractual,
                     paidMinutes: week.paidMinutes,
-                    grossHourlyRate: rate
+                    grossHourlyRate: rate,
+                    confirmedSchedule: rules.complementarySchedule.flatMap { $0.applies(referenceEpochDay: endEpochDay, minutes: contractual) ? $0 : nil },
+                    referenceEpochDay: startEpochDay
                 )
                 warnings.append(contentsOf: complementary.warnings)
                 guard complementary.complementaryMinutes >= 0 else { return nil }
-                if complementary.complementaryMinutes > 0 {
+                if complementary.complementaryMinutes > 0 && !complementary.confirmedScheduleUsed {
                     return nil
                 }
+                complementaryGross += complementary.grossToAdd
                 let addition = complementaryMinutes.addingReportingOverflow(
                     complementary.complementaryMinutes
                 )
@@ -530,6 +558,7 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
                 ))
             }
             let value = VariableAmounts(
+                complementaryGross: complementaryGross,
                 premiumGross: premium,
                 complementaryMinutes: complementaryMinutes
             )

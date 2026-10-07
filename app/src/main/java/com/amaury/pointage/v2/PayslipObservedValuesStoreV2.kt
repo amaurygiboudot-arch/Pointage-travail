@@ -97,7 +97,7 @@ object PayslipObservedValuesStoreV2 {
         }.getOrElse { corruptResult() }
     }
 
-    fun put(context: Context, recordId: String, values: Map<String, Double>): Boolean {
+    fun put(context: Context, recordId: String, values: Map<String, Double>, evidence: Map<String, String> = emptyMap()): Boolean {
         if (recordId.isBlank()) return false
         if (values.any { (key, value) -> key !in allowedKeys || !value.isFinite() || value < 0.0 }) return false
 
@@ -105,7 +105,7 @@ object PayslipObservedValuesStoreV2 {
         if (!stored.reliable) return false
         val updated = stored.valuesByRecord.toMutableMap()
         if (values.isEmpty()) updated.remove(recordId) else updated[recordId] = values.toMap()
-        return save(context, updated)
+        return saveWithEvidence(context, updated, recordId, evidence.filterKeys { it in values })
     }
 
     /** Valeurs actuellement autorisées à entrer dans la comparaison automatique. */
@@ -133,10 +133,28 @@ object PayslipObservedValuesStoreV2 {
         if (!stored.reliable) return false
         if (recordId !in stored.valuesByRecord) return true
         val updated = stored.valuesByRecord.toMutableMap().apply { remove(recordId) }
-        return save(context, updated)
+        return saveWithEvidence(context, updated, recordId, emptyMap())
     }
 
-    private fun save(context: Context, valuesByRecord: Map<String, Map<String, Double>>): Boolean {
+    private fun saveWithEvidence(context: Context, values: Map<String, Map<String, Double>>, recordId: String, evidence: Map<String, String>): Boolean {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val root = runCatching { JSONObject(prefs.getString("observed_evidence_v2", "{}") ?: "{}") }.getOrNull() ?: return false
+        if (evidence.isEmpty()) root.remove(recordId) else {
+            val item = JSONObject()
+            evidence.forEach { (key, excerpt) -> if (key in allowedKeys) item.put(key, excerpt.take(300)) }
+            root.put(recordId, item)
+        }
+        return save(context, values, root.toString())
+    }
+
+    /** Bounded per-field excerpts only; the full OCR text is never retained. */
+    fun evidence(context: Context, recordId: String): Map<String, String> = runCatching {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val item = JSONObject(prefs.getString("observed_evidence_v2", "{}") ?: "{}").optJSONObject(recordId) ?: return@runCatching emptyMap()
+        allowedKeys.mapNotNull { key -> (item.opt(key) as? String)?.takeIf { it.length <= 300 }?.let { key to it } }.toMap()
+    }.getOrDefault(emptyMap())
+
+    private fun save(context: Context, valuesByRecord: Map<String, Map<String, Double>>, evidenceJson: String): Boolean {
         if (valuesByRecord.any { (recordId, values) ->
                 recordId.isBlank() || values.isEmpty() ||
                     values.any { (key, value) -> key !in allowedKeys || !value.isFinite() || value < 0.0 }
@@ -150,7 +168,7 @@ object PayslipObservedValuesStoreV2 {
         }
         return runCatching {
             context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .edit().putString(KEY, root.toString()).commit()
+                .edit().putString(KEY, root.toString()).putString("observed_evidence_v2", evidenceJson).commit()
         }.getOrDefault(false)
     }
 

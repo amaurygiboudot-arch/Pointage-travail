@@ -54,7 +54,7 @@ import kotlin.math.roundToInt
 /** Passerelle unique entre les écrans Salaire et PayrollEngineV2. */
 object V2SalaryAdapter {
  data class TierDuration(val label:String,val durationMs:Long,val multiplier:Double)
- data class Result(val regularMs:Long,val overtimeTiers:List<TierDuration>,val totalWorkedMs:Long,val regularGross:Double,val overtimeGross:Double,val premiumsGross:Double,val monthlyEstimatedGross:Double,val monthlyGrossReliable:Boolean,val nightMs:Long,val saturdayMs:Long,val sundayMs:Long,val complementaryMinutes:Int,val completedSessions:Int,val warnings:List<String>,val mealBasketCount:Int=0,val mealBasketAmount:Double?=null,val mealBasketTotal:Double?=null,val publicHolidayMs:Long=0L,val conventionMinimumMonthlyGross:Double?=null,val conventionClassificationLabel:String?=null,val seniorityPremiumGross:Double?=null,val paidTimeReliable:Boolean=monthlyGrossReliable,val unpaidPauseMs:Long?=null)
+ data class Result(val regularMs:Long,val overtimeTiers:List<TierDuration>,val totalWorkedMs:Long,val regularGross:Double,val overtimeGross:Double,val premiumsGross:Double,val monthlyEstimatedGross:Double,val monthlyGrossReliable:Boolean,val nightMs:Long,val saturdayMs:Long,val sundayMs:Long,val complementaryMinutes:Int,val completedSessions:Int,val warnings:List<String>,val mealBasketCount:Int=0,val mealBasketAmount:Double?=null,val mealBasketTotal:Double?=null,val publicHolidayMs:Long=0L,val conventionMinimumMonthlyGross:Double?=null,val conventionClassificationLabel:String?=null,val seniorityPremiumGross:Double?=null,val paidTimeReliable:Boolean=monthlyGrossReliable,val unpaidPauseMs:Long?=null,val grossBeforeMayFirstReliable:Boolean=false)
  data class FullTimeRegularReference(val minutes:Int?,val reliable:Boolean)
 
  internal fun resolvePositiveHourlyRate(contractRate:Double?,fallbackRate:Double?):Double? =
@@ -357,10 +357,10 @@ object V2SalaryAdapter {
   if(!genericOvertimeCoverageReliable)warnings+="Heures supplémentaires : certaines minutes au-delà du seuil hebdomadaire ne sont couvertes par aucun palier confirmé ou les paliers se chevauchent ; aucune majoration n'est inventée pour ces minutes et le brut reste à confirmer."
   val worked=PayrollEngineV2.calculate(contract.copy(grossHourlyRate=rate),weeks.values.map{PayrollWeekV2(it.paid,it.night,it.sat,it.sun,it.holiday)},payrollRules)
 
-  val complementary=if(isPartTime)weeks.values.map{PartTimeComplementaryHoursV2.calculateWeek(regularLimit,it.paid,rate)}else emptyList()
+  val complementary=if(isPartTime)weeks.values.map{PartTimeComplementaryHoursV2.calculateWeek(regularLimit,it.paid,rate,confirmedSchedule=hr?.complementarySchedule?.takeIf{it.applies(date.withDayOfMonth(date.lengthOfMonth()).toEpochDay(),regularLimit)},referenceEpochDay=date.toEpochDay())}else emptyList()
   val complementaryMinutes=complementary.sumOf{it.complementaryMinutes}
   val complementaryGross=complementary.sumOf{it.grossToAdd}
-  val provisionalComplementaryRateUsed=isPartTime&&complementaryMinutes>0
+  val provisionalComplementaryRateUsed=isPartTime&&complementary.any{it.complementaryMinutes>0&&!it.confirmedScheduleUsed}
   warnings+=complementary.flatMap{it.warnings}.distinct()
   if(provisionalComplementaryRateUsed)warnings+="Temps partiel : barème supplétif des heures complémentaires appliqué (+10 % puis +25 %) tant qu'aucune stipulation conventionnelle structurée plus précise n'est intégrée."
 
@@ -386,7 +386,8 @@ object V2SalaryAdapter {
   val overtimeNeedsLegalArbitration=isFullTime&&fullTime!=null&&(fullTime.monthlyStructuralOvertimeMinutes>0.0||fullTime.variableTiers.any{it.minutes>0.0}||fullTime.unresolvedVariableOvertimeMinutes>0.0)
   val legalArbitrationResolved=overtimeArbitrationSnapshot?.let{it.resolution.state==PayrollLegalArbitratorV2.State.RESOLVED&&it.selectedSchedule!=null}==true
   val publicHolidayReliable=holidayMs==0L||publicHolidayRule!=null
-  val monthlyGrossReliable=monthlyGrossReliability(baseReliable=baseMonthlyGrossReliable,provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,arbitrationResolved=legalArbitrationResolved,cumulReviewRequired=cumulReviewRequired,runtimeReliable=runtimeReliable,provisionalComplementaryRateUsed=provisionalComplementaryRateUsed,genericOvertimeCoverageReliable=genericOvertimeCoverageReliable,fullTimeRegularReferenceReliable=fullTimeRegularReference?.reliable!=false)&&weeklyBoundaryGuard.reliable&&publicHolidayReliable&&mayFirstMs==0L&&unresolvedHolidayMs==0L
+  val grossBeforeMayFirstReliable=monthlyGrossReliability(baseReliable=baseMonthlyGrossReliable,provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,arbitrationResolved=legalArbitrationResolved,cumulReviewRequired=cumulReviewRequired,runtimeReliable=runtimeReliable,provisionalComplementaryRateUsed=provisionalComplementaryRateUsed,genericOvertimeCoverageReliable=genericOvertimeCoverageReliable,fullTimeRegularReferenceReliable=fullTimeRegularReference?.reliable!=false)&&weeklyBoundaryGuard.reliable&&publicHolidayReliable&&unresolvedHolidayMs==0L
+  val monthlyGrossReliable=grossBeforeMayFirstReliable&&mayFirstMs==0L
 
   val monthlyMinutes=contract.contractualWeeklyMinutes?.let{it*52.0/12.0}
   val partTimeBase=if(isPartTime)monthlyMinutes?.div(60.0)?.times(rate)else null
@@ -407,7 +408,7 @@ object V2SalaryAdapter {
   val traces=worked.traces.filterNot{(isPartTime||isFullTime)&&it.startsWith("Aucune majoration d'heures supplémentaires")}
   return Result(
    regularMs=regularMs,overtimeTiers=displayedTiers,totalWorkedMs=weeks.values.sumOf{it.paid}.toLong()*60000L,regularGross=regularGross,overtimeGross=overtimeGross,
-   premiumsGross=worked.premiumsGross,monthlyEstimatedGross=gross,monthlyGrossReliable=monthlyGrossReliable,nightMs=nightMs,saturdayMs=satMs,sundayMs=sunMs,
+   premiumsGross=worked.premiumsGross,monthlyEstimatedGross=gross,monthlyGrossReliable=monthlyGrossReliable,grossBeforeMayFirstReliable=grossBeforeMayFirstReliable,nightMs=nightMs,saturdayMs=satMs,sundayMs=sunMs,
    complementaryMinutes=complementaryMinutes,completedSessions=selected.size,warnings=warnings+traces+listOfNotNull(snap?.let{"Règles historiques ${it.versionId} — source ${it.sourceId}"})+premiumSourceTraces(collectivePremiumSnapshot,false),publicHolidayMs=holidayMs,paidTimeReliable=paidTimeReliable,unpaidPauseMs=paidWorkScope.unpaidPauseMs?.takeIf{paidTimeReliable}
   )
  }
@@ -471,16 +472,23 @@ object V2SalaryAdapter {
     weekendPremiumOverlap=weekendPremiumOverlap
    )
   )
-  val cleanedWarnings=base.warnings.filterNot{it.startsWith("1er mai travaillé : le régime légal LEGI dédié")}
   val mayFirstWarning=adjustment.warning?:if(adjustment.extraGross>0.0){
    "1er mai travaillé : indemnité légale L3133-6 ajoutée (${String.format(Locale.FRANCE,"%.2f",adjustment.extraGross)} € brut) — source ${verifiedRule?.articleId.orEmpty()}."
   }else null
-  return base.copy(
-   premiumsGross=base.premiumsGross+adjustment.extraGross,
-   monthlyEstimatedGross=base.monthlyEstimatedGross+adjustment.extraGross,
-   monthlyGrossReliable=base.monthlyGrossReliable&&adjustment.reliable,
-   warnings=(cleanedWarnings+listOfNotNull(mayFirstWarning)).distinct()
+  return applyConfirmedMayFirstAdjustment(base,adjustment).let { adjusted ->
+   adjusted.copy(warnings=(adjusted.warnings.filterNot{it.startsWith("1er mai travaillé : le régime légal LEGI dédié")}+listOfNotNull(mayFirstWarning)).distinct())
+  }
+ }
+
+ /** Restores only the dedicated May-first blocker, never another missing proof. */
+ internal fun applyConfirmedMayFirstAdjustment(base:Result,adjustment:MayFirstPayrollAdjustmentV2.Result):Result {
+  val premiums=base.premiumsGross+adjustment.extraGross
+  val gross=base.monthlyEstimatedGross+adjustment.extraGross
+  if(!adjustment.extraGross.isFinite()||adjustment.extraGross<0.0||!premiums.isFinite()||!gross.isFinite())return base.copy(
+   monthlyGrossReliable=false,warnings=(base.warnings+"1er mai travaillé : total brut non calculable ; aucun total fiable n'est affiché.").distinct()
   )
+  return base.copy(premiumsGross=premiums,monthlyEstimatedGross=gross,
+   monthlyGrossReliable=(base.monthlyGrossReliable||base.grossBeforeMayFirstReliable)&&adjustment.reliable)
  }
 
  internal fun monthlyGrossReliability(baseReliable:Boolean,provisionalOvertimeRateUsed:Boolean,arbitrationRequired:Boolean,arbitrationResolved:Boolean,cumulReviewRequired:Boolean=false,runtimeReliable:Boolean=true,provisionalComplementaryRateUsed:Boolean=false,genericOvertimeCoverageReliable:Boolean=true,fullTimeRegularReferenceReliable:Boolean=true):Boolean = baseReliable&&runtimeReliable&&!provisionalOvertimeRateUsed&&!provisionalComplementaryRateUsed&&genericOvertimeCoverageReliable&&fullTimeRegularReferenceReliable&&(!arbitrationRequired||arbitrationResolved)&&!cumulReviewRequired
