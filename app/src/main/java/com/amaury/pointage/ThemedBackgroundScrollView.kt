@@ -269,9 +269,7 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         // Règle d'architecture : la matière d'un bouton appartient au bouton uniquement.
         // Un thème peut changer la palette du fond de l'application, mais il ne réutilise
         // jamais automatiquement une texture/image destinée à un bouton ou à son cadre.
-        val theme = AppThemeCatalog.current(context)
-        val dark = ThemeDayNight.isDark(context)
-        canvas.drawColor(if (dark) theme.darkBackground else theme.lightBackground)
+        canvas.drawColor(AppearanceManager.backgroundColor(context))
     }
 
     private fun drawSelectedImage(canvas: Canvas, file: File) {
@@ -330,8 +328,7 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             textColor = cachedTextColor ?: Color.WHITE
             shadowColor = cachedShadowColor ?: Color.BLACK
         } else {
-            val theme = AppThemeCatalog.current(context)
-            val background = if (ThemeDayNight.isDark(context)) theme.darkBackground else theme.lightBackground
+            val background = AppearanceManager.backgroundColor(context)
             val useDark = !isDark(background)
             textColor = if (useDark) Color.rgb(8, 8, 8) else Color.WHITE
             shadowColor = if (useDark) {
@@ -340,7 +337,9 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
                 Color.argb(220, 0, 0, 0)
             }
         }
-        applyTextColorRecursively(this, textColor, shadowColor)
+        if (!hasImage && !PersonalizationStoreV2.read(context).highContrast) {
+            applyTextColorRecursively(this, textColor, shadowColor)
+        }
     }
 
     private fun clearPhotoPanels(view: View, insideEnterprise: Boolean) {
@@ -390,14 +389,11 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         // Les onglets possèdent leur propre palette active/inactive gérée par MainActivity.
         if (view.id == R.id.navigationTabs) return
 
-        if (view is TextView) {
+        // Interactive controls and contrast support own their surface/text pairing.
+        // A per-frame global recolor must not erase that pairing on a photograph.
+        if (view is TextView && view !is Button && view !is EditText && view !is Switch) {
             view.setTextColor(color)
             view.setShadowLayer(3.8f, 0f, 1.1f, shadow)
-            if (view is EditText) {
-                view.setHintTextColor(
-                    if (color == Color.WHITE) Color.rgb(225, 225, 225) else Color.rgb(55, 55, 55)
-                )
-            }
         }
         if (view is ViewGroup) {
             for (i in 0 until view.childCount) {

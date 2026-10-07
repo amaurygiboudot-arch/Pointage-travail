@@ -53,6 +53,7 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
     }
     fun track(dialog: AlertDialog): AlertDialog {
         if (dialogs.containsKey(dialog)) return dialog
+        AppearanceManager.applyDialog(dialog)
         val root = dialog.window?.decorView ?: return dialog
         val update = Runnable { if (dialog.isShowing) apply(root) }
         val observer = ViewTreeObserver.OnGlobalLayoutListener {
@@ -77,7 +78,11 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
         val owner = PersonalizationStoreV2.accountScope()
         dialogs.entries.toList().forEach { (dialog, state) ->
             if (owner != state.owner) dialog.dismiss()
-            else dialog.window?.decorView?.let(::apply)
+            else {
+                dialog.window?.decorView?.let(::releaseProtection)
+                AppearanceManager.applyDialog(dialog)
+                dialog.window?.decorView?.let(::apply)
+            }
         }
     }
     private fun forget(view: View) {
@@ -172,13 +177,25 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
                     showReader(view); true
                 }
                 readerActions[view] = action
-                if (!view.isLongClickable && !view.hasOnClickListeners()) {
+                if (!view.isLongClickable && !view.isClickable && !view.hasOnClickListeners() &&
+                    !hasInteractiveAncestor(view)) {
                     view.setOnLongClickListener { showReader(view); true }
                 }
             }
         }
         if (view is ViewGroup) for (i in 0 until view.childCount) walk(view.getChildAt(i), profile, protectImage)
     }
+    private fun hasInteractiveAncestor(view: View): Boolean {
+        var ancestor = view.parent
+        while (ancestor is View) {
+            // AdapterView owns row taps even when its children have no click listeners.
+            // Making one child long-clickable consumes ACTION_DOWN and steals that tap.
+            if (ancestor is android.widget.AdapterView<*> || ancestor.isClickable || ancestor.isLongClickable) return true
+            ancestor = ancestor.parent
+        }
+        return false
+    }
+
     private fun showReader(source: TextView) {
         val context = source.context
         val profile = PersonalizationStoreV2.read(context)

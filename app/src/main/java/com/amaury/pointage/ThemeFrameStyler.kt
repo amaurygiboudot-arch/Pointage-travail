@@ -29,7 +29,7 @@ object ThemeFrameStyler {
         val actualRoot = root.rootView ?: root
         AutoDayNightPolarity.apply(actualRoot)
         val theme = AppThemeCatalog.current(actualRoot.context)
-        val dark = AppThemeCatalog.useDarkPalette(actualRoot.context)
+        val dark = AppearanceManager.bestTextColor(AppearanceManager.backgroundColor(actualRoot.context)) == Color.WHITE
         applyRecursive(actualRoot, theme, dark, inheritedDark = dark)
         PersonalizationRuntimeV2.apply(actualRoot)
     }

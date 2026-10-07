@@ -72,14 +72,65 @@ object AppearanceManager {
     private const val PREFS = "appearance_settings"
     const val BACKGROUND_FILE = "custom_app_background.jpg"
 
+    /** Shared by window chrome, the scrolling canvas and text contrast. */
+    fun backgroundColor(context: Context): Int {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val theme = AppThemeCatalog.current(context)
+        val fallback = if (AppThemeCatalog.useDarkPalette(context)) theme.darkBackground else theme.lightBackground
+        return if (prefs.getBoolean("custom_bg", false)) parseColor(prefs.getString("app_bg", null), fallback) else fallback
+    }
+
+    fun applyDialog(dialog: AlertDialog) {
+        val root = dialog.window?.decorView ?: return
+        // The reader deliberately owns its high-contrast canvas and speech controls.
+        if (root.findViewWithTag<View>("personalization_reader_v2") != null) return
+        val bg = backgroundColor(root.context)
+        val panel = if (PersonalizationStoreV2.read(root.context).highContrast) Color.BLACK
+            else shift(bg, if (isDark(bg)) 1.24f else .91f)
+        val foreground = bestTextColor(panel)
+        val disabledColor = if (foreground == Color.WHITE) Color.LTGRAY else Color.DKGRAY
+        val colors = ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
+            intArrayOf(if (contrastRatio(disabledColor, panel) >= 4.5) disabledColor else foreground, foreground))
+        dialog.window?.setBackgroundDrawable(android.graphics.drawable.GradientDrawable().apply {
+            setColor(panel)
+            cornerRadius = 20f * root.resources.displayMetrics.density
+        })
+        fun style(view: View) {
+            val name = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
+            if (view is ViewGroup) {
+                if (name in setOf("parentPanel", "topPanel", "contentPanel", "customPanel", "buttonPanel")) {
+                    view.backgroundTintList = null
+                    view.setBackgroundColor(Color.TRANSPARENT)
+                }
+                for (i in 0 until view.childCount) style(view.getChildAt(i))
+            }
+            if (view is TextView) {
+                view.setTextColor(colors)
+                if (view is EditText) {
+                    view.setHintTextColor(foreground)
+                    view.backgroundTintList = ColorStateList.valueOf(foreground)
+                } else if (view is Button) {
+                    view.backgroundTintList = null
+                    val left = view.paddingLeft; val top = view.paddingTop
+                    val right = view.paddingRight; val bottom = view.paddingBottom
+                    val shape = view.resources.getDrawable(R.drawable.hp_panel, view.context.theme).mutate()
+                    (shape as? android.graphics.drawable.GradientDrawable)?.setColor(panel)
+                    view.background = android.graphics.drawable.RippleDrawable(
+                        ColorStateList.valueOf(if (foreground == Color.WHITE) 0x33FFFFFF else 0x33000000), shape, null)
+                    view.setPadding(left, top, right, bottom)
+                }
+            }
+        }
+        style(root)
+    }
+
     fun apply(activity: Activity) {
         val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val dark = AppThemeCatalog.useDarkPalette(activity)
         val theme = AppThemeCatalog.current(activity)
-        val defaultBg = if (dark) theme.darkBackground else theme.lightBackground
         val defaultPanel = if (dark) theme.darkPanel else theme.lightPanel
         val customColor = prefs.getBoolean("custom_bg", false)
-        val bg = if (customColor) parseColor(prefs.getString("app_bg", null), defaultBg) else defaultBg
+        val bg = backgroundColor(activity)
         val panel = if (customColor) shift(bg, if (isDark(bg)) 1.24f else 0.91f) else defaultPanel
         val imageFile = File(activity.filesDir, BACKGROUND_FILE)
         val hasImage = prefs.getBoolean("custom_image_bg", false) && imageFile.exists()

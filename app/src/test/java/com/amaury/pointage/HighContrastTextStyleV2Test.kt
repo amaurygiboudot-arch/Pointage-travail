@@ -17,6 +17,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Robolectric
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, application = Application::class, sdk = [28])
@@ -24,27 +25,27 @@ class HighContrastTextStyleV2Test {
     private val context get() = RuntimeEnvironment.getApplication()
 
     @Test fun disabledButtonRemainsDistinctAndReadableEvenWhenPressed() {
-        val button = Button(context)
+        val button = Button(context).apply {
+            background = GradientDrawable().apply { cornerRadius = 24f; setColor(Color.TRANSPARENT) }
+        }
         button.setPadding(12, 13, 14, 15)
         HighContrastTextStyleV2.apply(button)
-        val normal = button.background.current
+        val background = button.background as GradientDrawable
+        assertEquals(Color.BLACK, background.color!!.getColorForState(button.drawableState, 0))
         button.isPressed = true
-        val pressed = button.background.current
-        assertNotSame(normal, pressed)
         assertEquals(Color.BLACK, button.currentTextColor)
-        assertEquals(Color.WHITE, (pressed as GradientDrawable).color!!.defaultColor)
+        assertEquals(Color.WHITE, background.color!!.getColorForState(button.drawableState, 0))
         button.isEnabled = false
-        val disabled = button.background.current
-        assertNotSame(normal, disabled)
-        assertNotSame(pressed, disabled)
         assertEquals(Color.LTGRAY, button.currentTextColor)
-        val disabledFill = (disabled as GradientDrawable).color!!.defaultColor
+        val disabledFill = background.color!!.getColorForState(button.drawableState, 0)
         assertEquals(Color.DKGRAY, disabledFill)
         assertTrue(VisualContrastV2.ratio(button.currentTextColor, disabledFill) >= 4.5)
+        assertEquals(24f, background.cornerRadius, 0f)
         assertEquals(listOf(12, 13, 14, 15), listOf(button.paddingLeft, button.paddingTop, button.paddingRight, button.paddingBottom))
         button.isEnabled = true
         button.isPressed = false
-        assertSame(normal, button.background.current)
+        assertSame(background, button.background)
+        assertEquals(Color.BLACK, background.color!!.getColorForState(button.drawableState, 0))
     }
 
     @Test fun focusedEditorHasDistinctSurfaceAndRepeatedApplyKeepsItsState() {
@@ -52,7 +53,10 @@ class HighContrastTextStyleV2Test {
         try {
             val activity = controller.get()
             val other = EditText(activity).apply { isFocusableInTouchMode = true }
-            val editor = EditText(activity).apply { isFocusableInTouchMode = true }
+            val editor = EditText(activity).apply {
+                isFocusableInTouchMode = true
+                background = GradientDrawable().apply { cornerRadius = 18f; setColor(Color.TRANSPARENT) }
+            }
             activity.setContentView(LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(other)
@@ -62,29 +66,32 @@ class HighContrastTextStyleV2Test {
             assertTrue(other.requestFocus())
             assertFalse(editor.isFocused)
             HighContrastTextStyleV2.apply(editor)
-            val background = editor.background
-            val normal = background.current
+            val background = editor.background as GradientDrawable
+            val normal = background.color!!.getColorForState(editor.drawableState, 0)
 
             // Let View propagate actual keyboard focus into its drawable state.
             assertTrue(editor.requestFocus())
             assertTrue(editor.isFocused)
-            val focused = background.current
-            assertNotSame(normal, focused)
+            val focused = background.color!!.getColorForState(editor.drawableState, 0)
+            assertNotEquals(normal, focused)
+            assertTrue(VisualContrastV2.ratio(editor.currentTextColor, focused) >= 4.5)
             HighContrastTextStyleV2.apply(editor)
             assertTrue(editor.isFocused)
             assertSame(background, editor.background)
-            assertSame(focused, editor.background.current)
+            assertEquals(focused, background.color!!.getColorForState(editor.drawableState, 0))
 
             assertTrue(other.requestFocus())
             assertFalse(editor.isFocused)
-            assertSame(normal, editor.background.current)
+            assertEquals(normal, background.color!!.getColorForState(editor.drawableState, 0))
         } finally {
             controller.pause().stop().destroy()
         }
     }
 
     @Test fun runtimeRestoresOriginalStatefulColorsAndBackgroundWhenContrastIsDisabled() {
-        val button = Button(context)
+        val button = Button(context).apply {
+            background = GradientDrawable().apply { cornerRadius = 24f; setColor(Color.TRANSPARENT) }
+        }
         val originalBackground = button.background
         val originalColors = button.textColors
         val originalHints = button.hintTextColors
@@ -182,6 +189,31 @@ class HighContrastTextStyleV2Test {
             appearance.edit().remove("custom_image_bg").commit()
             PersonalizationStoreV2.save(context, PersonalizationProfileV2())
         }
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun highContrastKeepsRoundedSurfaceAndTransparentNavigationShape() {
+        val original = GradientDrawable().apply { cornerRadius = 24f; setColor(Color.TRANSPARENT) }
+        val button = Button(context).apply { background = original }
+        HighContrastTextStyleV2.apply(button)
+        val bitmap = android.graphics.Bitmap.createBitmap(100, 60, android.graphics.Bitmap.Config.ARGB_8888)
+        button.background.setBounds(0, 0, 100, 60)
+        button.background.draw(android.graphics.Canvas(bitmap))
+        assertEquals("Rounded corner must not become an opaque rectangle", 0, Color.alpha(bitmap.getPixel(0, 0)))
+        assertEquals("Transparent themed center becomes readable", Color.BLACK, bitmap.getPixel(50, 30))
+        assertEquals("Restoration baseline must remain untouched", Color.TRANSPARENT, original.color!!.defaultColor)
+        val tab = TextView(context).apply { isClickable = true; isFocusable = true }
+        HighContrastTextStyleV2.apply(tab)
+        assertNull(tab.background)
+        val normal = tab.currentTextColor
+        tab.isSelected = true
+        assertNotEquals(normal, tab.currentTextColor)
+        assertTrue(VisualContrastV2.ratio(tab.currentTextColor, Color.BLACK) >= 4.5)
+        tab.isPressed = true
+        assertTrue(VisualContrastV2.ratio(tab.currentTextColor, Color.BLACK) >= 4.5)
+        tab.isEnabled = false
+        assertEquals(Color.LTGRAY, tab.currentTextColor)
     }
 
 }
