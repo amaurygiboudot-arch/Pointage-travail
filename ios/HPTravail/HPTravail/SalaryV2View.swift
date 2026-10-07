@@ -29,6 +29,7 @@ struct SalaryV2View: View {
     @State private var importedAmountFingerprint: [String]?
     @State private var observedExcerpts: [String: String] = [:]
     @State private var observationsConfirmed = false
+    @State private var observationsDeleteConfirmation = false
 
     @State private var sicknessDirectText = ""
     @State private var sicknessSubrogatedText = ""
@@ -933,8 +934,14 @@ struct SalaryV2View: View {
                     .disabled(!observationsConfirmed || salaryStore.selectedCompanyId == nil)
                 Button("Restaurer les valeurs confirmées de ce mois") { restoreObservedPayslip() }
                     .disabled(salaryStore.selectedCompanyId == nil)
-                Button("Supprimer les valeurs confirmées de ce mois", role: .destructive) { removeObservedPayslip() }
+                Button("Supprimer les valeurs confirmées de ce mois", role: .destructive) { observationsDeleteConfirmation = true }
                     .disabled(salaryStore.selectedCompanyId == nil)
+                    .confirmationDialog("Supprimer les valeurs confirmées du bulletin ?", isPresented: $observationsDeleteConfirmation) {
+                        Button("Supprimer", role: .destructive) { removeObservedPayslip() }
+                        Button("Annuler", role: .cancel) { }
+                    } message: {
+                        Text("Entreprise : \(salaryStore.selectedCompany?.name ?? "À choisir") — mois : \(salaryStore.selectedPeriod.description). Les montants et leurs extraits seront supprimés.")
+                    }
 
                 Button("Comparer avec HoraTrack") {
                     comparePayslip()
@@ -1372,6 +1379,7 @@ struct SalaryV2View: View {
 
     private func resetPayslipComparison() {
         clearImportDraft()
+        observationsDeleteConfirmation = false
         importSources = []
         observedExcerpts = [:]
         observationsConfirmed = false
