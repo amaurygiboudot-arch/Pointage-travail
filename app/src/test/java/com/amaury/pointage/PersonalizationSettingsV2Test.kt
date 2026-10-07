@@ -10,6 +10,7 @@ import android.widget.Button
 import android.widget.Switch
 import android.widget.TextView
 import org.junit.Assert.*
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -22,6 +23,14 @@ import java.security.MessageDigest
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, application = Application::class, sdk = [28])
 class PersonalizationSettingsV2Test {
+    @Before fun bindStoreToThisTestApplication() {
+        // Robolectric replaces Application/storage between tests but can reuse the Kotlin
+        // singleton. Invalidate its account cache so it obtains this test's preferences.
+        PersonalizationStoreV2::class.java.getDeclaredField("cachedOwner").apply {
+            isAccessible = true
+        }.set(null, null)
+    }
+
     private fun descendants(view: View): List<View> = listOf(view) +
         if (view is ViewGroup) (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) } else emptyList()
 
