@@ -30,6 +30,8 @@ class PointageApplication : Application(), Application.ActivityLifecycleCallback
         super.onCreate()
         registerActivityLifecycleCallbacks(this)
         ConventionCatalog.initialize(this)
+        PersonalizationRuntimeV2.install(this)
+        UniversalWritingInstaller.install(this)
     }
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
@@ -114,6 +116,7 @@ object AppearanceManager {
         }
 
         recolor(contentRoot, bg, panel, hasImage, false)
+        PersonalizationRuntimeV2.apply(contentRoot)
         if (activity is MainActivity) {
             activity.findViewById<LinearLayout>(R.id.navigationTabs)?.let(NavigationTabContrastV2::apply)
         }
@@ -275,6 +278,9 @@ object SettingsUiInstaller {
 
         val appearance = settingsSection(activity, SettingsV2Host.TAG_PERSONALIZATION)
         appearance.addView(title(activity, "APPARENCE DE L'APPLICATION"))
+        appearance.addView(styledButton(activity, "CONFORT VISUEL ET ÉCRITURE").apply {
+            setOnClickListener { PersonalizationSettingsV2.open(activity) }
+        })
         val modeButton = styledButton(activity, "")
         fun updateModeLabel() {
             val mode = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE).getString("mode", "auto") ?: "auto"

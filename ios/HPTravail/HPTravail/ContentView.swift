@@ -11,7 +11,7 @@ struct ContentView: View {
     @EnvironmentObject private var locationManager: LocationManager
     @EnvironmentObject private var authManager: AuthManager
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage("hp_theme") private var theme = "signature"
+    @EnvironmentObject private var personalization: PersonalizationStoreV2
     @AppStorage(CelestialGlobeModeV2.preferenceKey) private var celestialGlobeMode = CelestialGlobeModeV2.local.rawValue
     @State private var showPausePaymentChoice = false
     @State private var showManualEntry = false
@@ -287,7 +287,7 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .background { ReadableCardSurfaceV2() }
     }
 
     private func activeEmployerLabel(for session: WorkSession) -> String {
@@ -537,11 +537,13 @@ struct ContentView: View {
                     }
 
                     Section("Apparence") {
-                        Picker("Thème", selection: $theme) {
+                        Picker("Thème", selection: personalization.binding(\.accent)) {
                             Text("Signature Or").tag("signature")
                             Text("Acier Bleu").tag("blue")
                         }
                     }
+                    PersonalizationSettingsV2()
+                        .id(personalization.sessionID)
                 }
 
                 if settingsPage == .help {
@@ -575,7 +577,7 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity)
         .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .background { ReadableCardSurfaceV2() }
     }
 
     private func actionButton(title: String, symbol: String, color: Color, disabled: Bool, action: @escaping () -> Void) -> some View {
@@ -593,7 +595,10 @@ struct ContentView: View {
         .disabled(disabled)
     }
 
-    private var accent: Color { theme == "blue" ? .blue : .orange }
+    private var accent: Color {
+        if personalization.value.highContrast { return .primary }
+        return personalization.value.accent == "blue" ? .blue : .orange
+    }
 
     private var currentStatusText: String {
         if !store.storageReliable { return "DONNÉES À VÉRIFIER" }
@@ -738,7 +743,7 @@ private struct GpsZoneEditorSheetV2: View {
         NavigationStack {
             Form {
                 Section("Zone GPS") {
-                    TextField("Nom du lieu", text: $label)
+                    SharedTextFieldV2("Nom du lieu", text: $label)
                     Picker("Rôle", selection: $selectedKind) {
                         ForEach(GpsZoneKindV2.allCases) { kind in
                             Text(kind.title).tag(kind)
@@ -933,7 +938,7 @@ private struct ManualEntrySheetV2: View {
                         Label("Stockage des entreprises à vérifier", systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.orange)
                     }
-                    TextField("Lieu / client (facultatif)", text: $placeLabel)
+                    SharedTextFieldV2("Lieu / client (facultatif)", text: $placeLabel)
                 }
 
                 if let errorMessage {

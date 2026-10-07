@@ -31,6 +31,7 @@ object ThemeFrameStyler {
         val theme = AppThemeCatalog.current(actualRoot.context)
         val dark = AppThemeCatalog.useDarkPalette(actualRoot.context)
         applyRecursive(actualRoot, theme, dark, inheritedDark = dark)
+        PersonalizationRuntimeV2.apply(actualRoot)
     }
 
     private fun applyRecursive(view: View, theme: HpTheme, dark: Boolean, inheritedDark: Boolean) {

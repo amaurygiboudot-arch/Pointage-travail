@@ -8,6 +8,7 @@ struct HPTravailApp: App {
     @StateObject private var salaryStore: SalaryV2Store
     @StateObject private var locationManager = LocationManager()
     @StateObject private var authManager = AuthManager()
+    @StateObject private var personalization = PersonalizationStoreV2()
 
     init() {
         let workStore = WorkStoreV2()
@@ -185,6 +186,12 @@ struct HPTravailApp: App {
                 .environmentObject(salaryStore)
                 .environmentObject(locationManager)
                 .environmentObject(authManager)
+                .modifier(PersonalizationRootModifierV2())
+                .environmentObject(personalization)
+                .onAppear { personalization.activate(accountID: authManager.user?.uid) }
+                .onChange(of: authManager.user?.uid) { accountID in
+                    personalization.activate(accountID: accountID)
+                }
                 .onOpenURL { url in
                     GIDSignIn.sharedInstance.handle(url)
                 }

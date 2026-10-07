@@ -25,7 +25,8 @@ object BackupSecurityPolicy {
     fun canTransferPreferenceFile(name: String): Boolean {
         val normalized = name.trim().lowercase(Locale.ROOT)
         if (normalized.isBlank() || normalized in deviceLocalPreferenceFiles) return false
-        return !normalized.startsWith("com.google.firebase") &&
+        return !normalized.startsWith("personalization_private_v2_") &&
+            !normalized.startsWith("com.google.firebase") &&
             !normalized.startsWith("firebase") &&
             !normalized.contains("google_sign_in") &&
             !normalized.contains("google_app_measurement")
@@ -77,6 +78,7 @@ object BackupPreferenceKeyPolicy {
         if (!BackupSecurityPolicy.canTransferPreferenceFile(fileName)) return false
         if (!GpsPresenceStateKeysV2.isTransferablePreferenceKey(fileName, normalizedKey)) return false
 
+        if (fileName == "user_feedback" && normalizedKey == "draft_idea") return false
         if (fileName == "appearance_settings" && normalizedKey in appearanceDeviceLocalKeys) return false
         if (fileName == "navigation_state" && normalizedKey == "active_tab") return false
         if (fileName == "smart_setup") {

@@ -162,7 +162,7 @@ struct SalaryV2View: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .background { ReadableCardSurfaceV2() }
     }
 
     private var contractCard: some View {
@@ -186,40 +186,40 @@ struct SalaryV2View: View {
             .pickerStyle(.menu)
             .disabled(salaryStore.selectedCompanyId == nil)
 
-            TextField("Date d’entrée — JJ/MM/AAAA", text: $salaryStore.contractHireDateText)
+            SharedTextFieldV2("Date d’entrée — JJ/MM/AAAA", text: $salaryStore.contractHireDateText)
                 .textFieldStyle(.roundedBorder)
                 .disabled(salaryStore.selectedCompanyId == nil)
-            TextField("Date d’effet de cette version — JJ/MM/AAAA", text: $salaryStore.contractEffectiveDateText)
+            SharedTextFieldV2("Date d’effet de cette version — JJ/MM/AAAA", text: $salaryStore.contractEffectiveDateText)
                 .textFieldStyle(.roundedBorder)
                 .disabled(salaryStore.selectedCompanyId == nil)
-            TextField("Source — contrat signé, avenant…", text: $salaryStore.contractSourceText)
+            SharedTextFieldV2("Source — contrat signé, avenant…", text: $salaryStore.contractSourceText, prose: true)
                 .textFieldStyle(.roundedBorder)
                 .disabled(salaryStore.selectedCompanyId == nil)
 
             if hourlyContractSelected {
-                TextField("Durée hebdomadaire — ex. 35", text: $salaryStore.contractWeeklyHoursText)
+                SharedTextFieldV2("Durée hebdomadaire — ex. 35", text: $salaryStore.contractWeeklyHoursText)
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
                     .disabled(salaryStore.selectedCompanyId == nil)
-                TextField("Taux horaire brut — ex. 13,70", text: $salaryStore.contractHourlyRateText)
+                SharedTextFieldV2("Taux horaire brut — ex. 13,70", text: $salaryStore.contractHourlyRateText)
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
                     .disabled(salaryStore.selectedCompanyId == nil)
             } else if salaryStore.contractTypeSelection == "FORFAIT_HOURS" {
-                TextField("Nombre d’heures du forfait annuel", text: $salaryStore.contractForfaitHoursText)
+                SharedTextFieldV2("Nombre d’heures du forfait annuel", text: $salaryStore.contractForfaitHoursText)
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
                     .disabled(salaryStore.selectedCompanyId == nil)
-                TextField("Salaire brut mensuel convenu", text: $salaryStore.contractMonthlyGrossText)
+                SharedTextFieldV2("Salaire brut mensuel convenu", text: $salaryStore.contractMonthlyGrossText)
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
                     .disabled(salaryStore.selectedCompanyId == nil)
             } else if salaryStore.contractTypeSelection == "FORFAIT_DAYS" {
-                TextField("Nombre de jours du forfait annuel — max. standard 218", text: $salaryStore.contractForfaitDaysText)
+                SharedTextFieldV2("Nombre de jours du forfait annuel — max. standard 218", text: $salaryStore.contractForfaitDaysText)
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
                     .disabled(salaryStore.selectedCompanyId == nil)
-                TextField("Salaire brut mensuel convenu", text: $salaryStore.contractMonthlyGrossText)
+                SharedTextFieldV2("Salaire brut mensuel convenu", text: $salaryStore.contractMonthlyGrossText)
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
                     .disabled(salaryStore.selectedCompanyId == nil)
@@ -250,7 +250,7 @@ struct SalaryV2View: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .background { ReadableCardSurfaceV2() }
     }
 
     @ViewBuilder
@@ -290,7 +290,7 @@ struct SalaryV2View: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .background { ReadableCardSurfaceV2() }
     }
 
     private func resetPayrollCoverageConfirmation() {
@@ -317,7 +317,7 @@ struct SalaryV2View: View {
                         Text("\(epochDayLabel(segment.startEpochDay)) → \(epochDayLabel(segment.endEpochDay))")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        TextField(
+                        SharedTextFieldV2(
                             "Minutes planifiées confirmées pour ce segment",
                             text: Binding(
                                 get: { segment.scheduledMinutesText },
@@ -334,9 +334,10 @@ struct SalaryV2View: View {
                     }
                 }
 
-                TextField(
+                SharedTextFieldV2(
                     "Source — planning signé, avenant, relevé employeur…",
-                    text: $salaryStore.segmentedProrationSourceText
+                    text: $salaryStore.segmentedProrationSourceText,
+                    prose: true
                 )
                 .textFieldStyle(.roundedBorder)
 
@@ -391,7 +392,7 @@ struct SalaryV2View: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding()
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+            .background { ReadableCardSurfaceV2() }
         }
     }
 
@@ -460,7 +461,7 @@ struct SalaryV2View: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding()
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+            .background { ReadableCardSurfaceV2() }
         }
     }
 
@@ -494,11 +495,11 @@ struct SalaryV2View: View {
             .pickerStyle(.menu)
             .disabled(salaryStore.selectedCompanyId == nil)
 
-            TextField("Date d’effet — JJ/MM/AAAA", text: $salaryStore.socialEffectiveDateText)
+            SharedTextFieldV2("Date d’effet — JJ/MM/AAAA", text: $salaryStore.socialEffectiveDateText)
                 .textFieldStyle(.roundedBorder)
                 .disabled(salaryStore.selectedCompanyId == nil)
 
-            TextField("Source — bulletin, contrat, attestation…", text: $salaryStore.socialSourceText)
+            SharedTextFieldV2("Source — bulletin, contrat, attestation…", text: $salaryStore.socialSourceText, prose: true)
                 .textFieldStyle(.roundedBorder)
                 .disabled(salaryStore.selectedCompanyId == nil)
 
@@ -528,7 +529,7 @@ struct SalaryV2View: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .background { ReadableCardSurfaceV2() }
     }
 
     private var classificationCard: some View {
@@ -541,26 +542,26 @@ struct SalaryV2View: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            TextField("Coefficient — ex. 910", text: $salaryStore.classificationCoefficientText)
+            SharedTextFieldV2("Coefficient — ex. 910", text: $salaryStore.classificationCoefficientText)
                 .keyboardType(.numberPad)
                 .textFieldStyle(.roundedBorder)
                 .disabled(salaryStore.selectedCompanyId == nil)
-            TextField("Niveau", text: $salaryStore.classificationLevelText)
+            SharedTextFieldV2("Niveau", text: $salaryStore.classificationLevelText)
                 .textFieldStyle(.roundedBorder)
                 .disabled(salaryStore.selectedCompanyId == nil)
-            TextField("Échelon", text: $salaryStore.classificationEchelonText)
+            SharedTextFieldV2("Échelon", text: $salaryStore.classificationEchelonText)
                 .textFieldStyle(.roundedBorder)
                 .disabled(salaryStore.selectedCompanyId == nil)
-            TextField("Position", text: $salaryStore.classificationPositionText)
+            SharedTextFieldV2("Position", text: $salaryStore.classificationPositionText)
                 .textFieldStyle(.roundedBorder)
                 .disabled(salaryStore.selectedCompanyId == nil)
-            TextField("Groupe", text: $salaryStore.classificationGroupText)
+            SharedTextFieldV2("Groupe", text: $salaryStore.classificationGroupText)
                 .textFieldStyle(.roundedBorder)
                 .disabled(salaryStore.selectedCompanyId == nil)
-            TextField("Catégorie", text: $salaryStore.classificationCategoryText)
+            SharedTextFieldV2("Catégorie", text: $salaryStore.classificationCategoryText)
                 .textFieldStyle(.roundedBorder)
                 .disabled(salaryStore.selectedCompanyId == nil)
-            TextField("Emploi / emploi repère", text: $salaryStore.classificationEmploymentText)
+            SharedTextFieldV2("Emploi / emploi repère", text: $salaryStore.classificationEmploymentText)
                 .textFieldStyle(.roundedBorder)
                 .disabled(salaryStore.selectedCompanyId == nil)
 
@@ -588,7 +589,7 @@ struct SalaryV2View: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .background { ReadableCardSurfaceV2() }
     }
 
     private var conventionCoverageCard: some View {
@@ -646,7 +647,7 @@ struct SalaryV2View: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .background { ReadableCardSurfaceV2() }
     }
 
     private var reliabilityCard: some View {
@@ -662,7 +663,7 @@ struct SalaryV2View: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .background { ReadableCardSurfaceV2() }
     }
 
     private var paidWorkCard: some View {
@@ -695,7 +696,7 @@ struct SalaryV2View: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .background { ReadableCardSurfaceV2() }
     }
 
     private var absenceCard: some View {
@@ -733,10 +734,10 @@ struct SalaryV2View: View {
             Toggle("Journée(s) complète(s)", isOn: $salaryStore.absenceFullDay)
                 .disabled(salaryStore.selectedCompanyId == nil)
 
-            TextField("Début — JJ/MM/AAAA", text: $salaryStore.absenceStartDateText)
+            SharedTextFieldV2("Début — JJ/MM/AAAA", text: $salaryStore.absenceStartDateText)
                 .textFieldStyle(.roundedBorder)
                 .disabled(salaryStore.selectedCompanyId == nil)
-            TextField("Fin incluse — JJ/MM/AAAA", text: $salaryStore.absenceEndDateText)
+            SharedTextFieldV2("Fin incluse — JJ/MM/AAAA", text: $salaryStore.absenceEndDateText)
                 .textFieldStyle(.roundedBorder)
                 .disabled(salaryStore.selectedCompanyId == nil)
 
@@ -772,9 +773,10 @@ struct SalaryV2View: View {
             }
 
             Divider()
-            TextField(
+            SharedTextFieldV2(
                 "Source de confirmation du mois — planning, bulletin, vérification personnelle…",
-                text: $salaryStore.absenceMonthSourceText
+                text: $salaryStore.absenceMonthSourceText,
+                    prose: true
             )
             .textFieldStyle(.roundedBorder)
             .disabled(salaryStore.selectedCompanyId == nil)
@@ -800,7 +802,7 @@ struct SalaryV2View: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .background { ReadableCardSurfaceV2() }
     }
 
     private var referenceCard: some View {
@@ -824,19 +826,19 @@ struct SalaryV2View: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
-                TextField("Brut social observé", text: $payslipGrossText)
+                SharedTextFieldV2("Brut social observé", text: $payslipGrossText)
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
-                TextField("Net avant impôt observé", text: $payslipNetBeforeTaxText)
+                SharedTextFieldV2("Net avant impôt observé", text: $payslipNetBeforeTaxText)
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
-                TextField("Net imposable observé", text: $payslipNetTaxableText)
+                SharedTextFieldV2("Net imposable observé", text: $payslipNetTaxableText)
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
-                TextField("Prélèvement à la source observé", text: $payslipIncomeTaxText)
+                SharedTextFieldV2("Prélèvement à la source observé", text: $payslipIncomeTaxText)
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
-                TextField("Net après impôt observé", text: $payslipNetAfterTaxText)
+                SharedTextFieldV2("Net après impôt observé", text: $payslipNetAfterTaxText)
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
 
@@ -913,7 +915,7 @@ struct SalaryV2View: View {
             }
         }
         .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .background { ReadableCardSurfaceV2() }
     }
 
     private var incomeTaxCard: some View {
@@ -928,11 +930,11 @@ struct SalaryV2View: View {
                     .foregroundStyle(.secondary)
             }
 
-            TextField("Taux personnel (%)", text: $salaryStore.incomeTaxRateText)
+            SharedTextFieldV2("Taux personnel (%)", text: $salaryStore.incomeTaxRateText)
                 .keyboardType(.decimalPad)
                 .textFieldStyle(.roundedBorder)
                 .disabled(salaryStore.selectedCompanyId == nil)
-            TextField("Source (ex. bulletin confirmé)", text: $salaryStore.incomeTaxSource)
+            SharedTextFieldV2("Source (ex. bulletin confirmé)", text: $salaryStore.incomeTaxSource, prose: true)
                 .textFieldStyle(.roundedBorder)
                 .disabled(salaryStore.selectedCompanyId == nil)
             Button("Confirmer ce taux pour ce mois") {
@@ -954,7 +956,7 @@ struct SalaryV2View: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .background { ReadableCardSurfaceV2() }
     }
 
     @ViewBuilder
@@ -971,7 +973,7 @@ struct SalaryV2View: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding()
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+            .background { ReadableCardSurfaceV2() }
         }
     }
 
