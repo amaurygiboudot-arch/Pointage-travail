@@ -60,6 +60,15 @@ class ZoomablePdfPageView(context: Context) : ImageView(context) {
         scaleType = ScaleType.MATRIX
         isClickable = true
         cropToPadding = true
+        androidx.core.view.ViewCompat.addAccessibilityAction(this, "Agrandir la page") { _, _ ->
+            zoomAt(zoom + .5f, width / 2f, height / 2f); true
+        }
+        androidx.core.view.ViewCompat.addAccessibilityAction(this, "Réduire la page") { _, _ ->
+            zoomAt(zoom - .5f, width / 2f, height / 2f); true
+        }
+        androidx.core.view.ViewCompat.addAccessibilityAction(this, "Ajuster la page à l’écran") { _, _ ->
+            zoomAt(1f, width / 2f, height / 2f); true
+        }
         contentDescription = "Page PDF. Pincez pour agrandir, double appui pour agrandir ou réinitialiser."
     }
 
@@ -77,6 +86,10 @@ class ZoomablePdfPageView(context: Context) : ImageView(context) {
         translationYInPage = 0f
         applyTransform()
     }
+
+    fun zoomIn() = zoomAt(zoom + .5f, width / 2f, height / 2f)
+    fun zoomOut() = zoomAt(zoom - .5f, width / 2f, height / 2f)
+    fun resetZoom() = zoomAt(1f, width / 2f, height / 2f)
 
     private fun zoomAt(requested: Float, focusX: Float, focusY: Float) {
         if (!ready || !requested.isFinite()) return

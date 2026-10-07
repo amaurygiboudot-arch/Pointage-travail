@@ -30,6 +30,9 @@ class PointageApplication : Application(), Application.ActivityLifecycleCallback
         super.onCreate()
         registerActivityLifecycleCallbacks(this)
         ConventionCatalog.initialize(this)
+        PersonalizationRuntimeV2.install(this)
+        NightContextRuntimeV2.install(this)
+        UniversalWritingInstaller.install(this)
     }
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
@@ -69,14 +72,83 @@ object AppearanceManager {
     private const val PREFS = "appearance_settings"
     const val BACKGROUND_FILE = "custom_app_background.jpg"
 
+    /** Shared by window chrome, the scrolling canvas and text contrast. */
+    fun backgroundColor(context: Context): Int {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val theme = AppThemeCatalog.current(context)
+        val fallback = if (AppThemeCatalog.useDarkPalette(context)) theme.darkBackground else theme.lightBackground
+        return if (prefs.getBoolean("custom_bg", false)) parseColor(prefs.getString("app_bg", null), fallback) else fallback
+    }
+
+    private data class DialogPalette(
+        val panel: Int,
+        val foreground: Int,
+        val colors: ColorStateList,
+        val foregroundTint: ColorStateList,
+        val buttonBackgrounds: java.util.WeakHashMap<Button, android.graphics.drawable.Drawable> = java.util.WeakHashMap()
+    )
+    private val dialogPalettes = java.util.WeakHashMap<AlertDialog, DialogPalette>()
+
+    fun applyDialog(dialog: AlertDialog) {
+        val root = dialog.window?.decorView ?: return
+        // The reader deliberately owns its high-contrast canvas and speech controls.
+        if (root.findViewWithTag<View>("personalization_reader_v2") != null) return
+        val bg = backgroundColor(root.context)
+        val panel = if (PersonalizationStoreV2.read(root.context).highContrast) Color.BLACK
+            else shift(bg, if (isDark(bg)) 1.24f else .91f)
+        val previous = dialogPalettes[dialog]
+        val palette = previous?.takeIf { it.panel == panel } ?: run {
+            val foreground = bestTextColor(panel)
+            val disabledColor = if (foreground == Color.WHITE) Color.LTGRAY else Color.DKGRAY
+            DialogPalette(panel, foreground,
+                ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
+                    intArrayOf(if (contrastRatio(disabledColor, panel) >= 4.5) disabledColor else foreground, foreground)),
+                ColorStateList.valueOf(foreground)).also {
+                dialogPalettes[dialog] = it
+                dialog.window?.setBackgroundDrawable(android.graphics.drawable.GradientDrawable().apply {
+                    setColor(panel)
+                    cornerRadius = 20f * root.resources.displayMetrics.density
+                })
+            }
+        }
+        fun style(view: View) {
+            val name = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
+            if (view is ViewGroup) {
+                if (name in setOf("parentPanel", "topPanel", "contentPanel", "customPanel", "buttonPanel")) {
+                    if (view.backgroundTintList != null) view.backgroundTintList = null
+                    if ((view.background as? android.graphics.drawable.ColorDrawable)?.color != Color.TRANSPARENT)
+                        view.setBackgroundColor(Color.TRANSPARENT)
+                }
+                for (i in 0 until view.childCount) style(view.getChildAt(i))
+            }
+            if (view is TextView && !PersonalizationRuntimeV2.isProtectionApplied(view)) {
+                if (view.textColors !== palette.colors) view.setTextColor(palette.colors)
+                if (view is EditText) {
+                    if (view.hintTextColors !== palette.foregroundTint) view.setHintTextColor(palette.foregroundTint)
+                    if (view.backgroundTintList !== palette.foregroundTint) view.backgroundTintList = palette.foregroundTint
+                } else if (view is Button && view !is android.widget.CompoundButton && (!palette.buttonBackgrounds.containsKey(view) || palette.buttonBackgrounds[view] !== view.background)) {
+                    view.backgroundTintList = null
+                    val left = view.paddingLeft; val top = view.paddingTop
+                    val right = view.paddingRight; val bottom = view.paddingBottom
+                    val shape = view.resources.getDrawable(R.drawable.hp_panel, view.context.theme).mutate()
+                    (shape as? android.graphics.drawable.GradientDrawable)?.setColor(panel)
+                    view.background = android.graphics.drawable.RippleDrawable(
+                        ColorStateList.valueOf(if (palette.foreground == Color.WHITE) 0x33FFFFFF else 0x33000000), shape, null)
+                    palette.buttonBackgrounds[view] = view.background
+                    view.setPadding(left, top, right, bottom)
+                }
+            }
+        }
+        style(root)
+    }
+
     fun apply(activity: Activity) {
         val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val dark = AppThemeCatalog.useDarkPalette(activity)
         val theme = AppThemeCatalog.current(activity)
-        val defaultBg = if (dark) theme.darkBackground else theme.lightBackground
         val defaultPanel = if (dark) theme.darkPanel else theme.lightPanel
         val customColor = prefs.getBoolean("custom_bg", false)
-        val bg = if (customColor) parseColor(prefs.getString("app_bg", null), defaultBg) else defaultBg
+        val bg = backgroundColor(activity)
         val panel = if (customColor) shift(bg, if (isDark(bg)) 1.24f else 0.91f) else defaultPanel
         val imageFile = File(activity.filesDir, BACKGROUND_FILE)
         val hasImage = prefs.getBoolean("custom_image_bg", false) && imageFile.exists()
@@ -94,6 +166,7 @@ object AppearanceManager {
         activity.window.decorView.systemUiVisibility = flags
 
         val contentRoot = activity.window.decorView.findViewById<ViewGroup>(android.R.id.content) ?: return
+        contentRoot.findViewWithTag<TextView>("settings_display_mode_v2")?.text = DisplayModeSettingsV2.label(activity)
         val firstChild = contentRoot.getChildAt(0)
         if (hasImage) {
             val bitmap = runCatching { BitmapFactory.decodeFile(imageFile.absolutePath) }.getOrNull()
@@ -114,6 +187,7 @@ object AppearanceManager {
         }
 
         recolor(contentRoot, bg, panel, hasImage, false)
+        PersonalizationRuntimeV2.apply(contentRoot)
         if (activity is MainActivity) {
             activity.findViewById<LinearLayout>(R.id.navigationTabs)?.let(NavigationTabContrastV2::apply)
         }
@@ -155,20 +229,9 @@ object AppearanceManager {
         if (view is ScrollView) view.setBackgroundColor(if (imageBg) Color.TRANSPARENT else bg)
     }
 
-    fun bestTextColor(background: Int): Int = if (isDark(background)) Color.WHITE else Color.parseColor("#111111")
+    fun bestTextColor(background: Int): Int = VisualContrastV2.bestText(background)
 
-    fun contrastRatio(foreground: Int, background: Int): Double {
-        fun lum(c: Int): Double {
-            fun channel(v: Int): Double {
-                val s = v / 255.0
-                return if (s <= 0.03928) s / 12.92 else Math.pow((s + 0.055) / 1.055, 2.4)
-            }
-            return 0.2126 * channel(Color.red(c)) + 0.7152 * channel(Color.green(c)) + 0.0722 * channel(Color.blue(c))
-        }
-        val l1 = lum(foreground)
-        val l2 = lum(background)
-        return (maxOf(l1, l2) + 0.05) / (minOf(l1, l2) + 0.05)
-    }
+    fun contrastRatio(foreground: Int, background: Int): Double = VisualContrastV2.ratio(foreground, background)
 
     private fun isDark(color: Int): Boolean = ((Color.red(color) * 299 + Color.green(color) * 587 + Color.blue(color) * 114) / 1000) < 145
     private fun parseColor(value: String?, fallback: Int): Int = runCatching { Color.parseColor(value ?: "") }.getOrDefault(fallback)
@@ -275,22 +338,14 @@ object SettingsUiInstaller {
 
         val appearance = settingsSection(activity, SettingsV2Host.TAG_PERSONALIZATION)
         appearance.addView(title(activity, "APPARENCE DE L'APPLICATION"))
-        val modeButton = styledButton(activity, "")
-        fun updateModeLabel() {
-            val mode = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE).getString("mode", "auto") ?: "auto"
-            modeButton.text = "MODE : " + when (mode) { "light" -> "CLAIR"; "dark" -> "SOMBRE"; else -> "AUTOMATIQUE JOUR / NUIT" }
-        }
+        appearance.addView(styledButton(activity, "CONFORT VISUEL ET ÉCRITURE").apply {
+            setOnClickListener { PersonalizationSettingsV2.open(activity) }
+        })
+        val modeButton = styledButton(activity, "").apply { tag = "settings_display_mode_v2" }
+        fun updateModeLabel() { modeButton.text = DisplayModeSettingsV2.label(activity) }
         updateModeLabel()
         modeButton.setOnClickListener {
-            val values = arrayOf("Automatique jour / nuit", "Clair", "Sombre")
-            AlertDialog.Builder(activity).setTitle("Mode d'affichage").setItems(values) { _, which ->
-                val mode = arrayOf("auto", "light", "dark")[which]
-                activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE).edit().putString("mode", mode).apply()
-                updateModeLabel()
-                AppearanceManager.apply(activity)
-                PointageWidgetProvider.refreshAppearance(activity)
-                QuickActionsWidgetProvider.refreshAppearance(activity)
-            }.show()
+            DisplayModeSettingsV2.open(activity, ::updateModeLabel)
         }
         appearance.addView(modeButton)
 
@@ -457,7 +512,7 @@ object SettingsUiInstaller {
         val colors = arrayOf("#080808", "#242424", "#0D1B2A", "#102A20", "#351015", "#F3F0E8")
         AlertDialog.Builder(activity).setTitle("Fond de l'application").setItems(labels) { _, which ->
             if (which < colors.size) saveAppBg(activity, colors[which])
-            else customColorDialog(activity, "Couleur du fond") { saveAppBg(activity, it) }
+            else customColorDialog(activity, "Couleur du fond", String.format(java.util.Locale.ROOT, "#%06X", AppearanceManager.backgroundColor(activity) and 0xFFFFFF)) { saveAppBg(activity, it) }
         }.show()
     }
 
@@ -473,7 +528,7 @@ object SettingsUiInstaller {
         val colors = arrayOf("#080808", "#242424", "#0D1B2A", "#102A20", "#D6A84B", "#FFFFFF")
         AlertDialog.Builder(activity).setTitle(title).setItems(labels) { _, which ->
             if (which < colors.size) saveWidgetColor(activity, key, colors[which])
-            else customColorDialog(activity, title) { saveWidgetColor(activity, key, it) }
+            else customColorDialog(activity, title, activity.getSharedPreferences(WidgetStyleSettings.PREFS, Context.MODE_PRIVATE).getString(key, "#1A1A1A") ?: "#1A1A1A") { saveWidgetColor(activity, key, it) }
         }.show()
     }
 
@@ -484,14 +539,7 @@ object SettingsUiInstaller {
         Toast.makeText(activity, "Widget mis à jour", Toast.LENGTH_SHORT).show()
     }
 
-    private fun customColorDialog(activity: Activity, title: String, onSave: (String) -> Unit) {
-        val input = EditText(activity).apply { hint = "#1A1A1A"; setText("#1A1A1A") }
-        AlertDialog.Builder(activity).setTitle(title).setView(input)
-            .setPositiveButton("Appliquer") { _, _ ->
-                val value = input.text.toString().trim()
-                if (runCatching { Color.parseColor(value) }.isSuccess) onSave(value)
-                else Toast.makeText(activity, "Couleur invalide", Toast.LENGTH_SHORT).show()
-            }
-            .setNegativeButton("Annuler", null).show()
+    private fun customColorDialog(activity: Activity, title: String, initialColor: String, onSave: (String) -> Unit) {
+        CustomColorPickerV2.show(activity, title, initialColor, onSave)
     }
 }

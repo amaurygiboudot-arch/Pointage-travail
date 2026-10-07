@@ -1,6 +1,6 @@
 # Politique de confidentialité — HP Travail
 
-Dernière mise à jour : 16 août 2026
+Dernière mise à jour : 7 octobre 2026
 
 HP Travail est une application de pointage personnel permettant d'enregistrer des heures de travail, de produire des rapports PDF et, si l'utilisateur l'active, d'automatiser les entrées et sorties à l'aide de zones géographiques configurées par l'utilisateur.
 
@@ -27,6 +27,14 @@ Les heures d'entrée, de sortie, durées travaillées et lieux associés sont en
 ### Données salariales
 
 Le taux horaire, la convention collective choisie et la date d'entrée dans l'entreprise sont enregistrés localement afin de réaliser les estimations demandées par l'utilisateur.
+
+## Sauvegarde facultative du confort sur le compte
+
+Sur Android et iOS, la sauvegarde facultative du confort transmet à Google Firebase / Cloud Firestore les réglages de contraste, de mouvements réduits, de zoom de lecture et de programmation Nuit, associés au compte connecté, avec une révision et une date de mise à jour. Elle permet de retrouver ces préférences sur un autre appareil connecté au même compte. Les données de travail et les autres réglages ne sont pas inclus dans cette sauvegarde de confort.
+
+Chaque lecture ou écriture est lancée par l'utilisateur depuis l'écran de sauvegarde du compte ; aucune synchronisation automatique n'est mise en œuvre par cette fonction. Les réglages locaux restent disponibles sans cette sauvegarde.
+
+Cette fonction ne prévoit aucune expiration automatique. L'utilisateur peut remplacer ou supprimer les préférences sauvegardées depuis cet écran. La suppression conserve un marqueur associé au compte (révision, date et état supprimé) pour empêcher une réécriture obsolète. Elle ne supprime pas les réglages présents sur les appareils. Effacer les données locales ou désinstaller l'application ne constitue pas une suppression de cette sauvegarde distante.
 
 ## Google Drive
 

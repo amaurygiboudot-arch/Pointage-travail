@@ -29,8 +29,9 @@ object ThemeFrameStyler {
         val actualRoot = root.rootView ?: root
         AutoDayNightPolarity.apply(actualRoot)
         val theme = AppThemeCatalog.current(actualRoot.context)
-        val dark = AppThemeCatalog.useDarkPalette(actualRoot.context)
+        val dark = AppearanceManager.bestTextColor(AppearanceManager.backgroundColor(actualRoot.context)) == Color.WHITE
         applyRecursive(actualRoot, theme, dark, inheritedDark = dark)
+        PersonalizationRuntimeV2.apply(actualRoot)
     }
 
     private fun applyRecursive(view: View, theme: HpTheme, dark: Boolean, inheritedDark: Boolean) {
@@ -47,9 +48,9 @@ object ThemeFrameStyler {
         when {
             framedContainer -> clearContainerBackground(view)
             id in tabIds && view is TextView -> NavigationTabContrastV2.style(view, view.isSelected)
+            view is Switch -> styleSwitch(view, localDark)
             view is Button -> styleButton(view)
             view is EditText -> styleInput(view, localDark)
-            view is Switch -> styleSwitch(view, localDark)
             view is TextView -> styleText(view, theme, localDark)
         }
 

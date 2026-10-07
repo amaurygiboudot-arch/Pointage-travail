@@ -194,6 +194,25 @@ Les permissions Codex du projet appliquent le principe du moindre privilège : l
 
 ## FIABILITÉ
 
+### Distribution de test avant fusion autorisée par Amaury
+
+Décision humaine explicite du 7 octobre 2026 à 10:41 (Europe/Paris) :
+le circuit de livraison peut être adapté pour envoyer une version non fusionnée
+sur une piste de test Google Play afin de réaliser les essais sur appareil.
+Cette décision autorise les modifications de gouvernance et de workflows
+strictement nécessaires à ce circuit.
+
+- La distribution de test doit être explicitement déclenchée et liée au SHA exact
+  contrôlé, au paquet signé, à sa version et à une piste de test identifiée.
+- Les contrôles automatiques restent obligatoires et doivent réussir ; aucun
+  échec technique ou de sécurité n'est ignoré pour publier.
+- Les essais physiques en attente restent déclarés non exécutés. Leur absence
+  ne bloque pas l'envoi destiné à les réaliser.
+- Le rapport canonique et le PASS final restent requis pour la fusion ; cet envoi
+  de test ne signifie pas que la PR est validée ou fusionnable.
+- Cette exception n'autorise aucune publication en production, aucun accès
+  supplémentaire aux secrets et aucune modification des règles de fusion.
+
 Une compilation verte ne prouve pas qu'une fonctionnalité est correcte.
 Tester le comportement réel et les cas limites.
 

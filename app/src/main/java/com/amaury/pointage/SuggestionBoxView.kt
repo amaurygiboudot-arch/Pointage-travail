@@ -25,7 +25,6 @@ class SuggestionBoxView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : LinearLayout(context, attrs, defStyleAttr) {
 
-    private val prefs = context.getSharedPreferences("user_feedback", Context.MODE_PRIVATE)
     private val ideaInput: EditText
 
     init {
@@ -61,9 +60,13 @@ class SuggestionBoxView @JvmOverloads constructor(
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             setBackgroundResource(R.drawable.hp_panel)
             setPadding(dp(12), dp(10), dp(12), dp(10))
-            setText(prefs.getString("draft_idea", "").orEmpty())
         }
         addView(ideaInput, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        UniversalWritingInstaller.bind(ideaInput, "feedback.idea")
+        addView(adaptiveButton("Écriture, dictionnaire et récupération du brouillon").apply {
+            setOnClickListener { UniversalWritingInstaller.showTools(ideaInput) }
+        })
+        addView(bodyText("Brouillon chiffré sur cet appareil, conservé 7 jours. Enregistrement après 0,5 s d’inactivité (hors délai du stockage). Utilise la récupération pour restaurer un texte après interruption."))
 
         val send = adaptiveButton("ENVOYER L'IDÉE").apply {
             setOnClickListener { sendIdea() }
@@ -100,9 +103,6 @@ class SuggestionBoxView @JvmOverloads constructor(
         }
         addView(reportsSwitch, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        ideaInput.setOnFocusChangeListener { _, hasFocus ->
-            if (!hasFocus) prefs.edit().putString("draft_idea", ideaInput.text.toString()).apply()
-        }
     }
 
     private fun revealOwnerInboxIfAllowed(button: Button) {
@@ -146,7 +146,7 @@ class SuggestionBoxView @JvmOverloads constructor(
             return
         }
 
-        prefs.edit().putString("draft_idea", idea).apply()
+        UniversalWritingInstaller.flush(ideaInput)
 
         val user = FirebaseAuth.getInstance().currentUser
         if (user == null) {
@@ -189,8 +189,12 @@ class SuggestionBoxView @JvmOverloads constructor(
             .collection("feedback")
             .add(data)
             .addOnSuccessListener {
-                ideaInput.setText("")
-                prefs.edit().remove("draft_idea").apply()
+                // A successful send must not erase edits typed while the request was in flight,
+                // or a draft belonging to a newly selected account.
+                if (FirebaseAuth.getInstance().currentUser?.uid == user.uid &&
+                    ideaInput.text.toString().trim() == idea) {
+                    UniversalWritingInstaller.clearSubmitted(ideaInput)
+                }
                 Toast.makeText(context, "Merci pour ton idée 💡", Toast.LENGTH_LONG).show()
             }
             .addOnFailureListener { error ->

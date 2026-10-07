@@ -57,6 +57,7 @@ object AppThemeCatalog {
 
     /** En automatique, la palette suit le vrai lever/coucher du soleil. */
     fun useDarkPalette(context: Context): Boolean {
+        if (NightContextRuntimeV2.effectiveContext(context) == "night") return true
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         return when (prefs.getString("mode", "auto") ?: "auto") {
             "light" -> false

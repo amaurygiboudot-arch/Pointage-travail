@@ -7,6 +7,10 @@ struct CelestialHomeView: View {
     @EnvironmentObject private var locationManager: LocationManager
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @EnvironmentObject private var preferences: PersonalizationStoreV2
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @Environment(\.dynamicTypeSize) private var textSize
     @AppStorage(CelestialGlobeModeV2.preferenceKey) private var globeModeRaw = CelestialGlobeModeV2.local.rawValue
     @State private var isVisible = false
     @State private var tabBarHideTask: Task<Void, Never>?
@@ -22,18 +26,20 @@ struct CelestialHomeView: View {
                 homeSkyBase
                     .ignoresSafeArea()
 
-                // Clouds modulate the base before stars; canonical visibility is applied only once.
-                CelestialCloudLayerV2(
-                    renderState: celestialRenderState
-                )
-                .ignoresSafeArea()
+                // Optional decoration yields to motion/accessibility preferences.
+                if !reduceMotion {
+                    CelestialCloudLayerV2(
+                        renderState: celestialRenderState
+                    )
+                    .ignoresSafeArea()
 
-                CelestialStarFieldViewV2(
-                    state: locationManager.celestialState,
-                    presentation: .fullScreen,
-                    renderState: celestialRenderState
-                )
-                .ignoresSafeArea()
+                    CelestialStarFieldViewV2(
+                        state: locationManager.celestialState,
+                        presentation: .fullScreen,
+                        renderState: celestialRenderState
+                    )
+                    .ignoresSafeArea()
+                }
 
                 GeometryReader { viewport in
                     ScrollView {
@@ -48,7 +54,9 @@ struct CelestialHomeView: View {
 
                                 Text(Date.now.formatted(date: .complete, time: .shortened))
                                     .font(.headline)
-                                    .foregroundStyle(homeForegroundColor)
+                                    .foregroundStyle(Color.primary)
+                                    .padding(8)
+                                    .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 10))
                                     .shadow(
                                         color: homeUsesDarkText
                                             ? .white.opacity(0.55)
@@ -90,6 +98,9 @@ struct CelestialHomeView: View {
                     locationManager.startCelestialTracking()
                 }
             }
+            .onChange(of: reduceMotion) { _ in revealTabBarAndScheduleHide() }
+            .onChange(of: voiceOverEnabled) { _ in revealTabBarAndScheduleHide() }
+            .onChange(of: textSize) { _ in revealTabBarAndScheduleHide() }
             .onDisappear {
                 isVisible = false
                 tabBarHideTask?.cancel()
@@ -113,6 +124,8 @@ struct CelestialHomeView: View {
             }
         }
     }
+
+    private var reduceMotion: Bool { systemReduceMotion || preferences.value.effectiveReducedMotion }
 
     private var celestialRenderState: CelestialRenderStateV2? {
         let state = locationManager.celestialState
@@ -197,6 +210,7 @@ struct CelestialHomeView: View {
     private func revealTabBarAndScheduleHide() {
         tabBarHideTask?.cancel()
         tabBarVisible = true
+        guard !reduceMotion, !voiceOverEnabled, !textSize.isAccessibilitySize else { return }
         tabBarHideTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: HomeTabBarVisibilityPolicyV2.inactivityTimeoutNanoseconds)
             guard !Task.isCancelled, isVisible else { return }
@@ -208,7 +222,8 @@ struct CelestialHomeView: View {
         CelestialSkyDialV2(
             state: locationManager.celestialState,
             globeMode: CelestialGlobeModeV2(rawValue: globeModeRaw) ?? .local,
-            renderState: celestialRenderState
+            renderState: celestialRenderState,
+            motionReduced: reduceMotion
         )
             .aspectRatio(1, contentMode: .fit)
             .frame(maxWidth: 470)
@@ -253,7 +268,7 @@ struct CelestialHomeView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .background { ReadableCardSurfaceV2() }
     }
 
     private func ephemerisCard(_ snapshot: CelestialSnapshotV2) -> some View {
@@ -321,7 +336,7 @@ struct CelestialHomeView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .background { ReadableCardSurfaceV2() }
     }
 
     private func bodyValue(_ title: String, body: CelestialBodyV2, symbol: String, color: Color) -> some View {
@@ -469,6 +484,7 @@ private struct CelestialSkyDialV2: View {
     let state: CelestialTrackingStateV2
     let globeMode: CelestialGlobeModeV2
     let renderState: CelestialRenderStateV2?
+    let motionReduced: Bool
 
     var body: some View {
         GeometryReader { geometry in
@@ -484,7 +500,8 @@ private struct CelestialSkyDialV2: View {
                             .clipShape(Circle())
                     }
                     .background(Color.black, in: Circle())
-                CelestialStarFieldViewV2(state: state, presentation: .dial, renderState: renderState)
+                CelestialStarFieldViewV2(state: state, presentation: .dial, renderState: renderState,
+                                         motionReduced: motionReduced)
                 Circle()
                     .stroke(.white.opacity(0.55), lineWidth: 2)
                     .padding(size * 0.08)

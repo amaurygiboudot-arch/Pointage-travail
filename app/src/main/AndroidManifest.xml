@@ -1,5 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <queries><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent></queries>
+
     <uses-feature android:name="android.hardware.location" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
     <uses-feature android:name="android.hardware.location.network" android:required="false" />
@@ -40,6 +42,7 @@
         <activity android:name=".RecoveryActivityV2" android:exported="false" android:excludeFromRecents="false" />
         <activity android:name=".AdminDiagnosticsActivity" android:exported="false" android:excludeFromRecents="true" />
         <activity android:name=".OwnerEnrollmentActivity" android:exported="false" android:excludeFromRecents="true" android:noHistory="true" />
+        <activity android:name=".WritingDictationActivity" android:exported="false" android:excludeFromRecents="true" />
         <activity android:name=".MainActivity" android:exported="false" />
         <activity android:name=".ObjectiveDeliveryGameActivity" android:exported="false" />
         <activity android:name=".PauseActionActivity" android:exported="false" android:excludeFromRecents="true" android:noHistory="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" />

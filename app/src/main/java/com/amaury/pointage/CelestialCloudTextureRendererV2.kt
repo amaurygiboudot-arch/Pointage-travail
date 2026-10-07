@@ -46,7 +46,8 @@ internal class CelestialCloudTextureRendererV2(private val invalidate: () -> Uni
             listOf(state.solarLightLevel, state.twilightLevel, state.nightLevel).any { !it.isFinite() }) {
             clear(); return
         }
-        val motion = Build.VERSION.SDK_INT < 26 || ValueAnimator.areAnimatorsEnabled()
+        val motion = quality != CelestialRenderQualityV2.REDUCED &&
+            (Build.VERSION.SDK_INT < 26 || ValueAnimator.areAnimatorsEnabled())
         val detail = when (quality) {
             CelestialRenderQualityV2.REDUCED -> 2
             CelestialRenderQualityV2.BALANCED -> 3

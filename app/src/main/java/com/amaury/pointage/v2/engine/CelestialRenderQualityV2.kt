@@ -64,6 +64,7 @@ object CelestialRenderQualityProviderV2 {
         context: Context,
         nowElapsedMs: Long = SystemClock.elapsedRealtime()
     ): CelestialRenderQualityV2 {
+        if (com.amaury.pointage.PersonalizationRuntimeV2.reducedMotion(context)) return CelestialRenderQualityV2.REDUCED
         val cached = cachedQuality
         if (cached != null &&
             cachedAtElapsedMs != Long.MIN_VALUE &&
