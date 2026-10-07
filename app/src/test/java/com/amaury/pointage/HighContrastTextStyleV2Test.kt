@@ -1,14 +1,17 @@
 package com.amaury.pointage
 
+import android.app.Activity
 import android.app.Application
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Robolectric
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
@@ -42,17 +45,39 @@ class HighContrastTextStyleV2Test {
     }
 
     @Test fun focusedEditorHasDistinctSurfaceAndRepeatedApplyKeepsItsState() {
-        val editor = EditText(context)
-        HighContrastTextStyleV2.apply(editor)
-        val background = editor.background
-        background.state = intArrayOf(android.R.attr.state_enabled)
-        val normal = background.current
-        background.state = intArrayOf(android.R.attr.state_enabled, android.R.attr.state_focused)
-        val focused = background.current
-        assertNotSame(normal, focused)
-        HighContrastTextStyleV2.apply(editor)
-        assertSame(background, editor.background)
-        assertSame(focused, editor.background.current)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup().visible()
+        try {
+            val activity = controller.get()
+            val other = EditText(activity).apply { isFocusableInTouchMode = true }
+            val editor = EditText(activity).apply { isFocusableInTouchMode = true }
+            activity.setContentView(LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(other)
+                addView(editor)
+            })
+            assertTrue(editor.isAttachedToWindow)
+            assertTrue(other.requestFocus())
+            assertFalse(editor.isFocused)
+            HighContrastTextStyleV2.apply(editor)
+            val background = editor.background
+            val normal = background.current
+
+            // Let View propagate actual keyboard focus into its drawable state.
+            assertTrue(editor.requestFocus())
+            assertTrue(editor.isFocused)
+            val focused = background.current
+            assertNotSame(normal, focused)
+            HighContrastTextStyleV2.apply(editor)
+            assertTrue(editor.isFocused)
+            assertSame(background, editor.background)
+            assertSame(focused, editor.background.current)
+
+            assertTrue(other.requestFocus())
+            assertFalse(editor.isFocused)
+            assertSame(normal, editor.background.current)
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 
     @Test fun runtimeRestoresOriginalStatefulColorsAndBackgroundWhenContrastIsDisabled() {

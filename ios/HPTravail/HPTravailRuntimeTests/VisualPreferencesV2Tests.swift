@@ -74,6 +74,58 @@ final class VisualPreferencesV2Tests: XCTestCase {
         XCTAssertEqual(defaults.data(forKey: key), broken)
     }
 
+    func testOrdinaryWritesPreserveExactUnreadableBytesUntilExplicitReplacement() throws {
+        let suite = "VisualPreferencesV2Tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let key = VisualPreferencesRepositoryV2.key(accountID: "A")
+        var futureVersion = VisualPreferencesV2()
+        futureVersion.version = 99
+        var unknownFields = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(VisualPreferencesV2())) as? [String: Any])
+        unknownFields["futureSetting"] = "preserve me"
+        let unreadable = [Data("broken\n".utf8), try JSONEncoder().encode(futureVersion),
+                          try JSONSerialization.data(withJSONObject: unknownFields)]
+        var desired = VisualPreferencesV2()
+        desired.highContrast = true
+        desired.readerScale = 3
+        for original in unreadable {
+            defaults.set(original, forKey: key)
+            XCTAssertThrowsError(try VisualPreferencesRepositoryV2.read(accountID: "A", defaults: defaults))
+            XCTAssertThrowsError(try VisualPreferencesRepositoryV2.write(desired, accountID: "A", defaults: defaults))
+            XCTAssertEqual(defaults.data(forKey: key), original)
+            // A partial cross-platform/cloud import is not an authorized repair either.
+            let shared = try ComfortTransferV2(profile: desired)
+            let patch = shared.applying(to: VisualPreferencesV2())
+            XCTAssertThrowsError(try VisualPreferencesRepositoryV2.write(patch, accountID: "A", defaults: defaults))
+            XCTAssertEqual(defaults.data(forKey: key), original)
+            var invalid = desired
+            invalid.readerScale = .nan
+            XCTAssertThrowsError(try VisualPreferencesRepositoryV2.replaceExplicitly(invalid, accountID: "A", defaults: defaults))
+            XCTAssertEqual(defaults.data(forKey: key), original)
+            try VisualPreferencesRepositoryV2.replaceExplicitly(desired, accountID: "A", defaults: defaults)
+            XCTAssertEqual(try VisualPreferencesRepositoryV2.read(accountID: "A", defaults: defaults), desired)
+            try VisualPreferencesRepositoryV2.write(VisualPreferencesV2(), accountID: "A", defaults: defaults)
+            XCTAssertEqual(try VisualPreferencesRepositoryV2.read(accountID: "A", defaults: defaults), VisualPreferencesV2())
+        }
+    }
+
+    func testWrongStorageTypeIsPreservedAndExplicitResetRepairsOnlyItsAccount() throws {
+        let suite = "VisualPreferencesV2Tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let key = VisualPreferencesRepositoryV2.key(accountID: "A")
+        defaults.set("unrecognized storage", forKey: key)
+        let other = try VisualPreferencesRepositoryV2.read(accountID: "B", defaults: defaults)
+        defaults.set("blue", forKey: "hp_theme")
+        XCTAssertThrowsError(try VisualPreferencesRepositoryV2.read(accountID: "A", defaults: defaults))
+        XCTAssertThrowsError(try VisualPreferencesRepositoryV2.write(VisualPreferencesV2(), accountID: "A", defaults: defaults))
+        XCTAssertEqual(defaults.string(forKey: key), "unrecognized storage")
+        try VisualPreferencesRepositoryV2.replaceExplicitly(VisualPreferencesV2(), accountID: "A", defaults: defaults)
+        XCTAssertEqual(try VisualPreferencesRepositoryV2.read(accountID: "A", defaults: defaults), VisualPreferencesV2())
+        XCTAssertEqual(try VisualPreferencesRepositoryV2.read(accountID: "B", defaults: defaults), other)
+        XCTAssertEqual(defaults.string(forKey: "hp_theme"), "blue")
+    }
+
     func testReaderZoomClampsPinchAndRejectsNonFiniteFactors() {
         XCTAssertEqual(ReaderZoomPolicyV2.clamped(0.1), 1)
         XCTAssertEqual(ReaderZoomPolicyV2.clamped(9), 4)

@@ -25,11 +25,29 @@ final class PersonalizationStoreV2: ObservableObject {
     }
 
     func set(_ next: VisualPreferencesV2) {
+        persist(next, explicitReplacement: false)
+    }
+
+    /// Called only after confirmation of a validated complete preferences file.
+    func replaceFromImport(_ next: VisualPreferencesV2) {
+        persist(next, explicitReplacement: true)
+    }
+
+    private func persist(_ next: VisualPreferencesV2, explicitReplacement: Bool) {
         do {
-            try VisualPreferencesRepositoryV2.write(next, accountID: accountID)
-            previous = value
+            guard next.valid else { throw VisualPreferencesV2.ValidationError.unsupported }
+            // Never offer the displayed fallback as an undo of unreadable stored data.
+            let storedPrevious = try? VisualPreferencesRepositoryV2.read(accountID: accountID)
+            if explicitReplacement {
+                try VisualPreferencesRepositoryV2.replaceExplicitly(next, accountID: accountID)
+            } else {
+                try VisualPreferencesRepositoryV2.write(next, accountID: accountID)
+            }
+            previous = storedPrevious
             value = next
             errorMessage = nil
+        } catch VisualPreferencesRepositoryV2.StorageError.existingProfileUnreadable {
+            errorMessage = "Préférences conservées mais illisibles : modification refusée. Importez un fichier complet ou confirmez une réinitialisation pour les remplacer."
         } catch { errorMessage = "Préférences non enregistrées : format invalide." }
     }
 
@@ -50,8 +68,11 @@ final class PersonalizationStoreV2: ObservableObject {
 
     func resetVisual() {
         var next = VisualPreferencesV2()
-        next.systemSpelling = value.systemSpelling
-        set(next)
+        // Preserve spelling only when the original profile can actually be read.
+        if let stored = try? VisualPreferencesRepositoryV2.read(accountID: accountID) {
+            next.systemSpelling = stored.systemSpelling
+        }
+        persist(next, explicitReplacement: true)
     }
 }
 

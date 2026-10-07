@@ -131,7 +131,10 @@ public enum VisualPreferencesRepositoryV2 {
 
     public static func read(accountID: String?, defaults: UserDefaults = .standard) throws -> VisualPreferencesV2 {
         let storageKey = key(accountID: accountID)
-        if let data = defaults.data(forKey: storageKey) { return try VisualPreferencesV2.decode(data) }
+        if let stored = defaults.object(forKey: storageKey) {
+            guard let data = stored as? Data else { throw StorageError.existingProfileUnreadable }
+            return try VisualPreferencesV2.decode(data)
+        }
         var value = VisualPreferencesV2()
         // Legacy device theme belongs to the visitor only; do not copy between accounts.
         if accountID == nil, defaults.string(forKey: "hp_theme") == "blue" { value.accent = "blue" }
@@ -141,6 +144,21 @@ public enum VisualPreferencesRepositoryV2 {
     }
 
     public static func write(_ value: VisualPreferencesV2, accountID: String?, defaults: UserDefaults = .standard) throws {
+        guard value.valid else { throw VisualPreferencesV2.ValidationError.unsupported }
+        let storageKey = key(accountID: accountID)
+        if let stored = defaults.object(forKey: storageKey) {
+            guard let data = stored as? Data, (try? VisualPreferencesV2.decode(data)) != nil else {
+                throw StorageError.existingProfileUnreadable
+            }
+        }
+        defaults.set(try JSONEncoder().encode(value), forKey: storageKey)
+    }
+
+    public enum StorageError: Error { case existingProfileUnreadable }
+
+    /// Only a confirmed full-profile import or reset may replace an unreadable profile.
+    /// Shared/cloud transfers are partial patches and must use ordinary write instead.
+    public static func replaceExplicitly(_ value: VisualPreferencesV2, accountID: String?, defaults: UserDefaults = .standard) throws {
         guard value.valid else { throw VisualPreferencesV2.ValidationError.unsupported }
         defaults.set(try JSONEncoder().encode(value), forKey: key(accountID: accountID))
     }

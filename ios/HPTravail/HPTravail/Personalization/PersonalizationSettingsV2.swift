@@ -79,19 +79,19 @@ struct PersonalizationSettingsV2: View {
         .confirmationDialog("Restaurer ces préférences ?", isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }), titleVisibility: .visible) {
             Button("Restaurer") {
                 guard preferences.sessionID == session else { return }
-                if let candidate = pendingImport { preferences.set(candidate) }
+                if let candidate = pendingImport { preferences.replaceFromImport(candidate) }
                 pendingImport = nil
             }
             Button("Annuler", role: .cancel) { pendingImport = nil }
         } message: {
             if let candidate = pendingImport {
-                Text("Apparence : \(candidate.appearance), agrandissement : +\(candidate.textSteps), contraste renforcé : \(candidate.highContrast ? "oui" : "non"), zoom de lecture : \(Int(candidate.readerScale * 100)) %, contexte : \(candidate.context), thème : \(candidate.accent), mouvements réduits : \(candidate.reduceMotion ? "oui" : "non"), surfaces opaques : \(candidate.opaqueSurfaces ? "oui" : "non"), correction clavier : \(candidate.systemSpelling ? "oui" : "non"). Nuit programmée : \(candidate.nightScheduleEnabled ? "oui" : "non"), début : \(candidate.nightStartMinute / 60) h \(candidate.nightStartMinute % 60), fin : \(candidate.nightEndMinute / 60) h \(candidate.nightEndMinute % 60). Les données de pointage et de paie restent conservées.")
+                Text("Ce fichier remplacera toutes les préférences de ce profil. Si le profil actuel est illisible, son remplacement ne pourra pas être annulé. Apparence : \(candidate.appearance), agrandissement : +\(candidate.textSteps), contraste renforcé : \(candidate.highContrast ? "oui" : "non"), zoom de lecture : \(Int(candidate.readerScale * 100)) %, contexte : \(candidate.context), thème : \(candidate.accent), mouvements réduits : \(candidate.reduceMotion ? "oui" : "non"), surfaces opaques : \(candidate.opaqueSurfaces ? "oui" : "non"), correction clavier : \(candidate.systemSpelling ? "oui" : "non"). Nuit programmée : \(candidate.nightScheduleEnabled ? "oui" : "non"), début : \(candidate.nightStartMinute / 60) h \(candidate.nightStartMinute % 60), fin : \(candidate.nightEndMinute / 60) h \(candidate.nightEndMinute % 60). Les données de pointage et de paie restent conservées.")
             }
         }
         .confirmationDialog("Réinitialiser le confort visuel ?", isPresented: $showReset, titleVisibility: .visible) {
             Button("Réinitialiser", role: .destructive) { if preferences.sessionID == session { preferences.resetVisual() } }
             Button("Annuler", role: .cancel) {}
-        } message: { Text("Seuls les réglages visuels de ce profil seront réinitialisés. L’annulation restera disponible.") }
+        } message: { Text("Les réglages visuels seront réinitialisés. Si le profil est illisible, son contenu sera remplacé sans annulation possible. Sinon, l’annulation restera disponible.") }
         }
     }
 

@@ -3,6 +3,7 @@ package com.amaury.pointage
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.Application
+import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -13,6 +14,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowAlertDialog
 import java.security.MessageDigest
@@ -38,6 +40,9 @@ class PersonalizationSettingsV2Test {
         enlarge.performClick()
         enlarge.performClick()
         reader.getButton(AlertDialog.BUTTON_NEUTRAL).performClick()
+        // AlertDialog dispatches the button callback and dismissal through its Handler.
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(reader.isShowing)
         assertEquals(2f, PersonalizationStoreV2.read(activity).readerScale)
         views.filterIsInstance<Switch>().single { it.text == "Contraste renforcé des textes" }.isChecked = true
         val saved = PersonalizationStoreV2.read(activity)
@@ -53,7 +58,11 @@ class PersonalizationSettingsV2Test {
         val owner = PersonalizationStoreV2.accountScope()
         val scope = MessageDigest.getInstance("SHA-256").digest(owner.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
-        val prefs = activity.getSharedPreferences("personalization_private_v2_$scope", 0)
+        val prefs = activity.applicationContext.getSharedPreferences("personalization_private_v2_$scope", 0)
+        val known = PersonalizationProfileV2(readerScale = 3f)
+        assertTrue(prefs.edit().putString("profile", known.encode()).commit())
+        // Prove the fixture and store address the same backing preferences before corruption.
+        assertEquals(known, PersonalizationStoreV2.read(activity))
         val corrupt = "{unreadable-profile"
         assertTrue(prefs.edit().putString("profile", corrupt).commit())
         assertEquals(PersonalizationProfileV2(), PersonalizationStoreV2.read(activity))

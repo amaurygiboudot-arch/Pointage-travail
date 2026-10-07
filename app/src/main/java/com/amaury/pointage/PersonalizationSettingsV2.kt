@@ -175,7 +175,7 @@ object PersonalizationSettingsV2 {
         }
         button("Réinitialiser uniquement le confort visuel") {
             show(AlertDialog.Builder(activity).setTitle("Réinitialiser le confort visuel ?")
-                .setMessage("Les pointages, salaires, comptes et thèmes existants sont conservés. Cette réinitialisation peut être annulée.")
+                .setMessage("Les pointages, salaires, comptes et thèmes existants sont conservés. Si le profil est illisible, la réinitialisation ne pourra pas être annulée depuis cet écran. Sinon, l’annulation restera disponible.")
                 .setPositiveButton("Réinitialiser") { _, _ ->
                     if (sameOwner() && PersonalizationStoreV2.reset(activity)) {
                         profile = PersonalizationStoreV2.read(activity); syncControls(); PersonalizationRuntimeV2.refresh()
