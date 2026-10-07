@@ -5,6 +5,7 @@ struct SalarySegmentedPayrollWeekEvidenceV2: Equatable {
     let weekOfYear: Int
     let week: PayrollWeekV2
     let fullWeekContextReliable: Bool
+    var temporalPremiumsNonOverlappingProven: Bool = false
 }
 
 struct SalarySegmentedPayrollSliceEvidenceV2: Equatable {
@@ -127,6 +128,7 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
         "Variables segmentées : des heures complémentaires temps partiel existent mais leur barème conventionnel structuré n'est pas prouvé ; variable bloquée."
     static let overtimeWarning =
         "Variables segmentées : les heures supplémentaires variables ne sont pas entièrement couvertes par des paliers confirmés."
+    static let cumulWarning = "Variables segmentées : cumul de majorations non prouvé ; variable bloquée."
     static let amountWarning =
         "Variables segmentées : montant variable non fini ou négatif ; calcul bloqué."
 
@@ -264,6 +266,9 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
                 return blocked(warnings + [amountWarning])
             }
 
+            if supplied.weeks.contains(where: { hasUnprovenCumul($0, contract: contract, rules: slice.ruleSnapshot.rules) }) {
+                return blocked(warnings + [cumulWarning])
+            }
             let payrollWeeks = supplied.weeks.map { item in item.week }
             let variable: VariableAmounts
             switch contract.type {
@@ -408,6 +413,21 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
             warnings: unique(warnings),
             breakdowns: breakdowns
         )
+    }
+
+    static func hasUnprovenCumul(_ evidence: SalarySegmentedPayrollWeekEvidenceV2, contract: ContractV2,
+                                rules: PayrollRulesV2) -> Bool {
+        let week = evidence.week
+        let night = week.nightMinutes > 0 && (rules.nightMultiplier ?? 1) > 1
+        let saturday = week.saturdayMinutes > 0 && (rules.saturdayMultiplier ?? 1) > 1
+        let sunday = week.sundayMinutes > 0 && (rules.sundayMultiplier ?? 1) > 1
+        let holiday = week.publicHolidayMinutes > 0 && (rules.publicHolidayMultiplier ?? 1) > 1
+        guard night || saturday || sunday || holiday else { return false }
+        let threshold = contract.type == .partTime ? contract.contractualWeeklyMinutes : rules.weeklyRegularMinutes
+        guard let limit = threshold else { return true }
+        if week.paidMinutes > limit || (contract.type == .fullTime && (contract.contractualWeeklyMinutes ?? 0) > limit) { return true }
+        let possible = (night && (saturday || sunday || holiday)) || (holiday && (saturday || sunday))
+        return possible && !evidence.temporalPremiumsNonOverlappingProven
     }
 
     private static func fullTimeVariable(

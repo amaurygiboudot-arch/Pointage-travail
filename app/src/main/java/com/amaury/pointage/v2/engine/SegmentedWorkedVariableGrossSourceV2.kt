@@ -13,7 +13,8 @@ data class SegmentedPayrollWeekEvidenceV2(
     val weekYear: Int,
     val weekOfYear: Int,
     val week: PayrollWeekV2,
-    val fullWeekContextReliable: Boolean
+    val fullWeekContextReliable: Boolean,
+    val temporalPremiumsNonOverlappingProven: Boolean = false
 )
 
 data class SegmentedPayrollSliceEvidenceV2(
@@ -88,6 +89,7 @@ object SegmentedWorkedVariableGrossSourceV2 {
         "Variables segmentées : des heures complémentaires temps partiel existent mais leur barème conventionnel structuré n'est pas prouvé ; variable bloquée."
     const val OVERTIME_WARNING =
         "Variables segmentées : les heures supplémentaires variables ne sont pas entièrement couvertes par des paliers confirmés."
+    const val CUMUL_WARNING = "Variables segmentées : cumul de majorations non prouvé ; variable bloquée."
     const val AMOUNT_WARNING =
         "Variables segmentées : montant variable non fini ou négatif ; calcul bloqué."
 
@@ -196,6 +198,9 @@ object SegmentedWorkedVariableGrossSourceV2 {
                 ?.takeIf { it.isFinite() && it > 0.0 }
                 ?: return blocked(warnings + AMOUNT_WARNING)
             val payrollRules = slice.ruleSnapshot.rules
+            if (supplied.weeks.any { hasUnprovenCumul(it, contract.type, contract.contractualWeeklyMinutes, payrollRules) }) {
+                return blocked(warnings + CUMUL_WARNING)
+            }
             val payrollWeeks = supplied.weeks.map { it.week }
 
             val variable = when (contract.type) {
@@ -408,6 +413,21 @@ object SegmentedWorkedVariableGrossSourceV2 {
             if (total > Int.MAX_VALUE.toLong()) return null
         }
         return total
+    }
+
+    internal fun hasUnprovenCumul(evidence: SegmentedPayrollWeekEvidenceV2, type: ContractTypeV2,
+        contractualMinutes: Int?, rules: PayrollRulesV2): Boolean {
+        val week = evidence.week
+        val night = week.nightMinutes > 0 && (rules.nightMultiplier ?: 1.0) > 1.0
+        val saturday = week.saturdayMinutes > 0 && (rules.saturdayMultiplier ?: 1.0) > 1.0
+        val sunday = week.sundayMinutes > 0 && (rules.sundayMultiplier ?: 1.0) > 1.0
+        val holiday = week.publicHolidayMinutes > 0 && (rules.publicHolidayMultiplier ?: 1.0) > 1.0
+        if (!(night || saturday || sunday || holiday)) return false
+        val threshold = if (type == ContractTypeV2.PART_TIME) contractualMinutes else rules.weeklyRegularMinutes
+        if (threshold == null || week.paidMinutes > threshold ||
+            (type == ContractTypeV2.FULL_TIME && (contractualMinutes ?: 0) > threshold)) return true
+        val possibleTemporalOverlap = (night && (saturday || sunday || holiday)) || (holiday && (saturday || sunday))
+        return possibleTemporalOverlap && !evidence.temporalPremiumsNonOverlappingProven
     }
 
     private fun premiumGross(

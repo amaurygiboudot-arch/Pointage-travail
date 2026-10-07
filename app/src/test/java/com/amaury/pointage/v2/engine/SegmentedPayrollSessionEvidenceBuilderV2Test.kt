@@ -7,6 +7,41 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SegmentedPayrollSessionEvidenceBuilderV2Test {
+    @Test fun saturdaySundayPremiumsAreDisjointWithoutCumulPolicy() {
+        val f = fixture(listOf(session("sat", 9, 8, 9, 14), session("sun", 10, 8, 10, 14)),
+            payrollRules = rules(sunday = 1.5).copy(saturdayMultiplier = 1.25))
+        assertTrue(f.calculate().reliable)
+        assertEquals(45.0, f.calculate().pieces.single().variableGross, 0.001)
+    }
+
+    @Test fun overlappingNightAndSundayBlockButSeparatedPremiumsRemainProven() {
+        val rule = rules(night = 1.25, sunday = 1.5)
+        val night = NightPremiumRuleV2(22 * 60, 6 * 60, 1.25)
+        val overlapping = fixture(listOf(session("sun-night", 10, 0, 10, 6)), payrollRules = rule, night = night)
+        assertBlocked(overlapping)
+        assertTrue(overlapping.build().warnings.contains(SegmentedWorkedVariableGrossSourceV2.CUMUL_WARNING))
+        val separated = fixture(listOf(session("mon-night", 4, 0, 4, 6), session("sun-day", 10, 8, 10, 14)),
+            payrollRules = rule, night = night)
+        val proof = separated.build()
+        assertTrue(proof.reliable)
+        assertTrue(proof.slices.single().weeks.single().temporalPremiumsNonOverlappingProven)
+        assertTrue(separated.calculate().reliable)
+        // Drop the explicit daily proof: weekly aggregates alone cannot prove non-overlap.
+        val evidence = proof.slices.map { slice -> slice.copy(weeks = slice.weeks.map { it.copy(temporalPremiumsNonOverlappingProven = false) }) }
+        val unknown = SegmentedWorkedVariableGrossSourceV2.calculate(separated.contracts, separated.convention, evidence)
+        assertFalse(unknown.reliable)
+        assertTrue(unknown.warnings.contains(SegmentedWorkedVariableGrossSourceV2.CUMUL_WARNING))
+    }
+
+    @Test fun premiumWithOvertimeNeedsAllocationProofWhileSinglePremiumRemainsReliable() {
+        val single = fixture(listOf(session("sunday", 10, 8, 10, 16)), payrollRules = rules(sunday = 1.5))
+        assertTrue(single.calculate().reliable)
+        val overtime = fixture((4L..8L).map { session("s$it", it, 8, it, 16) } + session("sunday", 10, 8, 10, 10),
+            payrollRules = rules(sunday = 1.5))
+        assertFalse(overtime.calculate().reliable)
+        assertTrue(overtime.calculate().warnings.contains(SegmentedWorkedVariableGrossSourceV2.CUMUL_WARNING))
+    }
+
     @Test fun realV2SessionsReachB21WithoutMonthlyBaseDuplication() {
         val f = fixture((4L..8L).map { session("s$it", it, 8, it, 16) })
         val proof = f.build()

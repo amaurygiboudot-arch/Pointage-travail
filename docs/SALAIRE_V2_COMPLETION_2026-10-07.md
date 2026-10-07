@@ -10,13 +10,13 @@ Ce document distingue code existant, défauts corrigés et exigences non closes.
 | 2 | Profil salarié et entreprise | Contrats datés, classification et entreprise canonique présents. Vérifier changements historiques et profils variés. |
 | 3 | Base mensuelle et proratisation | Chaîne segmentée présente. Absences indemnisées non résolues bloquent la base fiable. |
 | 4 | Heures supplémentaires/complémentaires | Barèmes complémentaires distincts, sourcés et datés conservés par les stores Android/iOS et consommés par les pipelines canoniques segmentés. Contrat, dates et couverture des paliers vérifiés. Sans preuve complète, résultat provisoire/bloqué ; extraction automatique des accords encore absente. |
-| 5 | Majorations et cumuls | Règles arbitrées et preuves requises ; régime du 1er mai et certains cumuls encore bloqués dans l’adaptateur. |
+| 5 | Majorations et cumuls | Garde canonique Android/iOS des chevauchements nuit/weekend/férié et primes/heures supplémentaires ou complémentaires. Des primes distinctes restent calculables avec preuve réelle d’absence de chevauchement. Les cumuls non prouvés et le 1er mai canonique restent bloqués. |
 | 6 | Primes et indemnités | Composantes fixes et paniers structurés. Ce lot rejette montants négatifs/non finis et débordements dans les moteurs Android/iOS. |
 | 7 | Absences, IJSS et maintien | Estimation IJSS Android existante sécurisée contre salaires non finis, durée excessive et année sans barème. Saisie persistante des IJSS réelles mensuelles Android/iOS avec entreprise, source et destinataire ; aucun ajout au net employeur. Maintien et projection fiscale mensuelle restent à intégrer. |
 | 8 | Brut et minima | Résolution sourcée existante ; classification/période inconnues ne deviennent pas un minimum inventé. |
 | 9 | Cotisations | Catalogues et entrées datées existants. Exhaustivité et couverture des profils doivent être démontrées. |
 | 10 | Net, PAS et coût employeur | Net/PAS bloqués sur données fiscales incomplètes. Coût employeur explicitement incomplet : `employerCostComplete = false`. |
-| 11 | Résultats uniques | Sorties canoniques présentes. Audit écran/PDF/comparaison/historique et absence de calcul parallèle à terminer. |
+| 11 | Résultats uniques | Sorties canoniques présentes. Correction iOS : les ventilations des variables sont conservées dans la production détaillée. Audit complet écran/PDF/comparaison/historique à terminer. |
 | 12 | Données manquantes | Politique inconnu ≠ zéro présente. Ce lot bloque champs importés invalides et période non confirmée. |
 | 13 | Bulletins réels | Comparaison présente ; validation avec plusieurs bulletins indépendants encore requise. |
 | 14 | Android/iOS et appareils | Parité des gardes monétaires dans ce lot. CI et essais sur appareils requis ; aucune validation téléphone revendiquée. |
@@ -49,6 +49,10 @@ La clôture complète dépend d’entrées légales/contractuelles datées, d’
 Le traitement Android du 1er mai distingue désormais son blocage dédié des autres preuves manquantes ; une indemnité confirmée ne lève aucun autre blocage. Durée négative et dépassement monétaire restent non fiables. Le chemin canonique segmenté conserve son blocage du 1er mai tant que sa preuve dédiée n’est pas intégrée sur les deux plateformes.
 
 Les diagnostics de coût employeur distinguent contributions d’entreprise non prouvées, brut social non fiable et réductions inconnues ; une réduction explicitement confirmée à zéro reste connue. Aucun total patronal complet n’est revendiqué.
+
+Après correction des cumuls canoniques, les dix suites Kotlin ciblées passent : 106 tests, incluant le constructeur de preuves de sessions. Ce contrôle ne remplace pas la CI Android complète, les tests Swift et les essais sur appareils.
+
+La copie iOS de production détaillée conserve les ventilations des variables ; une régression vérifie leur égalité avec le résultat du calcul canonique. Le raccord du 1er mai canonique exige encore une preuve LEGI datée sur iOS, sa résolution dans les bridges et une allocation journalière sans double application de l’ajustement Android existant.
 
 ## Corrections après revue QA
 

@@ -155,6 +155,24 @@ enum SalarySegmentedPayrollSessionEvidenceBuilderV2 {
                     let dedicated = PublicHolidayPremiumPolicyV2.paidOverlap(session: session,
                         rangeStart: from, rangeEnd: to, holidayDates: dedicatedDates, calendar: calendar)
                     guard dedicated.reliable, dedicated.paidDuration == 0 else { return blocked(holidayWarning) }
+                    for dayIndex in 0...6 {
+                        guard let day = civilDate(monday + Int64(dayIndex)),
+                              let dayStart = localStart(monday + Int64(dayIndex), calendar: calendar),
+                              let dayEnd = localStart(monday + Int64(dayIndex) + 1, calendar: calendar) else { return blocked(calendarWarning) }
+                        let dayPaid = SalaryPaidOverlapPolicyV2.paidOverlap(session: session, rangeStart: dayStart, rangeEnd: dayEnd)
+                        guard dayPaid.reliable else { return blocked(sourceWarning) }
+                        if dayPaid.paidDuration == 0 { continue }
+                        let active = [dayIndex == 5 && (payrollRules.saturdayMultiplier ?? 1) > 1,
+                                      dayIndex == 6 && (payrollRules.sundayMultiplier ?? 1) > 1,
+                                      holidayDates.contains(day) && (payrollRules.publicHolidayMultiplier ?? 1) > 1].filter { $0 }.count
+                        if active > 1 { return blocked(SalarySegmentedWorkedVariableGrossSourceV2.cumulWarning) }
+                        if active > 0, (payrollRules.nightMultiplier ?? 1) > 1, let rule = context.nightRule {
+                            let overlap = NightPremiumPolicyV2.paidOverlap(session: session, rangeStart: dayStart,
+                                rangeEnd: dayEnd, rule: rule, calendar: calendar)
+                            guard overlap.reliable else { return blocked(ruleWarning) }
+                            if overlap.paidDuration > 0 { return blocked(SalarySegmentedWorkedVariableGrossSourceV2.cumulWarning) }
+                        }
+                    }
                     var night = SalaryPaidOverlapResultV2(paidDuration: 0, reliable: true, warnings: [])
                     if payrollRules.nightMultiplier != nil, let nightRule = context.nightRule {
                         night = NightPremiumPolicyV2.paidOverlap(session: session,
@@ -181,7 +199,7 @@ enum SalarySegmentedPayrollSessionEvidenceBuilderV2 {
                 weeks.append(.init(yearForWeekOfYear: weekYear, weekOfYear: weekNumber,
                     week: PayrollWeekV2(paidMinutes: totals[0], nightMinutes: totals[1],
                         saturdayMinutes: totals[2], sundayMinutes: totals[3], publicHolidayMinutes: totals[4]),
-                    fullWeekContextReliable: true))
+                    fullWeekContextReliable: true, temporalPremiumsNonOverlappingProven: true))
                 monday = nextMonday
             }
             output.append(.init(startEpochDay: slice.startEpochDay, endEpochDay: slice.endEpochDay,
