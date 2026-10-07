@@ -13,7 +13,8 @@ data class PayrollRulesV2(
     val saturdayMultiplier:Double? = null,
     val sundayMultiplier:Double? = null,
     /** Majorateur propre aux jours fériés, jamais déduit du dimanche. */
-    val publicHolidayMultiplier:Double? = null
+    val publicHolidayMultiplier:Double? = null,
+    val complementarySchedule: PartTimeComplementaryHoursV2.ConfirmedSchedule? = null
 )
 
 data class PayrollWeekV2(

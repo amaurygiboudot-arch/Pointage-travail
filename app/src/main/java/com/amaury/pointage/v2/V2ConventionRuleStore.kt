@@ -5,6 +5,8 @@ import com.amaury.pointage.v2.engine.ConventionRuleHistoryV2
 import com.amaury.pointage.v2.engine.ConventionRuleSnapshotV2
 import com.amaury.pointage.v2.engine.OvertimeTierV2
 import com.amaury.pointage.v2.engine.PayrollRulesV2
+import com.amaury.pointage.v2.engine.PartTimeComplementaryHoursV2
+import com.amaury.pointage.v2.engine.OvertimeCoverageV2
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -148,7 +150,8 @@ object V2ConventionRuleStore {
                 .put("saturdayMultiplier", snapshot.rules.saturdayMultiplier)
                 .put("sundayMultiplier", snapshot.rules.sundayMultiplier)
                 .put("publicHolidayMultiplier", snapshot.rules.publicHolidayMultiplier)
-                .put("overtimeTiers", tiers))
+                .put("overtimeTiers", tiers)
+                .put("complementarySchedule", snapshot.rules.complementarySchedule?.let(::encodeComplementary)))
     }
 
     private fun decodeSnapshot(obj: JSONObject): ConventionRuleSnapshotV2? = runCatching {
@@ -180,7 +183,8 @@ object V2ConventionRuleStore {
                 nightMultiplier = if (rules.isNull("nightMultiplier")) null else rules.getDouble("nightMultiplier"),
                 saturdayMultiplier = if (rules.isNull("saturdayMultiplier")) null else rules.getDouble("saturdayMultiplier"),
                 sundayMultiplier = if (rules.isNull("sundayMultiplier")) null else rules.getDouble("sundayMultiplier"),
-                publicHolidayMultiplier = if (rules.isNull("publicHolidayMultiplier")) null else rules.getDouble("publicHolidayMultiplier")
+                publicHolidayMultiplier = if (rules.isNull("publicHolidayMultiplier")) null else rules.getDouble("publicHolidayMultiplier"),
+                complementarySchedule = if (!rules.has("complementarySchedule") || rules.isNull("complementarySchedule")) null else decodeComplementary(rules.getJSONObject("complementarySchedule"))
             ),
             checkedAtMs = obj.getLong("checkedAtMs"),
             note = if (obj.isNull("note")) null else obj.optString("note").takeIf { it.isNotBlank() }
@@ -189,6 +193,11 @@ object V2ConventionRuleStore {
 
     private fun validSnapshotPayload(snapshot: ConventionRuleSnapshotV2): Boolean {
         if (snapshot.checkedAtMs < 0L) return false
+        snapshot.rules.complementarySchedule?.let { schedule ->
+            if (schedule.sourceId != snapshot.sourceId || schedule.effectiveFromEpochDay != snapshot.effectiveFromEpochDay ||
+                schedule.effectiveToEpochDay != snapshot.effectiveToEpochDay || schedule.contractualMinutes <= 0 ||
+                !OvertimeCoverageV2.isStructurallyValid(schedule.contractualMinutes, schedule.tiers) || schedule.tiers.isEmpty()) return false
+        }
         if (snapshot.rules.weeklyRegularMinutes?.let { it <= 0 } == true) return false
         val multipliers = listOf(
             snapshot.rules.nightMultiplier,
@@ -202,6 +211,34 @@ object V2ConventionRuleStore {
                 (tier.toMinutes == null || tier.toMinutes > tier.fromMinutes) &&
                 tier.multiplier.isFinite() && tier.multiplier >= 1.0
         }
+    }
+
+    private fun encodeComplementary(schedule: PartTimeComplementaryHoursV2.ConfirmedSchedule): JSONObject = JSONObject()
+        .put("sourceId", schedule.sourceId).put("contractualMinutes", schedule.contractualMinutes)
+        .put("effectiveFromEpochDay", schedule.effectiveFromEpochDay).put("effectiveToEpochDay", schedule.effectiveToEpochDay)
+        .put("tiers", JSONArray().apply { schedule.tiers.forEach { tier ->
+            put(JSONObject().put("fromMinutes", tier.fromMinutes).put("toMinutes", tier.toMinutes).put("multiplier", tier.multiplier))
+        } })
+
+    private fun decodeComplementary(obj: JSONObject): PartTimeComplementaryHoursV2.ConfirmedSchedule {
+        fun integer(objectValue: JSONObject, key: String): Long {
+            val value = objectValue.get(key) as? Number ?: error("$key invalide")
+            val number = value.toDouble()
+            require(number.isFinite() && number == value.toLong().toDouble()) { "$key invalide" }
+            return value.toLong()
+        }
+        fun intValue(objectValue: JSONObject, key: String): Int = integer(objectValue, key).also {
+            require(it in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong())
+        }.toInt()
+        val tiers = obj.getJSONArray("tiers")
+        val source = obj.get("sourceId") as? String ?: error("sourceId invalide")
+        return PartTimeComplementaryHoursV2.ConfirmedSchedule(source, intValue(obj, "contractualMinutes"),
+            integer(obj, "effectiveFromEpochDay"), if (obj.isNull("effectiveToEpochDay")) null else integer(obj, "effectiveToEpochDay"),
+            (0 until tiers.length()).map { index ->
+                val tier = tiers.getJSONObject(index)
+                val multiplier = tier.get("multiplier") as? Number ?: error("multiplier invalide")
+                OvertimeTierV2(intValue(tier, "fromMinutes"), if (tier.isNull("toMinutes")) null else intValue(tier, "toMinutes"), multiplier.toDouble())
+            })
     }
 
     private fun normalize(value: String): String = value.trim().padStart(4, '0')

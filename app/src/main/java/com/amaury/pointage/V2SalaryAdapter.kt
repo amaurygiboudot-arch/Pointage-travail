@@ -357,10 +357,10 @@ object V2SalaryAdapter {
   if(!genericOvertimeCoverageReliable)warnings+="Heures supplémentaires : certaines minutes au-delà du seuil hebdomadaire ne sont couvertes par aucun palier confirmé ou les paliers se chevauchent ; aucune majoration n'est inventée pour ces minutes et le brut reste à confirmer."
   val worked=PayrollEngineV2.calculate(contract.copy(grossHourlyRate=rate),weeks.values.map{PayrollWeekV2(it.paid,it.night,it.sat,it.sun,it.holiday)},payrollRules)
 
-  val complementary=if(isPartTime)weeks.values.map{PartTimeComplementaryHoursV2.calculateWeek(regularLimit,it.paid,rate)}else emptyList()
+  val complementary=if(isPartTime)weeks.values.map{PartTimeComplementaryHoursV2.calculateWeek(regularLimit,it.paid,rate,confirmedSchedule=hr?.complementarySchedule?.takeIf{it.applies(date.withDayOfMonth(date.lengthOfMonth()).toEpochDay(),regularLimit)},referenceEpochDay=date.toEpochDay())}else emptyList()
   val complementaryMinutes=complementary.sumOf{it.complementaryMinutes}
   val complementaryGross=complementary.sumOf{it.grossToAdd}
-  val provisionalComplementaryRateUsed=isPartTime&&complementaryMinutes>0
+  val provisionalComplementaryRateUsed=isPartTime&&complementary.any{it.complementaryMinutes>0&&!it.confirmedScheduleUsed}
   warnings+=complementary.flatMap{it.warnings}.distinct()
   if(provisionalComplementaryRateUsed)warnings+="Temps partiel : barème supplétif des heures complémentaires appliqué (+10 % puis +25 %) tant qu'aucune stipulation conventionnelle structurée plus précise n'est intégrée."
 

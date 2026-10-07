@@ -43,6 +43,7 @@ class V2PayslipImportActivity : Activity() {
     private val executor = Executors.newSingleThreadExecutor()
     private var status: TextView? = null
     private var profileDraft: PayslipProfileDraftV2? = null
+    private var detectedPeriod: PayslipPeriodParserV2.Period? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -97,6 +98,7 @@ class V2PayslipImportActivity : Activity() {
                     runOnUiThread { if (!isFinishing && !isDestroyed) status?.text = message }
                 }
                 temporary = document.temporaryFile
+                detectedPeriod = if (document.truncated) null else PayslipPeriodParserV2.parse(document.extractedText)
                 profileDraft = if (document.truncated) null else PayslipProfileDraftParserV2.parse(document.extractedText)
                 // An incomplete document cannot establish complete monthly totals.
                 val payslipParsed = if (document.truncated) null else PayslipDocumentParserV2.parse(document.extractedText)
@@ -255,6 +257,7 @@ class V2PayslipImportActivity : Activity() {
         }
 
         val month = Calendar.getInstance(Locale.FRANCE).apply { set(Calendar.DAY_OF_MONTH, 1) }
+        detectedPeriod?.let { month.set(Calendar.YEAR, it.year); month.set(Calendar.MONTH, it.monthZeroBased) }
         var periodConfirmed = false
         val monthButton = Button(this).apply {
             text = "Choisir la période du bulletin — requis"
@@ -323,7 +326,19 @@ class V2PayslipImportActivity : Activity() {
             }
         }
         val scroll = ScrollView(this).apply { addView(box) }
-        monthButton.setOnClickListener { chooseMonth(month, monthButton) { periodConfirmed = true } }
+        monthButton.setOnClickListener {
+            val detected = detectedPeriod
+            if (!periodConfirmed && detected != null) {
+                AlertDialog.Builder(this).setTitle("Confirmer la période lue")
+                    .setMessage(detected.sourceLine)
+                    .setPositiveButton("CONFIRMER") { _, _ ->
+                        periodConfirmed = true
+                        monthButton.text = SimpleDateFormat("MMMM yyyy", Locale.FRANCE).format(month.time)
+                    }
+                    .setNeutralButton("CHOISIR UNE AUTRE PÉRIODE") { _, _ -> chooseMonth(month, monthButton) { periodConfirmed = true } }
+                    .setNegativeButton("ANNULER", null).show()
+            } else chooseMonth(month, monthButton) { periodConfirmed = true }
+        }
         val title = if (companyName.isBlank()) "Contrôle du bulletin" else "Bulletin — $companyName"
         val dialog = AlertDialog.Builder(this)
             .setTitle(title)
@@ -385,7 +400,11 @@ class V2PayslipImportActivity : Activity() {
                     ).show()
                     return@setOnClickListener
                 }
-                val observedSaved = PayslipObservedValuesStoreV2.put(this, record.id, confirmed)
+                val evidence = parsed?.confirmedCandidates().orEmpty().mapNotNull { (key, candidate) ->
+                    val confirmedValue = confirmed[key]
+                    if (confirmedValue != null && candidate.amount == confirmedValue) candidate.sourceLabel?.let { key to it } else null
+                }.toMap()
+                val observedSaved = PayslipObservedValuesStoreV2.put(this, record.id, confirmed, evidence)
                 Toast.makeText(
                     this,
                     if (observedSaved) "Bulletin importé • valeurs confirmées enregistrées"

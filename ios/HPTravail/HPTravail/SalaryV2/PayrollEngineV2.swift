@@ -113,6 +113,8 @@ struct PayrollRulesV2: Equatable {
     let saturdayMultiplier: Double?
     let sundayMultiplier: Double?
     let publicHolidayMultiplier: Double?
+    let complementarySchedule: ConfirmedComplementaryScheduleV2?
+    let complementaryReferenceEpochDay: Int64?
 
     init(
         weeklyRegularMinutes: Int? = nil,
@@ -120,7 +122,9 @@ struct PayrollRulesV2: Equatable {
         nightMultiplier: Double? = nil,
         saturdayMultiplier: Double? = nil,
         sundayMultiplier: Double? = nil,
-        publicHolidayMultiplier: Double? = nil
+        publicHolidayMultiplier: Double? = nil,
+        complementarySchedule: ConfirmedComplementaryScheduleV2? = nil,
+        complementaryReferenceEpochDay: Int64? = nil
     ) {
         self.weeklyRegularMinutes = weeklyRegularMinutes
         self.overtimeTiers = overtimeTiers
@@ -128,6 +132,8 @@ struct PayrollRulesV2: Equatable {
         self.saturdayMultiplier = saturdayMultiplier
         self.sundayMultiplier = sundayMultiplier
         self.publicHolidayMultiplier = publicHolidayMultiplier
+        self.complementarySchedule = complementarySchedule
+        self.complementaryReferenceEpochDay = complementaryReferenceEpochDay
     }
 }
 
@@ -448,6 +454,7 @@ enum PayrollEngineV2 {
 
         var complementaryMinutes = 0
         var complementaryGross = 0.0
+        var provisionalComplementaryRateUsed = false
         var extras = 0.0
         var traces: [String] = []
 
@@ -455,8 +462,11 @@ enum PayrollEngineV2 {
             let complementary = try PartTimeComplementaryHoursV2.calculateWeek(
                 contractualMinutes: contractualWeeklyMinutes,
                 paidMinutes: week.paidMinutes,
-                grossHourlyRate: rate
+                grossHourlyRate: rate,
+                confirmedSchedule: rules.complementarySchedule,
+                referenceEpochDay: rules.complementaryReferenceEpochDay
             )
+            if complementary.complementaryMinutes > 0 && !complementary.confirmedScheduleUsed { provisionalComplementaryRateUsed = true }
             complementaryMinutes += complementary.complementaryMinutes
             complementaryGross += complementary.grossToAdd
             traces.append(contentsOf: complementary.warnings)
@@ -469,7 +479,6 @@ enum PayrollEngineV2 {
         let basketTotal = try validatedMoneyTotal(baskets.map { $0.amount })
         let gross = try validatedMoneyTotal([regularGross, complementaryGross, extras, fixed])
         let deductionsTotal = try validatedMoneyTotal(deductions.map { $0.amount })
-        let provisionalComplementaryRateUsed = complementaryMinutes > 0
 
         traces.append("Salaire de base mensualisé temps partiel : durée contractuelle × 52/12 × taux horaire.")
         if provisionalComplementaryRateUsed {

@@ -287,7 +287,9 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
                     weeks: payrollWeeks,
                     rules: slice.ruleSnapshot.rules,
                     evidence: supplied.evidence,
-                    warnings: &warnings
+                    warnings: &warnings,
+                    startEpochDay: slice.startEpochDay,
+                    endEpochDay: slice.endEpochDay
                 ) else {
                     return blocked(warnings + [partTimeComplementaryWarning])
                 }
@@ -490,7 +492,9 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
         weeks: [PayrollWeekV2],
         rules: PayrollRulesV2,
         evidence: PayrollInputEvidenceV2,
-        warnings: inout [String]
+        warnings: inout [String],
+        startEpochDay: Int64,
+        endEpochDay: Int64
     ) -> VariableAmounts? {
         guard let contractual = contract.contractualWeeklyMinutes,
               contractual > 0,
@@ -499,18 +503,22 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
         }
 
         var complementaryMinutes = 0
+        var complementaryGross = 0.0
         for week in weeks {
             do {
                 let complementary = try PartTimeComplementaryHoursV2.calculateWeek(
                     contractualMinutes: contractual,
                     paidMinutes: week.paidMinutes,
-                    grossHourlyRate: rate
+                    grossHourlyRate: rate,
+                    confirmedSchedule: rules.complementarySchedule.flatMap { $0.applies(referenceEpochDay: endEpochDay, minutes: contractual) ? $0 : nil },
+                    referenceEpochDay: startEpochDay
                 )
                 warnings.append(contentsOf: complementary.warnings)
                 guard complementary.complementaryMinutes >= 0 else { return nil }
-                if complementary.complementaryMinutes > 0 {
+                if complementary.complementaryMinutes > 0 && !complementary.confirmedScheduleUsed {
                     return nil
                 }
+                complementaryGross += complementary.grossToAdd
                 let addition = complementaryMinutes.addingReportingOverflow(
                     complementary.complementaryMinutes
                 )
@@ -530,6 +538,7 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
                 ))
             }
             let value = VariableAmounts(
+                complementaryGross: complementaryGross,
                 premiumGross: premium,
                 complementaryMinutes: complementaryMinutes
             )

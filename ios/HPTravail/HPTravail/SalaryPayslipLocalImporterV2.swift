@@ -15,7 +15,7 @@ enum SalaryPayslipLocalImporterV2 {
             }
         }
     }
-    static func read(url: URL) throws -> [SalaryPayslipImportProposalV2] {
+    static func read(url: URL) throws -> SalaryPayslipLocalDraftV2 {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         guard let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 0, size <= 10 * 1024 * 1024 else { throw ImportError.tooLarge }
@@ -41,7 +41,9 @@ enum SalaryPayslipLocalImporterV2 {
                   let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 2000, kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) else { throw ImportError.unsupported }
             pages = [try recognize(image)]
         }
-        return SalaryPayslipImportParserV2.parse(pages: pages)
+        return SalaryPayslipLocalDraftV2(observedAmounts: SalaryPayslipImportParserV2.parse(pages: pages),
+                                         hourlyRate: SalaryPayslipProfileDraftParserV2.hourlyRate(pages: pages),
+                                         period: SalaryPayslipPeriodParserV2.parse(pages: pages))
     }
     private static func recognize(_ image: CGImage) throws -> String {
         let request = VNRecognizeTextRequest()

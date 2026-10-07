@@ -212,7 +212,9 @@ object SegmentedWorkedVariableGrossSourceV2 {
                     rate = rate,
                     weeks = payrollWeeks,
                     rules = payrollRules,
-                    warnings = warnings
+                    warnings = warnings,
+                    startEpochDay = slice.startEpochDay,
+                    endEpochDay = slice.endEpochDay
                 ) ?: return blocked(warnings + PART_TIME_COMPLEMENTARY_WARNING)
 
                 ContractTypeV2.FORFAIT_HOURS,
@@ -359,25 +361,32 @@ object SegmentedWorkedVariableGrossSourceV2 {
         rate: Double,
         weeks: List<PayrollWeekV2>,
         rules: PayrollRulesV2,
-        warnings: MutableList<String>
+        warnings: MutableList<String>,
+        startEpochDay: Long,
+        endEpochDay: Long
     ): VariableAmounts? {
         val contractual = contractualWeeklyMinutes?.takeIf { it > 0 } ?: return null
         var complementaryMinutes = 0L
+        var complementaryGross = 0.0
         for (week in weeks) {
             val complementary = PartTimeComplementaryHoursV2.calculateWeek(
                 contractualMinutes = contractual,
                 paidMinutes = week.paidMinutes,
-                grossHourlyRate = rate
+                grossHourlyRate = rate,
+                confirmedSchedule = rules.complementarySchedule?.takeIf { it.applies(endEpochDay, contractual) },
+                referenceEpochDay = startEpochDay
             )
             warnings += complementary.warnings
             if (complementary.complementaryMinutes < 0) return null
-            if (complementary.complementaryMinutes > 0) return null
+            if (complementary.complementaryMinutes > 0 && !complementary.confirmedScheduleUsed) return null
+            complementaryGross += complementary.grossToAdd
             complementaryMinutes += complementary.complementaryMinutes.toLong()
             if (complementaryMinutes > Int.MAX_VALUE) return null
         }
         val premiums = premiumGross(weeks, rate, rules) ?: return null
         return VariableAmounts(
             complementaryMinutes = complementaryMinutes,
+            complementaryGross = complementaryGross,
             premiumGross = premiums
         ).takeIf { it.valid() }
     }

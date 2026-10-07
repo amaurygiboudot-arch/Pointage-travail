@@ -21,6 +21,9 @@ struct SalaryV2View: View {
     @State private var importToken = UUID()
     @State private var importProposals: [SalaryPayslipImportProposalV2] = []
     @State private var importConfirmed = false
+    @State private var importedPayslipPeriod: SalaryPayslipPeriodDraftV2?
+    @State private var importedHourlyRateDraft: SalaryPayslipHourlyRateDraftV2?
+    @State private var hourlyRateImportConfirmed = false
     @State private var importFeedback: String?
     @State private var importSources: [String] = []
     @State private var importedAmountFingerprint: [String]?
@@ -852,9 +855,32 @@ struct SalaryV2View: View {
                 if importBusy {
                     Button("Annuler la lecture") { clearImportDraft() }
                 }
-                Text("Lecture sur cet appareil. Vérifiez chaque montant ; les lignes ambiguës restent à saisir. Cet import remplit la comparaison, sans modifier votre contrat ni les règles de paie.")
+                Text("Lecture sur cet appareil. Vérifiez chaque montant ; les lignes ambiguës restent à saisir. Cet import propose des montants pour la comparaison et, si lisible, un taux horaire brut pour le formulaire de contrat. Rien n’est enregistré automatiquement.")
                     .font(.footnote)
                 if let importFeedback { Text(importFeedback).font(.footnote) }
+                if let importedPayslipPeriod {
+                    Text("Mois proposé par le bulletin : \(importedPayslipPeriod.description)")
+                    Text(importedPayslipPeriod.source).font(.caption).foregroundStyle(.secondary)
+                    if !importedPeriodMatchesSelection {
+                        Text("Ce bulletin concerne un autre mois. Sélectionnez son mois, puis réimportez-le avant de confirmer.")
+                            .font(.footnote).foregroundStyle(.orange)
+                    }
+                } else if !importProposals.isEmpty || importedHourlyRateDraft != nil {
+                    Text("Période non identifiée avec certitude. Vérifiez vous-même que ce bulletin correspond au mois sélectionné avant de confirmer.")
+                        .font(.footnote)
+                }
+                if let hourlyDraft = importedHourlyRateDraft {
+                    Text("Taux horaire brut proposé : \(NSDecimalNumber(decimal: hourlyDraft.grossHourlyRate).stringValue) €/h")
+                    Text(hourlyDraft.source).font(.caption).foregroundStyle(.secondary)
+                    Text("La date d’effet reste à confirmer. Vérifiez le formulaire de contrat puis enregistrez sa version pour utiliser ce taux dans l’estimation.")
+                        .font(.footnote)
+                    Toggle("Je confirme ce taux pour l’entreprise \(salaryStore.selectedCompany?.name ?? "") et le bulletin du mois \(salaryStore.selectedPeriod.description)", isOn: $hourlyRateImportConfirmed)
+                    Button("Préremplir le taux du contrat, sans enregistrer") { applyImportedHourlyRate() }
+                        .disabled(!hourlyRateImportConfirmed || !hourlyContractSelected || !importedPeriodMatchesSelection)
+                    if !hourlyContractSelected {
+                        Text("Le taux horaire concerne uniquement un contrat horaire. Aucun salaire mensuel n’est déduit.").font(.footnote)
+                    }
+                }
                 if !importProposals.isEmpty {
                     ForEach(importProposals) { proposal in
                         VStack(alignment: .leading) {
@@ -864,7 +890,9 @@ struct SalaryV2View: View {
                     }
                     Toggle("Je confirme les montants, l’entreprise \(salaryStore.selectedCompany?.name ?? "") et le mois \(salaryStore.selectedPeriod.description) du bulletin", isOn: $importConfirmed)
                     Button("Utiliser ces montants vérifiés") { applyImportedPayslip() }
-                        .disabled(!importConfirmed)
+                        .disabled(!importConfirmed || !importedPeriodMatchesSelection)
+                }
+                if !importProposals.isEmpty || importedHourlyRateDraft != nil {
                     Button("Annuler l’import") { clearImportDraft() }
                 }
                 ForEach(importSources, id: \.self) { source in
@@ -1116,6 +1144,9 @@ struct SalaryV2View: View {
         importToken = UUID()
         importProposals = []
         importConfirmed = false
+        importedHourlyRateDraft = nil
+        importedPayslipPeriod = nil
+        hourlyRateImportConfirmed = false
         importFeedback = nil
         // Cancellation invalidates the result, but does not finish the worker.
         // Keep the import button disabled until the existing OCR worker returns.
@@ -1132,17 +1163,36 @@ struct SalaryV2View: View {
                 importBusy = false
                 guard importToken == token else { return }
                 switch result {
-                case .success(let proposals):
-                    importProposals = proposals
-                    importFeedback = proposals.isEmpty ? "Aucun montant certain identifié. Utilisez la saisie manuelle." : "Vérifiez les propositions et leur provenance avant de confirmer."
+                case .success(let draft):
+                    importProposals = draft.observedAmounts
+                    importedHourlyRateDraft = draft.hourlyRate
+                    importedPayslipPeriod = draft.period
+                    importFeedback = draft.observedAmounts.isEmpty && draft.hourlyRate == nil ? "Aucun montant certain identifié. Utilisez la saisie manuelle." : "Vérifiez les propositions et leur provenance avant de confirmer."
                 case .failure(let error): importFeedback = error.localizedDescription
                 }
             }
         }
     }
 
+    private var importedPeriodMatchesSelection: Bool {
+        guard let period = importedPayslipPeriod else { return true }
+        return salaryStore.selectedPeriod.year == period.year && salaryStore.selectedPeriod.month == period.month
+    }
+
+    private func applyImportedHourlyRate() {
+        guard hourlyRateImportConfirmed, hourlyContractSelected, importedPeriodMatchesSelection,
+              salaryStore.selectedCompanyId != nil, let draft = importedHourlyRateDraft else { return }
+        salaryStore.contractHourlyRateText = NSDecimalNumber(decimal: draft.grossHourlyRate).stringValue
+        // Bulletin month is not proof of a contract version's effective date.
+        salaryStore.contractEffectiveDateText = ""
+        salaryStore.contractSourceText = "Bulletin vérifié \(salaryStore.selectedPeriod.description) — \(draft.source)"
+        importedHourlyRateDraft = nil
+        hourlyRateImportConfirmed = false
+        importFeedback = "Taux proposé dans le formulaire de contrat. Confirmez la date d’effet et enregistrez la version du contrat."
+    }
+
     private func applyImportedPayslip() {
-        guard importConfirmed, salaryStore.selectedCompanyId != nil else { return }
+        guard importConfirmed, importedPeriodMatchesSelection, salaryStore.selectedCompanyId != nil else { return }
         // Replace the comparison draft, never mix it with another bulletin.
         payslipGrossText = ""
         payslipNetBeforeTaxText = ""
