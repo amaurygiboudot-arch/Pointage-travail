@@ -2,11 +2,14 @@ package com.amaury.pointage
 
 import android.app.Activity
 import android.app.Application
+import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.TextView
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -100,4 +103,85 @@ class HighContrastTextStyleV2Test {
             PersonalizationStoreV2.save(context, PersonalizationProfileV2())
         }
     }
+
+    @Test fun imagePreservesTabGeometryTintAndSelectedPressedDisabledColors() {
+        val appearance = context.getSharedPreferences(AppThemeCatalog.PREFS, Context.MODE_PRIVATE)
+        val tab = TextView(context).apply {
+            isClickable = true
+            isFocusable = true
+            background = GradientDrawable().apply { cornerRadius = 24f; setColor(Color.DKGRAY) }
+            backgroundTintList = ColorStateList.valueOf(Color.BLUE)
+            setPadding(11, 12, 13, 14)
+            setTextColor(ColorStateList(
+                arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf(android.R.attr.state_pressed),
+                    intArrayOf(android.R.attr.state_selected), intArrayOf()),
+                intArrayOf(Color.GRAY, Color.CYAN, Color.YELLOW, Color.WHITE)))
+        }
+        val background = tab.background
+        val tint = tab.backgroundTintList
+        val colors = tab.textColors
+        try {
+            PersonalizationStoreV2.save(context, PersonalizationProfileV2())
+            appearance.edit().putBoolean("custom_image_bg", true).commit()
+            repeat(2) { PersonalizationRuntimeV2.apply(tab) }
+            assertSame(background, tab.background)
+            assertSame(tint, tab.backgroundTintList)
+            assertSame(colors, tab.textColors)
+            assertEquals(24f, (tab.background as GradientDrawable).cornerRadius, 0f)
+            assertEquals(listOf(11, 12, 13, 14), listOf(tab.paddingLeft, tab.paddingTop, tab.paddingRight, tab.paddingBottom))
+            tab.isSelected = true
+            assertEquals(Color.YELLOW, tab.currentTextColor)
+            tab.isPressed = true
+            assertEquals(Color.CYAN, tab.currentTextColor)
+            tab.isEnabled = false
+            assertEquals(Color.GRAY, tab.currentTextColor)
+
+            // Explicit high contrast still works over an image, and switching it off
+            // restores the tab even while the image remains enabled.
+            PersonalizationStoreV2.save(context, PersonalizationProfileV2(highContrast = true))
+            PersonalizationRuntimeV2.apply(tab)
+            assertNotSame(background, tab.background)
+            PersonalizationStoreV2.save(context, PersonalizationProfileV2())
+            PersonalizationRuntimeV2.apply(tab)
+            assertSame(background, tab.background)
+            assertSame(colors, tab.textColors)
+            assertSame(tint, tab.backgroundTintList)
+        } finally {
+            appearance.edit().remove("custom_image_bg").commit()
+            PersonalizationStoreV2.save(context, PersonalizationProfileV2())
+        }
+    }
+
+    @Test fun imageProtectsBareLabelsButPreservesThemedLabelsAndTransparentClickableTabs() {
+        val appearance = context.getSharedPreferences(AppThemeCatalog.PREFS, Context.MODE_PRIVATE)
+        val bare = TextView(context).apply { setTextColor(Color.BLUE) }
+        val originalColors = bare.textColors
+        val themed = TextView(context).apply {
+            background = GradientDrawable().apply { cornerRadius = 18f; setColor(Color.DKGRAY) }
+            setTextColor(Color.YELLOW)
+        }
+        val themedBackground = themed.background
+        // Navigation XML uses clickable TextViews without individual backgrounds.
+        val tab = TextView(context).apply { isClickable = true; setTextColor(Color.YELLOW) }
+        val root = LinearLayout(context).apply { addView(bare); addView(themed); addView(tab) }
+        try {
+            PersonalizationStoreV2.save(context, PersonalizationProfileV2())
+            appearance.edit().putBoolean("custom_image_bg", true).commit()
+            repeat(2) { PersonalizationRuntimeV2.apply(root) }
+            assertEquals(Color.BLACK, (bare.background as android.graphics.drawable.ColorDrawable).color)
+            assertEquals(Color.WHITE, bare.currentTextColor)
+            assertSame(themedBackground, themed.background)
+            assertEquals(Color.YELLOW, themed.currentTextColor)
+            assertNull(tab.background)
+            assertEquals(Color.YELLOW, tab.currentTextColor)
+            appearance.edit().putBoolean("custom_image_bg", false).commit()
+            PersonalizationRuntimeV2.apply(root)
+            assertNull(bare.background)
+            assertSame(originalColors, bare.textColors)
+        } finally {
+            appearance.edit().remove("custom_image_bg").commit()
+            PersonalizationStoreV2.save(context, PersonalizationProfileV2())
+        }
+    }
+
 }

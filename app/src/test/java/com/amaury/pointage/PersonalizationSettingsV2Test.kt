@@ -61,6 +61,55 @@ class PersonalizationSettingsV2Test {
         controller.pause().stop().destroy()
     }
 
+    @Test fun legacyEconomyCanBeDisabledUsingTheSingleMotionControl() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        val activity = controller.get()
+        assertTrue(PersonalizationStoreV2.save(activity, PersonalizationProfileV2(context = "economy", readerScale = 3f)))
+        PersonalizationSettingsV2.open(activity)
+        val settings = ShadowAlertDialog.getLatestAlertDialog()
+        val views = descendants(settings.window!!.decorView)
+        assertFalse(views.filterIsInstance<Button>().any { it.text == "Contexte visuel" })
+        assertFalse(views.filterIsInstance<Switch>().any { it.text.startsWith("Nuit automatique") })
+        val motion = views.filterIsInstance<Switch>().single { it.text == "Réduire les mouvements du ciel" }
+        assertTrue(motion.isChecked)
+        motion.isChecked = false
+        val profile = PersonalizationStoreV2.read(activity)
+        assertFalse(profile.effectiveReduceMotion)
+        assertEquals("normal", profile.context)
+        assertEquals(3f, profile.readerScale)
+        settings.dismiss()
+        controller.pause().stop().destroy()
+    }
+
+    @Test fun explicitDisplayModeOverridesOldNightWithoutLosingOtherPreferences() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        val activity = controller.get()
+        val owner = PersonalizationStoreV2.accountScope()
+        val before = PersonalizationProfileV2(context = "night", nightScheduleEnabled = true, highContrast = true, readerScale = 3f)
+        assertTrue(PersonalizationStoreV2.save(activity, before))
+        assertTrue(DisplayModeSettingsV2.selectMode(activity, owner, "light"))
+        assertEquals(before.copy(context = "normal", nightScheduleEnabled = false), PersonalizationStoreV2.read(activity))
+        assertFalse(AppThemeCatalog.useDarkPalette(activity))
+        assertEquals("MODE : CLAIR", DisplayModeSettingsV2.label(activity))
+        assertFalse(DisplayModeSettingsV2.selectMode(activity, "different-owner", "dark"))
+        assertFalse(AppThemeCatalog.useDarkPalette(activity))
+        controller.pause().stop().destroy()
+    }
+
+    @Test fun scheduledDisplayClearsOldContextButPreservesReducedMotion() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        val activity = controller.get()
+        assertTrue(PersonalizationStoreV2.save(activity, PersonalizationProfileV2(context = "economy", readerScale = 3f)))
+        assertTrue(DisplayModeSettingsV2.selectSchedule(activity, PersonalizationStoreV2.accountScope(), 1200, 420))
+        val profile = PersonalizationStoreV2.read(activity)
+        assertTrue(profile.reduceMotion)
+        assertEquals(3f, profile.readerScale)
+        assertEquals("night", profile.effectiveContextAt(1260))
+        assertEquals("normal", profile.effectiveContextAt(600))
+        assertEquals("light", activity.getSharedPreferences(AppThemeCatalog.PREFS, 0).getString("mode", null))
+        controller.pause().stop().destroy()
+    }
+
     @Test fun corruptProfileSurvivesOrdinaryUpdatesAndCanBeExplicitlyReplaced() {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
@@ -78,6 +127,10 @@ class PersonalizationSettingsV2Test {
         assertFalse(PersonalizationStoreV2.update(activity, owner) { it.copy(highContrast = true) })
         assertFalse(PersonalizationStoreV2.save(activity, PersonalizationProfileV2(readerScale = 2f)))
         assertEquals(corrupt, prefs.getString("profile", null))
+        activity.getSharedPreferences(AppThemeCatalog.PREFS, 0).edit().putString("mode", "dark").commit()
+        assertFalse(DisplayModeSettingsV2.selectMode(activity, owner, "light"))
+        assertFalse(DisplayModeSettingsV2.selectSchedule(activity, owner, 1200, 420))
+        assertEquals("dark", activity.getSharedPreferences(AppThemeCatalog.PREFS, 0).getString("mode", null))
         assertTrue(PersonalizationStoreV2.save(activity, PersonalizationProfileV2(readerScale = 2f), replaceUnreadable = true))
         assertEquals(2f, PersonalizationStoreV2.read(activity).readerScale)
         assertFalse(PersonalizationStoreV2.update(activity, "another-owner") { it.copy(readerScale = 4f) })

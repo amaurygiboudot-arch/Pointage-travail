@@ -17,6 +17,7 @@ object PersonalizationSettingsV2 {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 8, 24, 16)
         }
+        var buttonParent = content
         var binding = false
         val refreshControls = mutableListOf<() -> Unit>()
         fun syncControls() { binding = true; try { refreshControls.forEach { it() } } finally { binding = false } }
@@ -39,7 +40,7 @@ object PersonalizationSettingsV2 {
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 setOnClickListener { if (sameOwner()) action() }
             }
-            content.addView(control)
+            buttonParent.addView(control)
             return control
         }
         content.addView(TextView(activity).apply {
@@ -62,50 +63,44 @@ object PersonalizationSettingsV2 {
             refreshControls.add { control.isChecked = value() }
         }
         toggle("Contraste renforcé des textes", { profile.highContrast }) { current, checked -> current.copy(highContrast = checked) }
-        toggle("Réduire les mouvements du ciel", { profile.reduceMotion }) { current, checked -> current.copy(reduceMotion = checked) }
+        toggle("Réduire les mouvements du ciel", { profile.effectiveReduceMotion }) { current, checked ->
+            current.copy(reduceMotion = checked, context = if (current.context == "economy") "normal" else current.context)
+        }
         toggle("Outils d’aide à l’écriture", { profile.writingAssistance }) { current, checked -> current.copy(writingAssistance = checked) }
-        toggle("Nuit automatique selon les horaires", { profile.nightScheduleEnabled }) { current, checked -> current.copy(nightScheduleEnabled = checked) }
         fun hour(minute: Int) = String.format(java.util.Locale.ROOT, "%02d:%02d", minute / 60, minute % 60)
-        val scheduleButton = button("Horaire de nuit : ${hour(profile.nightStartMinute)} – ${hour(profile.nightEndMinute)}") {
-            val picker = android.app.TimePickerDialog(activity, { _, startHour, startMinute ->
-                if (sameOwner()) {
-                    val endPicker = android.app.TimePickerDialog(activity, { _, endHour, endMinute ->
-                        if (sameOwner()) {
-                            val start = startHour * 60 + startMinute
-                            val end = endHour * 60 + endMinute
-                            if (start == end) Toast.makeText(activity, "Début et fin doivent être différents", Toast.LENGTH_LONG).show()
-                            else update { it.copy(nightStartMinute = start, nightEndMinute = end) }
-                        }
-                    }, profile.nightEndMinute / 60, profile.nightEndMinute % 60, true)
-                    endPicker.setTitle("Fin du contexte nuit")
-                    endPicker.show(); PersonalizationRuntimeV2.track(endPicker)
-                }
-            }, profile.nightStartMinute / 60, profile.nightStartMinute % 60, true)
-            picker.setTitle("Début du contexte nuit")
-            picker.show(); PersonalizationRuntimeV2.track(picker)
+        val legacyButton = button("Annuler l’ancien contexte visuel") {
+            update { it.copy(context = "normal") }
         }
-        refreshControls.add { scheduleButton.text = "Horaire de nuit : ${hour(profile.nightStartMinute)} – ${hour(profile.nightEndMinute)}" }
-        content.addView(TextView(activity).apply {
-            text = "L’horaire utilise l’heure locale de l’appareil, y compris après changement de fuseau. Il agit quand le contexte est Normal ; un contexte manuel reste prioritaire. Aucun réveil ni traitement en arrière-plan."
-        })
-        button("Contexte visuel") {
-            val names = arrayOf("Normal", "Travail", "Maison", "Nuit", "Économie d’énergie")
-            val keys = arrayOf("normal", "work", "home", "night", "economy")
-            show(AlertDialog.Builder(activity).setTitle("Contexte manuel")
-                .setSingleChoiceItems(names, keys.indexOf(profile.context)) { dialog, index ->
-                    update { it.copy(context = keys[index]) }; dialog.dismiss()
-                }.setNegativeButton("Fermer", null))
+        val legacyDescription = TextView(activity)
+        content.addView(legacyDescription)
+        refreshControls.add {
+            val legacy = profile.context != "normal"
+            legacyButton.visibility = if (legacy) android.view.View.VISIBLE else android.view.View.GONE
+            legacyDescription.visibility = legacyButton.visibility
+            legacyDescription.text = when (profile.context) {
+                "night" -> "Un ancien profil force le mode sombre. Annule ce contexte pour retrouver le mode choisi dans Apparence."
+                "economy" -> "Un ancien profil réduit les mouvements. L’interrupteur ci-dessus permet de les réactiver."
+                else -> "Cet ancien contexte n’apporte aucun réglage visuel. Tu peux l’annuler sans changer tes autres préférences."
+            }
         }
-        content.addView(TextView(activity).apply {
-            text = "Nuit force la palette sombre ; économie réduit les effets célestes. Normal, travail et maison conservent vos réglages. Les règles de pointage et de salaire restent indépendantes."
-        })
-        button("Exporter ces réglages") {
+        val transferContent = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 8, 24, 16)
+        }
+        button("Sauvegarder ou transférer ces réglages") {
+            (transferContent.parent as? ViewGroup)?.removeView(transferContent)
+            show(AlertDialog.Builder(activity).setTitle("Sauvegarde et transfert")
+                .setView(ScrollView(activity).apply { addView(transferContent) })
+                .setPositiveButton("Fermer", null))
+        }
+        buttonParent = transferContent
+        button("Exporter le profil de confort Android") {
             activity.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"; putExtra(Intent.EXTRA_TEXT, PersonalizationStoreV2.read(activity).encode())
                 putExtra(Intent.EXTRA_SUBJECT, "AGKGMG — confort visuel")
             }, "Exporter le confort visuel"))
         }
-        content.addView(TextView(activity).apply {
+        transferContent.addView(TextView(activity).apply {
             text = "Le transfert Android/iOS partage le contraste, la réduction des mouvements, le zoom de lecture et la programmation facultative du mode nuit. Pour recevoir les nouveaux transferts, mets à jour l’application sur l’autre appareil. Copie le texte partagé puis colle-le sur l’autre appareil."
         })
         button("Confort du compte sur mes appareils") {
@@ -149,7 +144,7 @@ object PersonalizationSettingsV2 {
             dialog.show()
             PersonalizationRuntimeV2.track(dialog)
         }
-        button("Importer des réglages") {
+        button("Restaurer un profil Android") {
             val input = EditText(activity).apply {
                 hint = "Coller le profil exporté"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
                 maxLines = 8
@@ -173,6 +168,7 @@ object PersonalizationSettingsV2 {
             dialog.show()
             PersonalizationRuntimeV2.track(dialog)
         }
+        buttonParent = content
         button("Réinitialiser uniquement le confort visuel") {
             show(AlertDialog.Builder(activity).setTitle("Réinitialiser le confort visuel ?")
                 .setMessage("Les pointages, salaires, comptes et thèmes existants sont conservés. Si le profil est illisible, la réinitialisation ne pourra pas être annulée depuis cet écran. Sinon, l’annulation restera disponible.")
@@ -187,6 +183,7 @@ object PersonalizationSettingsV2 {
             if (ok) { profile = PersonalizationStoreV2.read(activity); syncControls(); PersonalizationRuntimeV2.refresh() }
             Toast.makeText(activity, if (ok) "Confort restauré" else "Aucune restauration disponible", Toast.LENGTH_SHORT).show()
         }
+        syncControls()
         show(AlertDialog.Builder(activity).setTitle("Confort visuel et écriture")
             .setView(ScrollView(activity).apply { addView(content) }).setPositiveButton("Fermer", null))
     }

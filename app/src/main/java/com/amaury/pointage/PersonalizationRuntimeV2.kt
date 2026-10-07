@@ -148,7 +148,15 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
                 state.background = view.background; state.tint = view.backgroundTintList
                 state.colors = view.textColors; state.hint = view.hintTextColors
             }
-            val needsSupport = profile.highContrast || (protectImage && view !is Button && view !is EditText)
+            // An image is not a request to replace the theme of every control. Tabs are
+            // TextViews too; their drawable, tint and selected/pressed colors belong to
+            // navigation. Only bare, non-interactive labels need automatic backing.
+            // Inspect the saved theme background, not the backing applied on the last walk.
+            val bareLabel = view !is Button && view !is EditText && !view.isClickable &&
+                !view.hasOnClickListeners() && !view.isFocusable &&
+                (state.background == null ||
+                    (state.background as? android.graphics.drawable.ColorDrawable)?.color == Color.TRANSPARENT)
+            val needsSupport = profile.highContrast || (protectImage && bareLabel)
             if (needsSupport) {
                 HighContrastTextStyleV2.apply(view)
                 state.protected = true

@@ -97,6 +97,7 @@ object AppearanceManager {
         activity.window.decorView.systemUiVisibility = flags
 
         val contentRoot = activity.window.decorView.findViewById<ViewGroup>(android.R.id.content) ?: return
+        contentRoot.findViewWithTag<TextView>("settings_display_mode_v2")?.text = DisplayModeSettingsV2.label(activity)
         val firstChild = contentRoot.getChildAt(0)
         if (hasImage) {
             val bitmap = runCatching { BitmapFactory.decodeFile(imageFile.absolutePath) }.getOrNull()
@@ -271,22 +272,11 @@ object SettingsUiInstaller {
         appearance.addView(styledButton(activity, "CONFORT VISUEL ET ÉCRITURE").apply {
             setOnClickListener { PersonalizationSettingsV2.open(activity) }
         })
-        val modeButton = styledButton(activity, "")
-        fun updateModeLabel() {
-            val mode = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE).getString("mode", "auto") ?: "auto"
-            modeButton.text = "MODE : " + when (mode) { "light" -> "CLAIR"; "dark" -> "SOMBRE"; else -> "AUTOMATIQUE JOUR / NUIT" }
-        }
+        val modeButton = styledButton(activity, "").apply { tag = "settings_display_mode_v2" }
+        fun updateModeLabel() { modeButton.text = DisplayModeSettingsV2.label(activity) }
         updateModeLabel()
         modeButton.setOnClickListener {
-            val values = arrayOf("Automatique jour / nuit", "Clair", "Sombre")
-            AlertDialog.Builder(activity).setTitle("Mode d'affichage").setItems(values) { _, which ->
-                val mode = arrayOf("auto", "light", "dark")[which]
-                activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE).edit().putString("mode", mode).apply()
-                updateModeLabel()
-                AppearanceManager.apply(activity)
-                PointageWidgetProvider.refreshAppearance(activity)
-                QuickActionsWidgetProvider.refreshAppearance(activity)
-            }.show()
+            DisplayModeSettingsV2.open(activity, ::updateModeLabel)
         }
         appearance.addView(modeButton)
 
