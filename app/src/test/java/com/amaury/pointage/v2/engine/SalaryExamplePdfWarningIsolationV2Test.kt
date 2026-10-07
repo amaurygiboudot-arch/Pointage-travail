@@ -38,4 +38,21 @@ class SalaryExamplePdfWarningIsolationV2Test {
         assertEquals(listOf("Net à confirmer"), sections.salaryAndNet)
         assertEquals(listOf("Coût employeur non certifié"), sections.employerCost)
     }
+    @Test fun blockedCalculationNeverReportsEmptyControls() {
+        val warnings = SalaryExamplePdfV2.calculationDiagnostics(false,
+            listOf("Contrat sans couverture", "Règles sans couverture"), emptyList())
+        assertTrue(warnings.contains("Contrat sans couverture"))
+        assertTrue(warnings.contains("Règles sans couverture"))
+        assertTrue(warnings.any { it.contains("non disponible") })
+    }
+    @Test fun segmentedFailureRetainsBridgeWarningsWithoutOutput() {
+        val warnings = SalaryExamplePdfV2.calculationDiagnostics(false,
+            listOf("Période segmentée non couverte"), emptyList())
+        assertTrue(warnings.contains("Période segmentée non couverte"))
+    }
+    @Test fun successfulCalculationDeduplicatesAndKeepsCleanControlsWhenAppropriate() {
+        assertEquals(emptyList<String>(), SalaryExamplePdfV2.calculationDiagnostics(true, emptyList(), emptyList()))
+        assertEquals(listOf("Pause à confirmer"), SalaryExamplePdfV2.calculationDiagnostics(true,
+            listOf("Pause à confirmer"), listOf("Pause à confirmer")))
+    }
 }

@@ -3,8 +3,10 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require("firebase-functions/params");
-const { getApps, initializeApp } = require("firebase-admin/app");
+const { defaultAdminApp } = require("./firebaseRuntime");
 const { getFirestore } = require("firebase-admin/firestore");
+const { GoogleAuth } = require("google-auth-library");
+const { createPlayClient, createBillingService, BillingError } = require("./playBilling");
 const {
   isValidLegifranceBody,
   normalizeLegifranceBody,
@@ -60,6 +62,47 @@ let cachedTokenExpiresAt = 0;
 let firestoreDb = null;
 let firestoreInitAttempted = false;
 
+let billingService;
+function billingBackend() {
+  if (!billingService) {
+    billingService = createBillingService({ db: getFirestore(defaultAdminApp()), play: createPlayClient({
+      credential: { async getAccessToken() {
+        const client = await new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/androidpublisher"] }).getClient();
+        const result = await client.getAccessToken();
+        return { access_token: result.token };
+      } },
+    }) });
+  }
+  return billingService;
+}
+function billingCallable(action) {
+  return onCall({ enforceAppCheck: true, timeoutSeconds: 60 }, async request => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Connexion requise.");
+    const uid = request.auth.uid;
+    const db = getFirestore(defaultAdminApp());
+    const profile = await db.collection("users").doc(uid).get();
+    const owner = request.auth.token.horatrackOwner === true || profile.data()?.owner === true;
+    try {
+      const backend = billingBackend();
+      if (action === "verify") return await backend.verify(uid, request.data);
+      if (action === "entitlements") return await backend.entitlements(uid, owner);
+      if (action === "pdf") return await backend.authorizePdf(uid, request.data, owner);
+      if (action === "prepareReport") return await backend.prepareReport(uid, request.data);
+      if (action === "authorizeReport") return await backend.authorizeReport(uid, request.data, owner);
+      return await backend.reserveAnalysis(uid, request.data, owner);
+    } catch (error) {
+      if (error instanceof BillingError) throw new HttpsError(error.code, error.message, error.details);
+      throw new HttpsError("unavailable", "Vérification du paiement indisponible.");
+    }
+  });
+}
+exports.billingVerifyPurchase = billingCallable("verify");
+exports.billingGetEntitlements = billingCallable("entitlements");
+exports.billingAuthorizePdf = billingCallable("pdf");
+exports.billingReserveAnalysis = billingCallable("analysis");
+exports.billingPrepareReport = billingCallable("prepareReport");
+exports.billingAuthorizeReport = billingCallable("authorizeReport");
+
 class UpstreamError extends Error {
   constructor(stage, status = 0, upstreamBody = "") {
     super(`${stage}${status ? ` ${status}` : ""}`);
@@ -93,7 +136,7 @@ function legalCacheDb() {
   if (firestoreInitAttempted) return firestoreDb;
   firestoreInitAttempted = true;
   try {
-    const app = getApps().length ? getApps()[0] : initializeApp();
+    const app = defaultAdminApp();
     firestoreDb = getFirestore(app);
   } catch (error) {
     console.warn("Legal cache Firestore init failed", {

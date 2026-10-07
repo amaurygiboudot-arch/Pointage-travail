@@ -8,23 +8,32 @@ import java.util.Calendar
 
 /** Identité visuelle commune à tous les PDF AGKGMG. */
 object PdfVisualStyle {
-    val gold = Color.rgb(190, 150, 72)
-    val goldLight = Color.rgb(226, 199, 126)
+    val accent = Color.rgb(11, 119, 119)
+    val gold = accent
+    val goldLight = Color.rgb(221, 239, 239)
     val ink = Color.rgb(31, 31, 31)
-    val panel = Color.rgb(247, 244, 236)
-    val line = Color.rgb(211, 197, 164)
+    val panel = Color.rgb(235, 246, 246)
+    val line = Color.rgb(193, 215, 215)
 
     fun header(canvas: Canvas, width: Int, title: String, subtitle: String = "") {
-        val dark = Paint().apply { color = Color.rgb(18,18,18) }
-        val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = gold; style = Paint.Style.STROKE; strokeWidth = 1.4f }
-        val brand = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = goldLight; textSize = 17f; typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD) }
-        val heading = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 12f; typeface = Typeface.DEFAULT_BOLD }
-        val small = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(205,205,205); textSize = 7.5f }
-        canvas.drawRect(0f, 0f, width.toFloat(), 62f, dark)
-        canvas.drawLine(0f, 62f, width.toFloat(), 62f, border)
+        val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent; strokeWidth = 1.2f }
+        val brand = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ink; textSize = 20f; typeface = Typeface.DEFAULT_BOLD }
+        val heading = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent; textSize = 11f; typeface = Typeface.DEFAULT_BOLD }
+        val small = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ink; textSize = 8f }
+        canvas.drawRect(0f, 0f, width.toFloat(), 62f, Paint().apply { color = Color.WHITE })
+        canvas.drawLine(24f, 62f, width - 24f, 62f, border)
         canvas.drawText("AGKGMG", 24f, 25f, brand)
-        canvas.drawText(title, 24f, 45f, heading)
-        if (subtitle.isNotBlank()) canvas.drawText(subtitle, width - 24f - small.measureText(subtitle), 43f, small)
+        val titleWidth = width - 48f - brand.measureText("AGKGMG") - 24f
+        heading.textSize = minOf(heading.textSize, titleWidth / heading.measureText(title) * heading.textSize)
+        canvas.drawText(title, width - 24f - heading.measureText(title), 25f, heading)
+        canvas.drawText("Suivi du temps de travail", 24f, 45f, small)
+        if (subtitle.isNotBlank()) {
+            val available = width - 48f - small.measureText("Suivi du temps de travail") - 16f
+            if (available > 0f) {
+                small.textSize = minOf(small.textSize, available / small.measureText(subtitle) * small.textSize)
+                if (small.textSize >= 6f) canvas.drawText(subtitle, width - 24f - small.measureText(subtitle), 43f, small)
+            }
+        }
     }
 
     fun footer(canvas: Canvas, width: Int, height: Int, page: Int? = null) {

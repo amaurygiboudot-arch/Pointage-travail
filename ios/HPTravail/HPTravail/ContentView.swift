@@ -198,12 +198,12 @@ struct ContentView: View {
                     }
 
                     if let clockInFeedback {
-                        Text(clockInFeedback)
+                        Text(clockInFeedback).readingActionV2(clockInFeedback)
                             .font(.footnote)
                             .foregroundStyle(.orange)
                     }
                     if let gpsFeedback {
-                        Text(gpsFeedback)
+                        Text(gpsFeedback).readingActionV2(gpsFeedback)
                             .font(.footnote)
                             .foregroundStyle(.orange)
                     }
@@ -829,7 +829,7 @@ private struct GpsZoneEditorSheetV2: View {
 
                 if let errorMessage {
                     Section {
-                        Text(errorMessage).foregroundStyle(.red)
+                        Text(errorMessage).readingActionV2(errorMessage).foregroundStyle(.red)
                     }
                 }
             }
@@ -943,7 +943,7 @@ private struct ManualEntrySheetV2: View {
 
                 if let errorMessage {
                     Section {
-                        Text(errorMessage)
+                        Text(errorMessage).readingActionV2(errorMessage)
                             .foregroundStyle(.red)
                     }
                 }

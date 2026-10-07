@@ -81,6 +81,7 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
         }
     }
     private fun forget(view: View) {
+        if (view is android.widget.ImageView) ContentImageReaderV2.forget(view)
         if (view is TextView) { texts.remove(view); readerActions.remove(view) }
         if (view is ViewGroup) for (i in 0 until view.childCount) forget(view.getChildAt(i))
     }
@@ -95,10 +96,13 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
 
     fun apply(root: View) {
         val profile = PersonalizationStoreV2.read(root.context)
-        walk(root, profile)
+        val protectImage = root.context.getSharedPreferences(AppThemeCatalog.PREFS, android.content.Context.MODE_PRIVATE)
+            .getBoolean("custom_image_bg", false)
+        walk(root, profile, protectImage)
     }
-    private fun walk(view: View, profile: PersonalizationProfileV2) {
+    private fun walk(view: View, profile: PersonalizationProfileV2, protectImage: Boolean) {
         if (view.tag == "personalization_reader_v2") return
+        if (view is android.widget.ImageView) ContentImageReaderV2.attach(view)
         if (view is TextView) {
             val prior = texts[view]
             val state = prior ?: TextState(view.textSize, view.textSize, view.layoutParams?.height, view.minimumHeight,
@@ -144,7 +148,8 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
                 state.background = view.background; state.tint = view.backgroundTintList
                 state.colors = view.textColors; state.hint = view.hintTextColors
             }
-            if (profile.highContrast) {
+            val needsSupport = profile.highContrast || (protectImage && view !is Button && view !is EditText)
+            if (needsSupport) {
                 view.backgroundTintList = null
                 if ((view.background as? android.graphics.drawable.ColorDrawable)?.color != Color.BLACK)
                     view.background = android.graphics.drawable.ColorDrawable(Color.BLACK)
@@ -168,7 +173,7 @@ object PersonalizationRuntimeV2 : Application.ActivityLifecycleCallbacks {
                 }
             }
         }
-        if (view is ViewGroup) for (i in 0 until view.childCount) walk(view.getChildAt(i), profile)
+        if (view is ViewGroup) for (i in 0 until view.childCount) walk(view.getChildAt(i), profile, protectImage)
     }
     private fun showReader(source: TextView) {
         val context = source.context

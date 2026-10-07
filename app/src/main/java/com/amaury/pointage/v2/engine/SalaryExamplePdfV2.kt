@@ -64,6 +64,14 @@ object SalaryExamplePdfV2 {
         employerCost = employerCostWarnings.distinct()
     )
 
+    internal fun calculationDiagnostics(
+        calculationAvailable: Boolean,
+        upstreamWarnings: List<String>,
+        outputWarnings: List<String>
+    ): List<String> = (upstreamWarnings + outputWarnings +
+        if (calculationAvailable) emptyList() else listOf("Calcul salaire non disponible pour ce mois — données à confirmer.")
+    ).distinct()
+
     internal fun legalSourceStatus(
         reliable: Boolean,
         coveredTopics: Int,
@@ -162,16 +170,9 @@ object SalaryExamplePdfV2 {
         val legacyProfile = if (company == null) V2ProfileStore.load(context, 1) else null
         val legacyContract = legacyProfile?.contract
         val legacyEmployer = legacyProfile?.employer
-        val periodContract = if (company != null) {
-            V2EmploymentContractPayrollBridge.resolve(
-                context = context,
-                companyId = company.id,
-                year = year,
-                monthZeroBased = month
-            ).resolution.contract
-        } else {
-            legacyContract
-        }
+        val routeDetails = company?.let { V2SalaryCalculationRoute.resolveDetails(context, it, year, month) }
+        val periodContract = if (company != null) routeDetails?.contract else legacyContract
+        val calculationWarnings = mutableListOf<String>()
         val contractDisplay = contractDisplayValues(periodContract)
         val rate = contractDisplay.grossHourlyRate
 
@@ -188,9 +189,9 @@ object SalaryExamplePdfV2 {
             ?.let { ConventionCatalog.findByIdcc(context, it) }
             ?.takeIf { it.idcc.isNotBlank() }
 
-        val route = company?.let { V2SalaryCalculationRoute.resolve(context,it,year,month) }
+        val route = routeDetails?.route
         val segmentedConsumer = company != null && route != V2SalaryCalculationRoute.Route.MONTHLY
-        val canonical = when {
+        val segmentedResult = when {
             company == null || !HoraTrackV2.ENABLED || route != V2SalaryCalculationRoute.Route.SEGMENTED -> null
             else -> runCatching {
                 V2SegmentedSalaryCanonicalBridge.calculateForCompany(
@@ -199,13 +200,20 @@ object SalaryExamplePdfV2 {
                     year = year,
                     monthZeroBased = month,
                     timeZoneId = ZoneId.systemDefault().id
-                ).output
-            }.getOrNull()
+                )
+            }.getOrElse {
+                calculationWarnings += V2SalaryCalculationRoute.UNAVAILABLE_WARNING
+                null
+            }
         }
+        val canonical = segmentedResult?.output
         val salaryNet = if (company != null && convention != null && HoraTrackV2.ENABLED &&
             route == V2SalaryCalculationRoute.Route.MONTHLY) runCatching {
                 V2SalaryNetBridgeV2.calculateForCompany(context,company,year,month,convention)
-            }.getOrNull() else null
+            }.getOrElse {
+                calculationWarnings += V2SalaryCalculationRoute.UNAVAILABLE_WARNING
+                null
+            } else null
         val salary = when {
             salaryNet != null -> salaryNet.salary
             company != null || !HoraTrackV2.ENABLED || convention == null -> null
@@ -275,6 +283,10 @@ object SalaryExamplePdfV2 {
             if (Field.ESTIMATED_GROSS in fields) {
                 add(PdfSection("ESTIMATION DE RÉMUNÉRATION",
                     if (segmentedConsumer) estimatedGrossLines(canonical) else estimatedGrossLines(salary, salaryNet)))
+                add(PdfSection("COTISATIONS — SALARIÉ / EMPLOYEUR", contributionLines(payroll?.takeIf {
+                    if (segmentedConsumer) canonical?.cashGrossReliable == true
+                    else salaryNet?.salary?.let { it.monthlyGrossReliable && it.paidTimeReliable } == true
+                })))
             }
 
             if (Field.COUNTERS in fields) {
@@ -291,8 +303,13 @@ object SalaryExamplePdfV2 {
 
             if (Field.SOURCES in fields) {
                 val warningSections = warningSections(
-                    salaryWarnings = if (segmentedConsumer) canonical?.warnings.orEmpty()
-                        else salaryNet?.warnings ?: salary?.warnings.orEmpty(),
+                    salaryWarnings = calculationDiagnostics(
+                        calculationAvailable = salary != null || canonical != null,
+                        upstreamWarnings = routeDetails?.warnings.orEmpty() + calculationWarnings +
+                            segmentedResult?.warnings.orEmpty(),
+                        outputWarnings = if (segmentedConsumer) canonical?.warnings.orEmpty()
+                            else salaryNet?.warnings ?: salary?.warnings.orEmpty()
+                    ),
                     payrollWarnings = emptyList(),
                     employerCostWarnings = payroll?.employerCostWarnings.orEmpty()
                 )
@@ -315,7 +332,7 @@ object SalaryExamplePdfV2 {
                     references = boccRefs
                 )
                 add(PdfSection("SOURCES & CONTRÔLES", buildList {
-                    add("Source des heures" to "Moteur HoraTrack V2")
+                    add("Source des heures" to "Moteur AGKGMG V2")
                     add("Entreprise de calcul" to if (company != null) companyName else "Profil historique principal")
                     add("Convention" to if (convention != null) "IDCC ${convention.idcc}" else "À confirmer")
                     add("Code du travail — LEGI" to legalStatus.summary)
@@ -340,61 +357,200 @@ object SalaryExamplePdfV2 {
             }
         }
 
-        val pages = paginateSections(sections)
+        val body = PdfVisualStyle.bodyPaint(7.5f)
+        val tableSections = presentationSections(sections)
+        val wrappedTables = tableSections.map { section ->
+            wrapTableRows(section) { text, width -> wrapText(text, body, width) }
+        }
+        // The existing planner splits even very long wrapped rows without discarding cells.
+        val tablesByName = wrappedTables.associateBy { it.name }
+        val pages = paginateSections(wrappedTables.map { section ->
+            PdfSection(section.name, section.rows.indices.map { it.toString() to "" })
+        }, sectionHeaderHeight = 42f, rowHeight = 14f, sectionTailHeight = 14f, keepSectionsTogether = false)
         val pdf = PdfDocument()
-        val title = PdfVisualStyle.boldPaint(16f)
-        val bold = PdfVisualStyle.boldPaint(10f)
-        val body = PdfVisualStyle.bodyPaint(9f)
+        val heading = PdfVisualStyle.boldPaint(8.5f).apply { color = Color.WHITE }
+        val columnHeading = PdfVisualStyle.boldPaint(7f)
         val muted = PdfVisualStyle.bodyPaint(8f).apply { color = Color.rgb(95, 95, 95) }
-        val line = Paint(1).apply { color = PdfVisualStyle.line; strokeWidth = 0.8f }
+        val green = Paint().apply { color = Color.rgb(11, 119, 119) }
+        val stripe = Paint().apply { color = Color.rgb(244, 246, 246) }
+        val rule = Paint().apply { color = Color.rgb(210, 218, 218); strokeWidth = 0.5f }
         try {
             pages.forEachIndexed { pageIndex, plannedPage ->
                 val pageNumber = pageIndex + 1
                 val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, pageNumber).create())
                 val canvas = page.canvas
-                var y = 42f
-                canvas.drawText("FICHE DE PAIE EXEMPLE — ESTIMATION HORATRACK", 28f, y, title)
-                y += 18f
-                canvas.drawText(
-                    "$monthName $year • document personnel d'estimation • non officiel • page $pageNumber/${pages.size}",
-                    28f,
-                    y,
-                    muted
-                )
-                y += 18f
-                canvas.drawLine(28f, y, 567f, y, line)
-                y = PDF_CONTENT_TOP
-
+                PdfVisualStyle.header(canvas, 595, "FICHE DE SALAIRE — ESTIMATION", "")
+                canvas.drawText("$monthName $year • document personnel non officiel • page $pageNumber/${pages.size}", 28f, 82f, muted)
+                var y = PDF_CONTENT_TOP
                 plannedPage.fragments.forEach { fragment ->
-                    canvas.drawText(
-                        if (fragment.continuation) "${fragment.name} (suite)" else fragment.name,
-                        28f,
-                        y,
-                        bold
-                    )
-                    y += PDF_SECTION_HEADER_HEIGHT
-                    fragment.lines.forEach { (label, value) ->
-                        canvas.drawText(label, 38f, y, body)
-                        canvas.drawText(value, 315f, y, body)
-                        y += PDF_ROW_HEIGHT
+                    val table = tablesByName.getValue(fragment.name)
+                    canvas.drawRect(28f, y - 11f, 567f, y + 9f, green)
+                    canvas.drawText(if (fragment.continuation) "${fragment.name} (suite)" else fragment.name, 36f, y + 2f, heading)
+                    y += 25f
+                    var x = 28f
+                    table.headers.forEachIndexed { index, label ->
+                        canvas.drawText(label, x + 6f, y, columnHeading)
+                        x += table.widths[index]
                     }
-                    y += 5f
-                    canvas.drawLine(28f, y, 567f, y, line)
-                    y += 18f
+                    canvas.drawLine(28f, y + 5f, 567f, y + 5f, rule)
+                    y += 17f
+                    fragment.lines.forEachIndexed { rowIndex, (rowId, _) ->
+                        val cells = table.rows[rowId.toInt()]
+                        val netPay = cells.first().startsWith("Net estimé après PAS")
+                        if (netPay || rowIndex % 2 == 0) canvas.drawRect(28f, y - 10f, 567f, y + 4f,
+                            if (netPay) Paint().apply { color = Color.rgb(223, 240, 238) } else stripe)
+                        val cellPaint = if (netPay) PdfVisualStyle.boldPaint(7.5f) else body
+                        x = 28f
+                        cells.forEachIndexed { index, cell ->
+                            canvas.drawText(cell, x + 6f, y, cellPaint)
+                            if (index > 0) canvas.drawLine(x, y - 10f, x, y + 4f, rule)
+                            x += table.widths[index]
+                        }
+                        canvas.drawLine(28f, y + 4f, 567f, y + 4f, rule)
+                        y += 14f
+                    }
+                    y += 14f
                 }
-
-                canvas.drawText(
-                    "© HoraTrack • FICHE DE PAIE EXEMPLE — ESTIMATION HORATRACK • page $pageNumber/${pages.size}",
-                    28f,
-                    816f,
-                    muted
-                )
+                PdfVisualStyle.footer(canvas, 595, 842, pageNumber)
                 pdf.finishPage(page)
             }
             pdf.writeTo(output)
         } finally {
             pdf.close()
         }
+    }
+
+    internal data class PresentationTable(
+        val name: String,
+        val headers: List<String>,
+        val widths: List<Float>,
+        val rows: List<List<String>>
+    )
+
+    internal fun wrapTableRows(
+        table: PresentationTable,
+        wrap: (String, Float) -> List<String>
+    ): PresentationTable = table.copy(rows = table.rows.flatMap { cells ->
+        require(cells.size == table.widths.size)
+        val wrapped = cells.mapIndexed { index, cell -> wrap(cell, table.widths[index] - 12f) }
+        List(wrapped.maxOf { it.size }) { index -> wrapped.map { it.getOrElse(index) { "" } } }
+    })
+
+    internal fun presentationSections(sections: List<PdfSection>): List<PresentationTable> {
+        fun simple(name: String, rows: List<Pair<String, String>>) = PresentationTable(
+            name, listOf("Rubrique", "Montant / information"), listOf(300f, 239f),
+            rows.map { listOf(it.first, it.second) }
+        )
+        val tables = sections.flatMap { section ->
+            when (section.name) {
+                "ESTIMATION DE RÉMUNÉRATION" -> {
+                    val remuneration = mutableListOf<Pair<String, String>>()
+                    val expenses = mutableListOf<Pair<String, String>>()
+                    val net = mutableListOf<Pair<String, String>>()
+                    val employer = mutableListOf<Pair<String, String>>()
+                    section.lines.forEach { row ->
+                        when {
+                            row.first.startsWith("Paniers") -> expenses += row
+                            row.first.startsWith("Net") || row.first.startsWith("Prélèvement") ||
+                                row.first.startsWith("Avantages en nature non") -> net += row
+                            row.first.startsWith("Réductions") || row.first.startsWith("Sous-total patronal") -> employer += row
+                            else -> remuneration += row
+                        }
+                    }
+                    listOf(simple("RÉMUNÉRATION BRUTE", remuneration),
+                        simple("PANIERS ET FRAIS", expenses), simple("SYNTHÈSE DU NET", net),
+                        simple("SYNTHÈSE EMPLOYEUR", employer)).filter { it.rows.isNotEmpty() }
+                }
+                "COTISATIONS — SALARIÉ / EMPLOYEUR" -> {
+                    val details = section.lines.filterNot { it.first == "Lecture des montants" ||
+                        it.first.startsWith("Fiabilité") || it.first == "Bases et taux détaillés" ||
+                        it.first.startsWith("Sous-total") || it.first.startsWith("Réductions") }
+                    val notes = section.lines.filter { it.first.startsWith("Fiabilité") || it.first == "Bases et taux détaillés" }
+                    listOf(PresentationTable(section.name,
+                        listOf("Rubrique", "Base", "Taux sal.", "Part sal.", "Taux emp.", "Part emp."),
+                        listOf(209f, 66f, 66f, 66f, 66f, 66f),
+                        details.map { contributionCells(it.first, it.second) }),
+                        simple("FIABILITÉ DES COTISATIONS", notes))
+                }
+                else -> listOf(simple(section.name, section.lines))
+            }
+        }.toMutableList()
+        val employerTotals = sections.filter { it.name == "COTISATIONS — SALARIÉ / EMPLOYEUR" }
+            .flatMap { it.lines }.filter { it.first.startsWith("Sous-total") || it.first.startsWith("Réductions") }
+        if (employerTotals.isNotEmpty()) {
+            val existingIndex = tables.indexOfFirst { it.name == "SYNTHÈSE EMPLOYEUR" }
+            if (existingIndex < 0) tables += simple("SYNTHÈSE EMPLOYEUR", employerTotals)
+            else {
+                val existing = tables[existingIndex]
+                val labels = existing.rows.map { it.first() }.toSet()
+                tables[existingIndex] = existing.copy(rows = existing.rows + employerTotals
+                    .filter { it.first !in labels }.map { listOf(it.first, it.second) })
+            }
+        }
+        val salaryNames = listOf("RÉMUNÉRATION BRUTE", "COTISATIONS — SALARIÉ / EMPLOYEUR",
+            "PANIERS ET FRAIS", "SYNTHÈSE DU NET", "SYNTHÈSE EMPLOYEUR", "FIABILITÉ DES COTISATIONS")
+        val salaryTables = tables.filter { it.name in salaryNames }.sortedBy { salaryNames.indexOf(it.name) }
+        val firstSalary = tables.indexOfFirst { it.name in salaryNames }
+        if (firstSalary < 0) return tables
+        return tables.take(firstSalary) + salaryTables + tables.drop(firstSalary).filter { it.name !in salaryNames }
+    }
+
+    internal fun contributionCells(label: String, value: String): List<String> {
+        val pair = value.split(" / ", limit = 2)
+        val employeeOnly = label == "Retenues propres à l'entreprise"
+        val employee = if (pair.size == 2 || employeeOnly) pair[0] else "—"
+        val employer = if (pair.size == 2) pair[1] else if (employeeOnly) "—" else value
+        return listOf(label, "À confirmer", "À confirmer", employee,
+            "À confirmer", employer)
+    }
+
+    private fun wrapText(text: String, paint: Paint, width: Float): List<String> {
+        if (text.isEmpty()) return listOf("")
+        val lines = mutableListOf<String>()
+        text.split('\n').forEach { paragraph ->
+            var remaining = paragraph
+            while (paint.measureText(remaining) > width) {
+                val count = paint.breakText(remaining, true, width, null).coerceAtLeast(1)
+                val space = remaining.lastIndexOf(' ', count - 1)
+                val end = if (space > 0) space else count
+                lines += remaining.substring(0, end)
+                remaining = remaining.substring(end).trimStart()
+            }
+            lines += remaining
+        }
+        return lines
+    }
+
+    internal fun contributionLines(payroll: NetSalaryEngineV2.Result?): List<Pair<String, String>> {
+        fun amount(value: Double?, confirmed: Boolean = payroll?.employerCostComplete == true): String = value?.takeIf {
+            confirmed && payroll?.grossReliable == true && it.isFinite() && it >= 0.0
+        }?.let(::money) ?: "À confirmer"
+        fun row(label: String, employee: Double?, employer: Double?) =
+            label to "${amount(employee, payroll?.complete == true)} / ${amount(employer)}"
+        return listOf(
+            "Lecture des montants" to "Part salarié / part employeur",
+            "Socle légal (sécurité sociale, CSG/CRDS)" to "${amount(payroll?.statutory, payroll?.complete == true)} / ${amount(payroll?.statutoryEmployerContributions)}",
+            row("Retraite complémentaire", payroll?.complementaryRetirement, payroll?.complementaryRetirementEmployer),
+            row("Prévoyance conventionnelle", payroll?.conventionProvidentEmployee, payroll?.conventionProvidentEmployer),
+            "Retenues propres à l'entreprise" to amount(payroll?.companyEmployeeDeductions, payroll?.complete == true),
+            "Cotisations patronales liées au statut" to amount(payroll?.employerStatusContributions),
+            "Accidents du travail / maladies professionnelles" to amount(payroll?.employerAtMpContribution),
+            "Versement mobilité (employeur)" to amount(payroll?.employerMobilityContribution),
+            "Assurance chômage (employeur)" to amount(payroll?.employerUnemploymentContribution),
+            "AGS (employeur)" to amount(payroll?.employerAgsContribution),
+            "FNAL (employeur)" to amount(payroll?.employerFnalContribution),
+            "Formation professionnelle (employeur)" to amount(payroll?.employerTrainingContribution),
+            "Maladie (employeur)" to amount(payroll?.employerHealthContribution),
+            "Famille (employeur)" to amount(payroll?.employerFamilyContribution),
+            "Apprentissage — part principale" to amount(payroll?.employerApprenticeshipPrincipalContribution),
+            "Apprentissage — provision du solde" to amount(payroll?.employerApprenticeshipBalanceAccrual),
+            "Réductions / exonérations patronales" to amount(payroll?.confirmedEmployerReductions),
+            "Sous-total patronal connu avant réductions" to amount(payroll?.knownEmployerContributions),
+            "Sous-total patronal connu après réductions" to amount(payroll?.knownEmployerContributionsAfterReductions),
+            "Fiabilité des retenues salarié" to if (payroll?.complete == true) "Calcul complet" else "À confirmer — calcul partiel",
+            "Fiabilité du coût employeur" to if (payroll?.employerCostComplete == true) "Calcul complet" else "À confirmer — sous-total partiel",
+            "Bases et taux détaillés" to "Non exposés par ce moteur ; à confirmer"
+        )
     }
 
     internal data class TimeSectionValues(
@@ -424,7 +580,8 @@ object SalaryExamplePdfV2 {
         contentBottom: Float = PDF_CONTENT_BOTTOM,
         sectionHeaderHeight: Float = PDF_SECTION_HEADER_HEIGHT,
         rowHeight: Float = PDF_ROW_HEIGHT,
-        sectionTailHeight: Float = PDF_SECTION_TAIL_HEIGHT
+        sectionTailHeight: Float = PDF_SECTION_TAIL_HEIGHT,
+        keepSectionsTogether: Boolean = true
     ): List<PdfPagePlan> {
         require(contentBottom > contentTop)
         require(sectionHeaderHeight > 0f && rowHeight > 0f && sectionTailHeight >= 0f)
@@ -443,7 +600,7 @@ object SalaryExamplePdfV2 {
 
         sections.filter { it.lines.isNotEmpty() }.forEach { section ->
             val wholeHeight = sectionHeaderHeight + section.lines.size * rowHeight + sectionTailHeight
-            if (wholeHeight <= pageCapacity) {
+            if (keepSectionsTogether && wholeHeight <= pageCapacity) {
                 if (fragments.isNotEmpty() && usedHeight + wholeHeight > pageCapacity) finishPage()
                 fragments += PdfSectionFragment(section.name, section.lines, continuation = false)
                 usedHeight += wholeHeight
@@ -491,7 +648,7 @@ object SalaryExamplePdfV2 {
 
         return buildList {
             add(
-                "Brut social estimé HoraTrack hors paniers" to
+                "Brut social estimé AGKGMG hors paniers" to
                     (socialGross?.let(::money) ?: "À confirmer")
             )
             if (reliablePayrollGross && (payroll?.benefitsInKindDeduction ?: 0.0) > 0.0) {
@@ -553,7 +710,7 @@ object SalaryExamplePdfV2 {
         val presentation = salaryNet?.let(V2SalaryNetPresentationV2::from)
         return buildList {
             add(
-                "Brut social estimé HoraTrack hors paniers" to
+                "Brut social estimé AGKGMG hors paniers" to
                     (payroll
                         ?.takeIf { reliablePayrollGross }
                         ?.let(NetSalaryReferencePolicyV2::socialGross)

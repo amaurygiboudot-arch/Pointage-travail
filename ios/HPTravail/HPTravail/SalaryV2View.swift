@@ -1,4 +1,5 @@
 import SwiftUI
+import QuickLook
 
 struct SalaryV2View: View {
     @EnvironmentObject private var salaryStore: SalaryV2Store
@@ -6,6 +7,8 @@ struct SalaryV2View: View {
     @State private var payrollCoverageAgreed = false
     @State private var payrollCoverageFeedback: String?
     @State private var salaryPdfURL: URL?
+    @State private var salaryPdfPreviewURL: URL?
+    @EnvironmentObject private var preferences: PersonalizationStoreV2
     @State private var salaryPdfFeedback: String?
     @State private var payslipGrossText = ""
     @State private var payslipNetBeforeTaxText = ""
@@ -38,6 +41,8 @@ struct SalaryV2View: View {
                 .padding()
             }
             .navigationTitle("Salaire")
+            .quickLookPreview($salaryPdfPreviewURL)
+            .onChange(of: preferences.sessionID) { _ in clearSalaryPdf() }
             .onAppear {
                 salaryStore.refresh()
             }
@@ -232,7 +237,7 @@ struct SalaryV2View: View {
             .disabled(salaryStore.selectedCompanyId == nil)
 
             if let feedback = salaryStore.contractFeedback {
-                Text(feedback)
+                Text(feedback).readingActionV2(feedback)
                     .font(.footnote)
             }
 
@@ -286,7 +291,7 @@ struct SalaryV2View: View {
             } else {
                 Text("Sélectionnez une entreprise confirmée.")
             }
-            if let payrollCoverageFeedback { Text(payrollCoverageFeedback).font(.footnote) }
+            if let payrollCoverageFeedback { Text(payrollCoverageFeedback).readingActionV2(payrollCoverageFeedback).font(.footnote) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
@@ -386,7 +391,7 @@ struct SalaryV2View: View {
                 }
 
                 if let feedback = salaryStore.segmentedProrationFeedback {
-                    Text(feedback)
+                    Text(feedback).readingActionV2(feedback)
                         .font(.footnote)
                 }
             }
@@ -510,7 +515,7 @@ struct SalaryV2View: View {
             .disabled(salaryStore.selectedCompanyId == nil)
 
             if let feedback = salaryStore.socialProfileFeedback {
-                Text(feedback)
+                Text(feedback).readingActionV2(feedback)
                     .font(.footnote)
             }
 
@@ -572,7 +577,7 @@ struct SalaryV2View: View {
             .disabled(salaryStore.selectedCompanyId == nil)
 
             if let feedback = salaryStore.classificationFeedback {
-                Text(feedback)
+                Text(feedback).readingActionV2(feedback)
                     .font(.footnote)
             }
 
@@ -796,7 +801,7 @@ struct SalaryV2View: View {
             }
 
             if let feedback = salaryStore.absenceFeedback {
-                Text(feedback)
+                Text(feedback).readingActionV2(feedback)
                     .font(.footnote)
             }
         }
@@ -873,7 +878,7 @@ struct SalaryV2View: View {
                 }
 
                 if let payslipComparisonFeedback {
-                    Text(payslipComparisonFeedback)
+                    Text(payslipComparisonFeedback).readingActionV2(payslipComparisonFeedback)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -898,6 +903,12 @@ struct SalaryV2View: View {
                 }
 
                 if let salaryPdfURL {
+                    Button {
+                        salaryPdfPreviewURL = salaryPdfURL
+                    } label: {
+                        Label("Lire le PDF", systemImage: "doc.text.magnifyingglass")
+                    }
+                    .buttonStyle(.bordered)
                     ShareLink(
                         item: salaryPdfURL,
                         subject: Text("HoraTrack — estimation de salaire"),
@@ -908,7 +919,7 @@ struct SalaryV2View: View {
                 }
 
                 if let salaryPdfFeedback {
-                    Text(salaryPdfFeedback)
+                    Text(salaryPdfFeedback).readingActionV2(salaryPdfFeedback)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -947,7 +958,7 @@ struct SalaryV2View: View {
             }
             .disabled(salaryStore.selectedCompanyId == nil)
             if let feedback = salaryStore.incomeTaxFeedback {
-                Text(feedback)
+                Text(feedback).readingActionV2(feedback)
                     .font(.footnote)
             }
             Text("Le taux est lié à l'entreprise sélectionnée et au mois affiché ; il n'est jamais réutilisé silencieusement pour un autre employeur ou un autre mois.")
@@ -974,6 +985,7 @@ struct SalaryV2View: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding()
             .background { ReadableCardSurfaceV2() }
+            .readingActionV2(salaryStore.displayWarnings.joined(separator: "\n\n"))
         }
     }
 
@@ -1060,6 +1072,7 @@ struct SalaryV2View: View {
 
     private func clearSalaryPdf() {
         salaryPdfURL = nil
+        salaryPdfPreviewURL = nil
         salaryPdfFeedback = nil
     }
 

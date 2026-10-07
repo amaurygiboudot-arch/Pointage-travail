@@ -158,20 +158,9 @@ object AppearanceManager {
         if (view is ScrollView) view.setBackgroundColor(if (imageBg) Color.TRANSPARENT else bg)
     }
 
-    fun bestTextColor(background: Int): Int = if (isDark(background)) Color.WHITE else Color.parseColor("#111111")
+    fun bestTextColor(background: Int): Int = VisualContrastV2.bestText(background)
 
-    fun contrastRatio(foreground: Int, background: Int): Double {
-        fun lum(c: Int): Double {
-            fun channel(v: Int): Double {
-                val s = v / 255.0
-                return if (s <= 0.03928) s / 12.92 else Math.pow((s + 0.055) / 1.055, 2.4)
-            }
-            return 0.2126 * channel(Color.red(c)) + 0.7152 * channel(Color.green(c)) + 0.0722 * channel(Color.blue(c))
-        }
-        val l1 = lum(foreground)
-        val l2 = lum(background)
-        return (maxOf(l1, l2) + 0.05) / (minOf(l1, l2) + 0.05)
-    }
+    fun contrastRatio(foreground: Int, background: Int): Double = VisualContrastV2.ratio(foreground, background)
 
     private fun isDark(color: Int): Boolean = ((Color.red(color) * 299 + Color.green(color) * 587 + Color.blue(color) * 114) / 1000) < 145
     private fun parseColor(value: String?, fallback: Int): Int = runCatching { Color.parseColor(value ?: "") }.getOrDefault(fallback)

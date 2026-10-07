@@ -1,5 +1,8 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.billing.BillingPdfGate
+import com.amaury.pointage.billing.BillingOffers
+
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
@@ -33,7 +36,6 @@ import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.ui.HistoryTextFormatterV2
 import com.amaury.pointage.v2.ui.HomeTabVisibilityPolicyV2
 import com.amaury.pointage.v2.engine.CelestialGlobeModeV2
-import com.amaury.pointage.v2.engine.MonthlyPdfReportV2
 import com.amaury.pointage.v2.model.SessionStatusV2
 import org.json.JSONArray
 import org.json.JSONObject
@@ -149,6 +151,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.amaury.pointage.billing.HoraTrackBilling.initialize(this)
         setContentView(R.layout.activity_main)
         if (HoraTrackV2.ENABLED) V2RuntimeStore.bind(this)
 
@@ -164,6 +167,10 @@ class MainActivity : Activity() {
         gpsSettingsPanel = requiredView(R.id.gpsSettingsPanel, "gpsSettingsPanel")
         celestialGlobeModeGroup = requiredView(R.id.celestialGlobeModeGroup, "celestialGlobeModeGroup")
         analyticsPdfPanel = requiredView(R.id.analyticsPdfPanel, "analyticsPdfPanel")
+        analyticsPdfPanel.addView(Button(this).apply {
+            text = "PREMIUM ET ACHATS"
+            setOnClickListener { BillingOffers.show(this@MainActivity) }
+        })
         workplaceAddress = requiredView(R.id.workplaceAddress, "workplaceAddress")
         geofenceRadius = requiredView(R.id.geofenceRadius, "geofenceRadius")
         autoGpsSwitch = requiredView(R.id.autoGpsSwitch, "autoGpsSwitch")
@@ -253,7 +260,7 @@ class MainActivity : Activity() {
 
         locationPermissionButton?.setOnClickListener { animateClick(locationPermissionButton); requestLocationAccess() }
         chooseReportMonthButton?.setOnClickListener { animateClick(chooseReportMonthButton); showReportMonthDialog() }
-        generateMonthlyPdfButton?.setOnClickListener { animateClick(generateMonthlyPdfButton); requestMonthlyPdfDestination() }
+        generateMonthlyPdfButton?.setOnClickListener { animateClick(generateMonthlyPdfButton); requestMonthlyPdfPreview() }
 
         tabHome.setOnClickListener { showHomeTab() }
         tabToday.setOnClickListener { showTodayTab() }
@@ -356,22 +363,35 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != REQUEST_CREATE_MONTHLY_PDF || resultCode != RESULT_OK) return
         val uri = data?.data ?: return
+        if (HoraTrackV2.ENABLED) {
+            // A result from the former destination-first flow cannot bypass V2 preparation.
+            runCatching { android.provider.DocumentsContract.deleteDocument(contentResolver, uri) }
+            startActivity(Intent(this, V2MonthlyPdfActivity::class.java).apply {
+                putExtra("report_year", pendingPdfYear)
+                putExtra("report_month", pendingPdfMonth)
+            })
+            return
+        }
         try {
-            contentResolver.openOutputStream(uri)?.use { output ->
-                if (HoraTrackV2.ENABLED) {
-                    MonthlyPdfReportV2.write(
-                        V2RuntimeReader.allSessions(this).requireReliable(),
-                        pendingPdfYear,
-                        pendingPdfMonth,
-                        output
-                    )
-                } else {
-                    V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
-                    MonthlyPdfReport.write(this, PointageStore.load(this), pendingPdfYear, pendingPdfMonth, output)
-                }
-            } ?: throw IllegalStateException("Impossible d'ouvrir le fichier")
-            Toast.makeText(this, "PDF mensuel enregistré", Toast.LENGTH_LONG).show()
+            val file = java.io.File.createTempFile("monthly_export_", ".pdf", cacheDir)
+            file.outputStream().use { output ->
+                V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
+                MonthlyPdfReport.write(this, PointageStore.load(this), pendingPdfYear, pendingPdfMonth, output)
+            }
+            BillingPdfGate.require(this, file, "HoraTrack_${pendingPdfYear}_${pendingPdfMonth + 1}.pdf", onDenied = {
+                runCatching { android.provider.DocumentsContract.deleteDocument(contentResolver, uri) }
+            }) { authorizedFile ->
+                runCatching {
+                    contentResolver.openOutputStream(uri)?.use { output -> authorizedFile.inputStream().use { it.copyTo(output) } }
+                        ?: error("Impossible d'ouvrir le fichier")
+                }.onSuccess { Toast.makeText(this, "PDF mensuel enregistré", Toast.LENGTH_LONG).show() }
+                    .onFailure {
+                        runCatching { android.provider.DocumentsContract.deleteDocument(contentResolver, uri) }
+                        Toast.makeText(this, "Impossible d'enregistrer le PDF", Toast.LENGTH_LONG).show()
+                    }
+            }
         } catch (e: Exception) {
+            runCatching { android.provider.DocumentsContract.deleteDocument(contentResolver, uri) }
             Toast.makeText(this, "Impossible de générer le PDF : ${e.message ?: "erreur inconnue"}", Toast.LENGTH_LONG).show()
         }
     }
@@ -548,15 +568,17 @@ class MainActivity : Activity() {
             }.setNegativeButton("Annuler", null).show()
     }
 
-    private fun requestMonthlyPdfDestination() {
-        pendingPdfYear = selectedReportMonth.get(Calendar.YEAR)
-        pendingPdfMonth = selectedReportMonth.get(Calendar.MONTH)
-        val monthFile = SimpleDateFormat("MMMM_yyyy", Locale.FRANCE).format(selectedReportMonth.time)
-            .replaceFirstChar { it.uppercase() }.replace("é", "e").replace("è", "e").replace("ê", "e")
-            .replace("û", "u").replace("ô", "o").replace("à", "a").replace("ç", "c")
-        startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE); type = "application/pdf"; putExtra(Intent.EXTRA_TITLE, "HoraTrack_$monthFile.pdf")
-        }, REQUEST_CREATE_MONTHLY_PDF)
+    private fun requestMonthlyPdfPreview() {
+        if (HoraTrackV2.ENABLED) {
+            startActivity(Intent(this, V2MonthlyPdfActivity::class.java).apply {
+                putExtra("report_year", selectedReportMonth.get(Calendar.YEAR))
+                putExtra("report_month", selectedReportMonth.get(Calendar.MONTH))
+                putExtra("report_preview", true)
+            })
+        } else {
+            findViewById<PreviewPdfButton>(R.id.generateMonthlyPdfButton)?.openPreview(
+                selectedReportMonth.get(Calendar.YEAR), selectedReportMonth.get(Calendar.MONTH))
+        }
     }
 
     private fun loadCelestialSettings() {

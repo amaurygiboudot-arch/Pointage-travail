@@ -17,6 +17,7 @@ struct PersonalizationSettingsV2: View {
                     Text("Sombre").tag("dark")
                 }
                 Stepper("Agrandissement : +\(preferences.value.textSteps) niveaux", value: preferences.binding(\.textSteps), in: 0...5)
+                Stepper("Zoom de lecture : \(Int(preferences.value.readerScale * 100)) %", value: preferences.binding(\.readerScale), in: 1...4, step: 0.25)
                 Text("La taille du système reste la base. L’application peut l’agrandir, sans réduire les besoins d’accessibilité.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -39,6 +40,7 @@ struct PersonalizationSettingsV2: View {
                 Text("Les montants, dates, identifiants et références restent sans correction automatique. Dictée, sélection et annulation utilisent les commandes du clavier iOS.")
                     .font(.caption)
             }
+            SystemPermissionsSectionV2()
             Section("Conservation et restauration") {
                 Text("Préférences conservées sur cet appareil, séparément pour chaque compte et pour le visiteur. La synchronisation entre appareils n’est pas activée.")
                     .font(.caption)
@@ -62,11 +64,7 @@ struct PersonalizationSettingsV2: View {
                 let url = try result.get()
                 let scoped = url.startAccessingSecurityScopedResource()
                 defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-                guard ((attributes[.size] as? NSNumber)?.intValue ?? Int.max) <= 16_384 else {
-                    throw VisualPreferencesV2.ValidationError.unsupported
-                }
-                pendingImport = try VisualPreferencesV2.decode(Data(contentsOf: url))
+                pendingImport = try VisualPreferencesV2.readImport(from: url)
             } catch { preferences.errorMessage = "Import refusé : fichier invalide, incomplet ou version incompatible. Vos réglages sont conservés." }
         }
         .confirmationDialog("Restaurer ces préférences ?", isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }), titleVisibility: .visible) {
@@ -78,7 +76,7 @@ struct PersonalizationSettingsV2: View {
             Button("Annuler", role: .cancel) { pendingImport = nil }
         } message: {
             if let candidate = pendingImport {
-                Text("Apparence : \(candidate.appearance), agrandissement : +\(candidate.textSteps), contraste renforcé : \(candidate.highContrast ? "oui" : "non"), contexte : \(candidate.context), thème : \(candidate.accent), mouvements réduits : \(candidate.reduceMotion ? "oui" : "non"), surfaces opaques : \(candidate.opaqueSurfaces ? "oui" : "non"), correction clavier : \(candidate.systemSpelling ? "oui" : "non"). Les données de pointage et de paie restent conservées.")
+                Text("Apparence : \(candidate.appearance), agrandissement : +\(candidate.textSteps), contraste renforcé : \(candidate.highContrast ? "oui" : "non"), zoom de lecture : \(Int(candidate.readerScale * 100)) %, contexte : \(candidate.context), thème : \(candidate.accent), mouvements réduits : \(candidate.reduceMotion ? "oui" : "non"), surfaces opaques : \(candidate.opaqueSurfaces ? "oui" : "non"), correction clavier : \(candidate.systemSpelling ? "oui" : "non"). Les données de pointage et de paie restent conservées.")
             }
         }
         .confirmationDialog("Réinitialiser le confort visuel ?", isPresented: $showReset, titleVisibility: .visible) {

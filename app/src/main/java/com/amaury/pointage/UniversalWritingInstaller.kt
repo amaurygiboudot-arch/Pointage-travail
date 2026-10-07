@@ -21,6 +21,9 @@ import android.widget.EditText
 import android.widget.Toast
 import com.amaury.pointage.writing.WritingEngine
 import com.amaury.pointage.writing.WritingLocalStore
+import com.amaury.pointage.writing.WritingProviderEdits
+import com.amaury.pointage.writing.WritingSystemSpellChecker
+import com.amaury.pointage.writing.WritingDictationBridge
 import com.google.firebase.auth.FirebaseAuth
 import java.lang.ref.WeakReference
 import java.util.Locale
@@ -52,7 +55,7 @@ object UniversalWritingInstaller {
                 }
                 (activity.currentFocus as? EditText)?.let(::attach)
             }
-            override fun onActivityPaused(activity: Activity) { sessions.values.toList().forEach { it.flushDraft() } }
+            override fun onActivityPaused(activity: Activity) { sessions.values.toList().forEach { it.pause() } }
             override fun onActivityDestroyed(activity: Activity) {
                 roots.remove(activity)?.let { if (activity.window.decorView.viewTreeObserver.isAlive) activity.window.decorView.viewTreeObserver.removeOnGlobalFocusChangeListener(it) }
             }
@@ -90,6 +93,8 @@ object UniversalWritingInstaller {
         private val dialogs = mutableListOf<WeakReference<AlertDialog>>()
         private val store = WritingLocalStore(field.context.applicationContext)
         private val engine = WritingEngine(snapshot(field))
+        private val systemSpellChecker = WritingSystemSpellChecker(field.context.applicationContext)
+        private var dictationToken: String? = null
         private var scope = account()
         private var document: String? = null
         private var applying = false
@@ -111,6 +116,7 @@ object UniversalWritingInstaller {
                     if (applying) return
                     val view = ref.get() ?: return
                     if (!checkAccount()) return
+                    systemSpellChecker.cancel()
                     // Group rapid typing and avoid copying the complete document on every keystroke.
                     // The IME keeps its composing spans; actions capture the final version again.
                     main.removeCallbacks(capture)
@@ -133,6 +139,9 @@ object UniversalWritingInstaller {
             main.removeCallbacks(capture)
             saveSequence++
             scope = latest
+            systemSpellChecker.cancel()
+            WritingDictationBridge.cancel(dictationToken)
+            dictationToken = null
             dialogs.forEach { it.get()?.dismiss() }
             dialogs.clear()
             lastQueued = ""
@@ -177,7 +186,7 @@ object UniversalWritingInstaller {
         }
         fun tools() {
             val view = ready() ?: return
-            val labels = arrayOf("Annuler la dernière modification", "Rétablir", "Suggestions locales", "Dictionnaire personnel", "Récupérer le brouillon", "Effacer le brouillon enregistré", "Récupérer l’ancien brouillon local")
+            val labels = arrayOf("Annuler la dernière modification", "Rétablir", "Suggestions locales", "Dictionnaire personnel", "Récupérer le brouillon", "Effacer le brouillon enregistré", "Récupérer l’ancien brouillon local", "Vérifier avec le correcteur Android", "Dicter et vérifier avant insertion")
             AlertDialog.Builder(view.context).setTitle("Aide à l’écriture").setItems(labels) { _, which ->
                 if (ready() == null) return@setItems
                 when (which) {
@@ -188,6 +197,8 @@ object UniversalWritingInstaller {
                     4 -> recover()
                     5 -> discardDraft()
                     6 -> recoverLegacy()
+                    7 -> if (enabled(view.context)) systemSuggestions() else toast("L’assistance à l’écriture est désactivée.")
+                    8 -> if (enabled(view.context)) dictate() else toast("L’assistance à l’écriture est désactivée.")
                 }
             }.setNegativeButton("Fermer", null).show().track()
         }
@@ -204,17 +215,88 @@ object UniversalWritingInstaller {
                     val words = result.getOrElse { toast("Le dictionnaire local n’est pas accessible."); return@post }
                     val suggestions = engine.suggestions(lang, words) + engine.completions(words)
                     if (suggestions.isEmpty()) { toast("Aucune suggestion locale. La vérification grammaticale complète n’est pas disponible."); return@post }
-                    AlertDialog.Builder(current.context).setTitle("Propositions à vérifier")
-                        .setItems(suggestions.map { "${it.original} → ${it.replacement} (${it.reason})" }.toTypedArray()) { _, index ->
-                            val choice = suggestions[index]
-                            AlertDialog.Builder(current.context).setTitle("Remplacer ce passage ?")
-                                .setMessage("Original : ${choice.original}\nProposition : ${choice.replacement}")
-                                .setPositiveButton("Accepter") { _, _ ->
-                                    if (ready() != null) engine.accept(choice)?.let(::apply) ?: toast("Le texte a changé. Relance les suggestions.")
-                                }.setNegativeButton("Ignorer", null).show().track()
-                        }.setNegativeButton("Fermer", null).show().track()
+                    showSuggestions(suggestions)
                 }
             }
+        }
+        private fun showSuggestions(suggestions: List<WritingEngine.Suggestion>) {
+            val view = ready() ?: return
+            if (!enabled(view.context)) return
+            if (suggestions.isEmpty()) { toast("Aucune proposition du correcteur. Cela ne garantit pas l’absence de faute."); return }
+            AlertDialog.Builder(view.context).setTitle("Propositions à vérifier")
+                .setItems(suggestions.map { "${it.original} → ${it.replacement} (${it.reason})" }.toTypedArray()) { _, index ->
+                    val choice = suggestions[index]
+                    AlertDialog.Builder(view.context).setTitle("Remplacer ce passage ?")
+                        .setMessage("Original : ${choice.original}\nProposition : ${choice.replacement}")
+                        .setPositiveButton("Accepter") { _, _ ->
+                            if (ready() != null && enabled(view.context)) {
+                                engine.accept(choice)?.let(::apply) ?: toast("Le texte a changé. Relance les suggestions.")
+                            }
+                        }.setNegativeButton("Ignorer", null).show().track()
+                }.setNegativeButton("Fermer", null).show().track()
+        }
+        fun pause() { flushDraft(); systemSpellChecker.cancel() }
+        private fun unchanged(original: WritingEngine.Snapshot, revision: Long, requestedScope: String): Boolean {
+            val view = ref.get() ?: return false
+            return checkAccount() && scope == requestedScope && view.isAttachedToWindow && eligible(view) &&
+                enabled(view.context) && engine.revision == revision && view.text.toString() == original.text
+        }
+        private fun systemSuggestions() {
+            val view = ready() ?: return
+            val original = engine.current
+            val revision = engine.revision
+            val requestedScope = scope
+            val start = minOf(original.start, original.end)
+            val end = maxOf(original.start, original.end)
+            val from = if (start == end) 0 else start
+            val to = if (start == end) original.text.length else end
+            if (from !in 0..original.text.length || to !in from..original.text.length || to - from !in 1..5_000 ||
+                !WritingEngine.safeBoundary(original.text, from) || !WritingEngine.safeBoundary(original.text, to)) {
+                toast("Sélectionne un passage de 1 à 5 000 caractères pour le correcteur Android."); return
+            }
+            val lang = language(view.context)
+            AlertDialog.Builder(view.context).setTitle("Utiliser le correcteur Android ?")
+                .setMessage("Le passage sera transmis au correcteur configuré dans Android. Selon son fournisseur, celui-ci peut utiliser Internet. Les corrections dépendront du service et de la langue disponibles ; aucune modification ne sera appliquée sans ton accord.")
+                .setPositiveButton("Vérifier ce passage") { _, _ ->
+                    if (!unchanged(original, revision, requestedScope)) return@setPositiveButton
+                    io.execute {
+                        val words = runCatching { store.dictionary(requestedScope, lang) }
+                        main.post {
+                            if (!unchanged(original, revision, requestedScope)) return@post
+                            val dictionary = words.getOrElse { toast("Le dictionnaire personnel n’est pas accessible."); return@post }
+                            systemSpellChecker.request(original.text.substring(from, to), lang) { result ->
+                                if (!unchanged(original, revision, requestedScope)) return@request
+                                val candidates = result.getOrElse { toast(it.message ?: "Correcteur indisponible"); return@request }
+                                // Validate provider-relative ranges before adding the document offset.
+                                val checked = WritingProviderEdits.suggestions(original.text.substring(from, to), revision, candidates, dictionary)
+                                    .map { it.copy(start = it.start + from, end = it.end + from) }
+                                showSuggestions(checked)
+                            }
+                        }
+                    }
+                }.setNegativeButton("Annuler", null).show().track()
+        }
+        private fun dictate() {
+            val view = ready() ?: return
+            val original = engine.current
+            val revision = engine.revision
+            val requestedScope = scope
+            val start = minOf(original.start, original.end)
+            val end = maxOf(original.start, original.end)
+            if (!WritingEngine.safeBoundary(original.text, start) || !WritingEngine.safeBoundary(original.text, end)) {
+                toast("Place le curseur en dehors d’un caractère composé."); return
+            }
+            WritingDictationBridge.cancel(dictationToken)
+            runCatching {
+                dictationToken = WritingDictationBridge.start(view.context, language(view.context),
+                    isValid = { unchanged(original, revision, requestedScope) }, deliver = { recognized ->
+                        if (ready() != null && unchanged(original, revision, requestedScope)) {
+                            val change = WritingEngine.Suggestion(revision, start, end, original.text.substring(start, end), recognized, "Dictée vérifiée")
+                            engine.accept(change)?.let(::apply) ?: toast("Le texte a changé ; la dictée n’a pas été insérée.")
+                        }
+                        dictationToken = null
+                    })
+            }.onFailure { toast("Impossible d’ouvrir la dictée. Ton texte est conservé.") }
         }
         private fun dictionary() {
             val view = ready() ?: return

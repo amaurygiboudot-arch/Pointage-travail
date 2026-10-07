@@ -25,6 +25,7 @@ class V2SecuritySettingsView @JvmOverloads constructor(
         setPadding(0, dp(14), 0, dp(4))
         addView(TextView(context).apply { text = "VERROUILLAGE AGKGMG"; textSize = 15f })
         addView(status.apply { textSize = 12f; setPadding(0, dp(4), 0, dp(6)) })
+        addView(button("AUTORISATIONS ET CONFIDENTIALITÉ") { SystemPermissionsV2.show(context) })
         addView(button("CONFIGURER LE PIN") { configurePin() })
         addView(button("ACTIVER / DÉSACTIVER LA BIOMÉTRIE") {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {

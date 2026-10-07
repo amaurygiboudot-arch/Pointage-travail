@@ -1,0 +1,396 @@
+package com.amaury.pointage.v2
+
+import android.app.Application
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ProviderInfo
+import android.database.Cursor
+import android.database.MatrixCursor
+import android.net.Uri
+import android.os.Bundle
+import android.os.CancellationSignal
+import android.os.Looper
+import android.os.ParcelFileDescriptor
+import android.provider.DocumentsContract
+import android.provider.DocumentsProvider
+import com.amaury.pointage.PdfPreviewActivity
+import com.amaury.pointage.billing.BillingContract
+import com.amaury.pointage.billing.BillingPdfGate
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
+import org.junit.Assert.*
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.mockito.Mockito
+import org.robolectric.Robolectric
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
+import org.robolectric.annotation.LooperMode
+import org.robolectric.shadows.ShadowContentResolver
+import org.robolectric.shadows.ShadowToast
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.io.OutputStream
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35], application = Application::class,
+    shadows = [PdfSaveAuthShadow::class, PdfSaveGateShadow::class, PdfSaveResolverShadow::class, PdfSaveRendererShadow::class, PdfSavePageShadow::class],
+    instrumentedPackages = ["com.amaury.pointage.billing", "com.google.firebase.auth"])
+@LooperMode(LooperMode.Mode.PAUSED)
+class PdfPreviewSaveIntegrationV2Test {
+    private lateinit var source: File
+    private lateinit var destination: File
+    private val uri = DocumentsContract.buildDocumentUri("pdf.save.test", "created")
+
+    @Before fun setupCreatedDocument() {
+        val app = RuntimeEnvironment.getApplication()
+        val user = Mockito.mock(FirebaseUser::class.java)
+        Mockito.`when`(user.uid).thenReturn("save-user")
+        PdfSaveAuthShadow.auth = Mockito.mock(FirebaseAuth::class.java)
+        Mockito.`when`(PdfSaveAuthShadow.auth.currentUser).thenReturn(user)
+        source = File(app.filesDir, "source.pdf").apply { writeBytes(ByteArray(20000) { (it % 251).toByte() }) }
+        destination = File(app.filesDir, "public_destination.pdf").apply { writeBytes(byteArrayOf()) }
+        PdfSaveDocumentsProvider.document = destination
+        PdfSaveDocumentsProvider.deletions.set(0)
+        val provider = PdfSaveDocumentsProvider()
+        provider.attachInfo(app, ProviderInfo().apply {
+            authority = "pdf.save.test"; exported = true; grantUriPermissions = true
+            readPermission = "android.permission.MANAGE_DOCUMENTS"
+            writePermission = "android.permission.MANAGE_DOCUMENTS"
+        })
+        ShadowContentResolver.registerProviderInternal("pdf.save.test", provider)
+        PdfSaveGateShadow.allow = true; PdfSaveGateShadow.unavailable = false
+        PdfSaveGateShadow.calls.set(0); PdfSaveGateShadow.interactiveCalls.set(0)
+        PdfSaveGateShadow.started = null; PdfSaveGateShadow.release = null; PdfSaveGateShadow.completed = null
+        PdfSaveResolverShadow.mode = "success"
+        val fixtureHash = BillingContract.documentId(source)
+        exportWorker().submit {
+            assertEquals("Firebase fixture must resolve the same UID on the actual export worker", "save-user", FirebaseAuth.getInstance().currentUser?.uid)
+            val hash = BillingContract.documentId(source)
+            assertEquals("Worker hash must equal the fixture hash", fixtureHash, hash)
+            assertTrue("The configured Gate shadow must be reachable on the export worker", BillingPdfGate.authorizeBackgroundBlocking(app, source))
+        }.get(5, TimeUnit.SECONDS)
+        assertEquals("A direct worker Gate probe must hit its shadow exactly once", 1, PdfSaveGateShadow.calls.get())
+        PdfSaveGateShadow.calls.set(0)
+    }
+
+    @Test fun deniedAuthorizationDeletesCreatedDocumentWithoutCopy() = runSave("denied")
+    @Test fun unavailableAuthorizationDeletesCreatedDocumentWithoutCopy() = runSave("unavailable")
+    @Test fun partialCopyFailureDeletesPartialDocument() = runSave("partial")
+    @Test fun nullOutputStreamIsFailureAndDeletesCreatedDocument() = runSave("null")
+    @Test fun successfulSaveRetainsExactAuthorizedBytes() = runSave("success")
+    @Test fun accountChangeRejectsAndDeletesDestinationBeforeAuthorization() = runSave("account")
+    @Test fun changedHashRejectsAndDeletesDestinationBeforeAuthorization() = runSave("hash")
+
+    @Test fun restoredCopyWithChangedAccountQueuesActualDocumentCleanup() {
+        val state = Bundle().apply {
+            putString("pdf_owner", "former-user"); putString("save_file", source.absolutePath)
+            putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true); putBoolean("save_read_only_return", true)
+            putString("save_uri", uri.toString())
+        }
+        destination.writeText("interrupted partial export")
+        val intent = Intent(RuntimeEnvironment.getApplication(), PdfPreviewActivity::class.java)
+            .putExtra("pdf_path", source.absolutePath)
+        val controller = Robolectric.buildActivity(PdfPreviewActivity::class.java, intent).create(state)
+        try {
+            val deadline = System.nanoTime() + 5_000_000_000L
+            while (System.nanoTime() < deadline && destination.exists()) { shadowOf(Looper.getMainLooper()).idle(); Thread.yield() }
+            assertTrue(controller.get().isFinishing)
+            assertFalse(destination.exists())
+            assertEquals(1, PdfSaveDocumentsProvider.deletions.get())
+            assertEquals(0, PdfSaveGateShadow.calls.get())
+        } finally { controller.destroy() }
+    }
+
+    @Test fun resumeDuringSaveUsesNoInteractiveGateAndAllowsManualRetryAfterRefusal() {
+        val state = Bundle().apply {
+            putString("pdf_owner", "save-user"); putString("save_file", source.absolutePath)
+            putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true); putBoolean("save_read_only_return", true)
+        }
+        val controller = Robolectric.buildActivity(PdfPreviewActivity::class.java,
+            Intent(RuntimeEnvironment.getApplication(), PdfPreviewActivity::class.java).putExtra("pdf_path", source.absolutePath)).create(state)
+        PdfSaveGateShadow.started = CountDownLatch(1)
+        PdfSaveGateShadow.release = CountDownLatch(1)
+        PdfSaveGateShadow.allow = false
+        try {
+            val activity = controller.get()
+            assertActiveSaveFixture(activity)
+            PdfPreviewActivity::class.java.getDeclaredMethod("onActivityResult", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Intent::class.java)
+                .apply { isAccessible = true }.invoke(activity, 4102, Activity.RESULT_OK, Intent().setData(uri))
+            assertTrue("Copy must reach read-only authorization", PdfSaveGateShadow.started!!.await(5, TimeUnit.SECONDS))
+            PdfPreviewActivity::class.java.getDeclaredMethod("onResume").apply { isAccessible = true }.invoke(activity)
+            assertEquals("Returning from SAF cannot open offers", 0, PdfSaveGateShadow.interactiveCalls.get())
+            PdfSaveGateShadow.release!!.countDown()
+            val deadline = System.nanoTime() + 5_000_000_000L
+            while (System.nanoTime() < deadline && ShadowToast.getTextOfLatestToast() == null) { shadowOf(Looper.getMainLooper()).idle(); Thread.yield() }
+            shadowOf(Looper.getMainLooper()).idle()
+            assertFalse(destination.exists())
+            assertEquals(0, PdfSaveGateShadow.interactiveCalls.get())
+            assertTrue("Retry must remain available as an explicit click", activity.findViewById<android.widget.Button>(com.amaury.pointage.R.id.pdfPreviewSave).isEnabled)
+        } finally { PdfSaveGateShadow.release?.countDown(); controller.destroy() }
+    }
+
+    @Test fun cancelAfterResumeRestoresManualRetryWithoutInteractiveGate() {
+        PdfSaveGateShadow.allow = false
+        PdfSaveGateShadow.completed = CountDownLatch(1)
+        val state = Bundle().apply {
+            putString("pdf_owner", "save-user"); putString("save_file", source.absolutePath)
+            putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true); putBoolean("save_read_only_return", true)
+        }
+        val controller = Robolectric.buildActivity(PdfPreviewActivity::class.java,
+            Intent(RuntimeEnvironment.getApplication(), PdfPreviewActivity::class.java).putExtra("pdf_path", source.absolutePath)).create(state)
+        try {
+            val activity = controller.get()
+            assertActiveSaveFixture(activity)
+            PdfPreviewActivity::class.java.getDeclaredMethod("onResume").apply { isAccessible = true }.invoke(activity)
+            assertFalse(activity.findViewById<android.widget.Button>(com.amaury.pointage.R.id.pdfPreviewSave).isEnabled)
+            PdfPreviewActivity::class.java.getDeclaredMethod("onActivityResult", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Intent::class.java)
+                .apply { isAccessible = true }.invoke(activity, 4102, Activity.RESULT_CANCELED, null)
+            assertTrue(activity.findViewById<android.widget.Button>(com.amaury.pointage.R.id.pdfPreviewSave).isEnabled)
+            assertEquals(0, PdfSaveGateShadow.interactiveCalls.get())
+            val save = activity.findViewById<android.widget.Button>(com.amaury.pointage.R.id.pdfPreviewSave)
+            save.isEnabled = false // Observe the final worker callback rather than its earlier immediate retry state.
+            val deadline = System.nanoTime() + 5_000_000_000L
+            while (System.nanoTime() < deadline && !save.isEnabled) { shadowOf(Looper.getMainLooper()).idle(); Thread.yield() }
+            assertTrue(PdfSaveGateShadow.completed!!.await(5, TimeUnit.SECONDS))
+            drainExportWorker()
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue("Read-only terminal callback completed before teardown", save.isEnabled)
+            assertEquals("Cancel restores preview through read-only authorization", 1, PdfSaveGateShadow.calls.get())
+            assertEquals(0, PdfSaveGateShadow.interactiveCalls.get())
+            assertNull(shadowOf(activity).nextStartedActivity)
+        } finally { controller.destroy() }
+    }
+
+    @Test fun cancelBeforeResumeAndFurtherResumesStayReadOnly() {
+        PdfSaveGateShadow.allow = false
+        val state = Bundle().apply {
+            putString("pdf_owner", "save-user"); putString("save_file", source.absolutePath)
+            putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true)
+            putBoolean("save_read_only_return", true)
+        }
+        val controller = Robolectric.buildActivity(PdfPreviewActivity::class.java,
+            Intent(RuntimeEnvironment.getApplication(), PdfPreviewActivity::class.java).putExtra("pdf_path", source.absolutePath)).create(state)
+        try {
+            val activity = controller.get()
+            assertActiveSaveFixture(activity)
+            PdfPreviewActivity::class.java.getDeclaredMethod("onActivityResult", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Intent::class.java)
+                .apply { isAccessible = true }.invoke(activity, 4102, Activity.RESULT_CANCELED, null)
+            val resume = PdfPreviewActivity::class.java.getDeclaredMethod("onResume").apply { isAccessible = true }
+            resume.invoke(activity)
+            resume.invoke(activity) // Later foreground return must still require explicit user action for offers.
+            val save = activity.findViewById<android.widget.Button>(com.amaury.pointage.R.id.pdfPreviewSave)
+            save.isEnabled = false
+            val deadline = System.nanoTime() + 5_000_000_000L
+            while (System.nanoTime() < deadline && !save.isEnabled) { shadowOf(Looper.getMainLooper()).idle(); Thread.yield() }
+            drainExportWorker()
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(save.isEnabled)
+            assertEquals(0, PdfSaveGateShadow.interactiveCalls.get())
+            assertTrue(PdfSaveGateShadow.calls.get() >= 1)
+            val saved = Bundle()
+            PdfPreviewActivity::class.java.getDeclaredMethod("onSaveInstanceState", Bundle::class.java)
+                .apply { isAccessible = true }.invoke(activity, saved)
+            assertTrue("Read-only return is routing state, persisted across recreation", saved.getBoolean("save_read_only_return"))
+            assertNull(shadowOf(activity).nextStartedActivity)
+        } finally { controller.destroy() }
+    }
+
+    @Test fun partialOutputFailureRestoresPagesAfterResumeDuringCopy() = assertFailureRestoresPages("partial", true)
+    @Test fun inaccessibleOutputRestoresPagesAfterResumeDuringCopy() = assertFailureRestoresPages("null", true)
+    @Test fun refusedReadOnlyAuthorizationKeepsPagesHiddenAfterResumeDuringCopy() = assertFailureRestoresPages("denied", false)
+
+    private fun assertFailureRestoresPages(mode: String, authorized: Boolean) {
+        val state = Bundle().apply {
+            putString("pdf_owner", "save-user"); putString("save_file", source.absolutePath)
+            putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true)
+            putBoolean("save_read_only_return", true)
+        }
+        val controller = Robolectric.buildActivity(PdfPreviewActivity::class.java,
+            Intent(RuntimeEnvironment.getApplication(), PdfPreviewActivity::class.java).putExtra("pdf_path", source.absolutePath)).create(state)
+        PdfSaveGateShadow.started = CountDownLatch(1)
+        PdfSaveGateShadow.release = CountDownLatch(1)
+        PdfSaveGateShadow.allow = authorized
+        PdfSaveResolverShadow.mode = mode
+        try {
+            val activity = controller.get()
+            val pages = activity.findViewById<android.widget.LinearLayout>(com.amaury.pointage.R.id.pdfPagesContainer)
+            // An existing visible page is cleared by the real lifecycle when SAF takes focus.
+            pages.addView(android.widget.ImageView(activity))
+            PdfPreviewActivity::class.java.getDeclaredMethod("onPause").apply { isAccessible = true }.invoke(activity)
+            assertEquals(0, pages.childCount)
+            PdfPreviewActivity::class.java.getDeclaredMethod("onActivityResult", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Intent::class.java)
+                .apply { isAccessible = true }.invoke(activity, 4102, Activity.RESULT_OK, Intent().setData(uri))
+            assertTrue("Export must be in flight before foreground return", PdfSaveGateShadow.started!!.await(5, TimeUnit.SECONDS))
+            PdfPreviewActivity::class.java.getDeclaredMethod("onResume").apply { isAccessible = true }.invoke(activity)
+            assertEquals("Resume during copy cannot render prematurely", 0, pages.childCount)
+            assertEquals(0, PdfSaveGateShadow.interactiveCalls.get())
+            PdfSaveGateShadow.release!!.countDown()
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+            while (System.nanoTime() < deadline && PdfSaveGateShadow.calls.get() < 2) {
+                shadowOf(Looper.getMainLooper()).idle(); Thread.yield()
+            }
+            drainExportWorker()
+            shadowOf(Looper.getMainLooper()).idle()
+            assertFalse("Failed public export must be cleaned up", destination.exists())
+            assertEquals("Completion must independently authorize preview restoration", 2, PdfSaveGateShadow.calls.get())
+            assertEquals("Authorized PDF pages must return after export failure", if (authorized) 1 else 0, pages.childCount)
+            assertTrue(activity.findViewById<android.widget.Button>(com.amaury.pointage.R.id.pdfPreviewSave).isEnabled)
+            assertEquals("Restoration must never reopen purchasing", 0, PdfSaveGateShadow.interactiveCalls.get())
+            assertNull(shadowOf(activity).nextStartedActivity)
+        } finally { PdfSaveGateShadow.release?.countDown(); drainExportWorker(); controller.destroy() }
+    }
+
+    private fun exportWorker(): java.util.concurrent.ExecutorService =
+        PdfPreviewActivity::class.java.getDeclaredField("exportWorker").apply { isAccessible = true }
+            .get(null) as java.util.concurrent.ExecutorService
+
+    private fun assertActiveSaveFixture(activity: PdfPreviewActivity) {
+        assertFalse("Restored preview fixture must not finish during onCreate", activity.isFinishing)
+        assertFalse("Restored preview fixture must not be destroyed", activity.isDestroyed)
+        assertFalse("Restored preview fixture must not be changing configuration", activity.isChangingConfigurations)
+        exportWorker().submit {
+            val uid = PdfPreviewActivity::class.java.getDeclaredMethod("currentUid").apply { isAccessible = true }.invoke(activity)
+            assertEquals("Activity auth precondition on export worker", "save-user", uid)
+            assertEquals("Activity lifecycle precondition on export worker", true,
+                PdfPreviewActivity::class.java.getDeclaredMethod("active", String::class.java).apply { isAccessible = true }.invoke(activity, "save-user"))
+            val hash = PdfPreviewActivity::class.java.getDeclaredField("pendingHash").apply { isAccessible = true }.get(activity)
+            assertEquals("Pending snapshot must match the actual worker bytes", hash, BillingContract.documentId(source))
+        }.get(5, TimeUnit.SECONDS)
+    }
+
+    private fun drainExportWorker() { exportWorker().submit {}.get(5, TimeUnit.SECONDS) }
+
+    private fun runSave(mode: String) {
+        // Restore the non-authoritative state saved when the actual picker was launched.
+        val state = Bundle().apply {
+            putString("pdf_owner", "save-user"); putString("save_file", source.absolutePath)
+            putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true); putBoolean("save_read_only_return", true)
+        }
+        val intent = Intent(RuntimeEnvironment.getApplication(), PdfPreviewActivity::class.java)
+            .putExtra("pdf_path", source.absolutePath).putExtra("pdf_name", "rapport.pdf")
+        val controller = Robolectric.buildActivity(PdfPreviewActivity::class.java, intent).create(state)
+        try {
+            val activity = controller.get()
+            assertActiveSaveFixture(activity)
+            when (mode) {
+                "denied" -> PdfSaveGateShadow.allow = false
+                "unavailable" -> PdfSaveGateShadow.unavailable = true
+                "partial", "null" -> PdfSaveResolverShadow.mode = mode
+                "account" -> Mockito.`when`(PdfSaveAuthShadow.auth.currentUser).thenReturn(null)
+                "hash" -> source.appendText("changed")
+            }
+            PdfPreviewActivity::class.java.getDeclaredMethod("onActivityResult", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Intent::class.java)
+                .apply { isAccessible = true }.invoke(activity, 4102, android.app.Activity.RESULT_OK, Intent().setData(uri))
+            val deadline = System.nanoTime() + 5_000_000_000L
+            while (System.nanoTime() < deadline && ShadowToast.getTextOfLatestToast() == null) {
+                shadowOf(Looper.getMainLooper()).idle()
+                Thread.yield()
+            }
+            shadowOf(Looper.getMainLooper()).idle()
+            if (mode == "success") {
+                assertTrue(destination.exists())
+                assertArrayEquals(source.readBytes(), destination.readBytes())
+                assertEquals("PDF enregistré", ShadowToast.getTextOfLatestToast())
+                assertEquals(0, PdfSaveDocumentsProvider.deletions.get())
+            } else {
+                assertFalse("The actual DocumentsProvider must remove the created/partial document", destination.exists())
+                assertEquals(1, PdfSaveDocumentsProvider.deletions.get())
+                assertNotEquals("PDF enregistré", ShadowToast.getTextOfLatestToast())
+            }
+            assertNull("No new purchase or picker after destination creation", shadowOf(activity).nextStartedActivity)
+            if (mode in setOf("account", "hash")) assertEquals(0, PdfSaveGateShadow.calls.get())
+            else assertEquals(1, PdfSaveGateShadow.calls.get())
+        } finally { controller.destroy() }
+    }
+}
+
+@Implements(value = FirebaseAuth::class, isInAndroidSdk = false)
+class PdfSaveAuthShadow {
+    companion object {
+        lateinit var auth: FirebaseAuth
+        @JvmStatic @Implementation fun getInstance(): FirebaseAuth = auth
+    }
+}
+
+@Implements(value = BillingPdfGate::class, isInAndroidSdk = false)
+class PdfSaveGateShadow {
+    companion object {
+        @Volatile var allow = true
+        @Volatile var unavailable = false
+        val calls = AtomicInteger()
+        val interactiveCalls = AtomicInteger()
+        @Volatile var started: CountDownLatch? = null
+        @Volatile var release: CountDownLatch? = null
+        @Volatile var completed: CountDownLatch? = null
+    }
+    @Implementation fun require(activity: Activity, file: File, displayName: String, usePlusCredit: Boolean,
+        useAnalysisCredit: Boolean, onDenied: () -> Unit, onAuthorized: (File) -> Unit) {
+        interactiveCalls.incrementAndGet()
+        throw AssertionError("An interactive gate opened while a save destination exists")
+    }
+    @Implementation fun authorizeBackgroundBlocking(context: Context, file: File): Boolean {
+        calls.incrementAndGet()
+        started?.countDown()
+        check(release?.await(5, TimeUnit.SECONDS) != false)
+        if (unavailable) throw IOException("Backend unavailable")
+        completed?.countDown()
+        return allow
+    }
+}
+
+@Implements(android.content.ContentResolver::class)
+class PdfSaveResolverShadow : ShadowContentResolver() {
+    companion object { @Volatile var mode = "success" }
+    @Implementation override fun openOutputStream(uri: Uri, modeString: String): OutputStream? {
+        if (mode == "null") return null
+        val delegate = FileOutputStream(PdfSaveDocumentsProvider.document)
+        if (mode != "partial") return delegate
+        return object : OutputStream() {
+            override fun write(value: Int) { delegate.write(value); throw IOException("disk full") }
+            override fun write(bytes: ByteArray, offset: Int, length: Int) {
+                delegate.write(bytes, offset, minOf(length, 5)); throw IOException("disk full after partial write")
+            }
+            override fun close() = delegate.close()
+        }
+    }
+}
+
+/** Real deleteDocument implementation reached through DocumentsContract and ContentResolver. */
+class PdfSaveDocumentsProvider : DocumentsProvider() {
+    companion object { lateinit var document: File; val deletions = AtomicInteger() }
+    override fun onCreate() = true
+    override fun queryRoots(projection: Array<out String>?): Cursor = MatrixCursor(projection ?: arrayOf(DocumentsContract.Root.COLUMN_ROOT_ID))
+    override fun queryDocument(documentId: String, projection: Array<out String>?): Cursor = MatrixCursor(projection ?: arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID)).apply { addRow(arrayOf(documentId)) }
+    override fun queryChildDocuments(parentDocumentId: String, projection: Array<out String>?, sortOrder: String?): Cursor = MatrixCursor(projection ?: arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID))
+    override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor = ParcelFileDescriptor.open(document, ParcelFileDescriptor.parseMode(mode))
+    override fun deleteDocument(documentId: String) { deletions.incrementAndGet(); check(document.delete()) }
+}
+
+/** Deterministic raster surface; the Activity still executes its real renderPdf and adds real views. */
+@Implements(android.graphics.pdf.PdfRenderer::class)
+class PdfSaveRendererShadow {
+    @Implementation fun __constructor__(descriptor: ParcelFileDescriptor) {}
+    @Implementation fun getPageCount(): Int = 1
+    @Implementation fun openPage(index: Int): android.graphics.pdf.PdfRenderer.Page =
+        org.robolectric.shadow.api.Shadow.newInstanceOf(android.graphics.pdf.PdfRenderer.Page::class.java)
+    @Implementation fun close() {}
+}
+
+@Implements(android.graphics.pdf.PdfRenderer.Page::class)
+class PdfSavePageShadow {
+    @Implementation fun getWidth(): Int = 200
+    @Implementation fun getHeight(): Int = 300
+    @Implementation fun render(destination: android.graphics.Bitmap, clip: android.graphics.Rect?, matrix: android.graphics.Matrix?, mode: Int) {}
+    @Implementation fun close() {}
+}

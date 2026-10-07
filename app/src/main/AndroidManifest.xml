@@ -40,6 +40,7 @@
         <activity android:name=".RecoveryActivityV2" android:exported="false" android:excludeFromRecents="false" />
         <activity android:name=".AdminDiagnosticsActivity" android:exported="false" android:excludeFromRecents="true" />
         <activity android:name=".OwnerEnrollmentActivity" android:exported="false" android:excludeFromRecents="true" android:noHistory="true" />
+        <activity android:name=".WritingDictationActivity" android:exported="false" android:excludeFromRecents="true" />
         <activity android:name=".MainActivity" android:exported="false" />
         <activity android:name=".ObjectiveDeliveryGameActivity" android:exported="false" />
         <activity android:name=".PauseActionActivity" android:exported="false" android:excludeFromRecents="true" android:noHistory="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" />

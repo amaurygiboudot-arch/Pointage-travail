@@ -70,12 +70,12 @@ class CoreRegressionV2Test {
         )
 
         assertEquals("FICHE DE PAIE EXEMPLE", document.title)
-        assertEquals("ESTIMATION HORATRACK", document.subtitle)
+        assertEquals("ESTIMATION AGKGMG", document.subtitle)
         assertEquals(2, document.sections.size)
         assertTrue(document.sections.any { it.first == PdfFieldV2.COMPANY.name })
         assertTrue(document.sections.any { it.first == PdfFieldV2.HOURS.name })
         assertTrue(document.sections.none { it.first == PdfFieldV2.SOURCES.name })
-        assertEquals("© HoraTrack", document.footer)
+        assertEquals("© AGKGMG", document.footer)
     }
 
     private fun session(id: String, start: Long, end: Long) = WorkSessionV2(
