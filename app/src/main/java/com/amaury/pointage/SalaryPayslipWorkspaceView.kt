@@ -12,10 +12,13 @@ import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ViewGroup
+import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import com.amaury.pointage.v2.ConfirmedMonthlySicknessCashV2
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.NetSalaryReferencePolicyV2
 import com.amaury.pointage.v2.V2EmploymentContractPayrollBridge
@@ -47,8 +50,53 @@ class SalaryPayslipWorkspaceView(context:Context,private val company:SalaryCompa
  private val indicator=TextView(context)
  private val gesture=GestureDetector(context,object:GestureDetector.SimpleOnGestureListener(){override fun onDown(e:MotionEvent)=true;override fun onFling(e1:MotionEvent?,e2:MotionEvent,velocityX:Float,velocityY:Float):Boolean{if(e1==null||abs(e2.x-e1.x)<80)return false;if(e2.x<e1.x)next() else previous();return true}})
  init{orientation=VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(12));addView(TextView(context).apply{text="FICHE DE SALAIRE";textSize=18f;setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER});addView(TextView(context).apply{text="L’estimation utilise le moteur V2 et les données de cette entreprise uniquement.";textSize=12f;setPadding(0,dp(5),0,dp(8))});addButtonTop("CHOISIR LE MOIS"){choosePeriod()};addButtonTop("CRÉER UNE FICHE DE PAIE EXEMPLE"){choosePdfFields()};pageBox.orientation=VERTICAL;pageBox.setOnTouchListener{_,e->gesture.onTouchEvent(e)};addView(pageBox,LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));indicator.gravity=Gravity.CENTER;indicator.textSize=14f;indicator.setPadding(0,dp(8),0,dp(8));indicator.setOnClickListener{choosePage()};addView(indicator);render()}
+ private fun cashPeriod():String { val(y,m)=selectedPeriod();return java.time.YearMonth.of(y,m+1).toString() }
+ private fun renderConfirmedSicknessCash(){
+  val source=ConfirmedMonthlySicknessCashV2.read(context,company.id,cashPeriod())
+  val r=source.record
+  add(TextView(context).apply{text=buildString{
+   append("IJSS confirmées — ").append(cashPeriod()).append("\n")
+   if(!source.reliable)append(source.warnings.joinToString("\n"))
+   else if(r==null)append("Montants mensuels non renseignés.")
+   else {append("Versées directement au salarié, net avant PAS : ").append(r.directEmployeeNetBeforeTax?.let{eur(it)}?:"Inconnu")
+    append("\nVersées à l’employeur (subrogation), net avant PAS : ").append(r.subrogatedEmployerNetBeforeTax?.let{eur(it)}?:"Inconnu")
+    append("\nSource : ").append(r.source)}
+   append("\nMontants distincts : jamais ajoutés au net employeur. Le calcul de paie et le PAS restent à vérifier.")
+  };textSize=12f})
+  addButton("RENSEIGNER LES IJSS RÉELLES DU MOIS"){confirmMonthlySicknessCash()}
+ }
+ private fun confirmMonthlySicknessCash(){
+  val period=cashPeriod();val companyId=company.id
+  val read=ConfirmedMonthlySicknessCashV2.read(context,companyId,period)
+  if(!read.reliable){AlertDialog.Builder(context).setMessage(read.warnings.joinToString("\n")+"\nSupprimer cette source IJSS illisible pour ce mois ?").setPositiveButton("SUPPRIMER"){_,_->if(ConfirmedMonthlySicknessCashV2.remove(context,companyId,period))render()}.setNegativeButton("ANNULER",null).show();return}
+  fun amount(label:String,value:Double?)=EditText(context).apply{hint=label;inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL;value?.let{setText(it.toString())}}
+  val direct=amount("IJSS directes salarié — net avant PAS (€)",read.record?.directEmployeeNetBeforeTax)
+  val subrogated=amount("IJSS employeur subrogé — net avant PAS (€)",read.record?.subrogatedEmployerNetBeforeTax)
+  val provenance=EditText(context).apply{hint="Source vérifiable : décompte, date et référence";setText(read.record?.source.orEmpty())}
+  val confirmation=CheckBox(context).apply{text="Je confirme l’entreprise ${company.name}, le mois $period et les totaux IJSS réellement versés avant PAS, séparés par destinataire. Un champ vide reste inconnu."}
+  listOf(direct,subrogated,provenance).forEach{field->field.addTextChangedListener(object:android.text.TextWatcher{
+   override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int){}
+   override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){confirmation.isChecked=false}
+   override fun afterTextChanged(s:android.text.Editable?){}
+  })}
+  val box=LinearLayout(context).apply{orientation=VERTICAL;addView(direct);addView(subrogated);addView(provenance);addView(confirmation)}
+  val dialog=AlertDialog.Builder(context).setTitle("IJSS réelles — $period").setView(android.widget.ScrollView(context).apply{addView(box)}).setPositiveButton("ENREGISTRER",null).setNegativeButton("ANNULER",null).setNeutralButton("SUPPRIMER",null).create()
+  dialog.setOnShowListener{
+   dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
+    val currentCompany=SalaryCompanyStore.confirmedCompany(SalaryCompanyStore.readConfirmed(context),companyId)
+    if(currentCompany==null){confirmation.isChecked=false;Toast.makeText(context,"Entreprise absente ou stockage non fiable : aucun montant enregistré",Toast.LENGTH_LONG).show();return@setOnClickListener}
+    if(cashPeriod()!=period || !confirmation.isChecked){Toast.makeText(context,"Confirme le mois, l’entreprise et les montants",Toast.LENGTH_LONG).show();return@setOnClickListener}
+    val values=listOf(direct,subrogated).map{it.text.toString()}
+    if(values.any{!PayslipImportConfirmationPolicyV2.isOptionalAmountValid(it)}){Toast.makeText(context,"Montant invalide : corrige-le ou laisse-le vide",Toast.LENGTH_LONG).show();return@setOnClickListener}
+    val record=ConfirmedMonthlySicknessCashV2.Record(companyId,period,PayslipImportConfirmationPolicyV2.parseAmount(values[0]),PayslipImportConfirmationPolicyV2.parseAmount(values[1]),provenance.text.toString().trim(),System.currentTimeMillis())
+    if(!ConfirmedMonthlySicknessCashV2.save(context,record,true)){Toast.makeText(context,"Source requise (500 caractères maximum), au moins un montant valide et stockage fiable",Toast.LENGTH_LONG).show();return@setOnClickListener}
+    dialog.dismiss();render()
+   }
+   dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener{AlertDialog.Builder(context).setMessage("Supprimer les IJSS confirmées de $period pour ${company.name} ?").setPositiveButton("SUPPRIMER"){_,_->if(ConfirmedMonthlySicknessCashV2.remove(context,companyId,period)){dialog.dismiss();render()}}.setNegativeButton("ANNULER",null).show()}
+  };dialog.show()
+ }
  private fun records()=V2PayslipStore.forCompany(context,company.id)
- private fun render(){val total=records().size+1;page=page.coerceIn(0,total-1);pageBox.removeAllViews();if(page==0)renderEstimate() else renderReal(records()[page-1]);indicator.text="${page+1} / $total"}
+ private fun render(){val total=records().size+1;page=page.coerceIn(0,total-1);pageBox.removeAllViews();renderConfirmedSicknessCash();if(page==0)renderEstimate() else renderReal(records()[page-1]);indicator.text="${page+1} / $total"}
  private fun selectedPeriod():Pair<Int,Int>{val ms=context.getSharedPreferences("navigation_state",Context.MODE_PRIVATE).getLong("report_month_ms",-1L);val c=Calendar.getInstance(Locale.FRANCE);if(ms>0)c.timeInMillis=ms;return c.get(Calendar.YEAR) to c.get(Calendar.MONTH)}
  private fun choosePeriod(){val labels=ArrayList<String>();val values=ArrayList<Long>();val c=Calendar.getInstance(Locale.FRANCE).apply{set(Calendar.DAY_OF_MONTH,1);set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};repeat(36){labels+=SimpleDateFormat("MMMM yyyy",Locale.FRANCE).format(c.time).replaceFirstChar{it.uppercase()};values+=c.timeInMillis;c.add(Calendar.MONTH,-1)};AlertDialog.Builder(context).setTitle("Choisir le mois").setItems(labels.toTypedArray()){_,which->context.getSharedPreferences("navigation_state",Context.MODE_PRIVATE).edit().putLong("report_month_ms",values[which]).apply();render()}.setNegativeButton("ANNULER",null).show()}
  private fun choosePdfFields(){
@@ -248,7 +296,7 @@ class SalaryPayslipWorkspaceView(context:Context,private val company:SalaryCompa
   }
   add(TextView(context).apply{text="\nDurée hebdomadaire contractuelle : ${contractPresentation.weeklyLabel}\nCette fiche est une estimation HoraTrack, pas un bulletin officiel.";textSize=12f});renderImportActions()
  }
- private fun renderReal(r:V2PayslipStore.Record){val month=DateFormatSymbols(Locale.FRANCE).months.getOrNull(r.month).orEmpty().replaceFirstChar{it.uppercase()};val gross=r.gross?.let{eur(it)}?:"à confirmer";val net=r.net?.let{eur(it)}?:"non renseigné";add(TextView(context).apply{text="BULLETIN RÉEL — $month ${r.year}";textSize=17f;setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER;setPadding(0,dp(10),0,dp(10))});add(TextView(context).apply{text="Brut : $gross\nNet : $net\nDocument original conservé.";textSize=14f});addButton("OUVRIR LE DOCUMENT"){val uri=Uri.parse(r.sourceUri);runCatching{context.startActivity(Intent(Intent.ACTION_VIEW).apply{setDataAndType(uri,r.sourceMime?:"*/*");addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)})}.onFailure{Toast.makeText(context,"Impossible d’ouvrir le document",Toast.LENGTH_LONG).show()}};addButton("COMPARAISON RAPIDE GRATUITE"){showBasicComparison(r)};addButton("SUPPRIMER CE BULLETIN"){AlertDialog.Builder(context).setTitle("Supprimer ce bulletin ?").setMessage("Le bulletin sera retiré de l’historique HoraTrack. Le fichier original extérieur à HoraTrack n’est pas modifié.").setNegativeButton("ANNULER",null).setPositiveButton("SUPPRIMER"){_,_->V2PayslipStore.remove(context,r.id);page=(page-1).coerceAtLeast(0);render()}.show()}}
+ private fun renderReal(r:V2PayslipStore.Record){val month=DateFormatSymbols(Locale.FRANCE).months.getOrNull(r.month).orEmpty().replaceFirstChar{it.uppercase()};val gross=r.gross?.let{eur(it)}?:"à confirmer";val net=r.net?.let{eur(it)}?:"non renseigné";add(TextView(context).apply{text="BULLETIN RÉEL — $month ${r.year}";textSize=17f;setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER;setPadding(0,dp(10),0,dp(10))});add(TextView(context).apply{text="Brut : $gross\nNet : $net\nDocument original conservé.";textSize=14f});val observed=com.amaury.pointage.v2.PayslipObservedValuesStoreV2.getAll(context,r.id);val evidence=com.amaury.pointage.v2.PayslipObservedValuesStoreV2.evidence(context,r.id).filterKeys{it in observed};if(evidence.isNotEmpty())add(TextView(context).apply{text="Sources des valeurs confirmées\n"+evidence.entries.joinToString("\n\n"){(key,excerpt)->"$key : ${eur(observed.getValue(key))}\n$excerpt"};textSize=12f});addButton("OUVRIR LE DOCUMENT"){val uri=Uri.parse(r.sourceUri);runCatching{context.startActivity(Intent(Intent.ACTION_VIEW).apply{setDataAndType(uri,r.sourceMime?:"*/*");addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)})}.onFailure{Toast.makeText(context,"Impossible d’ouvrir le document",Toast.LENGTH_LONG).show()}};addButton("COMPARAISON RAPIDE GRATUITE"){showBasicComparison(r)};addButton("SUPPRIMER CE BULLETIN"){AlertDialog.Builder(context).setTitle("Supprimer ce bulletin ?").setMessage("Le bulletin sera retiré de l’historique HoraTrack. Le fichier original extérieur à HoraTrack n’est pas modifié.").setNegativeButton("ANNULER",null).setPositiveButton("SUPPRIMER"){_,_->V2PayslipStore.remove(context,r.id);page=(page-1).coerceAtLeast(0);render()}.show()}}
  private fun launchPhoto(){val a=context as? Activity?:return;a.startActivity(Intent(context,SalaryPayslipPhotoActivity::class.java).putExtra(V2PayslipImportActivity.EXTRA_COMPANY_ID,company.id).putExtra(V2PayslipImportActivity.EXTRA_COMPANY_NAME,company.name))}
  private fun launchImport(){val a=context as? Activity?:return;a.startActivity(Intent(context,V2PayslipImportActivity::class.java).putExtra(V2PayslipImportActivity.EXTRA_COMPANY_ID,company.id).putExtra(V2PayslipImportActivity.EXTRA_COMPANY_NAME,company.name))}
  private fun showBasicComparison(r:V2PayslipStore.Record){AlertDialog.Builder(context).setTitle("Comparaison rapide").setMessage("Comparer les montants renseignés de ce bulletin avec l’estimation HoraTrack ? Les résultats distinguent calcul certain, estimation et anomalie potentielle.").setNegativeButton("ANNULER",null).setPositiveButton("COMPARER"){_,_->val comparison=V2PayslipStore.comparison(context,r);val message=when{comparison==null->"Comparaison insuffisante : complète les données Salaire/Convention. Aucune conclusion juridique n’est inventée.";comparison.conforming->"Calcul : les montants contrôlés concordent avec l’estimation HoraTrack dans la tolérance du moteur.";else->"Anomalie potentielle : un ou plusieurs écarts sont détectés. Vérification nécessaire avant toute conclusion."};AlertDialog.Builder(context).setTitle("Comparaison").setMessage(message).setPositiveButton("OK",null).show()}.show()}

@@ -17,4 +17,10 @@ class PayslipProfileDraftParserV2Test {
     @Test fun `ambiguous explicit rate blocks another otherwise valid line`() {
         assertNull(PayslipProfileDraftParserV2.parse("Taux horaire brut 13,63\nTaux horaire brut 14,00 2400,00").hourlyRate)
     }
+    @Test fun `cumulative prefixed and duplicate rates never seed contract`() {
+        listOf("Cumul taux horaire brut 13,63", "Annuel taux brut horaire 13,63", "Taux horaire brut 13,63\nTaux horaire brut 13,63", "Taux horaire brut 13,63\nCumul taux horaire brut 13,63").forEach {
+            assertNull(it, PayslipProfileDraftParserV2.parse(it).hourlyRate)
+        }
+        assertEquals(13.63, PayslipProfileDraftParserV2.parse("Taux brut horaire : 13,63 €/h").hourlyRate!!, 0.0001)
+    }
 }

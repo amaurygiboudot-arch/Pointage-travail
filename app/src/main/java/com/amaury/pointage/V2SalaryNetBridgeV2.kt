@@ -26,7 +26,9 @@ object V2SalaryNetBridgeV2 {
         val warnings: List<String>,
         /** Retenues réelles confirmées ayant alimenté ce calcul, sans seconde lecture du store. */
         val mutualEmployeeAmount: Double? = null,
-        val providentEmployeeAmount: Double? = null
+        val providentEmployeeAmount: Double? = null,
+        /** Observed IJSS transfers only; never included in employer payroll amounts above. */
+        val confirmedSicknessCash: com.amaury.pointage.v2.ConfirmedMonthlySicknessCashV2.Result? = null
     )
 
     fun calculateForCompany(
@@ -55,7 +57,8 @@ object V2SalaryNetBridgeV2 {
             salary = salary,
             year = year,
             companyPayroll = companyPayroll
-        )
+        ).copy(confirmedSicknessCash = com.amaury.pointage.v2.ConfirmedMonthlySicknessCashV2.read(
+            context, company.id, java.time.YearMonth.of(year, month + 1).toString()))
     }
 
     /**

@@ -28,7 +28,7 @@ object NetSalaryEngineV2 {
         val statutoryEmployerContributions: Double = 0.0,
         /** Sous-total des seules cotisations patronales actuellement connues du moteur, avant réductions. */
         val knownEmployerContributions: Double = 0.0,
-        /** Reste faux tant que le socle patronal Urssaf de base n'est pas intégré exhaustivement. */
+        /** Reste faux tant que l'applicabilité exhaustive des contributions propres à l'entreprise n'est pas prouvée. */
         val employerCostComplete: Boolean = false,
         /** Avertissements propres au coût employeur, sans dégrader la fiabilité du net salarié. */
         val employerCostWarnings: List<String> = emptyList(),
@@ -346,6 +346,10 @@ object NetSalaryEngineV2 {
         }
         val employerCostWarnings = buildList {
             add("Coût employeur total : d’éventuelles contributions patronales spécifiques restent à confirmer ; aucun total complet n'est affiché.")
+            add("Périmètre du coût salarial estimé : brut social + contributions patronales − réductions ; il ne représente pas toutes les dépenses de l'entreprise. Les sous-totaux affichés portent uniquement sur les contributions connues.")
+            add("Couverture patronale à prouver pour l'entreprise et le mois : part patronale de mutuelle, régimes supplémentaires d'entreprise et contributions spécifiques ; une absence de ligne calculée ne prouve pas leur non-applicabilité.")
+            if (!grossReliable) add("Coût employeur : brut social et avantages en nature du mois à confirmer.")
+            if (reductionAmount == null) add("Coût employeur : total des réductions/exonérations du mois à confirmer, y compris leur absence éventuelle ; aucun zéro n'est supposé.")
             addAll(statusContributions.warnings)
             addAll(atMp.warnings)
             addAll(mobility.warnings)
