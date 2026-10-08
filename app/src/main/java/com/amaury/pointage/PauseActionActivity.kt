@@ -100,6 +100,9 @@ class PauseActionActivity : Activity() {
     }
 
     private fun refreshWidgets() {
+        // La mutation V2 est déjà validée : rafraîchir immédiatement toutes les surfaces
+        // qui reflètent le même état canonique (widget, launcher et Live Update).
+        IconSwitcher.sync(this)
         PointageWidgetProvider.updateAll(this)
         QuickActionsWidgetProvider.updateAll(this)
     }
