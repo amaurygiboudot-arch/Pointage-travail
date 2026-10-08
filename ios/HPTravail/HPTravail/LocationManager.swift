@@ -883,6 +883,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             guard let index = state.pendingEvents.firstIndex(where: { $0.id == eventId }) else {
                 if alreadyCompleted(state) {
                     pendingEvent = state.pendingEvents.first
+                    syncGpsExitNotification()
                     return true
                 }
                 break
@@ -892,6 +893,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             guard mutate(&state, event) else { return false }
             if GpsStateStoreV2.write(state, defaults: defaults) {
                 pendingEvent = state.pendingEvents.first
+                syncGpsExitNotification()
                 return true
             }
         }
@@ -923,6 +925,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         if clearBusinessState {
             GpsStateStoreV2.clear(defaults: defaults)
             pendingEvent = nil
+            clearGpsExitNotification()
         }
     }
 
