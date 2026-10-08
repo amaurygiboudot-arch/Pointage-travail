@@ -109,6 +109,9 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
         reloadAndReconcile()
+        if automaticEnabled {
+            requestGpsExitNotificationPermission()
+        }
     }
 
     func requestCurrentLocation() {
