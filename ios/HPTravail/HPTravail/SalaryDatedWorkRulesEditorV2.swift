@@ -221,11 +221,19 @@ struct SalaryDatedWorkRulesEditorV2: View {
               let owner = SalaryDatedWorkRuleOwnerAuthorizationV2.ownerForSelf(
                   authenticatedUid: uid, employerId: companyId,
                   contractVersionId: snapshot.versionId
-              ), let from = epochDay(effectiveFrom),
-              let until = !hasEnd ? Optional<Int64>.none :
-                epochDay(effectiveUntil).map({ $0 + 1 }) else {
+              ), let from = epochDay(effectiveFrom) else {
             info = "Compte, propriétaire ou date invalide."
             return
+        }
+        let until: Int64?
+        if hasEnd {
+            guard let endDay = epochDay(effectiveUntil), endDay < Int64.max else {
+                info = "Date de fin invalide."
+                return
+            }
+            until = endDay + 1
+        } else {
+            until = nil
         }
         let source = sourceId.trimmingCharacters(in: .whitespacesAndNewlines)
         let reference = ruleReference.trimmingCharacters(in: .whitespacesAndNewlines)
