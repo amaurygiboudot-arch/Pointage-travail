@@ -117,7 +117,7 @@ class HistorySearchFilterView @JvmOverloads constructor(
 
         val runtime = V2RuntimeReader.allSessions(context, now)
         if (!runtime.reliable) {
-            target.text = "Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(runtime.warnings)}"
+            target.text = "Historique AGKGMG indisponible.\n${V2RuntimeReader.warningText(runtime.warnings)}"
             return
         }
 
