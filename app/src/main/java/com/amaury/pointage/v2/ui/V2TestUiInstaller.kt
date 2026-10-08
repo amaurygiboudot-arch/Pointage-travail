@@ -9,7 +9,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.R
-import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.AGKGMGV2
 import com.amaury.pointage.v2.V2MigrationManager
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2TestDataPolicy
@@ -20,7 +20,7 @@ object V2TestUiInstaller {
     private const val TAG = "horatrack_v2_test_panel"
 
     fun install(activity: Activity) {
-        if (!HoraTrackV2.ENABLED || !HoraTrackV2.TEST_MODE) return
+        if (!AGKGMGV2.ENABLED || !AGKGMGV2.TEST_MODE) return
         V2TestDataPolicy.ensurePreservation(activity)
         val migration = V2MigrationManager.ensureMigrated(activity)
         val profile = V2ProfileStore.load(activity, 1)
