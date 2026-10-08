@@ -74,6 +74,12 @@ object PointageStatusNotificationV2 {
         else -> DisplayState.RED
     }
 
+    internal fun shortCriticalText(displayState: DisplayState): String = when (displayState) {
+        DisplayState.RED -> "🔴"
+        DisplayState.GREEN -> "🟢"
+        DisplayState.ORANGE -> "🟠"
+    }
+
     internal fun sync(context: Context, iconState: IconSwitcher.IconState?) {
         val app = context.applicationContext
         if (!isEnabled(app)) {
@@ -135,6 +141,8 @@ object PointageStatusNotificationV2 {
         val notification = NotificationCompat.Builder(app, CHANNEL_ID)
             .setSmallIcon(spec.icon)
             .setColor(spec.color)
+            .setRequestPromotedOngoing(true)
+            .setShortCriticalText(shortCriticalText(displayState))
             .setContentTitle(spec.title)
             .setContentText(spec.text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(spec.text))
