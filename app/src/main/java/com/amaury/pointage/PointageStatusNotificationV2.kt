@@ -202,6 +202,9 @@ object PointageStatusNotificationV2 {
             .setSmallIcon(spec.icon)
             .setColor(spec.color)
             .setRequestPromotedOngoing(true)
+            // HyperOS affiche shortCriticalText dans le chip. Un caractère zéro-largeur
+            // conserve la pastille promue tout en ne laissant visible que notre icône d'état.
+            .setShortCriticalText("\u200B")
             .setContentTitle(spec.title)
             .setContentText(spec.text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(spec.text))
