@@ -75,9 +75,9 @@ object PointageStatusNotificationV2 {
     }
 
     internal fun shortCriticalText(displayState: DisplayState): String = when (displayState) {
-        DisplayState.RED -> "🔴"
-        DisplayState.GREEN -> "🟢"
-        DisplayState.ORANGE -> "🟠"
+        DisplayState.RED -> "×"
+        DisplayState.GREEN -> "✓"
+        DisplayState.ORANGE -> "Ⅱ"
     }
 
     internal fun sync(context: Context, iconState: IconSwitcher.IconState?) {
@@ -149,7 +149,7 @@ object PointageStatusNotificationV2 {
             .setContentIntent(contentIntent)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setAutoCancel(false)
