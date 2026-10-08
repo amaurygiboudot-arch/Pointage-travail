@@ -49,95 +49,13 @@ struct SalaryDatedWorkRulesEditorV2: View {
 
     var body: some View {
         Form {
-            Section("Propriétaire du calcul") {
-                if accountStillValid {
-                    Label("Votre propre profil salarié connecté", systemImage: "person.crop.circle.badge.checkmark")
-                        .foregroundStyle(.secondary)
-                    Text("L'identité utilisée est celle du compte Firebase actuellement connecté.")
-                        .font(.caption)
-                } else {
-                    Label("Connectez-vous ou rouvrez cet écran après changement de compte.",
-                          systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                }
-                Text("Entreprise sélectionnée : \(companyId)")
-                    .font(.caption)
-            }
-
-            Section("Contrat daté") {
-                if !accountStillValid {
-                    Text("Contrats masqués : reconnectez-vous et rouvrez cet écran.")
-                        .foregroundStyle(.orange)
-                } else if !companyConfirmed {
-                    Text("Entreprise introuvable ou stockage local incohérent.")
-                        .foregroundStyle(.orange)
-                } else if !history.reliable {
-                    Text("Historique des contrats non fiable. Aucune règle ne sera enregistrée.")
-                        .foregroundStyle(.orange)
-                } else if companyContracts.isEmpty {
-                    Text("Ajoutez d'abord une version datée du contrat depuis l'onglet Salaire.")
-                } else {
-                    Picker("Version", selection: $selectedContractId) {
-                        ForEach(companyContracts, id: \.versionId) { c in
-                            Text("\(c.versionId) — \(dayLabel(c.effectiveFromEpochDay))")
-                                .tag(c.versionId)
-                        }
-                    }
-                }
-            }
-
+            ownerSection
+            contractSection
             if accountStillValid && selectedContract != nil {
-                Section("Référence applicable") {
-                    Picker("Sujet", selection: $selectedTopic) {
-                        ForEach(SalaryWorkRuleTopicV2.allCases, id: \.self) { topic in
-                            Text(topicLabel(topic)).tag(topic)
-                        }
-                    }
-                    DatePicker("Début de validité", selection: $effectiveFrom, displayedComponents: .date)
-                    Toggle("Une date de fin est connue", isOn: $hasEnd)
-                    if hasEnd {
-                        DatePicker("Fin incluse", selection: $effectiveUntil, displayedComponents: .date)
-                    }
-                    TextField("Identifiant de la source", text: $sourceId)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    TextField("Référence de l'article ou du contrat", text: $ruleReference)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    Toggle("Je confirme que ce contrat concerne mon propre travail", isOn: $confirmsOwnContract)
-                }
-                Section {
-                    Button("Vérifier et enregistrer la référence") { prepareProposal() }
-                        .disabled(!accountStillValid || !confirmsOwnContract)
-                } footer: {
-                    Text("Une règle manuelle sans source juridique vérifiée reste « à confirmer ». Aucun taux, panier ou salaire ne sera deviné.")
-                }
+                ruleSection
+                submitSection
             }
-
-            Section("Historique personnel pour ce contrat") {
-                if !accountStillValid {
-                    Text("Compte déconnecté ou changé : historique masqué.")
-                } else if savedRecords.isEmpty {
-                    Text("Aucune règle encore enregistrée, ou lecture non fiable.")
-                } else {
-                    ForEach(savedRecords, id: \.id) { rule in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(topicLabel(rule.topic)).font(.headline)
-                            Text(rule.confirmation == .confirmed
-                                ? "Provenance du contrat confirmée — pas un taux de paie"
-                                : "À confirmer avant tout calcul certifié")
-                                .font(.caption)
-                                .foregroundStyle(rule.confirmation == .confirmed ? .primary : .orange)
-                            Text("\(dayLabel(rule.effectiveFromEpochDay)) → \(rule.effectiveToEpochDay.map { dayLabel($0 - 1) } ?? "en cours")")
-                            Text("Source : \(rule.sourceId.isEmpty ? "à fournir" : rule.sourceId)")
-                                .font(.caption)
-                            Text("Référence : \(rule.ruleReference.isEmpty ? "à préciser" : rule.ruleReference)")
-                                .font(.caption)
-                        }
-                    }
-                }
-            }
-
+            savedHistorySection
             if !info.isEmpty {
                 Section("État") { Text(info).font(.footnote) }
             }
@@ -161,6 +79,111 @@ struct SalaryDatedWorkRulesEditorV2: View {
             Button("Enregistrer") { saveProposal() }
         } message: {
             Text(preview)
+        }
+    }
+
+    private var ownerSection: some View {
+        Section("Propriétaire du calcul") {
+            if accountStillValid {
+                Label("Votre propre profil salarié connecté",
+                      systemImage: "person.crop.circle.badge.checkmark")
+                    .foregroundStyle(.secondary)
+                Text("L'identité utilisée est celle du compte Firebase actuellement connecté.")
+                    .font(.caption)
+            } else {
+                Label("Connectez-vous ou rouvrez cet écran après changement de compte.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            }
+            Text("Entreprise sélectionnée : \(companyId)")
+                .font(.caption)
+        }
+    }
+
+    private var contractSection: some View {
+        Section("Contrat daté") {
+            if !accountStillValid {
+                Text("Contrats masqués : reconnectez-vous et rouvrez cet écran.")
+                    .foregroundStyle(.orange)
+            } else if !companyConfirmed {
+                Text("Entreprise introuvable ou stockage local incohérent.")
+                    .foregroundStyle(.orange)
+            } else if !history.reliable {
+                Text("Historique des contrats non fiable. Aucune règle ne sera enregistrée.")
+                    .foregroundStyle(.orange)
+            } else if companyContracts.isEmpty {
+                Text("Ajoutez d'abord une version datée du contrat depuis l'onglet Salaire.")
+            } else {
+                Picker("Version", selection: $selectedContractId) {
+                    ForEach(companyContracts, id: \.versionId) { item in
+                        Text("\(item.versionId) — \(dayLabel(item.effectiveFromEpochDay))")
+                            .tag(item.versionId)
+                    }
+                }
+            }
+        }
+    }
+
+    private var ruleSection: some View {
+        Section("Référence applicable") {
+            Picker("Sujet", selection: $selectedTopic) {
+                ForEach(SalaryWorkRuleTopicV2.allCases, id: \.self) { topic in
+                    Text(topicLabel(topic)).tag(topic)
+                }
+            }
+            DatePicker("Début de validité", selection: $effectiveFrom, displayedComponents: .date)
+            Toggle("Une date de fin est connue", isOn: $hasEnd)
+            if hasEnd {
+                DatePicker("Fin incluse", selection: $effectiveUntil, displayedComponents: .date)
+            }
+            TextField("Identifiant de la source", text: $sourceId)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            TextField("Référence de l'article ou du contrat", text: $ruleReference)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Toggle("Je confirme que ce contrat concerne mon propre travail",
+                   isOn: $confirmsOwnContract)
+        }
+    }
+
+    private var submitSection: some View {
+        Section {
+            Button("Vérifier et enregistrer la référence") { prepareProposal() }
+                .disabled(!accountStillValid || !confirmsOwnContract)
+        } footer: {
+            Text("Une règle manuelle sans source juridique vérifiée reste « à confirmer ». Aucun taux, panier ou salaire ne sera deviné.")
+        }
+    }
+
+    private var savedHistorySection: some View {
+        Section("Historique personnel pour ce contrat") {
+            if !accountStillValid {
+                Text("Compte déconnecté ou changé : historique masqué.")
+            } else if savedRecords.isEmpty {
+                Text("Aucune règle encore enregistrée, ou lecture non fiable.")
+            } else {
+                ForEach(savedRecords, id: \.id) { record in
+                    historyRow(for: record)
+                }
+            }
+        }
+    }
+
+    private func historyRow(for record: SalaryDatedWorkRuleV2) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(topicLabel(record.topic))
+                .font(.headline)
+            Text(record.confirmation == .confirmed
+                ? "Provenance du contrat confirmée — pas un taux de paie"
+                : "À confirmer avant tout calcul certifié")
+                .font(.caption)
+                .foregroundStyle(record.confirmation == .confirmed ? Color.primary : Color.orange)
+            Text("\(dayLabel(record.effectiveFromEpochDay)) → \(record.effectiveToEpochDay.map { dayLabel($0 - 1) } ?? "en cours")")
+            Text("Source : \(record.sourceId.isEmpty ? "à fournir" : record.sourceId)")
+                .font(.caption)
+            Text("Référence : \(record.ruleReference.isEmpty ? "à préciser" : record.ruleReference)")
+                .font(.caption)
         }
     }
 
