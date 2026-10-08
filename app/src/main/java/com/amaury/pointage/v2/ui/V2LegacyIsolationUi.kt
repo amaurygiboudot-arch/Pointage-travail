@@ -5,7 +5,7 @@ import android.view.View
 import android.widget.TextView
 import com.amaury.pointage.R
 import com.amaury.pointage.SalaryV2RootView
-import com.amaury.pointage.v2.AGKGMGV2
+import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.engine.AnalyticsEngineV2
 import com.amaury.pointage.v2.model.SessionStatusV2
@@ -16,7 +16,7 @@ import java.util.Locale
 /** Réutilise les écrans existants mais interdit les résultats legacy lorsque le nouveau moteur est actif. */
 object V2LegacyIsolationUi {
     fun refresh(activity: Activity) {
-        if (!AGKGMGV2.ENABLED || !AGKGMGV2.TEST_MODE) return
+        if (!HoraTrackV2.ENABLED || !HoraTrackV2.TEST_MODE) return
         val root = activity.window.decorView
         val history = root.findViewById<TextView>(R.id.historyText) ?: return
         val today = root.findViewById<View>(R.id.pointageButtons)?.visibility == View.VISIBLE
@@ -61,7 +61,7 @@ object V2LegacyIsolationUi {
         fun time(ms: Long?) = ms?.let { f.format(Date(it)) } ?: "—"
         fun duration(ms: Long) = "%02dh %02dm".format(Locale.FRANCE, ms / 3_600_000L, (ms / 60_000L) % 60L)
         return sessions.joinToString("\n\n") { s ->
-            val r = AGKGMGV2.time.calculate(s)
+            val r = HoraTrackV2.time.calculate(s)
             buildString {
                 append("🧪 AGKGMG\n")
                 append("🟢 ").append(time(s.realArrivalMs)).append(" ARRIVÉE RÉELLE\n")
@@ -81,7 +81,7 @@ object V2LegacyIsolationUi {
         if (!read.reliable) return "Analyse AGKGMG indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
         val sessions = read.sessions
         if (sessions.isEmpty()) return "Aucune donnée AGKGMG à analyser."
-        val a = AnalyticsEngineV2.summarize(sessions, AGKGMGV2.time, System.currentTimeMillis())
+        val a = AnalyticsEngineV2.summarize(sessions, HoraTrackV2.time, System.currentTimeMillis())
         if (!a.timeTotalsReliable) {
             return "Analyse AGKGMG à confirmer.\nUne ou plusieurs sessions contiennent une durée ou une pause non certifiable."
         }
