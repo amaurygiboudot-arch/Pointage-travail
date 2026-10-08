@@ -400,10 +400,14 @@ object SettingsUiInstaller {
     }
 
     private fun installPointageStatusIndicator(activity: MainActivity) {
-        val section = SettingsV2Host.section(activity, SettingsV2Host.TAG_POINTAGE) ?: return
+        // Réglages purement visuels : ils appartiennent à Personnalisation,
+        // pas à Pointage & lieux qui reste réservé au comportement métier/GPS.
+        val section = SettingsV2Host.section(activity, SettingsV2Host.TAG_PERSONALIZATION) ?: return
         if (section.findViewWithTag<View>("pointage_status_bar_switch") != null) return
-        val addressList = activity.findViewById<EditText>(R.id.workplaceAddress)
 
+        val statusTitle = title(activity, "INDICATEUR DE POINTAGE").apply {
+            tag = "pointage_status_appearance_title"
+        }
         val opacityValues = intArrayOf(25, 50, 75, 100)
         val opacityLabel = TextView(activity).apply {
             tag = "pointage_status_opacity_label"
@@ -413,7 +417,7 @@ object SettingsUiInstaller {
             tag = "pointage_status_opacity_seekbar"
             max = opacityValues.lastIndex
             progress = opacityValues.indexOf(PointageStatusNotificationV2.opacityPercent(activity))
-                .coerceAtLeast(opacityValues.lastIndex)
+                .takeIf { it >= 0 } ?: opacityValues.lastIndex
         }
         fun refreshOpacityUi() {
             val value = opacityValues[opacity.progress.coerceIn(0, opacityValues.lastIndex)]
@@ -447,17 +451,17 @@ object SettingsUiInstaller {
         }
         val note = TextView(activity).apply {
             tag = "pointage_status_bar_note"
-            text = "L’indicateur suit automatiquement le mode clair/sombre de HoraTrack. Le fond de la pastille Live Update reste géré par Android/HyperOS."
+            text = "L’indicateur suit automatiquement le mode clair/sombre déjà choisi dans HoraTrack. Le fond de la pastille Live Update reste géré par Android/HyperOS."
             textSize = 12f
             setPadding(0, 0, 0, dp(activity, 8))
         }
         refreshOpacityUi()
 
-        val index = addressList?.let(section::indexOfChild)?.takeIf { it >= 0 } ?: 0
-        section.addView(toggle, index)
-        section.addView(opacityLabel, (index + 1).coerceAtMost(section.childCount))
-        section.addView(opacity, (index + 2).coerceAtMost(section.childCount))
-        section.addView(note, (index + 3).coerceAtMost(section.childCount))
+        section.addView(statusTitle)
+        section.addView(toggle)
+        section.addView(opacityLabel)
+        section.addView(opacity)
+        section.addView(note)
     }
 
     private fun installPointageAddressButton(activity: MainActivity) {
