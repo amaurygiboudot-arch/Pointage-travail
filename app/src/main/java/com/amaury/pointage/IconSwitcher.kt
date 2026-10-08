@@ -56,6 +56,7 @@ object IconSwitcher {
                 status = current.snapshot.session?.status,
                 hasOpenPause = current.snapshot.session?.pauses?.any { it.endMs == null } == true
             ) ?: run {
+                PointageStatusNotificationV2.sync(context, null)
                 recordDiagnostic(
                     context,
                     success = false,
@@ -72,6 +73,7 @@ object IconSwitcher {
             }
         }
 
+        PointageStatusNotificationV2.sync(context, state)
         val target = icons.firstOrNull { it.state == state } ?: fallbackIcon
         setOnly(context, target)
     }
