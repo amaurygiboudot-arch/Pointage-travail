@@ -968,7 +968,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
         let content = UNMutableNotificationContent()
         content.title = "Sortie du lieu de travail détectée"
-        content.body = "Ouvre HoraTrack pour confirmer si ta journée est réellement terminée."
+        content.body = "Ouvre AGKGMG pour confirmer si ta journée est réellement terminée."
         content.sound = .default
 
         let request = UNNotificationRequest(
