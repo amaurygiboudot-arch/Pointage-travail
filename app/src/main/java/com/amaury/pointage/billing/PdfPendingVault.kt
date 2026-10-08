@@ -15,7 +15,7 @@ object PdfPendingVault {
         val hash = validate(filesDir, accountId, source)
         val snapshot = publish(filesDir, accountId, source, hash, "billing_pdf_pending")
         val folder = snapshot.parentFile
-        val title = displayName.substringAfterLast('/').substringAfterLast('\\').replace('\n', ' ').replace('\r', ' ').take(160).ifBlank { "HoraTrack.pdf" }
+        val title = displayName.substringAfterLast('/').substringAfterLast('\\').replace('\n', ' ').replace('\r', ' ').take(160).ifBlank { "AGKGMG.pdf" }
         val manifest = File(folder, "$hash.title")
         if (!manifest.exists()) {
             val temporary = File.createTempFile("title_", ".tmp", folder)
