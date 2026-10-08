@@ -73,6 +73,8 @@ class MainActivity : Activity() {
         private const val REQUEST_CREATE_MONTHLY_PDF = 2002
         private const val REQUEST_FINE_LOCATION = 3001
         private const val REQUEST_BACKGROUND_LOCATION = 3002
+        private const val REQUEST_GPS_NOTIFICATIONS = 3003
+        private const val KEY_GPS_NOTIFICATION_PERMISSION_REQUESTED = "gps_exit_notification_permission_requested"
         private const val NAVIGATION_PREFS = "navigation_state"
         private const val KEY_ACTIVE_TAB = "active_tab"
         private const val KEY_REPORT_MONTH_MS = "report_month_ms"
@@ -292,6 +294,7 @@ class MainActivity : Activity() {
         gpsRegistrationError = null
         updateGpsStatus()
         tryRestoreGeofence()
+        requestGpsNotificationPermissionIfNeeded()
         when (activeTab) {
             "home" -> showHomeTab()
             "history" -> showHistoryTab()
@@ -354,7 +357,22 @@ class MainActivity : Activity() {
                 if (granted) {
                     updateGpsStatus()
                     tryRestoreGeofence()
+                    requestGpsNotificationPermissionIfNeeded()
                 } else disableAutomaticGps("Autorise la localisation tout le temps pour le pointage automatique")
+            }
+            REQUEST_GPS_NOTIFICATIONS -> {
+                updateGpsStatus()
+                if (autoGpsSwitch.isChecked) tryRestoreGeofence()
+                if (
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    Toast.makeText(
+                        this,
+                        "Notifications refusées : une sortie GPS restera à confirmer à la prochaine ouverture de HoraTrack.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
         }
     }
@@ -655,6 +673,20 @@ class MainActivity : Activity() {
         Toast.makeText(this, "Localisation autorisée", Toast.LENGTH_SHORT).show()
         updateGpsStatus()
         if (autoGpsSwitch.isChecked) tryRestoreGeofence()
+        requestGpsNotificationPermissionIfNeeded()
+    }
+
+    private fun requestGpsNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (!autoGpsSwitch.isChecked) return
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+        if (gpsPrefs.getBoolean(KEY_GPS_NOTIFICATION_PERMISSION_REQUESTED, false)) return
+
+        gpsPrefs.edit().putBoolean(KEY_GPS_NOTIFICATION_PERMISSION_REQUESTED, true).apply()
+        requestPermissions(
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            REQUEST_GPS_NOTIFICATIONS
+        )
     }
 
     private fun disableAutomaticGps(message: String) {
@@ -666,6 +698,7 @@ class MainActivity : Activity() {
             .remove("active_zones").remove("entry_resolution_pending")
             .remove("entry_resolution_token").remove("pending_exit_zones").apply()
         GeofenceManager.reconfigureStoredZones(this)
+        GpsExitConfirmationNotificationV2.cancel(this)
         gpsStatusText.text = message
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
