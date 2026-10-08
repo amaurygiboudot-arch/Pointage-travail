@@ -10,7 +10,8 @@ struct SalaryWorkRuleOwnerV2: Codable, Equatable, Hashable {
 
     var isValid: Bool {
         [accountId, employeeId, employerId, contractVersionId].allSatisfy {
-            !$0.isEmpty && $0 == $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            !$0.isEmpty && $0 == $0.trimmingCharacters(in: .whitespacesAndNewlines) &&
+                $0.unicodeScalars.allSatisfy { $0.value != 0 }
         }
     }
 }
