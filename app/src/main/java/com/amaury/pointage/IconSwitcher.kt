@@ -17,7 +17,7 @@ import com.amaury.pointage.v2.model.SessionStatusV2
  */
 object IconSwitcher {
 
-    private const val TAG = "HoraTrackIcon"
+    private const val TAG = "AGKGMGIcon"
     private const val DIAG_PREFS = "icon_switch_diagnostics"
     private const val KEY_SUCCESS = "last_success"
     private const val KEY_TARGET = "last_target"
