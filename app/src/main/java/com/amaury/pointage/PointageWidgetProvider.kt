@@ -374,6 +374,9 @@ class PointageWidgetProvider : AppWidgetProvider() {
         } else if (handledAction) {
             val clickedId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                // Relire l'état V2 après la mutation afin que la notification/Live Update
+                // ne reste jamais sur l'état précédent quand l'action vient du widget.
+                IconSwitcher.sync(context)
                 val manager = AppWidgetManager.getInstance(context)
                 if (clickedId != AppWidgetManager.INVALID_APPWIDGET_ID) updateDynamicWidget(context, manager, clickedId)
                 else updateAll(context)
