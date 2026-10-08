@@ -4,7 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.os.Bundle
 import android.widget.Toast
-import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.AGKGMGV2
 import com.amaury.pointage.v2.PauseActionPolicyV2
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.V2RuntimeStore
@@ -21,7 +21,7 @@ class PauseActionActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (!HoraTrackV2.ENABLED) {
+        if (!AGKGMGV2.ENABLED) {
             finish()
             return
         }
