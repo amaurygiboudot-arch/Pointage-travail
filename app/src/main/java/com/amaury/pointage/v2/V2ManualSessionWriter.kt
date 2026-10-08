@@ -46,9 +46,10 @@ object V2ManualSessionWriter {
             V2RuntimeStore.bind(context)
             val migration = V2MigrationManager.ensureMigrated(context)
             if (!migration.reliable) return false
-            val countedEntry = HoraTrackV2.time.countedEntryFromRealArrival(realStartMs)
-            val expectedEnd = employerId?.let { V2ScheduleStore.expectedEnd(context, it, realStartMs, realEndMs) }
-            val countedExit = V2RuntimeStore.countedExitForClosure(realEndMs, expectedEnd, countedEntry)
+            // Une saisie manuelle apporte ses deux bornes réelles ; elle ne présume
+            // aucune politique d'arrondi ou tolérance propre à un employeur.
+            val countedEntry = realStartMs
+            val countedExit = realEndMs
             val placeLabel = place?.trim()?.takeIf { it.isNotBlank() }
 
             return appendToHistory(
@@ -138,6 +139,7 @@ object V2ManualSessionWriter {
         .put("countedEntry", countedEntryMs)
         .put("realExit", realEndMs)
         .put("countedExit", countedExitMs ?: JSONObject.NULL)
+        .put("timeBasis", "REAL_FACTS")
         .put("pauses", JSONArray())
         .put("source", "MANUAL")
         .put("placeId", JSONObject.NULL)
