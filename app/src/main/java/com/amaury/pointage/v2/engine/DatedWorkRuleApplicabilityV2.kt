@@ -13,7 +13,7 @@ data class WorkRuleOwnerV2(
     val contractVersionId: String
 ) {
     fun isValid(): Boolean = listOf(accountId, employeeId, employerId, contractVersionId)
-        .all { it.isNotBlank() && it == it.trim() }
+        .all { it.isNotBlank() && it == it.trim() && it.none { ch -> ch.code == 0 } }
 }
 
 enum class WorkRuleTopicV2 {
