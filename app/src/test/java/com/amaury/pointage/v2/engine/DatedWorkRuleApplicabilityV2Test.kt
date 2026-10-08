@@ -71,6 +71,11 @@ class DatedWorkRuleApplicabilityV2Test {
         assertEquals(WorkRuleResolutionStateV2.CONFLICT, result.state)
     }
 
+    @Test fun invalidOwnerIdsCannotCollideThroughStorageDelimiter() {
+        assertFalse(owner.copy(accountId = "account" + 0.toChar() + "other").isValid())
+        assertFalse(owner.copy(employeeId = "employee" + 0.toChar() + "other").isValid())
+    }
+
     @Test fun missingOrUnconfirmedSourceAndCorruptStorageAreUnreliable() {
         assertFalse(DatedWorkRuleApplicabilityV2.validRecord(rule(source = "")))
         assertFalse(DatedWorkRuleApplicabilityV2.validRecord(rule(checked = 0)))
