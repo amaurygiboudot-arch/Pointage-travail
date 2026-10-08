@@ -1,6 +1,8 @@
 package com.amaury.pointage.billing
 
 import com.amaury.pointage.v2.model.*
+import com.amaury.pointage.v2.engine.PaidWorkAllocationV2
+import com.amaury.pointage.v2.engine.WorkTimePolicyV2
 import org.junit.Assert.*
 import org.junit.Test
 import java.time.Instant
@@ -28,13 +30,16 @@ class PaidServiceWorkEvidenceTest {
         assertEquals(boundary, january.countedEndMs); assertEquals(boundary, february.countedStartMs)
     }
 
-    @Test fun countedBoundaryOverlapIsIncludedEvenWhenRealSessionStartsNextMonth() {
+    @Test fun legacyCountedBoundaryOverlapBlocksPaidReportUntilEmployerRuleIsQualified() {
         val realStart = boundary + 5 * 60_000L
         val session = night().copy(realArrivalMs = realStart, countedEntryMs = boundary - 5 * 60_000L,
             countedExitMs = boundary + hour, realExitMs = boundary + hour, pauses = emptyList())
-        val january = slice(listOf(session), boundary - 31 * 24 * hour, boundary).single()
-        assertEquals(0L, january.realPresenceMs); assertNull(january.realStartMs)
-        assertEquals(5 * 60_000L, january.countedSpanMs); assertEquals(5 * 60_000L, january.paidMs)
+        val provisional = PaidWorkAllocationV2.paidOverlapResult(session, boundary - 31 * 24 * hour, boundary)
+        assertEquals(5 * 60_000L, provisional.paidMs) // Valeur historique préservée.
+        assertFalse(provisional.reliable) // L'entrée comptée précède même l'arrivée réelle.
+        assertTrue(runCatching {
+            slice(listOf(session), boundary - 31 * 24 * hour, boundary)
+        }.isFailure)
     }
 
     @Test fun incompleteUnqualifiedOverlappingAndUnassignedEvidenceStillBlocksPreparation() {
@@ -56,13 +61,18 @@ class PaidServiceWorkEvidenceTest {
         assertEquals(7 * hour, january.paidMs + february.paidMs)
     }
 
-    @Test fun knownEntryRepairIsAppliedToTheAttributedCountedInterval() {
+    @Test fun knownEntryRepairDoesNotSilentlyCertifyOldCountingPolicyForPaidReport() {
         val session = night().copy(realArrivalMs = boundary + 8 * 60_000L, countedEntryMs = boundary + 15 * 60_000L,
             countedExitMs = boundary + hour, realExitMs = boundary + hour, pauses = emptyList())
-        val repaired = slice(listOf(session), boundary, boundary + 28 * 24 * hour).single()
-        assertEquals(boundary, repaired.countedStartMs)
-        assertEquals(hour, repaired.paidMs)
-        assertEquals(52 * 60_000L, repaired.realPresenceMs)
+        assertEquals(boundary, WorkTimePolicyV2.repairKnownCountedEntry(
+            session.realArrivalMs, session.countedEntryMs
+        ))
+        val provisional = PaidWorkAllocationV2.paidOverlapResult(session, boundary, boundary + 28 * 24 * hour)
+        assertEquals(hour, provisional.paidMs) // Relecture historique non destructrice.
+        assertFalse(provisional.reliable) // Aucune preuve de règle employeur sur ces faits.
+        assertTrue(runCatching {
+            slice(listOf(session), boundary, boundary + 28 * 24 * hour)
+        }.isFailure)
     }
 
     @Test fun sixAnnualMonthsWithBoundarySessionsRemainUsableWithoutMonthOmission() {
