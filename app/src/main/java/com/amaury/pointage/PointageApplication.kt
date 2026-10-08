@@ -18,6 +18,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
@@ -288,6 +289,7 @@ object SettingsUiInstaller {
                 activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE).edit().putString("mode", mode).apply()
                 updateModeLabel()
                 AppearanceManager.apply(activity)
+                IconSwitcher.sync(activity)
                 PointageWidgetProvider.refreshAppearance(activity)
                 QuickActionsWidgetProvider.refreshAppearance(activity)
             }.show()
@@ -402,26 +404,60 @@ object SettingsUiInstaller {
         if (section.findViewWithTag<View>("pointage_status_bar_switch") != null) return
         val addressList = activity.findViewById<EditText>(R.id.workplaceAddress)
 
+        val opacityValues = intArrayOf(25, 50, 75, 100)
+        val opacityLabel = TextView(activity).apply {
+            tag = "pointage_status_opacity_label"
+            textSize = 13f
+        }
+        val opacity = SeekBar(activity).apply {
+            tag = "pointage_status_opacity_seekbar"
+            max = opacityValues.lastIndex
+            progress = opacityValues.indexOf(PointageStatusNotificationV2.opacityPercent(activity))
+                .coerceAtLeast(opacityValues.lastIndex)
+        }
+        fun refreshOpacityUi() {
+            val value = opacityValues[opacity.progress.coerceIn(0, opacityValues.lastIndex)]
+            opacityLabel.text = "Opacité du symbole : $value %"
+            val active = PointageStatusNotificationV2.isEnabled(activity)
+            opacity.isEnabled = active
+            opacityLabel.alpha = if (active) 1f else 0.55f
+            opacity.alpha = if (active) 1f else 0.55f
+        }
+        opacity.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                refreshOpacityUi()
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                val value = opacityValues[opacity.progress.coerceIn(0, opacityValues.lastIndex)]
+                PointageStatusNotificationV2.setOpacityPercent(activity, value)
+            }
+        })
+
         val toggle = Switch(activity).apply {
             tag = "pointage_status_bar_switch"
-            text = "Afficher l’état du pointage dans la barre système"
+            text = "Afficher l’indicateur et le compteur dans la barre système"
             textSize = 14f
             isChecked = PointageStatusNotificationV2.isEnabled(activity)
             setOnCheckedChangeListener { _, checked ->
                 PointageStatusNotificationV2.setEnabled(activity, checked)
+                refreshOpacityUi()
                 if (checked) activity.requestPointageNotificationPermissionFromSettings()
             }
         }
         val note = TextView(activity).apply {
             tag = "pointage_status_bar_note"
-            text = "Rouge : non pointé • Vert : en cours • Orange : pause ou action à vérifier."
+            text = "L’indicateur suit automatiquement le mode clair/sombre de HoraTrack. Le fond de la pastille Live Update reste géré par Android/HyperOS."
             textSize = 12f
             setPadding(0, 0, 0, dp(activity, 8))
         }
+        refreshOpacityUi()
 
         val index = addressList?.let(section::indexOfChild)?.takeIf { it >= 0 } ?: 0
         section.addView(toggle, index)
-        section.addView(note, (index + 1).coerceAtMost(section.childCount))
+        section.addView(opacityLabel, (index + 1).coerceAtMost(section.childCount))
+        section.addView(opacity, (index + 2).coerceAtMost(section.childCount))
+        section.addView(note, (index + 3).coerceAtMost(section.childCount))
     }
 
     private fun installPointageAddressButton(activity: MainActivity) {
