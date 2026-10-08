@@ -389,7 +389,7 @@ object SettingsUiInstaller {
         val section = SettingsV2Host.section(activity, SettingsV2Host.TAG_ACCOUNT_SECURITY) ?: return
         if (section.findViewWithTag<View>("settings_google_play_button") != null) return
 
-        section.addView(styledButton(activity, "OUVRIR HORATRACK SUR GOOGLE PLAY").apply {
+        section.addView(styledButton(activity, "OUVRIR AGKGMG SUR GOOGLE PLAY").apply {
             tag = "settings_google_play_button"
             setOnClickListener {
                 val packageName = activity.packageName
@@ -497,7 +497,7 @@ object SettingsUiInstaller {
         }
         val note = TextView(activity).apply {
             tag = "pointage_status_bar_note"
-            text = "L’indicateur suit automatiquement le mode clair/sombre déjà choisi dans HoraTrack. Le fond de la pastille Live Update reste géré par Android/HyperOS."
+            text = "L’indicateur suit automatiquement le mode clair/sombre déjà choisi dans AGKGMG. Le fond de la pastille Live Update reste géré par Android/HyperOS."
             textSize = 12f
             setPadding(0, 0, 0, dp(activity, 8))
         }
