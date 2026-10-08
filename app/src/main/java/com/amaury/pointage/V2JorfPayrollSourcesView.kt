@@ -29,7 +29,7 @@ class V2JorfPayrollSourcesView(context: Context) : LinearLayout(context) {
             setTypeface(typeface, Typeface.BOLD)
         })
         addView(TextView(context).apply {
-            text = "HoraTrack parcourt les journaux officiels récents, repère les textes dont le titre touche potentiellement la paie ou le temps de travail, puis consulte le JORFTEXT officiel avant de conserver la référence. Cette piste sert à détecter des publications nouvelles ; elle ne transforme jamais un simple titre en règle chiffrée."
+            text = "AGKGMG parcourt les journaux officiels récents, repère les textes dont le titre touche potentiellement la paie ou le temps de travail, puis consulte le JORFTEXT officiel avant de conserver la référence. Cette piste sert à détecter des publications nouvelles ; elle ne transforme jamais un simple titre en règle chiffrée."
             textSize = 12f
             setPadding(0, dp(6), 0, dp(10))
         })
