@@ -374,6 +374,7 @@ object SettingsUiInstaller {
 
         listOf(updates, appearance, widget, drive, help).forEach(panel::addView)
         SettingsV2SectionOrganizer.organize(activity)
+        installPointageStatusIndicator(activity)
         installPointageAddressButton(activity)
         refreshDriveSection(activity)
         SettingsCompactMenuV2.installOrRefresh(activity)
@@ -394,6 +395,33 @@ object SettingsUiInstaller {
             if (configured && !HoraTrackV2.ENABLED) View.VISIBLE else View.GONE
         drive.findViewWithTag<View>("settings_drive_disconnect")?.visibility =
             if (configured) View.VISIBLE else View.GONE
+    }
+
+    private fun installPointageStatusIndicator(activity: MainActivity) {
+        val section = SettingsV2Host.section(activity, SettingsV2Host.TAG_POINTAGE) ?: return
+        if (section.findViewWithTag<View>("pointage_status_bar_switch") != null) return
+        val addressList = activity.findViewById<EditText>(R.id.workplaceAddress)
+
+        val toggle = Switch(activity).apply {
+            tag = "pointage_status_bar_switch"
+            text = "Afficher l’état du pointage dans la barre système"
+            textSize = 14f
+            isChecked = PointageStatusNotificationV2.isEnabled(activity)
+            setOnCheckedChangeListener { _, checked ->
+                PointageStatusNotificationV2.setEnabled(activity, checked)
+                if (checked) activity.requestPointageNotificationPermissionFromSettings()
+            }
+        }
+        val note = TextView(activity).apply {
+            tag = "pointage_status_bar_note"
+            text = "Rouge : non pointé • Vert : en cours • Orange : pause ou action à vérifier."
+            textSize = 12f
+            setPadding(0, 0, 0, dp(activity, 8))
+        }
+
+        val index = addressList?.let(section::indexOfChild)?.takeIf { it >= 0 } ?: 0
+        section.addView(toggle, index)
+        section.addView(note, (index + 1).coerceAtMost(section.childCount))
     }
 
     private fun installPointageAddressButton(activity: MainActivity) {
