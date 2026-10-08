@@ -1,0 +1,30 @@
+name: Multipoint source snapshot
+on:
+  push:
+    branches: [fix/gps-exit-background-confirmation-20261008]
+    paths: [.github/workflows/multipoint-source-audit.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 6bf5479dca7dded354ed309c33b3e49ff3b6041d
+          persist-credentials: false
+      - name: Archive tracked source only (no git credentials or working data)
+        run: |
+          git archive --format=tar HEAD > source.tar
+          git rev-parse HEAD > SOURCE_SHA.txt
+          sha256sum source.tar > SOURCE_SHA256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: multipoint-source-6bf5479d
+          path: |
+            source.tar
+            SOURCE_SHA.txt
+            SOURCE_SHA256.txt
+          retention-days: 1
+          if-no-files-found: error
