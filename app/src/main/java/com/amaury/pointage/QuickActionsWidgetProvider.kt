@@ -234,6 +234,9 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
         } else if (handledAction) {
             val clickedId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                // Les widgets ne sont pas une seconde source d'état : on relit le runtime
+                // canonique puis on rafraîchit l'indicateur système.
+                IconSwitcher.sync(context)
                 if (intent.action == ACTION_PAUSE) {
                     val manager = AppWidgetManager.getInstance(context)
                     if (clickedId != AppWidgetManager.INVALID_APPWIDGET_ID) updateDynamicState(context, manager, clickedId)
