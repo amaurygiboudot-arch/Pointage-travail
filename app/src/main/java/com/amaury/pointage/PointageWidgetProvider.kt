@@ -14,7 +14,7 @@ import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import android.widget.Toast
-import com.amaury.pointage.v2.AGKGMGV2
+import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.V2RuntimeStore
 import java.text.SimpleDateFormat
@@ -119,7 +119,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
             var exitLocation = ""
             var paused = false
 
-            if (AGKGMGV2.ENABLED) {
+            if (HoraTrackV2.ENABLED) {
                 val read = V2RuntimeReader.current(context)
                 if (!read.reliable) {
                     durationText = "--"
@@ -217,7 +217,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.widget_entry_inner, pendingBroadcast(context, widgetId, ACTION_ENTRY, 1))
             views.setOnClickPendingIntent(
                 R.id.widget_pause_inner,
-                if (AGKGMGV2.ENABLED) pendingPauseActivity(context, widgetId)
+                if (HoraTrackV2.ENABLED) pendingPauseActivity(context, widgetId)
                 else pendingBroadcast(context, widgetId, ACTION_PAUSE, 2)
             )
             views.setOnClickPendingIntent(R.id.widget_exit_inner, pendingBroadcast(context, widgetId, ACTION_EXIT, 3))
@@ -309,17 +309,17 @@ class PointageWidgetProvider : AppWidgetProvider() {
         when (intent.action) {
             ACTION_ENTRY -> {
                 handledAction = true
-                if (AGKGMGV2.ENABLED && !V2RuntimeReader.current(context).reliable) {
+                if (HoraTrackV2.ENABLED && !V2RuntimeReader.current(context).reliable) {
                     Toast.makeText(context, "Pointage bloqué : données AGKGMG à vérifier", Toast.LENGTH_LONG).show()
                 } else {
-                    val ok = if (AGKGMGV2.ENABLED) V2RuntimeStore.entry(context) else PointageStore.entry(context)
+                    val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.entry(context) else PointageStore.entry(context)
                     if (ok) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
                     else Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
                 }
             }
             ACTION_PAUSE -> {
                 handledAction = true
-                if (AGKGMGV2.ENABLED) {
+                if (HoraTrackV2.ENABLED) {
                     val read = V2RuntimeReader.current(context)
                     val session = read.snapshot.session
                     if (!read.reliable) {
@@ -358,10 +358,10 @@ class PointageWidgetProvider : AppWidgetProvider() {
             }
             ACTION_EXIT -> {
                 handledAction = true
-                if (AGKGMGV2.ENABLED && !V2RuntimeReader.current(context).reliable) {
+                if (HoraTrackV2.ENABLED && !V2RuntimeReader.current(context).reliable) {
                     Toast.makeText(context, "Pointage bloqué : données AGKGMG à vérifier", Toast.LENGTH_LONG).show()
                 } else {
-                    val ok = if (AGKGMGV2.ENABLED) V2RuntimeStore.exit(context) else PointageStore.exit(context)
+                    val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.exit(context) else PointageStore.exit(context)
                     if (ok) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
                     else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
                 }
