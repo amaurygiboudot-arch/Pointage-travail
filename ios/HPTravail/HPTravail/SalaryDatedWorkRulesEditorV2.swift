@@ -25,8 +25,8 @@ struct SalaryDatedWorkRulesEditorV2: View {
     @State private var showConfirmation = false
 
     private var authenticatedUid: String? {
-        authentication.user?.uid.trimmingCharacters(in: .whitespacesAndNewlines)
-            .nonEmpty
+        let uid = authentication.user?.uid.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return uid.isEmpty ? nil : uid
     }
     private var accountStillValid: Bool {
         openedUid != nil && openedUid == authenticatedUid
@@ -353,12 +353,5 @@ struct SalaryDatedWorkRulesEditorV2: View {
         case .mealAllowance: return "Indemnités de repas"
         case .absence: return "Absences"
         }
-    }
-}
-
-private extension Optional where Wrapped == String {
-    var nonEmpty: String? {
-        guard let value = self, !value.isEmpty else { return nil }
-        return value
     }
 }
