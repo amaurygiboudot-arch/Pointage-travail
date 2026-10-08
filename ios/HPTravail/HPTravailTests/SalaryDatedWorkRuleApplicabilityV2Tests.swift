@@ -87,6 +87,15 @@ final class SalaryDatedWorkRuleApplicabilityV2Tests: XCTestCase {
         XCTAssertEqual(result.state, .conflict)
     }
 
+    func testInvalidOwnerDelimitersNeverBecomeAcceptedIdentities() {
+        let malformed = SalaryWorkRuleOwnerV2(
+            accountId: "account" + String(UnicodeScalar(0)!) + "other",
+            employeeId: owner.employeeId, employerId: owner.employerId,
+            contractVersionId: owner.contractVersionId
+        )
+        XCTAssertFalse(malformed.isValid)
+    }
+
     func testUnknownSourceAndUnreliableStorageBlockCertification() {
         XCTAssertFalse(SalaryDatedWorkRuleApplicabilityV2.validRecord(record(source: "")))
         XCTAssertFalse(SalaryDatedWorkRuleApplicabilityV2.validRecord(record(checked: 0)))
