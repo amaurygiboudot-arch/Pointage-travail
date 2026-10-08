@@ -8,7 +8,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Color
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2
@@ -25,6 +24,7 @@ object PointageStatusNotificationV2 {
     private const val PREFS = "pointage_status_notification_v2"
     private const val KEY_ENABLED = "enabled"
     private const val KEY_PERMISSION_REQUESTED = "permission_requested"
+    private const val KEY_OPACITY_PERCENT = "icon_opacity_percent"
 
     internal enum class DisplayState {
         RED,
@@ -61,6 +61,54 @@ object PointageStatusNotificationV2 {
             .edit()
             .putBoolean(KEY_PERMISSION_REQUESTED, true)
             .apply()
+    }
+
+    fun opacityPercent(context: Context): Int =
+        opacityBucket(
+            context.applicationContext
+                .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getInt(KEY_OPACITY_PERCENT, 100)
+        )
+
+    fun setOpacityPercent(context: Context, value: Int) {
+        val app = context.applicationContext
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(KEY_OPACITY_PERCENT, opacityBucket(value))
+            .apply()
+        IconSwitcher.sync(app)
+    }
+
+    internal fun opacityBucket(value: Int): Int {
+        val clamped = value.coerceIn(25, 100)
+        return (((clamped + 12) / 25) * 25).coerceIn(25, 100)
+    }
+
+    internal fun resolveAccentColor(displayState: DisplayState, dark: Boolean): Int = when (displayState) {
+        DisplayState.RED -> if (dark) 0xFFEF5350.toInt() else 0xFFC62828.toInt()
+        DisplayState.GREEN -> if (dark) 0xFF66BB6A.toInt() else 0xFF2E7D32.toInt()
+        DisplayState.ORANGE -> if (dark) 0xFFFFB74D.toInt() else 0xFFEF6C00.toInt()
+    }
+
+    internal fun iconForState(displayState: DisplayState, opacity: Int): Int = when (displayState) {
+        DisplayState.RED -> when (opacityBucket(opacity)) {
+            25 -> R.drawable.ic_pointage_status_red_25
+            50 -> R.drawable.ic_pointage_status_red_50
+            75 -> R.drawable.ic_pointage_status_red_75
+            else -> R.drawable.ic_pointage_status_red
+        }
+        DisplayState.GREEN -> when (opacityBucket(opacity)) {
+            25 -> R.drawable.ic_pointage_status_green_25
+            50 -> R.drawable.ic_pointage_status_green_50
+            75 -> R.drawable.ic_pointage_status_green_75
+            else -> R.drawable.ic_pointage_status_green
+        }
+        DisplayState.ORANGE -> when (opacityBucket(opacity)) {
+            25 -> R.drawable.ic_pointage_status_orange_25
+            50 -> R.drawable.ic_pointage_status_orange_50
+            75 -> R.drawable.ic_pointage_status_orange_75
+            else -> R.drawable.ic_pointage_status_orange
+        }
     }
 
     internal fun resolveDisplayState(
@@ -101,22 +149,26 @@ object PointageStatusNotificationV2 {
 
         val pending = GpsWorkStateCoordinatorV2.pending(app)
         val displayState = resolveDisplayState(iconState, pending != null)
+        val dark = AppThemeCatalog.useDarkPalette(app)
+        val opacity = opacityPercent(app)
+        val accent = resolveAccentColor(displayState, dark)
+        val statusIcon = iconForState(displayState, opacity)
         val spec = when (displayState) {
             DisplayState.RED -> StatusSpec(
-                color = Color.parseColor("#E53935"),
-                icon = R.drawable.ic_pointage_status_red,
+                color = accent,
+                icon = statusIcon,
                 title = "HoraTrack — non pointé",
                 text = "🔴 Aucune session de travail en cours."
             )
             DisplayState.GREEN -> StatusSpec(
-                color = Color.parseColor("#00C853"),
-                icon = R.drawable.ic_pointage_status_green,
+                color = accent,
+                icon = statusIcon,
                 title = "HoraTrack — pointage en cours",
                 text = "🟢 Session de travail active."
             )
             DisplayState.ORANGE -> StatusSpec(
-                color = Color.parseColor("#FB8C00"),
-                icon = R.drawable.ic_pointage_status_orange,
+                color = accent,
+                icon = statusIcon,
                 title = when {
                     pending != null -> "HoraTrack — action requise"
                     iconState == IconSwitcher.IconState.PAUSED -> "HoraTrack — pause en cours"
