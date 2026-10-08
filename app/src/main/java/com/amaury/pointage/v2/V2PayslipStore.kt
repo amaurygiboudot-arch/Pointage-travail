@@ -114,7 +114,7 @@ object V2PayslipStore {
 
  /**
   * Calcule l'IJSS maladie uniquement à partir de bulletins réels confirmés.
-  * Aucun brut estimé HoraTrack n'est injecté dans cette base de référence.
+  * Aucun brut estimé AGKGMG n'est injecté dans cette base de référence.
   */
  fun sicknessAllowanceForAbsence(context:Context,companyId:String,absence:AbsenceV2):SicknessDailyAllowanceV2.Result?{
   if(absence.type != AbsencePayrollImpactV2.TYPE_SICKNESS) return null
@@ -316,7 +316,7 @@ object V2PayslipStore {
     }else{
      val referenceNet=net.netBeforeIncomeTax
      if(referenceNet==null){
-      bridgeWarnings += "Base nette maladie : net HoraTrack V2 encore incomplet pour ${"%02d/%04d".format(ym.monthValue,ym.year)} ; aucune valeur partielle n'est utilisée comme référence."
+      bridgeWarnings += "Base nette maladie : net AGKGMG V2 encore incomplet pour ${"%02d/%04d".format(ym.monthValue,ym.year)} ; aucune valeur partielle n'est utilisée comme référence."
      }else{
       monthlyNet[ym]=referenceNet
      }
