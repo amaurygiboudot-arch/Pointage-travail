@@ -147,14 +147,14 @@ object PlasturgieSicknessMaintenanceV2 {
         }
 
         val warnings = buildList {
-            add("Barème Plasturgie calculé sur les arrêts maladie enregistrés dans HoraTrack pour cette entreprise et cette année.")
+            add("Barème Plasturgie calculé sur les arrêts maladie enregistrés dans AGKGMG pour cette entreprise et cette année.")
             if (!firstRecordedStop) {
                 if (waiting < 3) add("Carence conventionnelle de $waiting jour(s) appliquée car le premier arrêt enregistré de l'année a duré moins de 3 jours.")
                 else add("Carence conventionnelle de 3 jours appliquée ; les exceptions (notamment ALD) restent à confirmer.")
             }
             if (currentCalendarDays > 3) add("Arrêt supérieur à 3 jours : la prise en charge par la Sécurité sociale doit être confirmée pour sécuriser l'indemnisation conventionnelle.")
             add("Le montant exact du complément employeur exige la rémunération nette qui aurait été perçue sur la période, puis la déduction des IJSS et des prestations de prévoyance financées par l'employeur.")
-            if (consumed >= annualLimit) add("Plafond annuel conventionnel déjà atteint selon les absences enregistrées dans HoraTrack.")
+            if (consumed >= annualLimit) add("Plafond annuel conventionnel déjà atteint selon les absences enregistrées dans AGKGMG.")
         }
 
         return Result(
