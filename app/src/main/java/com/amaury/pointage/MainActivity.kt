@@ -74,7 +74,6 @@ class MainActivity : Activity() {
         private const val REQUEST_FINE_LOCATION = 3001
         private const val REQUEST_BACKGROUND_LOCATION = 3002
         private const val REQUEST_POINTAGE_NOTIFICATIONS = 3003
-        private const val KEY_POINTAGE_NOTIFICATION_PERMISSION_REQUESTED = "pointage_notification_permission_requested"
         private const val NAVIGATION_PREFS = "navigation_state"
         private const val KEY_ACTIVE_TAB = "active_tab"
         private const val KEY_REPORT_MONTH_MS = "report_month_ms"
