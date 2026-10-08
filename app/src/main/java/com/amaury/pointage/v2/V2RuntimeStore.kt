@@ -5,6 +5,10 @@ import com.amaury.pointage.WidgetLocationExpiryScheduler
 import com.amaury.pointage.v2.model.EventSourceV2
 import com.amaury.pointage.v2.model.PauseV2
 import com.amaury.pointage.v2.model.SessionStatusV2
+import com.amaury.pointage.v2.model.TimeBasisV2
+import com.amaury.pointage.v2.model.WorkSegmentV2
+import com.amaury.pointage.v2.model.WorkSegmentKindV2
+import com.amaury.pointage.v2.model.DecisionStatusV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 import org.json.JSONArray
 import org.json.JSONObject
@@ -21,6 +25,7 @@ object V2RuntimeStore {
     private const val KEY_REAL_EXIT = "real_exit"
     private const val KEY_COUNTED_EXIT = "counted_exit"
     private const val KEY_EXPECTED_END = "expected_end"
+    private const val KEY_TIME_BASIS = "time_basis"
     private const val KEY_PAUSE_START = "pause_start"
     private const val KEY_PAUSE_SOURCE = "pause_source"
     private const val KEY_PAUSE_PAID = "pause_paid"
@@ -116,13 +121,14 @@ object V2RuntimeStore {
 
         val editor = prefs.edit()
             .remove(KEY_ID).remove(KEY_EMPLOYER_ID).remove(KEY_COMPANY_SLOT)
-            .remove(KEY_REAL_ENTRY).remove(KEY_COUNTED_ENTRY)
+            .remove(KEY_REAL_ENTRY).remove(KEY_COUNTED_ENTRY).remove(KEY_TIME_BASIS)
             .remove(KEY_REAL_EXIT).remove(KEY_COUNTED_EXIT).remove(KEY_EXPECTED_END)
             .remove(KEY_PAUSE_START).remove(KEY_PAUSE_SOURCE).remove(KEY_PAUSE_PAID).remove(KEY_PAUSES)
             .remove(KEY_PLACE_ID).remove(KEY_PLACE_LABEL)
             .putString(KEY_ID, UUID.randomUUID().toString())
             .putLong(KEY_REAL_ENTRY, nowMs)
-            .putLong(KEY_COUNTED_ENTRY, HoraTrackV2.time.countedEntryFromRealArrival(nowMs))
+            .putLong(KEY_COUNTED_ENTRY, nowMs)
+            .putString(KEY_TIME_BASIS, TimeBasisV2.REAL_FACTS.name)
             .putString(KEY_PAUSES, "[]")
         legacySlot?.let { editor.putInt(KEY_COMPANY_SLOT, it) }
         employerId?.let { editor.putString(KEY_EMPLOYER_ID, it) }
@@ -489,7 +495,13 @@ object V2RuntimeStore {
             ?: session.employerId?.trim()?.takeIf { it.isNotBlank() }?.let { companyId ->
                 V2ScheduleStore.expectedEnd(context, companyId, entry, nowMs)
             }
-        val countedExit = countedExitForClosure(nowMs, knownExpectedEnd, session.countedEntryMs)
+        // Les horaires prévus ne remplacent jamais des minutes de travail observées.
+        // Les anciennes sessions conservent leurs valeurs mais doivent être qualifiées.
+        val countedExit = if (session.timeBasis == TimeBasisV2.REAL_FACTS) {
+            nowMs
+        } else {
+            countedExitForClosure(nowMs, knownExpectedEnd, session.countedEntryMs)
+        }
         val closedPauses = pauseArrayOrNull(pauses)?.let(::parsePauseArray) ?: return false
         val closedSession = session.copy(
             countedExitMs = countedExit,
@@ -626,6 +638,11 @@ object V2RuntimeStore {
                 pause.startMs < realEntry || (realExit != null && end > realExit)
             }) return corruptCurrentSnapshot()
 
+        val timeBasis = (values[KEY_TIME_BASIS] as? String)?.let {
+            runCatching { TimeBasisV2.valueOf(it) }.getOrNull()
+                ?: return corruptCurrentSnapshot()
+        } ?: if (values.containsKey(KEY_TIME_BASIS)) return corruptCurrentSnapshot()
+            else TimeBasisV2.LEGACY_UNVERIFIED
         val session = WorkSessionV2(
             id = id,
             employerId = employerId,
@@ -636,7 +653,8 @@ object V2RuntimeStore {
             pauses = pauses,
             status = if (realExit == null) SessionStatusV2.OPEN else SessionStatusV2.CLOSED,
             placeId = placeId,
-            placeLabel = placeLabel
+            placeLabel = placeLabel,
+            timeBasis = timeBasis
         )
         return Snapshot(session, HoraTrackV2.time.calculate(session, nowMs))
     }
@@ -723,6 +741,8 @@ object V2RuntimeStore {
         .put("placeId", session.placeId ?: JSONObject.NULL)
         .put("placeLabel", session.placeLabel ?: JSONObject.NULL)
         .put("legacyFixedUnpaidPauseMs", session.legacyFixedUnpaidPauseMs)
+        .put("timeBasis", session.timeBasis.name)
+        .put("workSegments", workSegmentsToJson(session.workSegments))
         .put(KEY_PAUSES, pausesToJson(session.pauses))
 
     private fun parseHistory(context: Context, array: JSONArray): List<WorkSessionV2>? = runCatching {
@@ -740,6 +760,11 @@ object V2RuntimeStore {
                 val placeId = o.optString("placeId").trim().takeIf { it.isNotBlank() && it != "null" }
                 val placeLabel = o.optString("placeLabel").trim().takeIf { it.isNotBlank() && it != "null" }
                 val pauses = parsePauseArray(o.getJSONArray(KEY_PAUSES)) ?: error("pauses invalides")
+                val timeBasis = if (!o.has("timeBasis")) TimeBasisV2.LEGACY_UNVERIFIED else {
+                    val raw = o.opt("timeBasis") as? String ?: error("timeBasis invalide")
+                    runCatching { TimeBasisV2.valueOf(raw) }.getOrElse { error("timeBasis inconnu") }
+                }
+                val workSegments = parseWorkSegments(o) ?: error("workSegments invalides")
                 val id = o.getString("id").trim().takeIf { it.isNotBlank() && it != "null" }
                     ?: error("id invalide")
                 add(
@@ -754,7 +779,9 @@ object V2RuntimeStore {
                         status = if (realExit == null) SessionStatusV2.OPEN else SessionStatusV2.CLOSED,
                         placeId = placeId,
                         placeLabel = placeLabel,
-                        legacyFixedUnpaidPauseMs = positiveOrZero(o, "legacyFixedUnpaidPauseMs")
+                        legacyFixedUnpaidPauseMs = positiveOrZero(o, "legacyFixedUnpaidPauseMs"),
+                        timeBasis = timeBasis,
+                        workSegments = workSegments
                     )
                 )
             }
@@ -801,6 +828,36 @@ object V2RuntimeStore {
         }
         array.put(JSONObject().put("start", start).put("end", end).put("source", source.name).put("paid", paid))
         return array.toString().takeIf { V2RuntimeHistoryGuardV2.validPauseArray(array) }
+    }
+
+    private fun workSegmentsToJson(segments: List<WorkSegmentV2>): JSONArray = JSONArray().apply {
+        segments.forEach { segment ->
+            put(JSONObject()
+                .put("start", segment.startMs)
+                .put("end", segment.endMs ?: JSONObject.NULL)
+                .put("kind", segment.kind.name)
+                .put("status", segment.status.name))
+        }
+    }
+
+    private fun parseWorkSegments(session: JSONObject): List<WorkSegmentV2>? {
+        if (!session.has("workSegments")) return emptyList()
+        val array = session.optJSONArray("workSegments") ?: return null
+        return runCatching {
+            buildList {
+                for (i in 0 until array.length()) {
+                    val item = array.getJSONObject(i)
+                    val start = positive(item, "start") ?: error("start invalide")
+                    val end = positive(item, "end") ?: error("end invalide")
+                    add(WorkSegmentV2(
+                        startMs = start,
+                        endMs = end,
+                        kind = WorkSegmentKindV2.valueOf(item.getString("kind")),
+                        status = DecisionStatusV2.valueOf(item.getString("status"))
+                    ))
+                }
+            }
+        }.getOrNull()
     }
 
     private fun pauseArrayOrNull(raw: String): JSONArray? {
