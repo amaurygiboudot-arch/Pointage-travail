@@ -174,7 +174,7 @@ class CelestialHomeSkyBackgroundRendererV2(context: Context, private val onInval
 
     companion object {
         private val executor = Executors.newSingleThreadExecutor { task ->
-            Thread(task, "HoraTrack-HomeSky").apply { priority = Thread.NORM_PRIORITY - 1 }
+            Thread(task, "AGKGMG-HomeSky").apply { priority = Thread.NORM_PRIORITY - 1 }
         }
     }
 }

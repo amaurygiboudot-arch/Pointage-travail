@@ -100,7 +100,7 @@ class CelestialStarLayerRendererV2(context: Context, private val onInvalidated: 
     fun clear() { generation.incrementAndGet(); requested = null; sky = null }
     companion object {
         private val executor = Executors.newSingleThreadExecutor { task ->
-            Thread(task, "HoraTrack-StarSky").apply { priority = Thread.NORM_PRIORITY - 1 }
+            Thread(task, "AGKGMG-StarSky").apply { priority = Thread.NORM_PRIORITY - 1 }
         }
     }
 }
