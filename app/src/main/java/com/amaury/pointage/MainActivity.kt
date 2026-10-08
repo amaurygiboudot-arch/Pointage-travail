@@ -240,7 +240,12 @@ class MainActivity : Activity() {
                 else -> "Une entrée est déjà en cours"
             }
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
-            if (ok) refreshScreen()
+            if (ok) {
+                // Les actions manuelles doivent aussi mettre à jour immédiatement la
+                // notification système, sans attendre une nouvelle transition GPS.
+                IconSwitcher.sync(this)
+                refreshScreen()
+            }
         }
 
         exitButton?.setOnClickListener {
@@ -257,7 +262,12 @@ class MainActivity : Activity() {
                 else -> "Aucune entrée en cours"
             }
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
-            if (ok) refreshScreen()
+            if (ok) {
+                // Les actions manuelles doivent aussi mettre à jour immédiatement la
+                // notification système, sans attendre une nouvelle transition GPS.
+                IconSwitcher.sync(this)
+                refreshScreen()
+            }
         }
 
         locationPermissionButton?.setOnClickListener { animateClick(locationPermissionButton); requestLocationAccess() }
