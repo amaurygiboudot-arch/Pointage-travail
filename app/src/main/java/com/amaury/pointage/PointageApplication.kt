@@ -377,11 +377,56 @@ object SettingsUiInstaller {
 
         listOf(updates, appearance, widget, drive, help).forEach(panel::addView)
         SettingsV2SectionOrganizer.organize(activity)
+        installGooglePlayButton(activity)
         installPointageStatusIndicator(activity)
         installPointageAddressButton(activity)
         refreshDriveSection(activity)
         SettingsCompactMenuV2.installOrRefresh(activity)
         AppearanceManager.apply(activity)
+    }
+
+    private fun installGooglePlayButton(activity: MainActivity) {
+        val section = SettingsV2Host.section(activity, SettingsV2Host.TAG_ACCOUNT_SECURITY) ?: return
+        if (section.findViewWithTag<View>("settings_google_play_button") != null) return
+
+        section.addView(styledButton(activity, "OUVRIR HORATRACK SUR GOOGLE PLAY").apply {
+            tag = "settings_google_play_button"
+            setOnClickListener {
+                val packageName = activity.packageName
+                val marketIntent = Intent(
+                    Intent.ACTION_VIEW,
+                    android.net.Uri.parse("market://details?id=$packageName")
+                ).apply {
+                    setPackage("com.android.vending")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                val webIntent = Intent(
+                    Intent.ACTION_VIEW,
+                    android.net.Uri.parse("https://play.google.com/store/apps/details?id=$packageName")
+                ).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+
+                val opened = runCatching {
+                    activity.startActivity(marketIntent)
+                    true
+                }.getOrDefault(false)
+
+                if (!opened) {
+                    val webOpened = runCatching {
+                        activity.startActivity(webIntent)
+                        true
+                    }.getOrDefault(false)
+                    if (!webOpened) {
+                        Toast.makeText(
+                            activity,
+                            "Google Play indisponible sur cet appareil",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            }
+        })
     }
 
     fun refreshDriveSection(activity: MainActivity) {
