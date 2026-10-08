@@ -8,7 +8,10 @@ enum SalaryDatedWorkTimeQualificationV2 {
 
     struct Assessment {
         let time: PaidTimeAssessmentV2
-        let selectedSourceIds: [SalaryWorkRuleTopicV2: String]
+        let selectedRuleEvidence: [SalaryWorkRuleTopicV2: SalaryDatedWorkRuleV2]
+        var selectedSourceIds: [SalaryWorkRuleTopicV2: String] {
+            selectedRuleEvidence.mapValues { $0.sourceId }
+        }
         let reliable: Bool
         let warnings: [String]
     }
@@ -33,11 +36,11 @@ enum SalaryDatedWorkTimeQualificationV2 {
               let end = session.exit, end > session.entry,
               let beginDay = epochDay(session.entry, calendar: inputCalendar),
               let endDay = lastDayExclusive(end, calendar: inputCalendar) else {
-            return .init(time: basic, selectedSourceIds: [:], reliable: false,
+            return .init(time: basic, selectedRuleEvidence: [:], reliable: false,
                          warnings: [contextWarning])
         }
         var warnings: [String] = []
-        var selected: [SalaryWorkRuleTopicV2: String] = [:]
+        var selected: [SalaryWorkRuleTopicV2: SalaryDatedWorkRuleV2] = [:]
         var rulesReliable = true
         for topic in requiredTopics {
             let result = SalaryDatedWorkRuleApplicabilityV2.resolvePeriod(
@@ -54,12 +57,12 @@ enum SalaryDatedWorkTimeQualificationV2 {
                 }
                 continue
             }
-            selected[topic] = result.segments[0].record.sourceId
+            selected[topic] = result.segments[0].record
         }
         let uniqueWarnings = Array(NSOrderedSet(array: warnings)) as? [String] ?? warnings
         return .init(
             time: basic,
-            selectedSourceIds: rulesReliable ? selected : [:],
+            selectedRuleEvidence: rulesReliable ? selected : [:],
             reliable: basic.reliable && rulesReliable && selected.count == requiredTopics.count,
             warnings: uniqueWarnings
         )
