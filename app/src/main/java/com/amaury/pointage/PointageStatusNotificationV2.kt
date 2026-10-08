@@ -74,7 +74,7 @@ object PointageStatusNotificationV2 {
         else -> DisplayState.RED
     }
 
-    fun sync(context: Context, iconState: IconSwitcher.IconState?) {
+    internal fun sync(context: Context, iconState: IconSwitcher.IconState?) {
         val app = context.applicationContext
         if (!isEnabled(app)) {
             cancel(app)
