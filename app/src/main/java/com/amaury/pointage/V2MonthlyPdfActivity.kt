@@ -38,7 +38,7 @@ class V2MonthlyPdfActivity : Activity() {
     private var authorizedFile: File? = null
     private var authorizedHash: String? = null
     private var destinationRequested = false
-    private var fileName = "HoraTrack.pdf"
+    private var fileName = "AGKGMG.pdf"
     private var previewMode = false
     private var phase = MonthlyPdfRecovery.Phase.CHOOSE
     private var selectedYear = -1
@@ -189,7 +189,7 @@ class V2MonthlyPdfActivity : Activity() {
             }
             if (result.isFailure && !isChangingConfigurations) cleanup(uri)
             runOnUiThread {
-                if (!isDestroyed && !isChangingConfigurations) { toast(if (result.isSuccess) "PDF HoraTrack enregistré" else "Export annulé : droits, compte ou fichier à vérifier."); finish() }
+                if (!isDestroyed && !isChangingConfigurations) { toast(if (result.isSuccess) "PDF AGKGMG enregistré" else "Export annulé : droits, compte ou fichier à vérifier."); finish() }
             }
         }
     }
@@ -221,7 +221,7 @@ class V2MonthlyPdfActivity : Activity() {
     private fun restoreExport(state: Bundle) {
         selectedYear = state.getInt("year", -1); selectedMonth = state.getInt("month", -1)
         phase = runCatching { MonthlyPdfRecovery.Phase.valueOf(state.getString("phase") ?: "CHOOSE") }.getOrDefault(MonthlyPdfRecovery.Phase.CHOOSE)
-        fileName = state.getString("name") ?: "HoraTrack.pdf"
+        fileName = state.getString("name") ?: "AGKGMG.pdf"
         val uid = ownerUid ?: return finish()
         val file = state.getString("file")?.let(::File)
         authorizedHash = state.getString("hash")
