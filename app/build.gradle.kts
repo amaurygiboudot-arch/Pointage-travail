@@ -22,7 +22,7 @@ android {
 
     defaultConfig {
         applicationId = "com.amaury.pointage"
-        minSdk = 23
+        minSdk = 29
         targetSdk = 36
         versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 9
         versionName = System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "1.9"
