@@ -222,7 +222,7 @@ object PointageStatusNotificationV2 {
             nowMs = System.currentTimeMillis()
         )
         if (chronometerStart != null) {
-            // Android anime lui-même ce chrono : aucun réveil périodique de HoraTrack.
+            // Android anime lui-même ce chrono : aucun réveil périodique de AGKGMG.
             // Il mesure la présence depuis l'entrée réelle, pas le temps payé.
             builder
                 .setWhen(chronometerStart)
@@ -250,7 +250,7 @@ object PointageStatusNotificationV2 {
                 "État du pointage",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Indicateur permanent rouge, vert ou orange de l'état HoraTrack"
+                description = "Indicateur permanent rouge, vert ou orange de l'état AGKGMG"
                 setShowBadge(false)
                 enableVibration(false)
                 enableLights(false)
