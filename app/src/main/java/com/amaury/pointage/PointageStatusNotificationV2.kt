@@ -74,12 +74,6 @@ object PointageStatusNotificationV2 {
         else -> DisplayState.RED
     }
 
-    internal fun shortCriticalText(displayState: DisplayState): String = when (displayState) {
-        DisplayState.RED -> "×"
-        DisplayState.GREEN -> "✓"
-        DisplayState.ORANGE -> "Ⅱ"
-    }
-
     internal fun sync(context: Context, iconState: IconSwitcher.IconState?) {
         val app = context.applicationContext
         if (!isEnabled(app)) {
@@ -142,7 +136,6 @@ object PointageStatusNotificationV2 {
             .setSmallIcon(spec.icon)
             .setColor(spec.color)
             .setRequestPromotedOngoing(true)
-            .setShortCriticalText(shortCriticalText(displayState))
             .setContentTitle(spec.title)
             .setContentText(spec.text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(spec.text))
