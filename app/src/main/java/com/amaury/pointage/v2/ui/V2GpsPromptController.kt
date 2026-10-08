@@ -55,9 +55,9 @@ object V2GpsPromptController {
                         GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                     }
                     .setOnDismissListener {
-                        showing.remove(activity)
-                        IconSwitcher.sync(activity)
-                    }
+                            showing.remove(activity)
+                            IconSwitcher.sync(activity)
+                        }
                     .show()
             }
 
@@ -108,9 +108,9 @@ object V2GpsPromptController {
                             GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                         }
                         .setOnDismissListener {
-                        showing.remove(activity)
-                        IconSwitcher.sync(activity)
-                    }
+                            showing.remove(activity)
+                            IconSwitcher.sync(activity)
+                        }
                         .show()
                 } else {
                     AlertDialog.Builder(activity)
@@ -135,9 +135,9 @@ object V2GpsPromptController {
                             GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                         }
                         .setOnDismissListener {
-                        showing.remove(activity)
-                        IconSwitcher.sync(activity)
-                    }
+                            showing.remove(activity)
+                            IconSwitcher.sync(activity)
+                        }
                         .show()
                 }
             }
