@@ -6,6 +6,25 @@ import org.junit.Test
 class PointageStatusNotificationV2Test {
 
     @Test
+    fun `opacity snaps to supported user levels`() {
+        assertEquals(25, PointageStatusNotificationV2.opacityBucket(0))
+        assertEquals(25, PointageStatusNotificationV2.opacityBucket(37))
+        assertEquals(50, PointageStatusNotificationV2.opacityBucket(38))
+        assertEquals(75, PointageStatusNotificationV2.opacityBucket(74))
+        assertEquals(100, PointageStatusNotificationV2.opacityBucket(100))
+        assertEquals(100, PointageStatusNotificationV2.opacityBucket(140))
+    }
+
+    @Test
+    fun `day and night palettes remain distinct for every status`() {
+        PointageStatusNotificationV2.DisplayState.values().forEach { state ->
+            val day = PointageStatusNotificationV2.resolveAccentColor(state, dark = false)
+            val night = PointageStatusNotificationV2.resolveAccentColor(state, dark = true)
+            org.junit.Assert.assertNotEquals(day, night)
+        }
+    }
+
+    @Test
     fun `red when no session is active`() {
         assertEquals(
             PointageStatusNotificationV2.DisplayState.RED,
