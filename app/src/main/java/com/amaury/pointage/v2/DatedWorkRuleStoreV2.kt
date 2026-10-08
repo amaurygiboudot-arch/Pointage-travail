@@ -3,6 +3,10 @@ package com.amaury.pointage.v2
 import android.content.Context
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.engine.DatedWorkRuleApplicabilityV2
+import com.amaury.pointage.v2.engine.DatedWorkRuleOwnerAuthorizationV2
+import com.amaury.pointage.v2.engine.DatedWorkRuleContractScopeV2
+import com.amaury.pointage.v2.engine.EmploymentContractSnapshotV2
+import com.google.firebase.auth.FirebaseAuth
 import com.amaury.pointage.v2.engine.DatedWorkRuleV2
 import com.amaury.pointage.v2.engine.WorkRuleConfirmationV2
 import com.amaury.pointage.v2.engine.WorkRuleOwnerV2
@@ -34,12 +38,24 @@ object DatedWorkRuleStoreV2 {
 
     fun read(context: Context, owner: WorkRuleOwnerV2): ReadResult {
         if (!confirmedOwner(context, owner)) return ReadResult(emptyList(), false, listOf(OWNER_WARNING))
-        return synchronized(lock) { readLocal(context, owner) }
+        return synchronized(lock) {
+            if (!confirmedOwner(context, owner)) return@synchronized ReadResult(emptyList(), false, listOf(OWNER_WARNING))
+            val stored = readLocal(context, owner)
+            val contract = matchingContract(context, owner)
+            if (!stored.reliable || contract == null || stored.records.any {
+                    !DatedWorkRuleContractScopeV2.verifiedApplicability(it, contract)
+                }
+            ) ReadResult(stored.records, false, (stored.warnings + STORAGE_WARNING).distinct())
+            else stored
+        }
     }
 
     /** Append-only : un doublon ou un chevauchement confirmé n'écrase aucune version. */
     fun append(context: Context, owner: WorkRuleOwnerV2, record: DatedWorkRuleV2): Boolean {
-        if (!confirmedOwner(context, owner) || record.owner != owner) return false
+        if (!confirmedOwner(context, owner) || record.owner != owner ||
+            matchingContract(context, owner)?.let {
+                DatedWorkRuleContractScopeV2.verifiedApplicability(record, it)
+            } != true) return false
         return synchronized(lock) {
             val current = readLocal(context, owner)
             if (!current.reliable || current.records.any { it.id == record.id }) return@synchronized false
@@ -59,6 +75,9 @@ object DatedWorkRuleStoreV2 {
     ): Boolean {
         if (!confirmedOwner(context, owner) || newRecord.owner != owner ||
             newRecord.confirmation != WorkRuleConfirmationV2.CONFIRMED ||
+            matchingContract(context, owner)?.let {
+                DatedWorkRuleContractScopeV2.verifiedApplicability(newRecord, it)
+            } != true ||
             oldRecordId.isBlank()) return false
         return synchronized(lock) {
             val current = readLocal(context, owner)
@@ -78,15 +97,24 @@ object DatedWorkRuleStoreV2 {
         }
     }
 
+    private fun signedInUid(): String? = runCatching {
+        FirebaseAuth.getInstance().currentUser?.uid?.trim()
+    }.getOrNull()?.takeIf { it.isNotBlank() }
+
+    private fun matchingContract(context: Context, owner: WorkRuleOwnerV2): EmploymentContractSnapshotV2? {
+        val contracts = V2EmploymentContractHistoryStore.readConfirmed(context)
+        if (!contracts.reliable) return null
+        return contracts.snapshots.singleOrNull {
+            it.versionId == owner.contractVersionId &&
+                it.contract.employerId == owner.employerId
+        }
+    }
+
     private fun confirmedOwner(context: Context, owner: WorkRuleOwnerV2): Boolean {
-        if (!owner.isValid()) return false
+        if (!DatedWorkRuleOwnerAuthorizationV2.authorizes(owner, signedInUid())) return false
         val companies = SalaryCompanyStore.readConfirmed(context)
         if (!companies.reliable || companies.companies.none { it.id == owner.employerId }) return false
-        val contracts = V2EmploymentContractHistoryStore.readConfirmed(context)
-        if (!contracts.reliable) return false
-        return contracts.snapshots.count {
-            it.versionId == owner.contractVersionId && it.contract.employerId == owner.employerId
-        } == 1
+        return matchingContract(context, owner) != null
     }
 
     private fun prefs(context: Context) =
@@ -117,7 +145,10 @@ object DatedWorkRuleStoreV2 {
     }
 
     private fun writeLocal(context: Context, owner: WorkRuleOwnerV2, records: List<DatedWorkRuleV2>): Boolean {
-        if (!DatedWorkRuleApplicabilityV2.validTimeline(owner, records)) return false
+        if (!confirmedOwner(context, owner) ||
+            !DatedWorkRuleApplicabilityV2.validTimeline(owner, records)) return false
+        val contract = matchingContract(context, owner) ?: return false
+        if (records.any { !DatedWorkRuleContractScopeV2.verifiedApplicability(it, contract) }) return false
         val raw = encode(owner, records)
         val key = ownerStorageKey(owner)
         val saved = prefs(context).edit()
