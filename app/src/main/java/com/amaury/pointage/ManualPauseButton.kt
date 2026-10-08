@@ -248,7 +248,7 @@ class ManualPauseButton @JvmOverloads constructor(
             if (saved == null) {
                 Toast.makeText(
                     context,
-                    "Pauses indisponibles : les données HoraTrack doivent être vérifiées.",
+                    "Pauses indisponibles : les données AGKGMG doivent être vérifiées.",
                     Toast.LENGTH_LONG
                 ).show()
             } else if (saved.isNotEmpty()) {
@@ -320,7 +320,7 @@ class ManualPauseButton @JvmOverloads constructor(
         cancel.setOnClickListener { dialog.dismiss() }
         save.setOnClickListener {
             if (!sourceReliable) {
-                Toast.makeText(context, "Impossible d'enregistrer tant que les données HoraTrack ne sont pas fiables.", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "Impossible d'enregistrer tant que les données AGKGMG ne sont pas fiables.", Toast.LENGTH_LONG).show()
                 return@setOnClickListener
             }
             val ranges = mutableListOf<QualifiedManualPauseV2>()
