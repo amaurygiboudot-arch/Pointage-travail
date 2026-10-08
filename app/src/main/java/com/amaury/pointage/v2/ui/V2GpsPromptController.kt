@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.widget.Toast
 import com.amaury.pointage.GpsExitConfirmationNotificationV2
+import com.amaury.pointage.IconSwitcher
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.GpsTransitionV2
 import com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2
@@ -53,7 +54,10 @@ object V2GpsPromptController {
                     .setOnCancelListener {
                         GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                     }
-                    .setOnDismissListener { showing.remove(activity) }
+                    .setOnDismissListener {
+                        showing.remove(activity)
+                        IconSwitcher.sync(activity)
+                    }
                     .show()
             }
 
@@ -103,7 +107,10 @@ object V2GpsPromptController {
                         .setOnCancelListener {
                             GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                         }
-                        .setOnDismissListener { showing.remove(activity) }
+                        .setOnDismissListener {
+                        showing.remove(activity)
+                        IconSwitcher.sync(activity)
+                    }
                         .show()
                 } else {
                     AlertDialog.Builder(activity)
@@ -127,7 +134,10 @@ object V2GpsPromptController {
                         .setOnCancelListener {
                             GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                         }
-                        .setOnDismissListener { showing.remove(activity) }
+                        .setOnDismissListener {
+                        showing.remove(activity)
+                        IconSwitcher.sync(activity)
+                    }
                         .show()
                 }
             }
