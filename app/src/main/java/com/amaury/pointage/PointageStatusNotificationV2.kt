@@ -122,6 +122,10 @@ object PointageStatusNotificationV2 {
         else -> DisplayState.RED
     }
 
+    /** Aucun indicateur permanent après un pointage terminé et fiable. */
+    internal fun shouldShowIndicator(iconState: IconSwitcher.IconState?): Boolean =
+        iconState != IconSwitcher.IconState.DEFAULT
+
     internal fun chronometerStartMs(
         displayState: DisplayState,
         sessionStartedAtMs: Long?,
@@ -138,7 +142,7 @@ object PointageStatusNotificationV2 {
         sessionStartedAtMs: Long? = null
     ) {
         val app = context.applicationContext
-        if (!isEnabled(app)) {
+        if (!isEnabled(app) || !shouldShowIndicator(iconState)) {
             cancel(app)
             return
         }

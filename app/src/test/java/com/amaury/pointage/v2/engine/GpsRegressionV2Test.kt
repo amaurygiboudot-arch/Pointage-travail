@@ -90,6 +90,31 @@ class GpsRegressionV2Test {
     }
 
     @Test
+    fun `GPS automatic checkout needs confirmed shift and unpaused active session`() {
+        val pending = pending(atMs = 100_000L)
+        val open = session()
+        assertTrue(GpsWorkStateCoordinatorV2.canAutoCloseExit(pending, open, 90_000L, 220_000L))
+        assertFalse(GpsWorkStateCoordinatorV2.canAutoCloseExit(pending, open, null, 220_000L))
+        assertFalse(GpsWorkStateCoordinatorV2.canAutoCloseExit(pending, open, 120_000L, 220_000L))
+        assertFalse(GpsWorkStateCoordinatorV2.canAutoCloseExit(pending, open, 90_000L, 100_000L + 16 * 60_000L))
+        assertFalse(GpsWorkStateCoordinatorV2.canAutoCloseExit(
+            pending, open.copy(placeId = "other"), 90_000L, 220_000L))
+        assertFalse(GpsWorkStateCoordinatorV2.canAutoCloseExit(
+            pending, session(pauses = listOf(PauseV2(2000L, null, true, EventSourceV2.GPS))),
+            90_000L, 220_000L))
+        assertFalse(GpsWorkStateCoordinatorV2.canAutoCloseExit(
+            pending, session(status = SessionStatusV2.CLOSED, realExitMs = 95_000L),
+            90_000L, 220_000L))
+    }
+
+    @Test
+    fun `closing work clears old GPS exit pending`() {
+        assertTrue(GpsWorkStateCoordinatorV2.shouldDiscardPending(
+            pending(atMs = 10_000L), session(status = SessionStatusV2.CLOSED, realExitMs = 11_000L)))
+        assertTrue(GpsWorkStateCoordinatorV2.shouldDiscardPending(pending(atMs = 10_000L), null))
+    }
+
+    @Test
     fun `anti rebond ignore meme evenement avant trente secondes`() {
         val engine = GpsEngineV2()
         val first = event(id = "1", atMs = 1_000L)

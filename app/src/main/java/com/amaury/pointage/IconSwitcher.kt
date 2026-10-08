@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.util.Log
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2RuntimeReader
+import com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2
 import com.amaury.pointage.v2.model.SessionStatusV2
 
 /**
@@ -52,6 +53,11 @@ object IconSwitcher {
         var sessionStartedAtMs: Long? = null
         val state = if (HoraTrackV2.ENABLED) {
             val current = V2RuntimeReader.current(context)
+            if (current.reliable && current.snapshot.session?.status != SessionStatusV2.OPEN) {
+                if (GpsWorkStateCoordinatorV2.discardIfNoOpenSession(context, current.snapshot.session)) {
+                    GpsExitConfirmationNotificationV2.cancel(context)
+                }
+            }
             val resolved = resolveV2IconState(
                 reliable = current.reliable,
                 status = current.snapshot.session?.status,

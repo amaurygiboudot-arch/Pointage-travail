@@ -25,6 +25,17 @@ class PointageStatusNotificationV2Test {
     }
 
     @Test
+    fun `no persistent status icon after clock out`() {
+        org.junit.Assert.assertFalse(
+            PointageStatusNotificationV2.shouldShowIndicator(IconSwitcher.IconState.DEFAULT))
+        org.junit.Assert.assertTrue(
+            PointageStatusNotificationV2.shouldShowIndicator(IconSwitcher.IconState.WORKING))
+        org.junit.Assert.assertTrue(
+            PointageStatusNotificationV2.shouldShowIndicator(IconSwitcher.IconState.PAUSED))
+        org.junit.Assert.assertTrue(PointageStatusNotificationV2.shouldShowIndicator(null))
+    }
+
+    @Test
     fun `red when no session is active`() {
         assertEquals(
             PointageStatusNotificationV2.DisplayState.RED,
