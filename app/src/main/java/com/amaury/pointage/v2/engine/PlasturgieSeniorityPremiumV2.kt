@@ -10,7 +10,7 @@ import java.time.temporal.ChronoUnit
  * aux paliers 3 / 6 / 9 / 12 / 15 ans. Chaque palier vaut 0,80 % du salaire de
  * base par année du palier, avec le différentiel RTT lorsqu'il existe.
  *
- * HoraTrack exige une date d'ancienneté conventionnelle explicitement confirmée :
+ * AGKGMG exige une date d'ancienneté conventionnelle explicitement confirmée :
  * la simple date d'embauche ne couvre pas tous les cas de l'article 11 (ruptures,
  * suspensions, congé parental, etc.). Aucun montant n'est inventé lorsque la base
  * ou le différentiel RTT n'est pas confirmé.
