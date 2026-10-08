@@ -113,6 +113,12 @@ object DefaultTimeEngineV2 : TimeEngineV2 {
             allowOpenPause = session.status == SessionStatusV2.OPEN
         )
         problems += pauseResolution.issues
+        if (pauseResolution.unresolvedCount > 0) {
+            warnings += "${pauseResolution.unresolvedCount} pause(s) à confirmer : temps payé non fiable"
+        }
+        if (session.legacyFixedUnpaidPauseMs > 0L) {
+            warnings += "Déduction fixe historique importée"
+        }
 
         val segmentResolution = QualifiedWorkSegmentsV2.resolve(session, countedStart, countedEnd)
         problems += segmentResolution.issues
