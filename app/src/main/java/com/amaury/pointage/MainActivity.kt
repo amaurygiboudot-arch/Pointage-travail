@@ -73,8 +73,8 @@ class MainActivity : Activity() {
         private const val REQUEST_CREATE_MONTHLY_PDF = 2002
         private const val REQUEST_FINE_LOCATION = 3001
         private const val REQUEST_BACKGROUND_LOCATION = 3002
-        private const val REQUEST_GPS_NOTIFICATIONS = 3003
-        private const val KEY_GPS_NOTIFICATION_PERMISSION_REQUESTED = "gps_exit_notification_permission_requested"
+        private const val REQUEST_POINTAGE_NOTIFICATIONS = 3003
+        private const val KEY_POINTAGE_NOTIFICATION_PERMISSION_REQUESTED = "pointage_notification_permission_requested"
         private const val NAVIGATION_PREFS = "navigation_state"
         private const val KEY_ACTIVE_TAB = "active_tab"
         private const val KEY_REPORT_MONTH_MS = "report_month_ms"
@@ -223,6 +223,7 @@ class MainActivity : Activity() {
                 requestLocationAccess()
             } else {
                 enableAutomaticGpsFromCanonicalZones()
+                requestPointageNotificationPermissionIfNeeded()
             }
         }
 
@@ -294,7 +295,7 @@ class MainActivity : Activity() {
         gpsRegistrationError = null
         updateGpsStatus()
         tryRestoreGeofence()
-        requestGpsNotificationPermissionIfNeeded()
+        requestPointageNotificationPermissionIfNeeded()
         when (activeTab) {
             "home" -> showHomeTab()
             "history" -> showHistoryTab()
@@ -357,10 +358,10 @@ class MainActivity : Activity() {
                 if (granted) {
                     updateGpsStatus()
                     tryRestoreGeofence()
-                    requestGpsNotificationPermissionIfNeeded()
+                    requestPointageNotificationPermissionIfNeeded()
                 } else disableAutomaticGps("Autorise la localisation tout le temps pour le pointage automatique")
             }
-            REQUEST_GPS_NOTIFICATIONS -> {
+            REQUEST_POINTAGE_NOTIFICATIONS -> {
                 updateGpsStatus()
                 if (autoGpsSwitch.isChecked) tryRestoreGeofence()
                 if (
@@ -369,9 +370,11 @@ class MainActivity : Activity() {
                 ) {
                     Toast.makeText(
                         this,
-                        "Notifications refusées : une sortie GPS restera à confirmer à la prochaine ouverture de HoraTrack.",
+                        "Notifications refusées : l’indicateur rouge/vert/orange ne peut pas rester dans la barre système et les sorties GPS seront confirmées à la prochaine ouverture.",
                         Toast.LENGTH_LONG
                     ).show()
+                } else {
+                    IconSwitcher.sync(this)
                 }
             }
         }
@@ -673,20 +676,34 @@ class MainActivity : Activity() {
         Toast.makeText(this, "Localisation autorisée", Toast.LENGTH_SHORT).show()
         updateGpsStatus()
         if (autoGpsSwitch.isChecked) tryRestoreGeofence()
-        requestGpsNotificationPermissionIfNeeded()
+        requestPointageNotificationPermissionIfNeeded()
     }
 
-    private fun requestGpsNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
-        if (!autoGpsSwitch.isChecked) return
-        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
-        if (gpsPrefs.getBoolean(KEY_GPS_NOTIFICATION_PERMISSION_REQUESTED, false)) return
+    private fun requestPointageNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            IconSwitcher.sync(this)
+            return
+        }
+        if (
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            IconSwitcher.sync(this)
+            return
+        }
+        val required = PointageStatusNotificationV2.isEnabled(this) || autoGpsSwitch.isChecked
+        if (!required) return
+        if (PointageStatusNotificationV2.permissionWasRequested(this)) return
 
-        gpsPrefs.edit().putBoolean(KEY_GPS_NOTIFICATION_PERMISSION_REQUESTED, true).apply()
+        PointageStatusNotificationV2.markPermissionRequested(this)
         requestPermissions(
             arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-            REQUEST_GPS_NOTIFICATIONS
+            REQUEST_POINTAGE_NOTIFICATIONS
         )
+    }
+
+    internal fun requestPointageNotificationPermissionFromSettings() {
+        requestPointageNotificationPermissionIfNeeded()
     }
 
     private fun disableAutomaticGps(message: String) {
