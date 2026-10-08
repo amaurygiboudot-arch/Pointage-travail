@@ -5,8 +5,8 @@ import XCTest
 #endif
 
 final class SalaryDatedWorkRuleApplicabilityV2Tests: XCTestCase {
-    private let october: Int64 = 20_362
-    private let november: Int64 = 20_393
+    private let october: Int64 = 20_727
+    private let november: Int64 = 20_758
     private let owner = SalaryWorkRuleOwnerV2(
         accountId: "account-1", employeeId: "employee-1",
         employerId: "employer-a", contractVersionId: "contract-v1"
@@ -14,7 +14,7 @@ final class SalaryDatedWorkRuleApplicabilityV2Tests: XCTestCase {
 
     private func record(_ id: String = "r1",
                         owner: SalaryWorkRuleOwnerV2? = nil,
-                        from: Int64 = 20_362, to: Int64? = 20_393,
+                        from: Int64 = 20_727, to: Int64? = 20_758,
                         topic: SalaryWorkRuleTopicV2 = .nightWork,
                         confirmation: SalaryWorkRuleConfirmationV2 = .confirmed,
                         source: String = "collective-source-2026",
