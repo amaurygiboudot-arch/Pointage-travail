@@ -2,7 +2,7 @@ package com.amaury.pointage.v2
 
 import android.content.Context
 
-/** Point d'entrée unique quand HoraTrack reçoit le texte intégral d'un accord officiel. */
+/** Point d'entrée unique quand AGKGMG reçoit le texte intégral d'un accord officiel. */
 object CompanyAgreementIngestionV2 {
     data class Result(
         val extractedCount: Int,

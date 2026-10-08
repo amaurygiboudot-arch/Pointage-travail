@@ -140,7 +140,7 @@ internal class CelestialCloudTextureRendererV2(private val invalidate: () -> Uni
 
     companion object {
         private val executor = Executors.newSingleThreadExecutor { task ->
-            Thread(task, "HoraTrack-CloudTexture").apply { priority = Thread.NORM_PRIORITY - 1 }
+            Thread(task, "AGKGMG-CloudTexture").apply { priority = Thread.NORM_PRIORITY - 1 }
         }
     }
 }

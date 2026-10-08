@@ -96,7 +96,7 @@ object KaliLegiOvertimeCrossCheckV2 {
                 }
                 if (legacyThresholds.isNotEmpty()) {
                     add(
-                        "KALI/LEGI : ${legacyThresholds.size} article(s) KALI comportent un seuil horaire historique ou différent ; HoraTrack refuse de remplacer ce seuil par 35 h automatiquement."
+                        "KALI/LEGI : ${legacyThresholds.size} article(s) KALI comportent un seuil horaire historique ou différent ; AGKGMG refuse de remplacer ce seuil par 35 h automatiquement."
                     )
                 }
             }

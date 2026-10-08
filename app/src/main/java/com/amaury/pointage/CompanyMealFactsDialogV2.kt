@@ -49,7 +49,7 @@ object CompanyMealFactsDialogV2 {
                 .setTitle("Faits repas / organisation")
                 .setMessage(
                     "Le journal local contient ${loaded.malformedCount} fait(s) illisible(s). " +
-                        "HoraTrack refuse de le réécrire pour ne pas effacer une information potentiellement bloquante."
+                        "AGKGMG refuse de le réécrire pour ne pas effacer une information potentiellement bloquante."
                 )
                 .setPositiveButton("FERMER", null)
                 .show()
@@ -72,7 +72,7 @@ object CompanyMealFactsDialogV2 {
             setPadding(dp(context, 16), dp(context, 8), dp(context, 16), dp(context, 8))
         }
         box.addView(TextView(context).apply {
-            text = "Ici, HoraTrack enregistre des faits réels et datés — jamais un droit au panier ni un montant. " +
+            text = "Ici, AGKGMG enregistre des faits réels et datés — jamais un droit au panier ni un montant. " +
                 "Le moteur juridique décide ensuite si une règle officielle est applicable."
             textSize = 13f
             setPadding(0, 0, 0, dp(context, 8))
@@ -139,7 +139,7 @@ object CompanyMealFactsDialogV2 {
         }
         box.addView(TextView(context).apply {
             text = "Confirme un fait au niveau entreprise uniquement s’il est vrai pour toute la période indiquée. " +
-                "Sinon laisse « À confirmer » : HoraTrack bloquera ce fait au lieu d’inventer une valeur."
+                "Sinon laisse « À confirmer » : AGKGMG bloquera ce fait au lieu d’inventer une valeur."
             textSize = 12f
             setPadding(0, 0, 0, dp(context, 8))
         })

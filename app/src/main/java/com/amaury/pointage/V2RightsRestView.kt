@@ -78,7 +78,7 @@ class V2RightsRestView @JvmOverloads constructor(
             setPadding(0, dp(18), 0, dp(4))
         })
         addView(TextView(context).apply {
-            text = "HoraTrack distingue la maladie ordinaire, l'accident du travail, l'accident de trajet et la maladie professionnelle. Les IJSS, le maintien employeur, la subrogation et la prévoyance ne sont calculés que lorsqu'une règle correspondant exactement au motif est confirmée."
+            text = "AGKGMG distingue la maladie ordinaire, l'accident du travail, l'accident de trajet et la maladie professionnelle. Les IJSS, le maintien employeur, la subrogation et la prévoyance ne sont calculés que lorsqu'une règle correspondant exactement au motif est confirmée."
             textSize = 12f
             setPadding(0, 0, 0, dp(6))
         })
@@ -527,7 +527,7 @@ class V2RightsRestView @JvmOverloads constructor(
             orientation = VERTICAL
             setPadding(dp(18), dp(8), dp(18), 0)
             addView(TextView(context).apply {
-                text = "Recopie les 3 montants du même décompte et de la même période. HoraTrack contrôle 60 % brut − prestations SS brutes sans inventer de conversion annuelle ou journalière."
+                text = "Recopie les 3 montants du même décompte et de la même période. AGKGMG contrôle 60 % brut − prestations SS brutes sans inventer de conversion annuelle ou journalière."
                 textSize = 12f
                 setPadding(0, 0, 0, dp(8))
             })
@@ -640,7 +640,7 @@ class V2RightsRestView @JvmOverloads constructor(
 
         val dialog = AlertDialog.Builder(context)
             .setTitle("Compteur de droits")
-            .setMessage("HoraTrack enregistre les valeurs pour cette entreprise. La période de référence reste non renseignée sans source fiable.")
+            .setMessage("AGKGMG enregistre les valeurs pour cette entreprise. La période de référence reste non renseignée sans source fiable.")
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)
             .setNegativeButton("ANNULER", null)

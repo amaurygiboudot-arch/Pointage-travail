@@ -8,7 +8,7 @@ on:
       - '.github/workflows/cleanup-actions-storage.yml'
   workflow_run:
     workflows:
-      - 'Compiler HoraTrack APK et AAB'
+      - 'Compiler AGKGMG APK et AAB'
       - 'Compiler test Diamant Carbone'
     types: [ completed ]
   schedule:

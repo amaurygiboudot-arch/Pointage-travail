@@ -234,7 +234,7 @@ class CompanyAgreementImportActivity : Activity() {
             append("Document : ${result.displayName}\n")
             result.pageCount?.let { append("Pages analysées : $it\n") }
             append("Règles candidates détectées : ${candidates.size}\n\n")
-            append("Aucune règle ne sera appliquée automatiquement. Chaque règle, valeur et période devra être validée dans HoraTrack.")
+            append("Aucune règle ne sera appliquée automatiquement. Chaque règle, valeur et période devra être validée dans AGKGMG.")
             if (storageNotices.isNotEmpty()) append("\n\n").append(storageNotices.joinToString("\n"))
             if (candidates.isEmpty()) append("\n\nAucun passage exploitable n’a été détecté : conserve l’accord puis vérifie-le manuellement.")
             if (result.truncated) append("\n\nAttention : le texte analysé a atteint la limite de sécurité ; vérifie le document original.")

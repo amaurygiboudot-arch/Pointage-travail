@@ -12,7 +12,7 @@ import kotlin.math.abs
  */
 object RgduPayrollInputBridgeV2 {
     data class Snapshot(
-        /** Assiette L.242-1 connue dans HoraTrack + avantages en nature. */
+        /** Assiette L.242-1 connue dans AGKGMG + avantages en nature. */
         val reductionRemunerationMonthly: Double?,
         /** Heures supplémentaires ou complémentaires rémunérées, sans leur majoration, en minutes décimales. */
         val additionalPaidMinutes: Double?,
@@ -24,14 +24,14 @@ object RgduPayrollInputBridgeV2 {
         salary: V2SalaryAdapter.Result,
         contractType: ContractTypeV2?,
         benefitsInKindGross: Double,
-        /** true seulement si toutes les heures rémunérées du mois sont couvertes par les faits HoraTrack. */
+        /** true seulement si toutes les heures rémunérées du mois sont couvertes par les faits AGKGMG. */
         paidHoursComplete: Boolean?
     ): Snapshot {
         val warnings = mutableListOf<String>()
 
         val remuneration = when {
             !salary.monthlyGrossReliable -> {
-                warnings += "RGDU : brut mensuel HoraTrack non fiable ; rémunération de référence bloquée."
+                warnings += "RGDU : brut mensuel AGKGMG non fiable ; rémunération de référence bloquée."
                 null
             }
             !salary.monthlyEstimatedGross.isFinite() || salary.monthlyEstimatedGross < 0.0 -> {

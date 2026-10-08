@@ -9,7 +9,7 @@ import android.opengl.EGLSurface
 import android.os.Looper
 
 /**
- * Socle EGL partagé destiné à tous les boutons OpenGL de HoraTrack.
+ * Socle EGL partagé destiné à tous les boutons OpenGL de AGKGMG.
  *
  * Le contexte est créé une seule fois sur le thread de rendu partagé. Chaque
  * bouton conserve sa propre EGLSurface, ce qui permet de mutualiser le contexte

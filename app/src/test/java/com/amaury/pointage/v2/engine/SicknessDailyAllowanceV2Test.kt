@@ -85,6 +85,6 @@ class SicknessDailyAllowanceV2Test {
             emptyMap()
         )
         assertFalse(result.complete)
-        assertTrue(result.warnings.any { it.contains("barème HoraTrack non intégré") })
+        assertTrue(result.warnings.any { it.contains("barème AGKGMG non intégré") })
     }
 }

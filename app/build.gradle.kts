@@ -22,7 +22,7 @@ android {
 
     defaultConfig {
         applicationId = "com.amaury.pointage"
-        minSdk = 23
+        minSdk = 29
         targetSdk = 36
         versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 9
         versionName = System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "1.9"
@@ -109,7 +109,7 @@ dependencies {
     implementation("org.bouncycastle:bcprov-jdk15to18:1.85.2")
     implementation("org.bouncycastle:bcpkix-jdk15to18:1.85")
     implementation("org.bouncycastle:bcutil-jdk15to18:1.85.1")
-    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.work:work-runtime-ktx:2.11.2")

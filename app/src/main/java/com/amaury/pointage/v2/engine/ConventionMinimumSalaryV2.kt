@@ -6,7 +6,7 @@ import java.time.LocalDate
  * Résolution générique des minima conventionnels, indépendante d'une branche.
  *
  * Une règle n'est appliquée que si son IDCC, sa période, sa classification et
- * son statut d'extension permettent de prouver son applicabilité. HoraTrack ne
+ * son statut d'extension permettent de prouver son applicabilité. AGKGMG ne
  * complète jamais une classification ou un statut d'extension manquant.
  */
 object ConventionMinimumSalaryV2 {

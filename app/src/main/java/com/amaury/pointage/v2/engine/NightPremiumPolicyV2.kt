@@ -27,7 +27,7 @@ data class NightPremiumRuleV2(
 /**
  * Calcule uniquement les minutes PAYÉES qui tombent dans la plage conventionnelle fournie.
  *
- * La plage de poste HoraTrack n'est jamais utilisée comme substitut : l'appelant doit fournir
+ * La plage de poste AGKGMG n'est jamais utilisée comme substitut : l'appelant doit fournir
  * une NightPremiumRuleV2 issue d'une règle officielle structurée.
  */
 object NightPremiumPolicyV2 {

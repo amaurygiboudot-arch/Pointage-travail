@@ -114,7 +114,30 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
         when (val action = plan.action) {
             GpsActiveZoneTransitionV2.Action.None -> {
-                if (GpsActiveZoneTransitionV2.needsDeferredEntryResolution(plan)) {
+                val runtime = V2RuntimeReader.current(context)
+                val recovered = GpsUnseenExitRecoveryPolicyV2.shouldRecover(
+                    transition = transition,
+                    previouslyActive = activeZones,
+                    previouslyPendingExits = pendingExitZones,
+                    entryResolutionWasPending = prefs.getBoolean(
+                        GpsPresenceStateKeysV2.ENTRY_RESOLUTION_PENDING, false
+                    ),
+                    triggeredZoneIds = regularIds,
+                    registeredWorkZoneIds = canonicalZones.filter {
+                        it.registersAutomaticGeofenceV2() && it.roleForContextV2() == GpsZoneRoleV2.WORK
+                    }.map { it.id },
+                    hasReliableOpenSession = runtime.reliable &&
+                        runtime.snapshot.session?.status == SessionStatusV2.OPEN
+                )
+                if (recovered && HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)) {
+                    val zone = chooseExitZone(context, regularIds, zonesById)
+                    if (zone != null && persistZonePresenceState(
+                            prefs, plan.activeZoneIds, false, plan.pendingExitZoneIds
+                        )) {
+                        // EXIT observé malgré ENTER absent : on ne reconstruit pas l'entrée.
+                        dispatchExit(context, zone, System.currentTimeMillis())
+                    }
+                } else if (GpsActiveZoneTransitionV2.needsDeferredEntryResolution(plan)) {
                     // Replanifier aussi après redémarrage du processus : plusieurs callbacks
                     // renouvellent le jeton et invalident les temporisations plus anciennes.
                     scheduleEntryResolution(
@@ -170,6 +193,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 }
             }
         }
+        IconSwitcher.sync(context)
         updateWidgets(context)
     }
 
@@ -401,7 +425,15 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         val decision = HoraTrackV2.gps.ingest(event)
         // La sortie GPS crée une demande de confirmation ; elle ne clôt pas la session ici.
         // Le lieu courant est donc conservé jusqu'à la confirmation ou au prochain pointage.
-        GpsWorkStateCoordinatorV2.route(context, event, decision)
+        val outcome = GpsWorkStateCoordinatorV2.route(context, event, decision)
+        if (outcome.action == GpsWorkStateCoordinatorV2.Action.EXIT_PENDING_CONFIRMATION) {
+            val pending = GpsWorkStateCoordinatorV2.pending(context)
+            val automaticCheck = pending?.let {
+                GpsWorkStateCoordinatorV2.eligibleForAutoExit(context) &&
+                    GpsExitAutoCloseWorkerV2.schedule(context, it.id)
+            } == true
+            GpsExitConfirmationNotificationV2.show(context, automaticCheck)
+        }
     }
 
     private fun persistZonePresenceState(

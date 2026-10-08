@@ -1,6 +1,6 @@
 package com.amaury.pointage.v2.model
 
-/** Modèles centraux du moteur HoraTrack V2. Aucun lien avec PointageStore. */
+/** Modèles centraux du moteur AGKGMG V2. Aucun lien avec PointageStore. */
 data class WorkSessionV2(
     val id: String,
     val employerId: String?,
@@ -50,7 +50,7 @@ data class DeductionV2(val id:String,val label:String,val amount:Double,val recu
  * providentTreatment concerne uniquement une prestation de prévoyance financée par l'employeur
  * qui CHEVAUCHE la période de maintien. Le relais conventionnel après maintien est traité à part.
  * Les trois champs providentRelay* servent uniquement à contrôler un décompte réel sur une même
- * période/base ; HoraTrack ne reconstruit pas seul une périodisation de la prestation assureur.
+ * période/base ; AGKGMG ne reconstruit pas seul une périodisation de la prestation assureur.
  */
 data class AbsenceV2(
     val id:String,

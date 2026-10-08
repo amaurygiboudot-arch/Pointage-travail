@@ -77,7 +77,7 @@ class UpdateVerificationWorker(
             NOTIFICATION_ID,
             NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.hp_logo_vector)
-                .setContentTitle("Mise à jour HoraTrack prête")
+                .setContentTitle("Mise à jour AGKGMG prête")
                 .setContentText("La mise à jour a été vérifiée et peut être installée.")
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
@@ -106,7 +106,7 @@ class UpdateVerificationWorker(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Mises à jour HoraTrack", NotificationManager.IMPORTANCE_HIGH)
+                NotificationChannel(CHANNEL_ID, "Mises à jour AGKGMG", NotificationManager.IMPORTANCE_HIGH)
             )
         }
     }

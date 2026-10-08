@@ -35,7 +35,7 @@ object CompanyBenefitInKindDialogV2 {
             setPadding(dp(context, 16), dp(context, 8), dp(context, 16), dp(context, 8))
         }
         box.addView(TextView(context).apply {
-            text = "Renseigne la valeur brute soumise à cotisations de l’avantage en nature telle qu’elle est confirmée par l’employeur, le bulletin ou une règle officielle. HoraTrack ne calcule pas automatiquement un forfait véhicule/logement/repas à partir d’informations incomplètes."
+            text = "Renseigne la valeur brute soumise à cotisations de l’avantage en nature telle qu’elle est confirmée par l’employeur, le bulletin ou une règle officielle. AGKGMG ne calcule pas automatiquement un forfait véhicule/logement/repas à partir d’informations incomplètes."
             textSize = 13f
             setPadding(0, 0, 0, dp(context, 8))
         })
@@ -137,7 +137,7 @@ object CompanyBenefitInKindDialogV2 {
             setPadding(dp(context, 20), dp(context, 8), dp(context, 20), 0)
         }
         box.addView(TextView(context).apply {
-            text = "Confirmer signifie que tous les avantages en nature soumis à cotisations pour ${period.format(monthFormatter)} sont enregistrés dans HoraTrack. Si la liste est vide, cette confirmation établit explicitement 0 €. Sans confirmation, le moteur conserve la donnée comme inconnue."
+            text = "Confirmer signifie que tous les avantages en nature soumis à cotisations pour ${period.format(monthFormatter)} sont enregistrés dans AGKGMG. Si la liste est vide, cette confirmation établit explicitement 0 €. Sans confirmation, le moteur conserve la donnée comme inconnue."
             textSize = 13f
             setPadding(0, 0, 0, dp(context, 8))
         })

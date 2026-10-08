@@ -6,10 +6,11 @@ import android.content.pm.PackageManager
 import android.util.Log
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2RuntimeReader
+import com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2
 import com.amaury.pointage.v2.model.SessionStatusV2
 
 /**
- * Point d'entrée unique de l'environnement des icônes launcher HoraTrack.
+ * Point d'entrée unique de l'environnement des icônes launcher AGKGMG.
  *
  * Pour ajouter ou retirer une icône à l'avenir, modifier uniquement [icons] puis
  * déclarer/retirer l'alias Android correspondant dans le manifeste avec sa ressource.
@@ -17,7 +18,7 @@ import com.amaury.pointage.v2.model.SessionStatusV2
  */
 object IconSwitcher {
 
-    private const val TAG = "HoraTrackIcon"
+    private const val TAG = "AGKGMGIcon"
     private const val DIAG_PREFS = "icon_switch_diagnostics"
     private const val KEY_SUCCESS = "last_success"
     private const val KEY_TARGET = "last_target"
@@ -43,19 +44,26 @@ object IconSwitcher {
 
     private val fallbackIcon: LauncherIcon
         get() = icons.firstOrNull { it.state == IconState.DEFAULT }
-            ?: error("HoraTrack launcher icon registry requires a DEFAULT icon")
+            ?: error("AGKGMG launcher icon registry requires a DEFAULT icon")
 
     fun setWorking(context: Context, working: Boolean) = sync(context)
     fun applyPending(context: Context) = sync(context)
 
     fun sync(context: Context) {
+        var sessionStartedAtMs: Long? = null
         val state = if (HoraTrackV2.ENABLED) {
             val current = V2RuntimeReader.current(context)
-            resolveV2IconState(
+            if (current.reliable && current.snapshot.session?.status != SessionStatusV2.OPEN) {
+                if (GpsWorkStateCoordinatorV2.discardIfNoOpenSession(context, current.snapshot.session)) {
+                    GpsExitConfirmationNotificationV2.cancel(context)
+                }
+            }
+            val resolved = resolveV2IconState(
                 reliable = current.reliable,
                 status = current.snapshot.session?.status,
                 hasOpenPause = current.snapshot.session?.pauses?.any { it.endMs == null } == true
             ) ?: run {
+                PointageStatusNotificationV2.sync(context, null)
                 recordDiagnostic(
                     context,
                     success = false,
@@ -64,6 +72,10 @@ object IconSwitcher {
                 )
                 return
             }
+            if (current.snapshot.session?.status == SessionStatusV2.OPEN) {
+                sessionStartedAtMs = current.snapshot.session?.realArrivalMs
+            }
+            resolved
         } else {
             when {
                 PointageStore.isPaused(context) -> IconState.PAUSED
@@ -72,6 +84,7 @@ object IconSwitcher {
             }
         }
 
+        PointageStatusNotificationV2.sync(context, state, sessionStartedAtMs)
         val target = icons.firstOrNull { it.state == state } ?: fallbackIcon
         setOnly(context, target)
     }

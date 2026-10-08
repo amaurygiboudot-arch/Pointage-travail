@@ -171,7 +171,7 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             ACTION_ENTRY -> {
                 handledAction = true
                 if (HoraTrackV2.ENABLED && !V2RuntimeReader.current(context).reliable) {
-                    Toast.makeText(context, "Pointage bloqué : données HoraTrack à vérifier", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Pointage bloqué : données AGKGMG à vérifier", Toast.LENGTH_LONG).show()
                 } else {
                     val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.entry(context) else PointageStore.entry(context)
                     Toast.makeText(context, if (ok) "Entrée enregistrée" else "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
@@ -183,7 +183,7 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
                     val read = V2RuntimeReader.current(context)
                     val session = read.snapshot.session
                     if (!read.reliable) {
-                        Toast.makeText(context, "Pause bloquée : données HoraTrack à vérifier", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "Pause bloquée : données AGKGMG à vérifier", Toast.LENGTH_LONG).show()
                     } else if (session == null || session.realExitMs != null) {
                         Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
                     } else {
@@ -204,7 +204,7 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
                                 true
                             }.getOrDefault(false)
                             if (!launched) {
-                                Toast.makeText(context, "Ouvre HoraTrack pour choisir le statut de la pause", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "Ouvre AGKGMG pour choisir le statut de la pause", Toast.LENGTH_LONG).show()
                             }
                         }
                     }
@@ -219,7 +219,7 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             ACTION_EXIT -> {
                 handledAction = true
                 if (HoraTrackV2.ENABLED && !V2RuntimeReader.current(context).reliable) {
-                    Toast.makeText(context, "Pointage bloqué : données HoraTrack à vérifier", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Pointage bloqué : données AGKGMG à vérifier", Toast.LENGTH_LONG).show()
                 } else {
                     val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.exit(context) else PointageStore.exit(context)
                     Toast.makeText(context, if (ok) "Sortie enregistrée" else "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
@@ -234,6 +234,9 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
         } else if (handledAction) {
             val clickedId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                // Les widgets ne sont pas une seconde source d'état : on relit le runtime
+                // canonique puis on rafraîchit l'indicateur système.
+                IconSwitcher.sync(context)
                 if (intent.action == ACTION_PAUSE) {
                     val manager = AppWidgetManager.getInstance(context)
                     if (clickedId != AppWidgetManager.INVALID_APPWIDGET_ID) updateDynamicState(context, manager, clickedId)

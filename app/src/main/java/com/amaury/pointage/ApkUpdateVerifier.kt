@@ -42,7 +42,7 @@ object ApkUpdateVerifier {
                 connectTimeout = 10_000
                 readTimeout = 15_000
                 requestMethod = "GET"
-                setRequestProperty("User-Agent", "HoraTrack-Android")
+                setRequestProperty("User-Agent", "AGKGMG-Android")
                 setRequestProperty("Accept", "text/plain")
                 connect()
             }

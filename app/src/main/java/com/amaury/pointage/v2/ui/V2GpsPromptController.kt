@@ -3,6 +3,8 @@ package com.amaury.pointage.v2.ui
 import android.app.Activity
 import android.app.AlertDialog
 import android.widget.Toast
+import com.amaury.pointage.GpsExitConfirmationNotificationV2
+import com.amaury.pointage.IconSwitcher
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.GpsTransitionV2
 import com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2
@@ -17,6 +19,9 @@ object V2GpsPromptController {
         val pending = GpsWorkStateCoordinatorV2.pending(activity) ?: return
         if (!GpsWorkStateCoordinatorV2.shouldPrompt(activity, pending)) return
 
+        if (pending.kind == GpsWorkStateCoordinatorV2.Pending.Kind.EXIT_WORKSITE) {
+            GpsExitConfirmationNotificationV2.cancel(activity)
+        }
         GpsWorkStateCoordinatorV2.markPromptShown(activity, pending)
         showing[activity] = true
 
@@ -25,7 +30,7 @@ object V2GpsPromptController {
                 AlertDialog.Builder(activity)
                     .setTitle("Tu as terminé ta journée ?")
                     .setMessage(
-                        "HoraTrack te pose cette question parce que le GPS a détecté une sortie du lieu de travail. " +
+                        "AGKGMG te pose cette question parce que le GPS a détecté une sortie du lieu de travail. " +
                             "Ta réponse détermine si ce moment doit devenir une vraie fin de travail."
                     )
                     .setPositiveButton("OUI") { _, _ ->
@@ -49,7 +54,10 @@ object V2GpsPromptController {
                     .setOnCancelListener {
                         GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                     }
-                    .setOnDismissListener { showing.remove(activity) }
+                    .setOnDismissListener {
+                            showing.remove(activity)
+                            IconSwitcher.sync(activity)
+                        }
                     .show()
             }
 
@@ -60,7 +68,7 @@ object V2GpsPromptController {
                     AlertDialog.Builder(activity)
                         .setTitle("Pause détectée")
                         .setMessage(
-                            "HoraTrack a détecté ton arrivée dans cette zone. " +
+                            "AGKGMG a détecté ton arrivée dans cette zone. " +
                                 "Si c'est bien le début d'une pause, indique explicitement si elle est payée."
                         )
                         .setPositiveButton("PAUSE PAYÉE") { _, _ ->
@@ -99,13 +107,16 @@ object V2GpsPromptController {
                         .setOnCancelListener {
                             GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                         }
-                        .setOnDismissListener { showing.remove(activity) }
+                        .setOnDismissListener {
+                            showing.remove(activity)
+                            IconSwitcher.sync(activity)
+                        }
                         .show()
                 } else {
                     AlertDialog.Builder(activity)
                         .setTitle("Tu reprends le travail ?")
                         .setMessage(
-                            "HoraTrack a détecté ta sortie de cette zone. Confirme si ce déplacement correspond à la reprise du travail."
+                            "AGKGMG a détecté ta sortie de cette zone. Confirme si ce déplacement correspond à la reprise du travail."
                         )
                         .setPositiveButton("OUI") { _, _ ->
                             if (!GpsWorkStateCoordinatorV2.confirmPauseEnd(activity, pending.id)) {
@@ -123,7 +134,10 @@ object V2GpsPromptController {
                         .setOnCancelListener {
                             GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                         }
-                        .setOnDismissListener { showing.remove(activity) }
+                        .setOnDismissListener {
+                            showing.remove(activity)
+                            IconSwitcher.sync(activity)
+                        }
                         .show()
                 }
             }

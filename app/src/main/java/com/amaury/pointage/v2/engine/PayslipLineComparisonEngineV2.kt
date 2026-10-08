@@ -18,7 +18,7 @@ object PayslipLineComparisonEngineV2 {
                 else -> { val d=o-e;Line(key,key,e,o,d,if(abs(d)<=toleranceEuro)Status.MATCH else Status.DIFFERENCE) }
             }
         }
-        val warnings=lines.filter{it.status==Status.MISSING_EXPECTED}.map{"${it.label} : référence HoraTrack à confirmer"}+lines.filter{it.status==Status.MISSING_OBSERVED}.map{"${it.label} : ligne non extraite du bulletin"}
+        val warnings=lines.filter{it.status==Status.MISSING_EXPECTED}.map{"${it.label} : référence AGKGMG à confirmer"}+lines.filter{it.status==Status.MISSING_OBSERVED}.map{"${it.label} : ligne non extraite du bulletin"}
         return Result(lines,lines.all{it.status==Status.MATCH},warnings)
     }
 }

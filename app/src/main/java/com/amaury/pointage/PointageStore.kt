@@ -12,7 +12,7 @@ import org.json.JSONObject
 /**
  * Stockage historique conservé pour rollback.
  *
- * Quand HoraTrack V2 est actif, cette classe devient uniquement une façade de
+ * Quand AGKGMG V2 est actif, cette classe devient uniquement une façade de
  * compatibilité pour les anciens widgets/exports encore en migration : aucune
  * mutation métier n'est faite dans l'ancienne base de pointage.
  */
@@ -72,7 +72,7 @@ object PointageStore {
         else synchronized(storageLock) { loadUnlocked(context) }
 
     fun save(context: Context, data: JSONArray) = synchronized(storageLock) {
-        check(!v2Active()) { "Écriture PointageStore interdite : HoraTrack V2 est actif" }
+        check(!v2Active()) { "Écriture PointageStore interdite : AGKGMG V2 est actif" }
         val last = if (data.length() > 0) data.optJSONObject(data.length() - 1) else null
         if (last?.optBoolean("manual", false) == true && !last.has("autoPauseMinutes")) {
             val slot = last.optInt("companySlot", 0)
@@ -83,7 +83,7 @@ object PointageStore {
     }
 
     internal fun <T> update(context: Context, block: (JSONArray) -> T): T = synchronized(storageLock) {
-        check(!v2Active()) { "Mutation PointageStore interdite : HoraTrack V2 est actif" }
+        check(!v2Active()) { "Mutation PointageStore interdite : AGKGMG V2 est actif" }
         val data = loadUnlocked(context)
         val result = block(data)
         saveUnlocked(context, data)

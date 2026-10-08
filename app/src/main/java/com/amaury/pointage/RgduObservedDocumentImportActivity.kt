@@ -150,7 +150,7 @@ class RgduObservedDocumentImportActivity : Activity() {
         }
         val info = TextView(this).apply {
             text = buildString {
-                append("HoraTrack lit le document uniquement sur le téléphone. Le montant détecté n'est jamais enregistré sans ta validation.")
+                append("AGKGMG lit le document uniquement sur le téléphone. Le montant détecté n'est jamais enregistré sans ta validation.")
                 parsed.rgdu.sourceLabel?.takeIf { it.isNotBlank() }?.let {
                     append("\n\nLigne repérée : ").append(it)
                 }

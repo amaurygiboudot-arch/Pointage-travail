@@ -155,7 +155,7 @@ struct SalaryV2View: View {
                 }
                 .buttonStyle(.bordered)
 
-                Text("Avec plusieurs employeurs, HoraTrack n'en choisit jamais un à votre place.")
+                Text("Avec plusieurs employeurs, AGKGMG n'en choisit jamais un à votre place.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -171,7 +171,7 @@ struct SalaryV2View: View {
                 .font(.caption.bold())
                 .foregroundStyle(.secondary)
 
-            Text("La date d’entrée et la date d’effet sont distinctes. HoraTrack ne déduit aucune date du mois affiché ni de la date du jour.")
+            Text("La date d’entrée et la date d’effet sont distinctes. AGKGMG ne déduit aucune date du mois affiché ni de la date du jour.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
@@ -306,7 +306,7 @@ struct SalaryV2View: View {
                     .font(.caption.bold())
                     .foregroundStyle(.secondary)
 
-                Text("Un changement réel de contrat en cours de mois exige une base planifiée confirmée. HoraTrack n’invente ni répartition calendaire ni planning.")
+                Text("Un changement réel de contrat en cours de mois exige une base planifiée confirmée. AGKGMG n’invente ni répartition calendaire ni planning.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
@@ -453,7 +453,7 @@ struct SalaryV2View: View {
                     )
                     .font(.footnote)
 
-                    Text("HoraTrack ne découpe pas artificiellement une semaine pour inventer des heures supplémentaires, complémentaires ou majorations.")
+                    Text("AGKGMG ne découpe pas artificiellement une semaine pour inventer des heures supplémentaires, complémentaires ou majorations.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -474,7 +474,7 @@ struct SalaryV2View: View {
                 .font(.caption.bold())
                 .foregroundStyle(.secondary)
 
-            Text("Le statut professionnel et le régime local peuvent modifier les cotisations. HoraTrack ne les déduit jamais du métier, de l’adresse ou de la convention.")
+            Text("Le statut professionnel et le régime local peuvent modifier les cotisations. AGKGMG ne les déduit jamais du métier, de l’adresse ou de la convention.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
@@ -617,7 +617,7 @@ struct SalaryV2View: View {
                         .font(.title3.bold())
                     Text("IDCC \(coverage.idcc ?? "à confirmer") — \(coverage.segments.count) versions confirmées")
                         .font(.footnote)
-                    Text("HoraTrack conserve chaque période séparément et n'applique aucune version unique à tout le mois.")
+                    Text("AGKGMG conserve chaque période séparément et n'applique aucune version unique à tout le mois.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 } else if coverage.sourceReliable {
@@ -656,7 +656,7 @@ struct SalaryV2View: View {
                 .foregroundStyle(.secondary)
             Text(salaryStore.snapshot.sourceReady ? "Sources amont détectées" : "Sources amont à raccorder")
                 .font(.title3.bold())
-            Text("HoraTrack n'affiche aucun montant de remplacement lorsque les données nécessaires ne sont pas certifiables.")
+            Text("AGKGMG n'affiche aucun montant de remplacement lorsque les données nécessaires ne sont pas certifiables.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -820,7 +820,7 @@ struct SalaryV2View: View {
                 Text("Comparaison bulletin")
                     .fontWeight(.semibold)
 
-                Text("Renseignez uniquement les montants réellement lus sur le bulletin. Un champ vide est ignoré ; HoraTrack compare seulement les valeurs que la référence canonique sait aussi produire.")
+                Text("Renseignez uniquement les montants réellement lus sur le bulletin. Un champ vide est ignoré ; AGKGMG compare seulement les valeurs que la référence canonique sait aussi produire.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
@@ -840,7 +840,7 @@ struct SalaryV2View: View {
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
 
-                Button("Comparer avec HoraTrack") {
+                Button("Comparer avec AGKGMG") {
                     comparePayslip()
                 }
                 .buttonStyle(.bordered)
@@ -859,7 +859,7 @@ struct SalaryV2View: View {
                                 Text(discrepancy.field.label)
                                     .font(.footnote.bold())
                                 Text(
-                                    "HoraTrack : \(euros(discrepancy.expected)) — Bulletin : \(euros(discrepancy.observed))"
+                                    "AGKGMG : \(euros(discrepancy.expected)) — Bulletin : \(euros(discrepancy.observed))"
                                 )
                                 .font(.footnote)
                                 Text(discrepancy.explanation)
@@ -898,8 +898,8 @@ struct SalaryV2View: View {
                 if let salaryPdfURL {
                     ShareLink(
                         item: salaryPdfURL,
-                        subject: Text("HoraTrack — estimation de salaire"),
-                        message: Text("Export Salaire V2 HoraTrack")
+                        subject: Text("AGKGMG — estimation de salaire"),
+                        message: Text("Export Salaire V2 AGKGMG")
                     ) {
                         Label("Partager le PDF", systemImage: "square.and.arrow.up")
                     }

@@ -16,7 +16,7 @@ enum SalaryConventionSegmentPayrollCompatibilityV2 {
         "Convention collective : plusieurs versions datées couvrent le mois mais leurs paramètres de paie sont identiques ; le calcul mensuel unique peut être conservé."
 
     static let changedPayrollRulesWarning =
-        "Convention collective : une règle de paie change en cours de mois ; HoraTrack conserve les versions datées séparées et bloque le calcul mensuel unique tant qu'une allocation temporelle adaptée n'est pas appliquée."
+        "Convention collective : une règle de paie change en cours de mois ; AGKGMG conserve les versions datées séparées et bloque le calcul mensuel unique tant qu'une allocation temporelle adaptée n'est pas appliquée."
 
     static func resolve(
         _ segments: [SalaryConventionCoverageSegmentV2]

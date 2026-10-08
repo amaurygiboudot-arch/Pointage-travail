@@ -68,7 +68,7 @@ class V2KaliPayrollSourcesView(
             setTypeface(typeface, Typeface.BOLD)
         })
         addView(TextView(context).apply {
-            text = "HoraTrack consulte KALI par famille de règle. Heures supplémentaires, nuit, samedi, dimanche et jours fériés ne sont enregistrés que si la recherche officielle est suffisamment complète et qu'une règle datée, unique et non conditionnelle peut être structurée. Le 1er mai reste séparé du modèle générique des jours fériés. Une recherche vide ne prouve jamais l'absence de règle."
+            text = "AGKGMG consulte KALI par famille de règle. Heures supplémentaires, nuit, samedi, dimanche et jours fériés ne sont enregistrés que si la recherche officielle est suffisamment complète et qu'une règle datée, unique et non conditionnelle peut être structurée. Le 1er mai reste séparé du modèle générique des jours fériés. Une recherche vide ne prouve jamais l'absence de règle."
             textSize = 12f
             setPadding(0, dp(6), 0, dp(10))
         })
