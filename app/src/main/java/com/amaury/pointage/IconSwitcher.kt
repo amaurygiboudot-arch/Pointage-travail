@@ -49,9 +49,10 @@ object IconSwitcher {
     fun applyPending(context: Context) = sync(context)
 
     fun sync(context: Context) {
+        var sessionStartedAtMs: Long? = null
         val state = if (HoraTrackV2.ENABLED) {
             val current = V2RuntimeReader.current(context)
-            resolveV2IconState(
+            val resolved = resolveV2IconState(
                 reliable = current.reliable,
                 status = current.snapshot.session?.status,
                 hasOpenPause = current.snapshot.session?.pauses?.any { it.endMs == null } == true
@@ -65,6 +66,10 @@ object IconSwitcher {
                 )
                 return
             }
+            if (current.snapshot.session?.status == SessionStatusV2.OPEN) {
+                sessionStartedAtMs = current.snapshot.session?.realArrivalMs
+            }
+            resolved
         } else {
             when {
                 PointageStore.isPaused(context) -> IconState.PAUSED
@@ -73,7 +78,7 @@ object IconSwitcher {
             }
         }
 
-        PointageStatusNotificationV2.sync(context, state)
+        PointageStatusNotificationV2.sync(context, state, sessionStartedAtMs)
         val target = icons.firstOrNull { it.state == state } ?: fallbackIcon
         setOnly(context, target)
     }
