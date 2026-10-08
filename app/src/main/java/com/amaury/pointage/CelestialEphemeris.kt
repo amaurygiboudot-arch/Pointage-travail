@@ -5,7 +5,7 @@ import com.amaury.pointage.v2.HoraTrackV2
 /**
  * Compatibility facade for old UI code.
  *
- * The astronomical source of truth now belongs to HoraTrack V2. This object is
+ * The astronomical source of truth now belongs to AGKGMG V2. This object is
  * deliberately kept only so an old caller cannot silently reactivate the former
  * lunar solver. New code must use HoraTrackV2.celestial directly.
  */
