@@ -100,6 +100,20 @@ object SegmentedPayrollSessionEvidenceBuilderV2 {
         try {
             val zone = ZoneId.of(source.timeZoneId)
             val timeZone = TimeZone.getTimeZone(zone)
+            // Diagnose invalid pauses across the entire requested period first.
+            // Otherwise an earlier legacy time discrepancy can mask the precise
+            // cause of a later invalid pause in the same exhaustive source.
+            val periodStart = timeline.slices.minOf { slice ->
+                startOfDay(LocalDate.ofEpochDay(slice.startEpochDay), zone)
+            }
+            val periodEnd = timeline.slices.maxOf { slice ->
+                startOfDay(LocalDate.ofEpochDay(slice.endEpochDay).plusDays(1), zone)
+            }
+            if (targetFacts.any { session ->
+                    session.pauses.isNotEmpty() &&
+                        WorkSessionRangeV2.potentiallyTouches(session, periodStart, periodEnd, nowMs) &&
+                        hasInvalidPauseGeometry(session)
+                }) return blocked(PAUSE_GEOMETRY_WARNING)
             for (slice in timeline.slices) {
                 val start = LocalDate.ofEpochDay(slice.startEpochDay)
                 val end = LocalDate.ofEpochDay(slice.endEpochDay)
