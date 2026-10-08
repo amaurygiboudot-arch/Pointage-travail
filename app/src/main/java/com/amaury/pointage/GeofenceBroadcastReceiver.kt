@@ -401,7 +401,10 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         val decision = HoraTrackV2.gps.ingest(event)
         // La sortie GPS crée une demande de confirmation ; elle ne clôt pas la session ici.
         // Le lieu courant est donc conservé jusqu'à la confirmation ou au prochain pointage.
-        GpsWorkStateCoordinatorV2.route(context, event, decision)
+        val outcome = GpsWorkStateCoordinatorV2.route(context, event, decision)
+        if (outcome.action == GpsWorkStateCoordinatorV2.Action.EXIT_PENDING_CONFIRMATION) {
+            GpsExitConfirmationNotificationV2.show(context)
+        }
     }
 
     private fun persistZonePresenceState(
