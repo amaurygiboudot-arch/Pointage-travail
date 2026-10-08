@@ -1,5 +1,6 @@
 import Combine
 import CoreLocation
+import UserNotifications
 import CoreMotion
 import Foundation
 import UIKit
@@ -177,6 +178,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         defaults.set(enabled, forKey: GpsZoneConfigurationV2.enabledKey)
         automaticEnabled = enabled
         registrationSuspended = false
+        if enabled {
+            requestGpsExitNotificationPermission()
+        } else {
+            clearGpsExitNotification()
+        }
         reloadAndReconcile(configurationChanged: true)
     }
 
@@ -271,14 +277,18 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         }
         guard !state.pendingEvents.isEmpty else {
             pendingEvent = nil
+            clearGpsExitNotification()
             return true
         }
-        state.pendingEvents.removeFirst()
+        let removedEvent = state.pendingEvents.removeFirst()
         if state.pendingEvents.count < GpsPresenceTransitionV2.maximumPendingEventCount {
             state.eventQueueOverflowed = false
         }
         if GpsStateStoreV2.write(state, defaults: defaults) {
             pendingEvent = state.pendingEvents.first
+            if removedEvent.kind == .departure {
+                syncGpsExitNotification()
+            }
             return true
         }
         suspendRegistration(message: "État GPS non fiable — automatisme suspendu")
@@ -806,6 +816,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             return
         }
         pendingEvent = next.pendingEvents.first
+        syncGpsExitNotification()
         if next.eventQueueOverflowed {
             suspendRegistration(
                 message: "Trop d'événements GPS à confirmer — automatisme suspendu"
@@ -936,6 +947,39 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             pendingEvents: state.pendingEvents,
             confirmedSessionId: state.confirmedSessionId,
             eventQueueOverflowed: state.eventQueueOverflowed
+        )
+    }
+
+    private static let gpsExitNotificationIdentifier = "horatrack.gps.exit.confirmation"
+
+    private func requestGpsExitNotificationPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    private func syncGpsExitNotification() {
+        clearGpsExitNotification()
+        guard automaticEnabled, pendingEvent?.kind == .departure else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Sortie du lieu de travail détectée"
+        content.body = "Ouvre HoraTrack pour confirmer si ta journée est réellement terminée."
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: Self.gpsExitNotificationIdentifier,
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    private func clearGpsExitNotification() {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(
+            withIdentifiers: [Self.gpsExitNotificationIdentifier]
+        )
+        center.removeDeliveredNotifications(
+            withIdentifiers: [Self.gpsExitNotificationIdentifier]
         )
     }
 
