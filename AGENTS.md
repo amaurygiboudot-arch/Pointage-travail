@@ -30,6 +30,10 @@ Agents disponibles :
 
 Le chef d'orchestre conserve la vision globale, évite les modifications concurrentes des mêmes fichiers et regroupe les résultats avant de conclure.
 
+## LIVRAISON AUTOMATIQUE APRÈS VALIDATION
+
+Après chaque lot terminé, lorsque les tests et les revues obligatoires ont rendu PASS et que control_gate a explicitement indiqué « FUSION AUTORISÉE : OUI », lancer sans nouvelle relance de l'utilisateur la fusion puis la livraison sur Google Play piste internal, pour essais sur téléphone. L'utilisateur autorise explicitement cette livraison de test, sous réserve des contrôles existants. Vérifier les artefacts signés, la piste cible et le résultat réel du déploiement. Ne pas confondre compilation et publication. Ne pas substituer une APK de test indépendante à Google Play. En cas de blocage d'accès, de revue ou de sécurité, consigner le blocage sans contourner control_gate.
+
 ## PRIORITÉS
 
 Salaire V2 reste la priorité fonctionnelle de la feuille de route.
