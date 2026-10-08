@@ -9,6 +9,7 @@ import android.content.res.ColorStateList
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
@@ -521,12 +522,94 @@ object SettingsUiInstaller {
     private fun title(context: Context, text: String) = TextView(context).apply { this.text = text; textSize = 16f; setPadding(0, dp(context, 18), 0, dp(context, 10)) }
 
     private fun chooseAppBackground(activity: Activity) {
-        val labels = arrayOf("Noir", "Anthracite", "Bleu nuit", "Vert profond", "Bordeaux", "Beige clair", "Couleur personnalisée")
-        val colors = arrayOf("#080808", "#242424", "#0D1B2A", "#102A20", "#351015", "#F3F0E8")
-        AlertDialog.Builder(activity).setTitle("Fond de l'application").setItems(labels) { _, which ->
-            if (which < colors.size) saveAppBg(activity, colors[which])
-            else customColorDialog(activity, "Couleur du fond") { saveAppBg(activity, it) }
-        }.show()
+        val prefs = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+        val dark = AppThemeCatalog.useDarkPalette(activity)
+        val theme = AppThemeCatalog.current(activity)
+        val fallback = if (dark) theme.darkBackground else theme.lightBackground
+        val initial = runCatching {
+            Color.parseColor(prefs.getString("app_bg", null) ?: "")
+        }.getOrDefault(fallback)
+
+        val container = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(activity, 20), dp(activity, 12), dp(activity, 20), 0)
+        }
+        val wheel = ColorWheelPickerView(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(activity, 280), dp(activity, 280)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
+            setColor(initial)
+        }
+        val brightnessLabel = TextView(activity).apply {
+            text = "Luminosité"
+            textSize = 14f
+            setPadding(0, dp(activity, 12), 0, 0)
+        }
+        val brightness = SeekBar(activity).apply {
+            max = 100
+            progress = (wheel.brightness() * 100f).toInt().coerceIn(0, 100)
+        }
+        val preview = TextView(activity).apply {
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(dp(activity, 12), dp(activity, 12), dp(activity, 12), dp(activity, 12))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(activity, 54)
+            ).apply { topMargin = dp(activity, 10) }
+        }
+
+        fun refreshPreview(color: Int) {
+            val hex = String.format("#%06X", 0xFFFFFF and color)
+            preview.text = "Aperçu  •  $hex"
+            preview.setTextColor(AppearanceManager.bestTextColor(color))
+            preview.background = GradientDrawable().apply {
+                cornerRadius = dp(activity, 14).toFloat()
+                setColor(color)
+            }
+        }
+
+        wheel.onColorChanged = ::refreshPreview
+        brightness.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                wheel.setBrightness(progress / 100f, notify = true)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+        refreshPreview(wheel.selectedColor())
+
+        container.addView(wheel)
+        container.addView(brightnessLabel)
+        container.addView(brightness)
+        container.addView(preview)
+
+        val dialog = AlertDialog.Builder(activity)
+            .setTitle("Couleur du fond")
+            .setView(container)
+            .setPositiveButton("Appliquer", null)
+            .setNegativeButton("Annuler", null)
+            .setNeutralButton("Réinitialiser", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val color = String.format("#%06X", 0xFFFFFF and wheel.selectedColor())
+                saveAppBg(activity, color)
+                dialog.dismiss()
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                File(activity.filesDir, AppearanceManager.BACKGROUND_FILE).delete()
+                prefs.edit()
+                    .remove("app_bg")
+                    .putBoolean("custom_bg", false)
+                    .putBoolean("custom_image_bg", false)
+                    .apply()
+                AppearanceManager.apply(activity)
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
     }
 
     private fun saveAppBg(activity: Activity, color: String) {
