@@ -109,6 +109,11 @@ object SegmentedPayrollSessionEvidenceBuilderV2 {
             val periodEnd = timeline.slices.maxOf { slice ->
                 startOfDay(LocalDate.ofEpochDay(slice.endEpochDay).plusDays(1), zone)
             }
+            // Missing employer ownership must be reported before pause geometry:
+            // a foreign/unassigned session must never be silently attributed.
+            if (WorkSessionEmployerAssignmentV2.hasUnassignedSession(
+                    source.sessions, periodStart, periodEnd, nowMs
+                )) return blocked(WorkSessionEmployerAssignmentV2.WARNING)
             if (targetFacts.any { session ->
                     session.pauses.isNotEmpty() &&
                         WorkSessionRangeV2.potentiallyTouches(session, periodStart, periodEnd, nowMs) &&
