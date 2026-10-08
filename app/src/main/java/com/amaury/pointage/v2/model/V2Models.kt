@@ -15,7 +15,11 @@ data class WorkSessionV2(
     val placeId: String? = null,
     val placeLabel: String? = null,
     /** Déduction fixe importée de l'ancien moteur. Utilisée uniquement pour préserver les historiques. */
-    val legacyFixedUnpaidPauseMs: Long = 0L
+    val legacyFixedUnpaidPauseMs: Long = 0L,
+    /** Missing in historical records: old counted times remain unverified until qualified. */
+    val timeBasis: TimeBasisV2 = TimeBasisV2.LEGACY_UNVERIFIED,
+    /** Optional exhaustive activity breakdown (not inferred from GPS). */
+    val workSegments: List<WorkSegmentV2> = emptyList()
 )
 
 data class PauseV2(val startMs:Long,val endMs:Long?,val paid:Boolean?,val source:EventSourceV2,val status:DecisionStatusV2=DecisionStatusV2.CONFIRMED)
@@ -87,3 +91,16 @@ enum class AbsenceSalaryTreatmentV2 { FULLY_MAINTAINED, PARTIALLY_MAINTAINED, UN
 enum class AbsenceSubrogationV2 { YES, NO, TO_CONFIRM }
 enum class AbsenceProvidentTreatmentV2 { TO_CONFIRM, NONE_CONFIRMED, NET_AMOUNT_CONFIRMED }
 enum class DiscrepancyStatusV2 { TO_VERIFY, CONFIRMED, SET_ASIDE, EXPLAINED, RESOLVED }
+
+
+/** Old counted timestamps are retained, never silently promoted to verified paid work. */
+enum class TimeBasisV2 { REAL_FACTS, LEGACY_UNVERIFIED }
+
+/** Segmented work, on-call standby and travel must be classified from explicit facts. */
+data class WorkSegmentV2(
+    val startMs: Long,
+    val endMs: Long?,
+    val kind: WorkSegmentKindV2,
+    val status: DecisionStatusV2 = DecisionStatusV2.CONFIRMED
+)
+enum class WorkSegmentKindV2 { WORK, INTERVENTION, PAID_TRAVEL, ON_CALL, PERSONAL_TRAVEL, NON_WORK, TO_CONFIRM }
