@@ -99,13 +99,40 @@ class DatedWorkRulesEditorV2(
         loadVersions()
     }
 
+    private val accountListener by lazy {
+        FirebaseAuth.AuthStateListener {
+            if (activeUid() != startingUid) post { hideWhenAccountChanges() }
+        }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        runCatching { FirebaseAuth.getInstance().addAuthStateListener(accountListener) }
+        if (activeUid() != startingUid) hideWhenAccountChanges()
+    }
+
+    override fun onDetachedFromWindow() {
+        runCatching { FirebaseAuth.getInstance().removeAuthStateListener(accountListener) }
+        super.onDetachedFromWindow()
+    }
+
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
         super.onWindowFocusChanged(hasWindowFocus)
-        if (hasWindowFocus && activeUid() != startingUid) {
-            contractSpinner.isEnabled = false
-            history.text = ""
-            status.text = "Le compte a changé : fermez cet écran avant de continuer."
-        }
+        if (hasWindowFocus && activeUid() != startingUid) hideWhenAccountChanges()
+    }
+
+    private fun hideWhenAccountChanges() {
+        contracts = emptyList()
+        fromField.setText("")
+        toField.setText("")
+        sourceField.setText("")
+        referenceField.setText("")
+        history.text = ""
+        ownContract.isChecked = false
+        contractSpinner.isEnabled = false
+        // Remove the old user's company/contract form immediately, without deleting facts.
+        for (index in 3 until childCount) getChildAt(index).visibility = View.GONE
+        status.text = "Le compte a changé : fermez cet écran avant de continuer."
     }
 
     private fun loadVersions() {
