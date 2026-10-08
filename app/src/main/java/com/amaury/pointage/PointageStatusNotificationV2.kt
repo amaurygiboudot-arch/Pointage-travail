@@ -157,22 +157,22 @@ object PointageStatusNotificationV2 {
             DisplayState.RED -> StatusSpec(
                 color = accent,
                 icon = statusIcon,
-                title = "HoraTrack — non pointé",
+                title = "Hors",
                 text = "🔴 Aucune session de travail en cours."
             )
             DisplayState.GREEN -> StatusSpec(
                 color = accent,
                 icon = statusIcon,
-                title = "HoraTrack — pointage en cours",
+                title = "Travail",
                 text = "🟢 Session de travail active."
             )
             DisplayState.ORANGE -> StatusSpec(
                 color = accent,
                 icon = statusIcon,
                 title = when {
-                    pending != null -> "HoraTrack — action requise"
-                    iconState == IconSwitcher.IconState.PAUSED -> "HoraTrack — pause en cours"
-                    else -> "HoraTrack — état à vérifier"
+                    pending != null -> "Vérifier"
+                    iconState == IconSwitcher.IconState.PAUSED -> "Pause"
+                    else -> "Vérifier"
                 },
                 text = when {
                     pending != null -> "🟠 Un événement GPS attend ta confirmation."
