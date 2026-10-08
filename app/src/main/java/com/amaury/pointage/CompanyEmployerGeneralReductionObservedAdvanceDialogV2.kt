@@ -72,7 +72,7 @@ object CompanyEmployerGeneralReductionObservedAdvanceDialogV2 {
                     EmployerGeneralReductionObservedAdvanceV2.YearState.COMPLETE_CONFIRMED ->
                         append("\nBase RGDU réelle complète : la régularisation annuelle peut utiliser les montants constatés.")
                     EmployerGeneralReductionObservedAdvanceV2.YearState.INCOMPLETE ->
-                        append("\nBase réelle incomplète : HoraTrack ne transforme jamais les mois manquants en 0 €.")
+                        append("\nBase réelle incomplète : AGKGMG ne transforme jamais les mois manquants en 0 €.")
                     EmployerGeneralReductionObservedAdvanceV2.YearState.INVALID ->
                         append("\nBase historique incohérente : régularisation bloquée.")
                 }
