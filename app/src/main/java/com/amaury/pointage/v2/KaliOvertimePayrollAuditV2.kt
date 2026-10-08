@@ -273,7 +273,7 @@ object KaliOvertimePayrollAuditV2 {
                 warnings = (
                     baseWarnings +
                         "KALI : un snapshot conventionnel couvre déjà cette période ; " +
-                        "HoraTrack refuse de l'écraser sans arbitrage temporel explicite."
+                        "AGKGMG refuse de l'écraser sans arbitrage temporel explicite."
                     ).distinct()
             )
         }
