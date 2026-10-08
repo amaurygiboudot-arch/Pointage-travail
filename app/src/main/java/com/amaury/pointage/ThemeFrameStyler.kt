@@ -9,7 +9,7 @@ import android.widget.Switch
 import android.widget.TextView
 
 /**
- * Source de vérité unique pour l'apparence des contrôles standards HoraTrack.
+ * Source de vérité unique pour l'apparence des contrôles standards AGKGMG.
  *
  * Référence visuelle exacte : bouton "Saisie manuelle d'une pause" :
  * - drawable hp_panel brut, sans teinte ajoutée par un ancien thème ;
