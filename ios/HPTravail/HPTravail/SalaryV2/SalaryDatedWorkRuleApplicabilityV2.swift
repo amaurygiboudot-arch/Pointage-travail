@@ -123,6 +123,12 @@ struct SalaryWorkRulePeriodResolutionV2 {
 }
 
 enum SalaryDatedWorkRuleApplicabilityV2 {
+    // Java/Kotlin LocalDate.MIN and MAX epoch-day domain: parity on both platforms.
+    private static let earliestEpochDay: Int64 = -365_243_219_162
+    private static let latestEpochDay: Int64 = 365_241_780_471
+    private static func validDay(_ day: Int64) -> Bool {
+        day >= earliestEpochDay && day <= latestEpochDay
+    }
     static let missingWarning = "Règle individuelle datée absente : qualification à confirmer."
     static let pendingWarning = "Règle individuelle en attente de confirmation."
     static let conflictWarning = "Plusieurs règles applicables : conflit non arbitré."
@@ -135,7 +141,9 @@ enum SalaryDatedWorkRuleApplicabilityV2 {
               record.id == record.id.trimmingCharacters(in: .whitespacesAndNewlines) else {
             return false
         }
-        if let end = record.effectiveToEpochDay, end <= record.effectiveFromEpochDay {
+        guard validDay(record.effectiveFromEpochDay) else { return false }
+        if let end = record.effectiveToEpochDay,
+           (!validDay(end) || end <= record.effectiveFromEpochDay) {
             return false
         }
         if record.confirmation == .confirmed &&
@@ -169,7 +177,8 @@ enum SalaryDatedWorkRuleApplicabilityV2 {
         owner: SalaryWorkRuleOwnerV2, topic: SalaryWorkRuleTopicV2,
         epochDay: Int64, records: [SalaryDatedWorkRuleV2], sourceReliable: Bool
     ) -> SalaryWorkRuleDayResolutionV2 {
-        guard owner.isValid, sourceReliable, records.allSatisfy(validRecord) else {
+        guard owner.isValid, validDay(epochDay), sourceReliable,
+              records.allSatisfy(validRecord) else {
             return .init(state: .invalid, record: nil, warnings: [invalidWarning])
         }
         let applicable = records.filter {
@@ -194,7 +203,8 @@ enum SalaryDatedWorkRuleApplicabilityV2 {
         fromEpochDay: Int64, toExclusiveEpochDay: Int64,
         records: [SalaryDatedWorkRuleV2], sourceReliable: Bool
     ) -> SalaryWorkRulePeriodResolutionV2 {
-        guard toExclusiveEpochDay > fromEpochDay,
+        guard validDay(fromEpochDay), validDay(toExclusiveEpochDay),
+              toExclusiveEpochDay > fromEpochDay,
               toExclusiveEpochDay - fromEpochDay <= 366 else {
             return .init(segments: [], reliable: false,
                          requiresSegmentedCalculation: false, warnings: [invalidWarning])
