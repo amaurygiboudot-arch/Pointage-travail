@@ -53,9 +53,9 @@ class PointageStatusNotificationV2Test {
     }
     @Test
     fun `live update chip keeps the requested traffic light state`() {
-        assertEquals("🔴", PointageStatusNotificationV2.shortCriticalText(PointageStatusNotificationV2.DisplayState.RED))
-        assertEquals("🟢", PointageStatusNotificationV2.shortCriticalText(PointageStatusNotificationV2.DisplayState.GREEN))
-        assertEquals("🟠", PointageStatusNotificationV2.shortCriticalText(PointageStatusNotificationV2.DisplayState.ORANGE))
+        assertEquals("×", PointageStatusNotificationV2.shortCriticalText(PointageStatusNotificationV2.DisplayState.RED))
+        assertEquals("✓", PointageStatusNotificationV2.shortCriticalText(PointageStatusNotificationV2.DisplayState.GREEN))
+        assertEquals("Ⅱ", PointageStatusNotificationV2.shortCriticalText(PointageStatusNotificationV2.DisplayState.ORANGE))
     }
 
 }
