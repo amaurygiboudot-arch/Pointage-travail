@@ -11,7 +11,7 @@ import android.os.Bundle
 import android.util.TypedValue
 import android.widget.RemoteViews
 import android.widget.Toast
-import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.AGKGMGV2
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.V2RuntimeStore
 
@@ -75,7 +75,7 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
 
         private fun updateDynamicState(context: Context, manager: AppWidgetManager, widgetId: Int) {
             val views = RemoteViews(context.packageName, R.layout.widget_quick_actions)
-            val pauseLabel = if (HoraTrackV2.ENABLED) {
+            val pauseLabel = if (AGKGMGV2.ENABLED) {
                 v2PauseLabel(context)
             } else if (PointageStore.isPaused(context)) {
                 "REPRENDRE"
@@ -137,12 +137,12 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.quick_entry_inner, pending(context, widgetId, ACTION_ENTRY, 1))
             views.setOnClickPendingIntent(
                 R.id.quick_pause_inner,
-                if (HoraTrackV2.ENABLED) pendingPauseActivity(context, widgetId)
+                if (AGKGMGV2.ENABLED) pendingPauseActivity(context, widgetId)
                 else pending(context, widgetId, ACTION_PAUSE, 2)
             )
             views.setOnClickPendingIntent(R.id.quick_exit_inner, pending(context, widgetId, ACTION_EXIT, 3))
 
-            val pauseLabel = if (HoraTrackV2.ENABLED) {
+            val pauseLabel = if (AGKGMGV2.ENABLED) {
                 v2PauseLabel(context)
             } else if (PointageStore.isPaused(context)) {
                 "REPRENDRE"
@@ -170,16 +170,16 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
         when (intent.action) {
             ACTION_ENTRY -> {
                 handledAction = true
-                if (HoraTrackV2.ENABLED && !V2RuntimeReader.current(context).reliable) {
+                if (AGKGMGV2.ENABLED && !V2RuntimeReader.current(context).reliable) {
                     Toast.makeText(context, "Pointage bloqué : données AGKGMG à vérifier", Toast.LENGTH_LONG).show()
                 } else {
-                    val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.entry(context) else PointageStore.entry(context)
+                    val ok = if (AGKGMGV2.ENABLED) V2RuntimeStore.entry(context) else PointageStore.entry(context)
                     Toast.makeText(context, if (ok) "Entrée enregistrée" else "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
                 }
             }
             ACTION_PAUSE -> {
                 handledAction = true
-                if (HoraTrackV2.ENABLED) {
+                if (AGKGMGV2.ENABLED) {
                     val read = V2RuntimeReader.current(context)
                     val session = read.snapshot.session
                     if (!read.reliable) {
@@ -218,10 +218,10 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             }
             ACTION_EXIT -> {
                 handledAction = true
-                if (HoraTrackV2.ENABLED && !V2RuntimeReader.current(context).reliable) {
+                if (AGKGMGV2.ENABLED && !V2RuntimeReader.current(context).reliable) {
                     Toast.makeText(context, "Pointage bloqué : données AGKGMG à vérifier", Toast.LENGTH_LONG).show()
                 } else {
-                    val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.exit(context) else PointageStore.exit(context)
+                    val ok = if (AGKGMGV2.ENABLED) V2RuntimeStore.exit(context) else PointageStore.exit(context)
                     Toast.makeText(context, if (ok) "Sortie enregistrée" else "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
                 }
             }
