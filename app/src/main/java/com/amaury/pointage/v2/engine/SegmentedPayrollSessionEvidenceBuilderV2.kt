@@ -134,6 +134,12 @@ object SegmentedPayrollSessionEvidenceBuilderV2 {
                     val to = startOfDay(nextMonday, zone)
                     if (to <= from || to > source.checkedAtMs) return blocked(SOURCE_WARNING)
                     if (monday.year !in 1900..2200 || nextMonday.minusDays(1).year !in 1900..2200) return blocked(CALENDAR_WARNING)
+                    // Verify malformed pause geometry before the general reliability gate,
+                    // so an original fact is not hidden behind a vague source warning.
+                    if (targetFacts.any { session ->
+                            WorkSessionRangeV2.potentiallyTouches(session, from, to, nowMs) &&
+                                hasInvalidPauseGeometry(session)
+                        }) return blocked(PAUSE_GEOMETRY_WARNING)
                     val scope = MonthlyPaidWorkScopeV2.resolve(source.sessions, setOf(employer), from, to, nowMs)
                     warnings += scope.warnings
                     if (!scope.reliable) return blocked(SOURCE_WARNING)
