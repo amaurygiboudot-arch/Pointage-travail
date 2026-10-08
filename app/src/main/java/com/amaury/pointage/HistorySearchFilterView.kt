@@ -10,7 +10,7 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
-import com.amaury.pointage.v2.AGKGMGV2
+import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.ui.HistoryTextFormatterV2
@@ -129,7 +129,7 @@ class HistorySearchFilterView @JvmOverloads constructor(
         )
         target.text = HistoryTextFormatterV2.format(
             sessions = sessions,
-            engine = AGKGMGV2.time,
+            engine = HoraTrackV2.time,
             nowMs = now,
             options = HistoryTextFormatterV2.Options(
                 showEntry = entryBox.isChecked,
