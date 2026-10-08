@@ -83,7 +83,7 @@ final class PaidTimePolicyV2Tests: XCTestCase {
         XCTAssertTrue(result.reliable)
     }
 
-    func testPauseOutsideRequestedSessionDoesNotDegradeReliability() {
+    func testOutOfRangePauseIsNotSilentlyCertifiedInFullSession() {
         let result = PaidTimePolicyV2.assess(
             sessionStart: at(8),
             sessionEnd: at(16),
@@ -92,8 +92,25 @@ final class PaidTimePolicyV2Tests: XCTestCase {
         )
 
         XCTAssertEqual(result.paidDuration, 8 * 3_600, accuracy: 0.001)
-        XCTAssertTrue(result.reliable)
+        XCTAssertFalse(result.reliable)
     }
+    func testPartiallyOutOfRangePauseBlocksFullSessionButNotValidatedWeekSlice() {
+        let pause = PaidPauseFactV2(start: at(7), end: at(9), paid: false)
+        let full = PaidTimePolicyV2.assess(
+            sessionStart: at(8), sessionEnd: at(16), pauses: [pause], until: at(16)
+        )
+        XCTAssertEqual(full.paidDuration, 8 * 3_600, accuracy: 0.001)
+        XCTAssertFalse(full.reliable)
+
+        // A separately verified full session may have a pause crossing a week boundary.
+        let validForSlice = PaidTimePolicyV2.assess(
+            sessionStart: at(8), sessionEnd: at(12), pauses: [pause], until: at(12),
+            enforcePauseSessionBounds: false
+        )
+        XCTAssertEqual(validForSlice.paidDuration, 3 * 3_600, accuracy: 0.001)
+        XCTAssertTrue(validForSlice.reliable)
+    }
+
     func testClosedSessionCannotTreatOpenPauseAsSixConfirmedUnpaidHours() {
         let result = PaidTimePolicyV2.assess(
             sessionStart: at(8), sessionEnd: at(16),
