@@ -32,7 +32,7 @@ final class SalaryDatedWorkTimeQualificationV2Tests: XCTestCase {
         SalaryDatedWorkRuleV2(
             id: id, owner: owner, topic: .timeAccounting,
             effectiveFromEpochDay: from, effectiveToEpochDay: until,
-            sourceId: "verified-source-(id)", ruleReference: "article",
+            sourceId: "verified-source-" + id, ruleReference: "article",
             checkedAtMs: 1_790_000_000_000, confirmation: .confirmed
         )
     }
