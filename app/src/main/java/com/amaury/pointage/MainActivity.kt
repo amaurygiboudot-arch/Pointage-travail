@@ -398,7 +398,7 @@ class MainActivity : Activity() {
                 V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
                 MonthlyPdfReport.write(this, PointageStore.load(this), pendingPdfYear, pendingPdfMonth, output)
             }
-            BillingPdfGate.require(this, file, "HoraTrack_${pendingPdfYear}_${pendingPdfMonth + 1}.pdf", onDenied = {
+            BillingPdfGate.require(this, file, "AGKGMG_${pendingPdfYear}_${pendingPdfMonth + 1}.pdf", onDenied = {
                 runCatching { android.provider.DocumentsContract.deleteDocument(contentResolver, uri) }
             }) { authorizedFile ->
                 runCatching {
