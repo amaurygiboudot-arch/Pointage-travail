@@ -4,6 +4,7 @@ import com.amaury.pointage.v2.model.DecisionStatusV2
 import com.amaury.pointage.v2.model.EventSourceV2
 import com.amaury.pointage.v2.model.PauseV2
 import com.amaury.pointage.v2.model.SessionStatusV2
+import com.amaury.pointage.v2.model.TimeBasisV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -31,6 +32,21 @@ class TimeEngineV2Test {
         assertEquals(at(6, 0), WorkTimePolicyV2.repairKnownCountedEntry(at(6, 8), at(6, 15)))
         assertEquals(at(6, 7), WorkTimePolicyV2.repairKnownCountedEntry(at(6, 8), at(6, 7)))
         assertEquals(at(5, 0), WorkTimePolicyV2.repairKnownCountedEntry(at(5, 8), at(5, 15)))
+    }
+
+    @Test
+    fun `entree factuelle a six heures quinze ne doit jamais subir la reparation historique`() {
+        val real = at(6, 15)
+        assertEquals(real, WorkTimePolicyV2.repairKnownCountedEntry(real, real))
+        val session = closedSession(baseMs = real).copy(timeBasis = TimeBasisV2.REAL_FACTS)
+        val time = DefaultTimeEngineV2.calculate(session)
+        val allocated = PaidWorkAllocationV2.paidOverlapResult(
+            session, real, real + 8 * 60 * minute
+        )
+        assertEquals(8 * 60 * minute, time.paidWorkMs)
+        assertTrue(time.reliable)
+        assertEquals(time.paidWorkMs, allocated.paidMs)
+        assertTrue(allocated.reliable)
     }
 
     @Test
