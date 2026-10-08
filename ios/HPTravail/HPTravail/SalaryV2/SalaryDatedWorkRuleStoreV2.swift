@@ -32,36 +32,59 @@ enum SalaryDatedWorkRuleStoreV2 {
     }
 
     static func read(
-        owner: SalaryWorkRuleOwnerV2, defaults: UserDefaults = .standard
+        owner: SalaryWorkRuleOwnerV2,
+        authenticatedAccountId: String?,
+        defaults: UserDefaults = .standard
     ) -> SalaryDatedWorkRuleReadResultV2 {
-        guard confirmedOwner(owner, defaults: defaults) else {
+        guard confirmedOwner(owner, authenticatedAccountId: authenticatedAccountId, defaults: defaults) else {
             return .init(records: [], reliable: false, warnings: [ownerWarning])
         }
         lock.lock()
         defer { lock.unlock() }
-        return readLocal(owner, defaults: defaults)
+        let result = readLocal(owner, defaults: defaults)
+        guard let contract = matchingContract(owner, defaults: defaults),
+              result.reliable,
+              result.records.allSatisfy({
+                  SalaryDatedWorkRuleContractScopeV2.verifiedApplicability($0, contract: contract)
+              }) else {
+            return .init(records: result.records, reliable: false, warnings: [storageWarning])
+        }
+        return result
     }
 
     @discardableResult
     static func append(
-        _ record: SalaryDatedWorkRuleV2, owner: SalaryWorkRuleOwnerV2,
+        _ record: SalaryDatedWorkRuleV2,
+        owner: SalaryWorkRuleOwnerV2,
+        authenticatedAccountId: String?,
         defaults: UserDefaults = .standard
     ) -> Bool {
-        guard record.owner == owner, confirmedOwner(owner, defaults: defaults) else { return false }
+        guard record.owner == owner,
+              confirmedOwner(owner, authenticatedAccountId: authenticatedAccountId, defaults: defaults),
+              let contract = matchingContract(owner, defaults: defaults),
+              SalaryDatedWorkRuleContractScopeV2.verifiedApplicability(record, contract: contract) else {
+            return false
+        }
         lock.lock()
         defer { lock.unlock() }
         let current = readLocal(owner, defaults: defaults)
         guard current.reliable, !current.records.contains(where: { $0.id == record.id }) else { return false }
-        return writeLocal(current.records + [record], owner: owner, defaults: defaults)
+        return writeLocal(current.records + [record], owner: owner,
+                          authenticatedAccountId: authenticatedAccountId, defaults: defaults)
     }
 
     @discardableResult
     static func replaceOpenVersion(
         oldRecordId: String, with newRecord: SalaryDatedWorkRuleV2,
-        owner: SalaryWorkRuleOwnerV2, defaults: UserDefaults = .standard
+        owner: SalaryWorkRuleOwnerV2,
+        authenticatedAccountId: String?,
+        defaults: UserDefaults = .standard
     ) -> Bool {
         guard !oldRecordId.isEmpty, newRecord.owner == owner,
-              newRecord.confirmation == .confirmed, confirmedOwner(owner, defaults: defaults) else {
+              newRecord.confirmation == .confirmed,
+              confirmedOwner(owner, authenticatedAccountId: authenticatedAccountId, defaults: defaults),
+              let contract = matchingContract(owner, defaults: defaults),
+              SalaryDatedWorkRuleContractScopeV2.verifiedApplicability(newRecord, contract: contract) else {
             return false
         }
         lock.lock()
@@ -86,22 +109,34 @@ enum SalaryDatedWorkRuleStoreV2 {
                 explicitlyNotApplicable: old.explicitlyNotApplicable
             )
         } + [newRecord]
-        return writeLocal(updated, owner: owner, defaults: defaults)
+        return writeLocal(updated, owner: owner,
+                          authenticatedAccountId: authenticatedAccountId, defaults: defaults)
+    }
+
+    private static func matchingContract(
+        _ owner: SalaryWorkRuleOwnerV2, defaults: UserDefaults
+    ) -> SalaryEmploymentContractSnapshotV2? {
+        let history = SalaryEmploymentContractHistoryStoreV2.readConfirmed(defaults: defaults)
+        guard history.reliable else { return nil }
+        let matches = history.snapshots.filter {
+            $0.versionId == owner.contractVersionId &&
+                $0.contract.employerId == owner.employerId
+        }
+        return matches.count == 1 ? matches[0] : nil
     }
 
     private static func confirmedOwner(
-        _ owner: SalaryWorkRuleOwnerV2, defaults: UserDefaults
+        _ owner: SalaryWorkRuleOwnerV2,
+        authenticatedAccountId: String?,
+        defaults: UserDefaults
     ) -> Bool {
-        guard owner.isValid else { return false }
+        guard SalaryDatedWorkRuleOwnerAuthorizationV2.authorizes(
+            owner, authenticatedUid: authenticatedAccountId
+        ) else { return false }
         let companies = SalaryCompanyStoreV2.readConfirmed(defaults: defaults)
-        guard companies.reliable, companies.companies.contains(where: { $0.id == owner.employerId }) else {
-            return false
-        }
-        let contracts = SalaryEmploymentContractHistoryStoreV2.readConfirmed(defaults: defaults)
-        return contracts.reliable && contracts.snapshots.filter {
-            $0.versionId == owner.contractVersionId &&
-            $0.contract.employerId == owner.employerId
-        }.count == 1
+        guard companies.reliable,
+              companies.companies.contains(where: { $0.id == owner.employerId }) else { return false }
+        return matchingContract(owner, defaults: defaults) != nil
     }
 
     private static func readLocal(
@@ -128,9 +163,15 @@ enum SalaryDatedWorkRuleStoreV2 {
 
     private static func writeLocal(
         _ records: [SalaryDatedWorkRuleV2], owner: SalaryWorkRuleOwnerV2,
+        authenticatedAccountId: String?,
         defaults: UserDefaults
     ) -> Bool {
-        guard SalaryDatedWorkRuleApplicabilityV2.validTimeline(owner, records: records),
+        guard confirmedOwner(owner, authenticatedAccountId: authenticatedAccountId, defaults: defaults),
+              let contract = matchingContract(owner, defaults: defaults),
+              SalaryDatedWorkRuleApplicabilityV2.validTimeline(owner, records: records),
+              records.allSatisfy({
+                  SalaryDatedWorkRuleContractScopeV2.verifiedApplicability($0, contract: contract)
+              }),
               let raw = encode(records, owner: owner) else { return false }
         let key = ownerStorageKey(owner)
         // A single authoritative envelope update. Backup follows only after verification.
