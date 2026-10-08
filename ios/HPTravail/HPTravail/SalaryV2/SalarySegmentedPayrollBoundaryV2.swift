@@ -11,7 +11,7 @@ struct SalarySegmentedPayrollBoundaryAssessmentV2: Equatable {
 ///
 /// Les heures supplémentaires et complémentaires sont des mécanismes hebdomadaires. Tant qu'un
 /// calculateur segmenté ne transporte pas le contexte cumulé d'une même semaine à travers un
-/// changement de contrat/règle, HoraTrack ne doit jamais calculer chaque tranche indépendamment
+/// changement de contrat/règle, AGKGMG ne doit jamais calculer chaque tranche indépendamment
 /// lorsque la transition intervient en cours de semaine.
 ///
 /// Cette couche ne calcule aucun euro. Elle autorise seulement un futur calcul indépendant par
