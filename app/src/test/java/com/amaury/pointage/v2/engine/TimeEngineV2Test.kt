@@ -231,8 +231,10 @@ class TimeEngineV2Test {
 
         val excessive = closedSession(baseMs = dayBase, legacyFixedUnpaidPauseMs = 12 * 60 * minute)
         val excessiveResult = DefaultTimeEngineV2.calculate(excessive)
-        assertEquals(8 * 60 * minute, excessiveResult.unpaidPauseMs)
-        assertEquals(0L, excessiveResult.paidWorkMs)
+        // Une valeur historique impossible n'efface pas 8 h d'activité en silence.
+        assertEquals(0L, excessiveResult.unpaidPauseMs)
+        assertEquals(8 * 60 * minute, excessiveResult.paidWorkMs)
+        assertFalse(excessiveResult.reliable)
     }
 
     private fun closedSession(
