@@ -3,6 +3,7 @@ package com.amaury.pointage.v2.ui
 import android.app.Activity
 import android.app.AlertDialog
 import android.widget.Toast
+import com.amaury.pointage.GpsExitConfirmationNotificationV2
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.GpsTransitionV2
 import com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2
@@ -17,6 +18,9 @@ object V2GpsPromptController {
         val pending = GpsWorkStateCoordinatorV2.pending(activity) ?: return
         if (!GpsWorkStateCoordinatorV2.shouldPrompt(activity, pending)) return
 
+        if (pending.kind == GpsWorkStateCoordinatorV2.Pending.Kind.EXIT_WORKSITE) {
+            GpsExitConfirmationNotificationV2.cancel(activity)
+        }
         GpsWorkStateCoordinatorV2.markPromptShown(activity, pending)
         showing[activity] = true
 
