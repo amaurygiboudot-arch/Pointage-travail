@@ -70,7 +70,7 @@ class SalaryPayslipWorkspaceView(context:Context,private val company:SalaryCompa
  private fun generatePdf(activity:Activity,fields:Set<SalaryExamplePdfV2.Field>){
   val(year,month)=selectedPeriod()
   val companyToken=company.siret.ifBlank{company.id}.replace(Regex("[^A-Za-z0-9_-]"),"_").take(32).ifBlank{"entreprise"}
-  val fileName="Fiche_paie_exemple_HoraTrack_${companyToken}_${year}_${month+1}.pdf"
+  val fileName="Fiche_paie_exemple_AGKGMG_${companyToken}_${year}_${month+1}.pdf"
   runCatching{
    val file=File.createTempFile("salary_preview_",".pdf",activity.cacheDir)
    file.outputStream().use{SalaryExamplePdfV2.write(activity,company,year,month,fields,it)}
