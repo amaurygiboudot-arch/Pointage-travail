@@ -123,7 +123,7 @@ class V2MonthlyPdfActivity : Activity() {
         val uid = ownerUid ?: return finish()
         val year = selected.get(Calendar.YEAR); val month = selected.get(Calendar.MONTH)
         selectedYear = year; selectedMonth = month; phase = MonthlyPdfRecovery.Phase.PREPARING
-        fileName = "HoraTrack_${SimpleDateFormat("yyyy_MM", Locale.FRANCE).format(selected.time)}.pdf"
+        fileName = "AGKGMG_${SimpleDateFormat("yyyy_MM", Locale.FRANCE).format(selected.time)}.pdf"
         status.text = "Préparation privée et vérification des droits PDF…"
         worker.execute {
             val prepared = runCatching {
