@@ -30,7 +30,8 @@ enum PaidTimePolicyV2 {
         sessionEnd: Date?,
         pauses: [PaidPauseFactV2],
         until now: Date = Date(),
-        segments: [PaidWorkSegmentFactV2] = []
+        segments: [PaidWorkSegmentFactV2] = [],
+        enforcePauseSessionBounds: Bool = true
     ) -> PaidTimeAssessmentV2 {
         let effectiveEnd = sessionEnd ?? now
         guard effectiveEnd > sessionStart else {
@@ -80,6 +81,15 @@ enum PaidTimePolicyV2 {
             let end = min(pauseEnd, effectiveEnd)
 
             if pauseEnd <= pause.start {
+                unresolved += 1
+                continue
+            }
+            // Direct/full-session assessment rejects pauses outside recorded work.
+            // Callers distributing a validated session across weeks may opt out here.
+            if enforcePauseSessionBounds &&
+                (!pause.start.timeIntervalSince1970.isFinite ||
+                 !pauseEnd.timeIntervalSince1970.isFinite ||
+                 pause.start < sessionStart || pauseEnd > effectiveEnd) {
                 unresolved += 1
                 continue
             }
