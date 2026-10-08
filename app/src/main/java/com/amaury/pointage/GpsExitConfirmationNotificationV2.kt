@@ -14,7 +14,7 @@ import androidx.core.app.NotificationCompat
 /**
  * Rend visible une sortie GPS qui attend la confirmation de l'utilisateur.
  *
- * Le GPS ne ferme jamais la session ici : la notification rouvre HoraTrack,
+ * Le GPS ne ferme jamais la session ici : la notification rouvre AGKGMG,
  * où la confirmation canonique V2 reste obligatoire.
  */
 object GpsExitConfirmationNotificationV2 {
@@ -59,10 +59,10 @@ object GpsExitConfirmationNotificationV2 {
                 .setSmallIcon(R.drawable.ic_pointage_status_orange)
                 .setColor(Color.parseColor("#FB8C00"))
                 .setContentTitle("Sortie du lieu de travail détectée")
-                .setContentText("Ouvre HoraTrack pour confirmer la fin de ta journée.")
+                .setContentText("Ouvre AGKGMG pour confirmer la fin de ta journée.")
                 .setStyle(
                     NotificationCompat.BigTextStyle().bigText(
-                        "HoraTrack a détecté que tu as quitté une zone Travail. " +
+                        "AGKGMG a détecté que tu as quitté une zone Travail. " +
                             "Ouvre l'application pour confirmer si ta journée est réellement terminée."
                     )
                 )

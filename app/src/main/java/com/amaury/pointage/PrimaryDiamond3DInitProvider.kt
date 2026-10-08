@@ -9,7 +9,7 @@ import android.net.Uri
 import android.os.Bundle
 
 /**
- * Branche automatiquement les trois boutons principaux de HoraTrack sur le
+ * Branche automatiquement les trois boutons principaux de AGKGMG sur le
  * moteur OpenGL déjà intégré à :app.
  *
  * Le choix du niveau de rendu est fait par DiamondDeviceProfile : les appareils

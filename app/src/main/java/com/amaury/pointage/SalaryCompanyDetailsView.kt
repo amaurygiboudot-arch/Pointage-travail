@@ -107,7 +107,7 @@ class SalaryCompanyDetailsView(
                 connection.connectTimeout = 10_000
                 connection.readTimeout = 15_000
                 connection.setRequestProperty("Accept", "application/json")
-                connection.setRequestProperty("User-Agent", "HoraTrack-Android")
+                connection.setRequestProperty("User-Agent", "AGKGMG-Android")
                 val response = try {
                     val status = connection.responseCode
                     val stream = if (status in 200..299) connection.inputStream else connection.errorStream
@@ -184,7 +184,7 @@ class SalaryCompanyDetailsView(
                 val companySaved = SalaryCompanyStore.upsert(context, updated)
                 val sourceSaved = OfficialConventionResultStoreV2.save(context, company.id, verified)
                 if (!officialRemembered || !companySaved || !sourceSaved) {
-                    Toast.makeText(context, "KALI a répondu, mais HoraTrack n’a pas pu conserver toute la vérification.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "KALI a répondu, mais AGKGMG n’a pas pu conserver toute la vérification.", Toast.LENGTH_LONG).show()
                     return@addOnSuccessListener
                 }
                 val reread = rereadConfirmed(updated)
