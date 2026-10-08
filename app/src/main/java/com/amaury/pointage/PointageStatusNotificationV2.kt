@@ -74,7 +74,21 @@ object PointageStatusNotificationV2 {
         else -> DisplayState.RED
     }
 
-    internal fun sync(context: Context, iconState: IconSwitcher.IconState?) {
+    internal fun chronometerStartMs(
+        displayState: DisplayState,
+        sessionStartedAtMs: Long?,
+        nowMs: Long
+    ): Long? {
+        if (displayState == DisplayState.RED) return null
+        val start = sessionStartedAtMs ?: return null
+        return start.takeIf { it > 0L && it <= nowMs }
+    }
+
+    internal fun sync(
+        context: Context,
+        iconState: IconSwitcher.IconState?,
+        sessionStartedAtMs: Long? = null
+    ) {
         val app = context.applicationContext
         if (!isEnabled(app)) {
             cancel(app)
@@ -132,7 +146,7 @@ object PointageStatusNotificationV2 {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(app, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(app, CHANNEL_ID)
             .setSmallIcon(spec.icon)
             .setColor(spec.color)
             .setRequestPromotedOngoing(true)
@@ -146,9 +160,25 @@ object PointageStatusNotificationV2 {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setAutoCancel(false)
-            .build()
 
-        manager.notify(NOTIFICATION_ID, notification)
+        val chronometerStart = chronometerStartMs(
+            displayState = displayState,
+            sessionStartedAtMs = sessionStartedAtMs,
+            nowMs = System.currentTimeMillis()
+        )
+        if (chronometerStart != null) {
+            // Android anime lui-même ce chrono : aucun réveil périodique de HoraTrack.
+            // Il mesure la présence depuis l'entrée réelle, pas le temps payé.
+            builder
+                .setWhen(chronometerStart)
+                .setShowWhen(true)
+                .setUsesChronometer(true)
+                .setChronometerCountDown(false)
+        } else {
+            builder.setShowWhen(false)
+        }
+
+        manager.notify(NOTIFICATION_ID, builder.build())
     }
 
     fun cancel(context: Context) {
