@@ -170,6 +170,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 }
             }
         }
+        IconSwitcher.sync(context)
         updateWidgets(context)
     }
 
