@@ -50,7 +50,7 @@ object ConventionProvidentCatalogV2 {
                 emptyList(),
                 0.0,
                 0.0,
-                listOf("Prévoyance Plasturgie : règle non validée dans HoraTrack pour $year.")
+                listOf("Prévoyance Plasturgie : règle non validée dans AGKGMG pour $year.")
             )
         if (!protectionCategory.confirmed || protectionCategory.category == PlasturgieProtectionCategoryV2.Category.TO_CONFIRM) {
             return Estimate(
