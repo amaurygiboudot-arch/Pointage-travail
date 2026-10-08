@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import androidx.core.app.NotificationCompat
 
@@ -55,7 +56,8 @@ object GpsExitConfirmationNotificationV2 {
         manager.notify(
             NOTIFICATION_ID,
             NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setSmallIcon(R.drawable.ic_pointage_status_orange)
+                .setColor(Color.parseColor("#FB8C00"))
                 .setContentTitle("Sortie du lieu de travail détectée")
                 .setContentText("Ouvre HoraTrack pour confirmer la fin de ta journée.")
                 .setStyle(
