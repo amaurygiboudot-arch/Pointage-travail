@@ -22,7 +22,7 @@ on:
         required: false
   workflow_run:
     workflows:
-      - "Compiler HoraTrack APK et AAB"
+      - "Compiler AGKGMG APK et AAB"
     types:
       - completed
 

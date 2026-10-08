@@ -1,4 +1,4 @@
-name: Compiler HoraTrack APK et AAB
+name: Compiler AGKGMG APK et AAB
 
 on:
   workflow_dispatch:
@@ -86,7 +86,7 @@ jobs:
           ! grep -Fq 'HpFirebaseMessagingService' "$manifest"
 
   build:
-    name: Compiler et publier HoraTrack
+    name: Compiler et publier AGKGMG
     needs: security-gate
     runs-on: ubuntu-latest
     permissions:
@@ -114,7 +114,7 @@ jobs:
           gradle-version: "9.6.0"
           cache-cleanup: on-success
 
-      - name: Restaurer la cle de signature HoraTrack
+      - name: Restaurer la cle de signature AGKGMG
         env:
           KEYSTORE_B64: ${{ secrets.POINTAGE_KEYSTORE_B64 }}
           KEYSTORE_PASSWORD: ${{ secrets.POINTAGE_KEYSTORE_PASSWORD }}
@@ -178,7 +178,7 @@ jobs:
               exit 1
             }
           done
-          echo "Les trois icones HoraTrack valides sont presentes dans l APK final."
+          echo "Les trois icones AGKGMG valides sont presentes dans l APK final."
 
       - name: Verifier la signature APK
         run: |
