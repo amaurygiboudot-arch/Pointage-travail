@@ -65,7 +65,10 @@ struct SalaryDatedWorkRulesEditorV2: View {
             }
 
             Section("Contrat daté") {
-                if !companyConfirmed {
+                if !accountStillValid {
+                    Text("Contrats masqués : reconnectez-vous et rouvrez cet écran.")
+                        .foregroundStyle(.orange)
+                } else if !companyConfirmed {
                     Text("Entreprise introuvable ou stockage local incohérent.")
                         .foregroundStyle(.orange)
                 } else if !history.reliable {
@@ -83,7 +86,7 @@ struct SalaryDatedWorkRulesEditorV2: View {
                 }
             }
 
-            if selectedContract != nil {
+            if accountStillValid && selectedContract != nil {
                 Section("Référence applicable") {
                     Picker("Sujet", selection: $selectedTopic) {
                         ForEach(SalaryWorkRuleTopicV2.allCases, id: \.self) { topic in
