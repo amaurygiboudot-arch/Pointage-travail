@@ -272,7 +272,22 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun dispatchEntry(context: Context, zone: StoredGpsZone, now: Long) {
+    private fun dispatchEntry(
+        context: Context,
+        zone: StoredGpsZone,
+        now: Long,
+        zonesById: Map<String, StoredGpsZone>
+    ) {
+        val previous = GpsWorkStateCoordinatorV2.pending(context)
+            ?.takeIf { it.kind == GpsWorkStateCoordinatorV2.Pending.Kind.EXIT_WORKSITE }
+        val overlappingReturn = previous?.let {
+            GpsOverlappingWorkZoneContinuityV2.isProvenSameWorksite(
+                exited = zonesById[it.placeId],
+                entered = zone,
+                exitAtMs = it.atMs,
+                entryAtMs = now
+            )
+        } ?: false
         val event = GpsTriggeredZoneSelectionV2.event(
             zoneId = zone.id,
             pointType = GpsTriggeredZoneSelectionV2.pointType(zone),
@@ -280,7 +295,10 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             atMs = now
         )
         val decision = HoraTrackV2.gps.ingest(event)
-        val outcome = GpsWorkStateCoordinatorV2.route(context, event, decision)
+        val outcome = GpsWorkStateCoordinatorV2.route(
+            context, event, decision,
+            verifiedOverlappingWorksiteReturn = overlappingReturn
+        )
         if (outcome.action == GpsWorkStateCoordinatorV2.Action.ENTRY_STARTED ||
             outcome.action == GpsWorkStateCoordinatorV2.Action.RETURNED_TO_POSTE
         ) {
@@ -387,7 +405,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         )
         if (stateSaved && employerReady && v2GpsActive) {
             // Une résolution différée est horodatée maintenant, jamais au premier ENTER ambigu.
-            dispatchEntry(context, checkNotNull(choice).zone, resolutionAtMs)
+            dispatchEntry(context, checkNotNull(choice).zone, resolutionAtMs, zonesById)
         }
     }
 
