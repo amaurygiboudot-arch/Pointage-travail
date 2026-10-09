@@ -266,6 +266,41 @@ class GpsRegressionV2Test {
             event(id = "exit", atMs = 600_000L, transition = GpsTransitionV2.EXIT), session()))
     }
 
+    @Test
+    fun stalePendingGpsExitIsDiscardedAfterManualCloseOrMissingSession() {
+        val exit = pending(atMs = 10_000L)
+        assertTrue(GpsWorkStateCoordinatorV2.shouldDiscardPending(exit, null))
+        assertTrue(GpsWorkStateCoordinatorV2.shouldDiscardPending(
+            exit, session(status = SessionStatusV2.CLOSED, realExitMs = 14_000L)
+        ))
+        assertFalse(GpsWorkStateCoordinatorV2.shouldDiscardPending(
+            exit, session()
+        ))
+    }
+
+    @Test
+    fun validatedOverlappingZoneReturnCancelsExitOnlyForOpenSessionWithinTwoMinutes() {
+        val exit = pending(atMs = 10_000L)
+        val otherZone = event(id = "enter-b", atMs = 80_000L, placeId = "poste-b")
+        assertTrue(GpsWorkStateCoordinatorV2.canApplyVerifiedOverlappingReturn(
+            exit, otherZone, session(), verifiedOverlap = true
+        ))
+        assertFalse(GpsWorkStateCoordinatorV2.canApplyVerifiedOverlappingReturn(
+            exit, otherZone, session(), verifiedOverlap = false
+        ))
+        assertFalse(GpsWorkStateCoordinatorV2.canApplyVerifiedOverlappingReturn(
+            exit, otherZone, session(status = SessionStatusV2.CLOSED, realExitMs = 20_000L),
+            verifiedOverlap = true
+        ))
+        assertFalse(GpsWorkStateCoordinatorV2.canApplyVerifiedOverlappingReturn(
+            exit, otherZone.copy(atMs = 130_001L), session(), verifiedOverlap = true
+        ))
+        assertFalse(GpsWorkStateCoordinatorV2.canApplyVerifiedOverlappingReturn(
+            exit, otherZone.copy(pointType = GpsPointTypeV2.PARKING), session(),
+            verifiedOverlap = true
+        ))
+    }
+
     private fun event(
         id: String,
         atMs: Long,
