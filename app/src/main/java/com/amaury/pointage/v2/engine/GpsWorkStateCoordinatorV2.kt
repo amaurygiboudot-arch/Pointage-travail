@@ -147,8 +147,10 @@ object GpsWorkStateCoordinatorV2 {
     ): Boolean {
         if (pending == null) return false
         if (entryStarted) return true
-        if (current?.status != SessionStatusV2.OPEN || current.realExitMs != null) return false
-        val arrival = current.realArrivalMs ?: return false
+        // A GPS exit prompt must never outlive the session that was closed manually.
+        // Keep unknown/corrupt runtime guarded by the caller's reliable-source check.
+        if (current?.status != SessionStatusV2.OPEN || current.realExitMs != null) return true
+        val arrival = current.realArrivalMs ?: return true
         return pending.atMs < arrival
     }
 
@@ -204,6 +206,22 @@ object GpsWorkStateCoordinatorV2 {
         return Pending(id, at, place, pointType, transition, kind)
     }
 
+    /**
+     * A pending geofence exit is only actionable for a verified OPEN session.
+     * Closing a day through the manual button must immediately revoke the stale
+     * GPS question, rather than inviting another end-of-day confirmation.
+     */
+    fun pendingForOpenSession(context: Context): Pending? {
+        val found = pending(context) ?: return null
+        val runtime = V2RuntimeReader.current(context)
+        if (!runtime.reliable) return null
+        if (shouldDiscardPending(found, runtime.snapshot.session)) {
+            clearPending(context)
+            return null
+        }
+        return found
+    }
+
     fun shouldPrompt(context: Context, pending: Pending): Boolean {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         return prefs.getString(KEY_PROMPTED_ID, null) != pending.id
@@ -227,7 +245,7 @@ object GpsWorkStateCoordinatorV2 {
         expectedPendingId: String,
         expectedEndMs: Long? = null
     ): Boolean {
-        val pending = pending(context)
+        val pending = pendingForOpenSession(context)
             ?.takeIf { matchesPendingId(it, expectedPendingId) }
             ?: return false
         if (pending.kind != Pending.Kind.EXIT_WORKSITE) return false
