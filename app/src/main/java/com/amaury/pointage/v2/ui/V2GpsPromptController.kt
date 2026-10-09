@@ -14,7 +14,7 @@ object V2GpsPromptController {
 
     fun maybeShow(activity: Activity) {
         if (activity.isFinishing || activity.isDestroyed || showing[activity] == true) return
-        val pending = GpsWorkStateCoordinatorV2.pending(activity) ?: return
+        val pending = GpsWorkStateCoordinatorV2.pendingForOpenSession(activity) ?: return
         if (!GpsWorkStateCoordinatorV2.shouldPrompt(activity, pending)) return
 
         GpsWorkStateCoordinatorV2.markPromptShown(activity, pending)
