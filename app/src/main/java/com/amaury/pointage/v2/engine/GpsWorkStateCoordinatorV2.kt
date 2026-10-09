@@ -49,7 +49,12 @@ object GpsWorkStateCoordinatorV2 {
         enum class Kind { EXIT_WORKSITE, AMBIGUOUS }
     }
 
-    fun route(context: Context, event: GpsEventV2, decision: GpsDecisionV2): Outcome {
+    fun route(
+        context: Context,
+        event: GpsEventV2,
+        decision: GpsDecisionV2,
+        verifiedOverlappingWorksiteReturn: Boolean = false
+    ): Outcome {
         if (!decision.accepted || decision.duplicate) {
             return Outcome(Action.IGNORED, false, decision.reason)
         }
@@ -70,7 +75,10 @@ object GpsWorkStateCoordinatorV2 {
         }
 
         if (event.pointType == GpsPointTypeV2.POSTE && event.transition == GpsTransitionV2.ENTER) {
-            if (canApplyReturnToPoste(currentPending, event, current)) {
+            if (canApplyReturnToPoste(currentPending, event, current) ||
+                canApplyVerifiedOverlappingReturn(
+                    currentPending, event, current, verifiedOverlappingWorksiteReturn
+                )) {
                 clearPending(context)
                 return Outcome(
                     Action.RETURNED_TO_POSTE,
@@ -179,6 +187,27 @@ object GpsWorkStateCoordinatorV2 {
         if (event.pointType != GpsPointTypeV2.POSTE || event.transition != GpsTransitionV2.ENTER) return false
         if (pending.placeId != event.placeId || event.atMs < pending.atMs) return false
         return true
+    }
+
+    /**
+     * A distinct GPS zone cancels an earlier pending EXIT only when the geofence
+     * caller has proved same employer+place, overlapping WORK circles and a
+     * <=2-minute transition. Never infer continuity from a common job title.
+     */
+    internal fun canApplyVerifiedOverlappingReturn(
+        pending: Pending?,
+        event: GpsEventV2,
+        current: WorkSessionV2?,
+        verifiedOverlap: Boolean
+    ): Boolean {
+        if (!verifiedOverlap || pending?.kind != Pending.Kind.EXIT_WORKSITE ||
+            current?.status != SessionStatusV2.OPEN || current.realExitMs != null ||
+            event.pointType != GpsPointTypeV2.POSTE ||
+            event.transition != GpsTransitionV2.ENTER ||
+            pending.placeId == event.placeId ||
+            pending.atMs < (current.realArrivalMs ?: Long.MAX_VALUE) ||
+            event.atMs < pending.atMs) return false
+        return event.atMs - pending.atMs <= 120_000L
     }
 
     internal fun canApplyQuickReturn(
