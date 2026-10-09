@@ -160,7 +160,8 @@ enum GpsPresenceTransitionV2 {
         state: State,
         zoneId: UUID,
         transition: Transition,
-        occurredAt: Date
+        occurredAt: Date,
+        verifiedOverlappingWorksiteReturn: Bool = false
     ) -> State {
         var next = state
         switch transition {
@@ -177,7 +178,10 @@ enum GpsPresenceTransitionV2 {
                    let pending = next.pendingEvents.last,
                    pending.kind == .departure,
                    pending.expectedSessionId == confirmedSessionId,
-                   pending.zoneIds.contains(zoneId) {
+                   (pending.zoneIds.contains(zoneId) ||
+                    (verifiedOverlappingWorksiteReturn &&
+                     occurredAt.timeIntervalSince(pending.occurredAt) <=
+                         GpsOverlappingWorkZoneContinuityV2.maximumGap)) {
                     guard occurredAt >= pending.occurredAt else { return state }
                     // Tant que la même session reste ouverte, revenir dans une zone qui avait
                     // déclenché la demande de départ invalide cette demande de fin de journée.
