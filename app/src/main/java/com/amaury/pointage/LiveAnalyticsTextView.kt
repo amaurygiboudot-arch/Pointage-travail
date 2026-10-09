@@ -92,18 +92,19 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
             session.realExitMs == null && arrival < startOfToday
         }
 
-        // Dès qu'une sortie GPS du poste est détectée, le compteur d'analyse s'arrête
-        // provisoirement à l'heure de cette sortie, même si la confirmation utilisateur est
-        // encore en attente. La session elle-même n'est pas fermée ni modifiée ici.
-        val pendingExitAt = GpsWorkStateCoordinatorV2.pending(context)
+        // Une demande GPS de sortie n'est jamais la fin réelle d'une journée tant
+        // qu'elle n'a pas été confirmée. Ne pas figer les calculs à son horodatage :
+        // cela faisait disparaître des minutes sans changer la session canonique.
+        val pendingGpsExit = GpsWorkStateCoordinatorV2.pendingForOpenSession(context)
             ?.takeIf { it.kind == GpsWorkStateCoordinatorV2.Pending.Kind.EXIT_WORKSITE }
-            ?.atMs
-        val analyticsNow = pendingExitAt?.coerceAtMost(now) ?: now
 
-        val analytics = AnalyticsEngineV2.summarize(safeSessions, HoraTrackV2.time, analyticsNow)
-        if (!analytics.timeTotalsReliable) {
+        val analytics = AnalyticsEngineV2.summarize(safeSessions, HoraTrackV2.time, now)
+        if (!analytics.timeTotalsReliable || pendingGpsExit != null) {
             return buildString {
                 append("⚠️ ANALYSE À CONFIRMER\n")
+                if (pendingGpsExit != null) {
+                    append("Une sortie GPS est proposée, mais n'a pas été confirmée : aucune heure de fin n'est présumée.\n")
+                }
                 append("Une ou plusieurs sessions contiennent une durée ou une pause non certifiable. Aucun total partiel n'est présenté comme définitif.")
                 if (staleOpenSessions > 0) {
                     append("\nSessions anciennes restées ouvertes exclues : ").append(staleOpenSessions)
