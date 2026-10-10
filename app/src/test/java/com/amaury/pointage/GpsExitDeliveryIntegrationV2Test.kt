@@ -84,8 +84,8 @@ class GpsExitDeliveryIntegrationV2Test {
         availableAtMs: Long = returnedAtMs + 2_000L) {
         val stored = checkNotNull(readPersistedGpsZones(gps) as? GpsZonesReadResult.Valid).zones
         val active = additionalZoneIds + zoneId
-        val previousActive = gps.getStringSet("active_zones", emptySet()).orEmpty()
-        val previous = GpsReturnObservationV2.decode(gps.getStringSet(GpsReturnObservationV2.KEY, emptySet()).orEmpty())
+        val previousActive = gps.getStringSet("active_zones", mutableSetOf()).orEmpty()
+        val previous = GpsReturnObservationV2.decode(gps.getStringSet(GpsReturnObservationV2.KEY, mutableSetOf()).orEmpty())
         val records = GpsReturnObservationV2.observe(previous, stored.map { it.id }.toSet(), active - previousActive,
             returnedAtMs, record.observationContext()).values.map { it.encode() }.toSet()
         val selection = GpsTriggeredZoneSelectionV2.selectAllTriggered(active.sorted(),
@@ -112,7 +112,7 @@ class GpsExitDeliveryIntegrationV2Test {
         assertEquals(record.event.id, pending?.id)
         assertEquals(exit, pending?.atMs)
         assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
-        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, emptySet())!!.isEmpty())
+        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, mutableSetOf())!!.isEmpty())
         assertTrue(GpsWorkStateCoordinatorV2.confirmExit(context, record.event.id))
         assertEquals(exit, V2RuntimeReader.current(context).snapshot.session?.realExitMs)
     }
@@ -121,12 +121,12 @@ class GpsExitDeliveryIntegrationV2Test {
         stage()
         business.failNext = 1
         GpsExitDeliveryV2.replay(context)
-        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, emptySet())!!.isNotEmpty())
+        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, mutableSetOf())!!.isNotEmpty())
         restartPreferences()
         assertNull(GpsWorkStateCoordinatorV2.pending(context))
         GpsExitDeliveryV2.replay(context)
         assertEquals(exit, GpsWorkStateCoordinatorV2.pending(context)?.atMs)
-        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, emptySet())!!.isEmpty())
+        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, mutableSetOf())!!.isEmpty())
     }
 
     @Test fun failedAtomicStagingDoesNotPublishPresenceOrObservationAfterRestart() {
@@ -135,8 +135,8 @@ class GpsExitDeliveryIntegrationV2Test {
         assertFalse(GpsExitDeliveryV2.commitPresence(gps,
             gps.edit().putStringSet("active_zones", emptySet()), record()))
         gps.restart()
-        assertEquals(setOf("work"), gps.getStringSet("active_zones", emptySet()))
-        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, emptySet())!!.isEmpty())
+        assertEquals(setOf("work"), gps.getStringSet("active_zones", mutableSetOf()))
+        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, mutableSetOf())!!.isEmpty())
     }
 
     @Test fun cancelledDeliveryNeverResurrectsAfterCleanupFailureAndReceiptRetry() {
@@ -151,10 +151,10 @@ class GpsExitDeliveryIntegrationV2Test {
         business.failNext = 1 // Existing ACK cannot be recommitted this time.
         GpsExitDeliveryV2.replay(context)
         assertNull(GpsWorkStateCoordinatorV2.pending(context))
-        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, emptySet())!!.isNotEmpty())
+        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, mutableSetOf())!!.isNotEmpty())
         GpsExitDeliveryV2.replay(context)
         assertNull(GpsWorkStateCoordinatorV2.pending(context))
-        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, emptySet())!!.isEmpty())
+        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, mutableSetOf())!!.isEmpty())
     }
 
     @Test fun replayIgnoresRamDebounceAndNeverClosesWorkWithoutConfirmation() {
@@ -172,7 +172,7 @@ class GpsExitDeliveryIntegrationV2Test {
         val runtime = context.getSharedPreferences("horatrack_v2_test_runtime", Context.MODE_PRIVATE)
         assertTrue(runtime.edit().putString("history", "not-json").commit())
         GpsExitDeliveryV2.replay(context)
-        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, emptySet())!!.isNotEmpty())
+        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, mutableSetOf())!!.isNotEmpty())
         assertNull(GpsWorkStateCoordinatorV2.pending(context))
         assertTrue(runtime.edit().putString("history", "[]").commit())
         GpsExitDeliveryV2.replay(context)
@@ -185,7 +185,7 @@ class GpsExitDeliveryIntegrationV2Test {
         assertTrue(V2RuntimeStore.entry(context, exit + 120_000L))
         GpsExitDeliveryV2.replay(context)
         assertNull(GpsWorkStateCoordinatorV2.pending(context))
-        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, emptySet())!!.isEmpty())
+        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, mutableSetOf())!!.isEmpty())
         assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
     }
 
@@ -217,7 +217,7 @@ class GpsExitDeliveryIntegrationV2Test {
         assertTrue(gps.edit().putString("zones", zones.replace("120", "250")).commit())
         GpsExitDeliveryV2.replay(context)
         assertNull(GpsWorkStateCoordinatorV2.pending(context))
-        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, emptySet())!!.isEmpty())
+        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, mutableSetOf())!!.isEmpty())
     }
 
     @Test fun partialObservationCannotBindToNewAccountOrSessionAtFinalDeparture() {
@@ -272,11 +272,11 @@ class GpsExitDeliveryIntegrationV2Test {
         stage(record)
         business.failNext = 1
         GpsExitDeliveryV2.replay(context)
-        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, emptySet())!!.isNotEmpty())
+        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, mutableSetOf())!!.isNotEmpty())
         persistReturnBeforeTimer(record)
         restartPreferences()
         assertNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
-        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, emptySet())!!.isEmpty())
+        assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, mutableSetOf())!!.isEmpty())
         assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
     }
 
