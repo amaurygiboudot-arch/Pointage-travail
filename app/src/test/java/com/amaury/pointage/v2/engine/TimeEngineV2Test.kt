@@ -5,6 +5,10 @@ import com.amaury.pointage.v2.model.EventSourceV2
 import com.amaury.pointage.v2.model.PauseV2
 import com.amaury.pointage.v2.model.SessionStatusV2
 import com.amaury.pointage.v2.model.TimeBasisV2
+import com.amaury.pointage.v2.model.TravelClassificationV2
+import com.amaury.pointage.v2.model.TravelV2
+import com.amaury.pointage.v2.model.WorkSegmentKindV2
+import com.amaury.pointage.v2.model.WorkSegmentV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -18,6 +22,33 @@ class TimeEngineV2Test {
     private val zone = ZoneId.systemDefault()
     private val dayBase = at(8, 0)
     private val morningBase = at(6, 0)
+
+    @Test
+    fun personalTravelOverConfirmedWorkMakesSessionUnreliable() {
+        val session = closedSession(baseMs = dayBase).copy(
+            timeBasis = TimeBasisV2.REAL_FACTS,
+            travels = listOf(
+                TravelV2(
+                    startMs = dayBase + 3 * 60 * minute,
+                    endMs = dayBase + 4 * 60 * minute,
+                    employerBeforeId = null,
+                    employerAfterId = null,
+                    classification = TravelClassificationV2.PERSONAL,
+                ),
+            ),
+            workSegments = listOf(
+                WorkSegmentV2(
+                    startMs = dayBase,
+                    endMs = dayBase + 8 * 60 * minute,
+                    kind = WorkSegmentKindV2.WORK,
+                ),
+            ),
+        )
+
+        val result = DefaultTimeEngineV2.calculate(session)
+
+        assertFalse(result.reliable)
+    }
 
     @Test
     fun `entree respecte trente minutes avec dix minutes de grace`() {

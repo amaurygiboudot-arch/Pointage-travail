@@ -338,7 +338,9 @@ struct SalaryDatedWorkRulesEditorV2: View {
     }
 
     private func epochDay(_ date: Date) -> Int64? {
-        let local = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = .current
+        let local = gregorian.dateComponents([.year, .month, .day], from: date)
         guard let year = local.year, let month = local.month, let day = local.day else { return nil }
         var utc = Calendar(identifier: .gregorian)
         utc.timeZone = TimeZone(secondsFromGMT: 0)!
@@ -353,7 +355,9 @@ struct SalaryDatedWorkRulesEditorV2: View {
         var utcCalendar = Calendar(identifier: .gregorian)
         utcCalendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let components = utcCalendar.dateComponents([.year, .month, .day], from: utc)
-        return Calendar.current.date(from: DateComponents(
+        var localGregorian = Calendar(identifier: .gregorian)
+        localGregorian.timeZone = .current
+        return localGregorian.date(from: DateComponents(
             year: components.year, month: components.month, day: components.day, hour: 12
         )) ?? utc
     }
@@ -361,6 +365,8 @@ struct SalaryDatedWorkRulesEditorV2: View {
     private func dayLabel(_ day: Int64) -> String {
         let utc = Date(timeIntervalSince1970: Double(day) * 86_400)
         let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter.string(from: utc)

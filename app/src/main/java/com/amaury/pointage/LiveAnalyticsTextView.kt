@@ -98,11 +98,14 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
         val pendingGpsExit = GpsWorkStateCoordinatorV2.pendingForOpenSession(context)
             ?.takeIf { it.kind == GpsWorkStateCoordinatorV2.Pending.Kind.EXIT_WORKSITE }
 
+        val pendingGpsExitInPeriod = pendingGpsExit?.takeIf { pending ->
+            pending.at >= monthStart && pending.at < monthEnd
+        }
         val analytics = AnalyticsEngineV2.summarize(safeSessions, HoraTrackV2.time, now)
-        if (!analytics.timeTotalsReliable || pendingGpsExit != null) {
+        if (!analytics.timeTotalsReliable || pendingGpsExitInPeriod != null) {
             return buildString {
                 append("⚠️ ANALYSE À CONFIRMER\n")
-                if (pendingGpsExit != null) {
+                if (pendingGpsExitInPeriod != null) {
                     append("Une sortie GPS est proposée, mais n'a pas été confirmée : aucune heure de fin n'est présumée.\n")
                 }
                 append("Une ou plusieurs sessions contiennent une durée ou une pause non certifiable. Aucun total partiel n'est présenté comme définitif.")

@@ -123,6 +123,17 @@ object DefaultTimeEngineV2 : TimeEngineV2 {
         val segmentResolution = QualifiedWorkSegmentsV2.resolve(session, countedStart, countedEnd)
         problems += segmentResolution.issues
         val eligiblePeriods = segmentResolution.workedIntervals
+        val personalTravelOverConfirmedWork = session.travels.any { travel ->
+            travel.classification == TravelClassificationV2.PERSONAL &&
+                travel.endMs?.let { travelEnd ->
+                    eligiblePeriods.any { (workStart, workEnd) ->
+                        maxOf(workStart, travel.startMs) < minOf(workEnd, travelEnd)
+                    }
+                } == true
+        }
+        if (personalTravelOverConfirmedWork) {
+            problems += "Déplacement personnel chevauchant un temps de travail confirmé"
+        }
         val eligibleMs = PaidPauseResolutionV2.duration(eligiblePeriods)
         val explicitUnpaidMs = eligiblePeriods.sumOf { (a, b) ->
             PaidPauseResolutionV2.overlapDuration(pauseResolution.unpaidIntervals, a, b)
