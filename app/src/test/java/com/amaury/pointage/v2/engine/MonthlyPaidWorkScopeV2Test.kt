@@ -128,6 +128,49 @@ class MonthlyPaidWorkScopeV2Test {
     }
 
     @Test
+    fun `une sortie stockee sans aucune entree conserve l incertitude jusque dans les periodes precedentes`() {
+        val missingArrival = session(start = rangeEnd + day, end = rangeEnd + 2 * day)
+            .copy(realArrivalMs = null, countedEntryMs = null)
+        val result = resolve(listOf(missingArrival))
+
+        assertFalse(result.reliable)
+        assertTrue(result.incompleteSession)
+        assertTrue(result.selected.isEmpty())
+        assertTrue(MonthlyPaidWorkScopeV2.INCOMPLETE_WARNING in result.warnings)
+    }
+
+    @Test
+    fun `une sortie sans entree exactement au debut de periode ne touche pas la periode`() {
+        val missingArrival = session(start = rangeStart + minute, end = rangeStart)
+            .copy(realArrivalMs = null, countedEntryMs = null)
+
+        assertTrue(resolve(listOf(missingArrival)).reliable)
+    }
+
+    @Test
+    fun `une sortie sans entree a confirmer bloque la periode`() {
+        val missingArrival = session(start = rangeStart + minute, end = rangeEnd + minute,
+            status = SessionStatusV2.TO_CONFIRM).copy(realArrivalMs = null, countedEntryMs = null)
+
+        assertFalse(resolve(listOf(missingArrival)).reliable)
+    }
+
+    @Test
+    fun `une session ouverte sans entree n utilise pas une ancienne sortie comme ancre`() {
+        val openWithoutArrival = session(
+            start = rangeStart + minute,
+            end = rangeStart + 2 * minute,
+            status = SessionStatusV2.OPEN
+        ).copy(realArrivalMs = null, countedEntryMs = null)
+
+        val result = resolve(listOf(openWithoutArrival))
+
+        assertTrue(result.reliable)
+        assertFalse(result.incompleteSession)
+        assertTrue(result.selected.isEmpty())
+    }
+
+    @Test
     fun `une session a confirmer bloque le calcul`() {
         val uncertain = session(
             start = rangeStart + minute,

@@ -156,7 +156,8 @@ object SegmentedPayrollSessionEvidenceBuilderV2 {
                     // Verify malformed pause geometry before the general reliability gate,
                     // so an original fact is not hidden behind a vague source warning.
                     if (targetFacts.any { session ->
-                            WorkSessionRangeV2.potentiallyTouches(session, from, to, nowMs) &&
+                            session.pauses.isNotEmpty() &&
+                                WorkSessionRangeV2.potentiallyTouches(session, from, to, nowMs) &&
                                 hasInvalidPauseGeometry(session)
                         }) return blocked(PAUSE_GEOMETRY_WARNING)
                     val scope = MonthlyPaidWorkScopeV2.resolve(source.sessions, setOf(employer), from, to, nowMs)
@@ -172,7 +173,7 @@ object SegmentedPayrollSessionEvidenceBuilderV2 {
                     if (scope.selected.isNotEmpty() && nightMultiplier != null &&
                         !nightBoundsReliable(monday, zone, context.nightRule!!)) return blocked(CALENDAR_WARNING)
                     // Les API existantes fournissent les durées ; cette couche ne fait que les grouper.
-                    var paid = 0L; var night = 0L; var saturday = 0L; var sunday = 0L; var holiday = 0L
+                    var paidMs = 0L; var nightMs = 0L; var saturdayMs = 0L; var sundayMs = 0L; var holidayMs = 0L
                     val years = (monday.year..nextMonday.minusDays(1).year)
                     val holidayDates = years.flatMap { FrenchPublicHolidayCalendarV2.genericHolidays(it, holidayScope) }.toSet()
                     val dedicatedDates = years.map { FrenchPublicHolidayCalendarV2.mayFirst(it) }.toSet()
@@ -187,19 +188,26 @@ object SegmentedPayrollSessionEvidenceBuilderV2 {
                         if (PublicHolidayPremiumPolicyV2.paidOverlap(session, from, to, dedicatedDates, timeZone) > 0) {
                             return blocked(HOLIDAY_WARNING)
                         }
-                        paid = Math.addExact(paid, full.paidMs / 60_000L)
-                        if (nightMultiplier != null) night = Math.addExact(night,
-                            NightPremiumPolicyV2.paidOverlap(session, from, to, context.nightRule!!, timeZone) / 60_000L)
-                        saturday = Math.addExact(saturday, PublicHolidayPremiumPolicyV2.paidOverlap(
-                            session, from, to, setOf(monday.plusDays(5)), timeZone) / 60_000L)
-                        sunday = Math.addExact(sunday, PublicHolidayPremiumPolicyV2.paidOverlap(
-                            session, from, to, setOf(monday.plusDays(6)), timeZone) / 60_000L)
-                        holiday = Math.addExact(holiday, PublicHolidayPremiumPolicyV2.paidOverlap(
-                            session, from, to, holidayDates, timeZone) / 60_000L)
+                        paidMs = Math.addExact(paidMs, full.paidMs)
+                        if (nightMultiplier != null) nightMs = Math.addExact(nightMs,
+                            NightPremiumPolicyV2.paidOverlap(session, from, to, context.nightRule!!, timeZone))
+                        saturdayMs = Math.addExact(saturdayMs, PublicHolidayPremiumPolicyV2.paidOverlap(
+                            session, from, to, setOf(monday.plusDays(5)), timeZone))
+                        sundayMs = Math.addExact(sundayMs, PublicHolidayPremiumPolicyV2.paidOverlap(
+                            session, from, to, setOf(monday.plusDays(6)), timeZone))
+                        holidayMs = Math.addExact(holidayMs, PublicHolidayPremiumPolicyV2.paidOverlap(
+                            session, from, to, holidayDates, timeZone))
                         usedIds += session.id
                     }
-                    val week = PayrollWeekV2(Math.toIntExact(paid), Math.toIntExact(night),
-                        Math.toIntExact(saturday), Math.toIntExact(sunday), Math.toIntExact(holiday))
+                    // Retain sub-minute fragments across sessions; convert to the
+                    // payroll minute unit only after the whole category is summed.
+                    val week = PayrollWeekV2(
+                        Math.toIntExact(paidMs / 60_000L),
+                        Math.toIntExact(nightMs / 60_000L),
+                        Math.toIntExact(saturdayMs / 60_000L),
+                        Math.toIntExact(sundayMs / 60_000L),
+                        Math.toIntExact(holidayMs / 60_000L)
+                    )
                     weeks += SegmentedPayrollWeekEvidenceV2(monday.get(WeekFields.ISO.weekBasedYear()),
                         monday.get(WeekFields.ISO.weekOfWeekBasedYear()), week, fullWeekContextReliable = true)
                     sliceWarnings += scope.warnings
