@@ -90,9 +90,12 @@ struct ContentView: View {
                     }
                 }
                 Button("Ignorer cet événement", role: .destructive) {
-                    _ = locationManager.reconcileSession(
+                    guard locationManager.reconcileSession(
                         openSessionId: store.currentSession?.id
-                    )
+                    ), locationManager.isCurrentPendingEvent(event) else {
+                        gpsFeedback = "Cet événement GPS a changé : consulte l'événement actuel."
+                        return
+                    }
                     locationManager.clearPendingEvent()
                 }
             }
@@ -624,6 +627,10 @@ struct ContentView: View {
             gpsFeedback = "État GPS à vérifier avant de confirmer cet événement."
             return
         }
+        guard locationManager.isCurrentPendingEvent(event) else {
+            gpsFeedback = "Cet événement GPS a changé : consulte l'événement actuel."
+            return
+        }
         guard !store.isWorking else {
             gpsFeedback = "Une entrée est déjà en cours : événement GPS ignoré."
             locationManager.clearPendingEvent()
@@ -639,7 +646,7 @@ struct ContentView: View {
             employerId: clockInFacts.employerId,
             placeLabel: clockInFacts.placeLabel
         ), let sessionId = store.currentSession?.id {
-            if locationManager.confirmArrival(eventId: event.id, sessionId: sessionId) {
+            if locationManager.confirmArrival(eventId: event.id, sessionId: sessionId, zoneId: zone.id) {
                 gpsFeedback = nil
             } else {
                 if store.rollbackClockIn(expectedSessionId: sessionId) {
@@ -660,6 +667,10 @@ struct ContentView: View {
             gpsFeedback = "État GPS à vérifier avant de confirmer cet événement."
             return
         }
+        guard locationManager.isCurrentPendingEvent(event) else {
+            gpsFeedback = "Cet événement GPS a changé : consulte l'événement actuel."
+            return
+        }
         guard let currentSession = store.currentSession else {
             gpsFeedback = "Aucune entrée en cours : sortie GPS ignorée."
             locationManager.clearPendingEvent()
@@ -672,6 +683,10 @@ struct ContentView: View {
         }
         guard event.expectedSessionId == currentSession.id else {
             gpsFeedback = "Cette sortie GPS ne correspond pas au pointage en cours."
+            return
+        }
+        guard locationManager.hasVerifiedDepartureTime(event) else {
+            gpsFeedback = "Heure de sortie GPS non vérifiée. Vérifie le pointage avant de le clôturer manuellement."
             return
         }
         if store.clockOut(

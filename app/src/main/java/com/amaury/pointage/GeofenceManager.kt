@@ -427,7 +427,10 @@ object GeofenceManager {
         val prefs = app.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
         val presenceCleared = if (clearPresenceState) {
             val presenceEditor = prefs.edit()
-            GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach(presenceEditor::remove)
+            GpsPresenceStateKeysV2.EPHEMERAL_KEYS
+                .filterNot { !clearBusinessState && it in setOf(GpsExitDeliveryV2.KEY,
+                    GpsReturnObservationV2.KEY, GpsReturnObservationV2.QUALIFICATION_KEY) }
+                .forEach(presenceEditor::remove)
             presenceEditor.commit()
         } else {
             true
@@ -638,7 +641,7 @@ object GeofenceManager {
             .remove("active_zones")
             .remove("entry_resolution_pending")
             .remove("entry_resolution_token")
-            .remove("pending_exit_zones")
+            .remove("pending_exit_zones").remove("pending_exit_observations")
             .apply()
 
         return restoredZones

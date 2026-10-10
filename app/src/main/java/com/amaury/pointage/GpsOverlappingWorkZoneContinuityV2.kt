@@ -24,6 +24,12 @@ internal object GpsOverlappingWorkZoneContinuityV2 {
             exitAtMs <= 0L || entryAtMs < exitAtMs ||
             entryAtMs - exitAtMs > MAX_CONTINUITY_GAP_MS) return false
 
+        return hasEquivalentWorkGeometry(exited, entered)
+    }
+
+    /** Geometry/context only; the caller must separately prove continuous observed presence. */
+    fun hasEquivalentWorkGeometry(exited: StoredGpsZone?, entered: StoredGpsZone?): Boolean {
+        if (exited == null || entered == null || exited.id == entered.id) return false
         val oldEmployer = exited.companyId?.trim()?.takeIf { it.isNotBlank() } ?: return false
         if (entered.companyId?.trim() != oldEmployer ||
             exited.companySlot != null || entered.companySlot != null ||

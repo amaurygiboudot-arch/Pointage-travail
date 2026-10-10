@@ -331,7 +331,8 @@ final class GpsGeofenceV2Tests: XCTestCase {
         XCTAssertTrue(GpsVisitConfirmationV2.departure(state: &state, event: departureA, sessionId: firstSession))
         let arrivalB = state.pendingEvents.removeFirst()
         sessions.append(WorkSession(id: secondSession, entry: arrivalB.occurredAt, exit: nil, pauses: []))
-        XCTAssertTrue(GpsVisitConfirmationV2.arrival(state: &state, event: arrivalB, sessionId: secondSession))
+        XCTAssertTrue(GpsVisitConfirmationV2.arrival(state: &state, event: arrivalB, sessionId: secondSession,
+            zoneId: second, configuredZones: [zone(first), zone(second)]))
         XCTAssertEqual(state.pendingEvents[0].expectedSessionId, secondSession)
         let departureB = state.pendingEvents.removeFirst()
         let beforeWrongConfirmation = state

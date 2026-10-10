@@ -68,4 +68,19 @@ class GpsOverlappingWorkZoneContinuityV2Test {
             old, old, 100_000, 150_000
         ))
     }
+
+    @Test fun continuousPresenceGeometryRequiresKnownEmployerWorkRoleSamePlaceAndOverlap() {
+        val first = zone("atelier")
+        assertTrue(GpsOverlappingWorkZoneContinuityV2.hasEquivalentWorkGeometry(first, zone("portail")))
+        for (other in listOf(
+            zone("parking", pointType = "PARKING"),
+            zone("pause", pointType = "PAUSE"),
+            zone("inconnu", company = null),
+            zone("employeur-b", company = "company-b"),
+            zone("site-b", address = "Site B"),
+            zone("loin", latitude = 46.72)
+        )) {
+            assertFalse(GpsOverlappingWorkZoneContinuityV2.hasEquivalentWorkGeometry(first, other))
+        }
+    }
 }

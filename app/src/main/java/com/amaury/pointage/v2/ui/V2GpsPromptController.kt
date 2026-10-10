@@ -49,7 +49,10 @@ object V2GpsPromptController {
                     .setOnCancelListener {
                         GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                     }
-                    .setOnDismissListener { showing.remove(activity) }
+                    .setOnDismissListener {
+                        showing.remove(activity)
+                        GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
+                    }
                     .show()
             }
 
@@ -99,7 +102,10 @@ object V2GpsPromptController {
                         .setOnCancelListener {
                             GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                         }
-                        .setOnDismissListener { showing.remove(activity) }
+                        .setOnDismissListener {
+                            showing.remove(activity)
+                            GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
+                        }
                         .show()
                 } else {
                     AlertDialog.Builder(activity)
@@ -123,7 +129,10 @@ object V2GpsPromptController {
                         .setOnCancelListener {
                             GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                         }
-                        .setOnDismissListener { showing.remove(activity) }
+                        .setOnDismissListener {
+                            showing.remove(activity)
+                            GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
+                        }
                         .show()
                 }
             }
