@@ -68,12 +68,32 @@ internal object GpsExitDeliveryV2 {
         }.getOrNull()) ?: return false
         val now = System.currentTimeMillis()
         if (now < qualification.availableAtMs) return false
+        return observedReturnMatches(context, delivery, now, qualification.zoneId)
+    }
+
+    /** An observed return cannot yet cancel the departure, but also forbids confirming it. */
+    internal fun hasUnresolvedReturn(context: Context, delivery: GpsExitDeliveryRecordV2): Boolean {
+        val gps = context.applicationContext.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val qualification = GpsReturnObservationV2.Qualification.decode(runCatching {
+            gps.getString(GpsReturnObservationV2.QUALIFICATION_KEY, null)
+        }.getOrNull())
+        if (!gps.getBoolean(GpsPresenceStateKeysV2.ENTRY_RESOLUTION_PENDING, false) &&
+            (qualification == null || now >= qualification.availableAtMs)) return false
+        // Any matching observation may suspend the question. Only the selected complete
+        // batch may acknowledge it, so a compatible B never conceals a contradictory C.
+        return observedReturnMatches(context, delivery, now)
+    }
+
+    private fun observedReturnMatches(context: Context, delivery: GpsExitDeliveryRecordV2,
+        now: Long, selectedZoneId: String? = null): Boolean {
+        val gps = context.applicationContext.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
         val raw = runCatching { gps.getStringSet(GpsReturnObservationV2.KEY, emptySet()) }.getOrNull()
             ?: return false
         val zones = (readPersistedGpsZones(gps) as? GpsZonesReadResult.Valid)?.zones?.associateBy { it.id }
             ?: return false
         return GpsReturnObservationV2.provesReturn(
-            GpsReturnObservationV2.decode(raw).filterKeys { it == qualification.zoneId }, delivery,
+            GpsReturnObservationV2.decode(raw).filterKeys { selectedZoneId == null || it == selectedZoneId }, delivery,
             observationContext(context), now) { exited, returned, exitAt, returnAt ->
             GpsOverlappingWorkZoneContinuityV2.isProvenSameWorksite(
                 zones[exited], zones[returned], exitAt, returnAt

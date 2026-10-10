@@ -286,11 +286,25 @@ class GpsExitDeliveryIntegrationV2Test {
         assertNotNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
     }
 
-    @Test fun returnCannotCancelBeforeCompleteEntryBatchWindow() {
+    @Test fun returnBlocksOldDialogConfirmationUntilBatchDeadlineThenRecoversAfterRestart() {
         val record = record()
         stage(record)
-        persistReturnBeforeTimer(record, availableAtMs = System.currentTimeMillis() + 60_000L)
+        GpsExitDeliveryV2.replay(context)
         assertEquals(record.event.id, GpsWorkStateCoordinatorV2.pendingForOpenSession(context)?.id)
+        persistReturnBeforeTimer(record, availableAtMs = System.currentTimeMillis() + 60_000L)
+        assertNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
+        assertFalse(GpsWorkStateCoordinatorV2.confirmExit(context, record.event.id))
+        assertEquals(record.event.id, GpsWorkStateCoordinatorV2.pending(context)?.id)
+        assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
+        restartPreferences()
+        assertFalse(GpsWorkStateCoordinatorV2.confirmExit(context, record.event.id))
+        // Let the persisted batch deadline elapse without executing the lost ENTER timer.
+        assertTrue(gps.edit().putString(GpsReturnObservationV2.QUALIFICATION_KEY,
+            GpsReturnObservationV2.Qualification("work", exit + 62_000L).encode()).commit())
+        restartPreferences()
+        assertNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
+        assertNull(GpsWorkStateCoordinatorV2.pending(context))
+        assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
     }
 
     private fun configureMixedWorksites() {
@@ -305,7 +319,9 @@ class GpsExitDeliveryIntegrationV2Test {
         stage(record)
         persistReturnBeforeTimer(record, zoneId, additionalZoneIds = setOf("work-c"))
         restartPreferences()
-        assertEquals(record.event.id, GpsWorkStateCoordinatorV2.pendingForOpenSession(context)?.id)
+        assertNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
+        assertFalse(GpsWorkStateCoordinatorV2.confirmExit(context, record.event.id))
+        assertEquals(record.event.id, GpsWorkStateCoordinatorV2.pending(context)?.id)
         assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
     }
 
@@ -323,7 +339,9 @@ class GpsExitDeliveryIntegrationV2Test {
         assertEquals(record.event.id, GpsWorkStateCoordinatorV2.pending(context)?.id)
         persistReturnBeforeTimer(record, "work-c", exit + 60_500L, additionalZoneIds = setOf("work-b"))
         restartPreferences()
-        assertEquals(record.event.id, GpsWorkStateCoordinatorV2.pendingForOpenSession(context)?.id)
+        assertNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
+        assertFalse(GpsWorkStateCoordinatorV2.confirmExit(context, record.event.id))
+        assertEquals(record.event.id, GpsWorkStateCoordinatorV2.pending(context)?.id)
         assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
     }
 

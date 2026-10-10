@@ -277,6 +277,9 @@ object GpsWorkStateCoordinatorV2 {
             acknowledgeReturnedDelivery(context, delivery)
             return null
         }
+        // Keep the durable question, but neither show nor confirm an old departure while
+        // an observed return is waiting for complete batch arbitration (including restart).
+        if (delivery != null && GpsExitDeliveryV2.hasUnresolvedReturn(context, delivery)) return null
         return found
     }
 
