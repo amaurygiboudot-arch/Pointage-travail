@@ -217,7 +217,8 @@ enum SalaryPaidWorkAggregatorV2 {
                     sessionStart: cursor,
                     sessionEnd: sliceEnd,
                     pauses: slicePauses,
-                    until: sliceEnd
+                    until: sliceEnd,
+                    enforcePauseSessionBounds: false // Full-session geometry checked above.
                 )
                 if !assessment.reliable {
                     reliable = false

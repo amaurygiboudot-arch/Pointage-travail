@@ -51,7 +51,8 @@ final class SalarySegmentedWorkedGrossProductionV2Tests: XCTestCase {
 
         XCTAssertTrue(result.reliable)
         XCTAssertEqual(result.evidence.contributingSessionIds.count, 6)
-        XCTAssertEqual(result.evidence.slices.first?.weeks.map { $0.week.paidMinutes }, [43, 2019])
+        // Keep sub-minute paid time from separate sessions before flooring the week.
+        XCTAssertEqual(result.evidence.slices.first?.weeks.map { $0.week.paidMinutes }, [43, 2021])
         XCTAssertEqual(result.evidence.slices.first?.weeks.first?.week.sundayMinutes, 43)
         XCTAssertEqual(try XCTUnwrap(result.variables.pieces.first).variableGross, 0, accuracy: 0)
         XCTAssertEqual(try XCTUnwrap(result.base.baseGross), try XCTUnwrap(result.workedGross), accuracy: 0.0001)

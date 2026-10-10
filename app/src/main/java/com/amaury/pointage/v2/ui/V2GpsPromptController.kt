@@ -14,7 +14,7 @@ object V2GpsPromptController {
 
     fun maybeShow(activity: Activity) {
         if (activity.isFinishing || activity.isDestroyed || showing[activity] == true) return
-        val pending = GpsWorkStateCoordinatorV2.pending(activity) ?: return
+        val pending = GpsWorkStateCoordinatorV2.pendingForOpenSession(activity) ?: return
         if (!GpsWorkStateCoordinatorV2.shouldPrompt(activity, pending)) return
 
         GpsWorkStateCoordinatorV2.markPromptShown(activity, pending)
@@ -49,7 +49,10 @@ object V2GpsPromptController {
                     .setOnCancelListener {
                         GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                     }
-                    .setOnDismissListener { showing.remove(activity) }
+                    .setOnDismissListener {
+                        showing.remove(activity)
+                        GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
+                    }
                     .show()
             }
 
@@ -99,7 +102,10 @@ object V2GpsPromptController {
                         .setOnCancelListener {
                             GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                         }
-                        .setOnDismissListener { showing.remove(activity) }
+                        .setOnDismissListener {
+                            showing.remove(activity)
+                            GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
+                        }
                         .show()
                 } else {
                     AlertDialog.Builder(activity)
@@ -123,7 +129,10 @@ object V2GpsPromptController {
                         .setOnCancelListener {
                             GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                         }
-                        .setOnDismissListener { showing.remove(activity) }
+                        .setOnDismissListener {
+                            showing.remove(activity)
+                            GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
+                        }
                         .show()
                 }
             }

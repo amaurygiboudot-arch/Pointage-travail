@@ -3,6 +3,8 @@ package com.amaury.pointage.v2.engine
 import com.amaury.pointage.v2.model.EventSourceV2
 import com.amaury.pointage.v2.model.PauseV2
 import com.amaury.pointage.v2.model.SessionStatusV2
+import com.amaury.pointage.v2.model.WorkSegmentKindV2
+import com.amaury.pointage.v2.model.WorkSegmentV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -10,6 +12,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MonthlyPaidWorkScopeV2Test {
+
+    @Test
+    fun nonWorkSegmentIsNotReportedAsAnUnpaidPause() {
+        val start = rangeStart
+        val workSession = session(start, start + 8 * 60 * minute).copy(
+            workSegments = listOf(
+                WorkSegmentV2(startMs = start, endMs = start + 4 * 60 * minute, kind = WorkSegmentKindV2.WORK),
+                WorkSegmentV2(startMs = start + 4 * 60 * minute, endMs = start + 8 * 60 * minute, kind = WorkSegmentKindV2.NON_WORK),
+            ),
+        )
+        val result = resolve(listOf(workSession))
+        assertTrue(result.reliable)
+        assertEquals(0L, result.unpaidPauseMs)
+    }
+
     private val minute = 60_000L
     private val day = 24 * 60 * minute
     private val rangeStart = day
@@ -125,6 +142,49 @@ class MonthlyPaidWorkScopeV2Test {
             .copy(countedEntryMs = null)
 
         assertFalse(resolve(listOf(broken)).reliable)
+    }
+
+    @Test
+    fun `une sortie stockee sans aucune entree conserve l incertitude jusque dans les periodes precedentes`() {
+        val missingArrival = session(start = rangeEnd + day, end = rangeEnd + 2 * day)
+            .copy(realArrivalMs = null, countedEntryMs = null)
+        val result = resolve(listOf(missingArrival))
+
+        assertFalse(result.reliable)
+        assertTrue(result.incompleteSession)
+        assertTrue(result.selected.isEmpty())
+        assertTrue(MonthlyPaidWorkScopeV2.INCOMPLETE_WARNING in result.warnings)
+    }
+
+    @Test
+    fun `une sortie sans entree exactement au debut de periode ne touche pas la periode`() {
+        val missingArrival = session(start = rangeStart + minute, end = rangeStart)
+            .copy(realArrivalMs = null, countedEntryMs = null)
+
+        assertTrue(resolve(listOf(missingArrival)).reliable)
+    }
+
+    @Test
+    fun `une sortie sans entree a confirmer bloque la periode`() {
+        val missingArrival = session(start = rangeStart + minute, end = rangeEnd + minute,
+            status = SessionStatusV2.TO_CONFIRM).copy(realArrivalMs = null, countedEntryMs = null)
+
+        assertFalse(resolve(listOf(missingArrival)).reliable)
+    }
+
+    @Test
+    fun `une session ouverte sans entree n utilise pas une ancienne sortie comme ancre`() {
+        val openWithoutArrival = session(
+            start = rangeStart + minute,
+            end = rangeStart + 2 * minute,
+            status = SessionStatusV2.OPEN
+        ).copy(realArrivalMs = null, countedEntryMs = null)
+
+        val result = resolve(listOf(openWithoutArrival))
+
+        assertTrue(result.reliable)
+        assertFalse(result.incompleteSession)
+        assertTrue(result.selected.isEmpty())
     }
 
     @Test

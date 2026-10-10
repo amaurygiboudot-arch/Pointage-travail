@@ -114,6 +114,7 @@ internal object GpsPresenceStateKeysV2 {
     const val ENTRY_RESOLUTION_PENDING = "entry_resolution_pending"
     const val ENTRY_RESOLUTION_TOKEN = "entry_resolution_token"
     const val PENDING_EXIT_ZONES = "pending_exit_zones"
+    const val PENDING_EXIT_OBSERVATIONS = "pending_exit_observations"
     const val REGISTRATION_VALID = "geofence_registration_valid"
     const val REGISTRATION_FINGERPRINT = "geofence_registration_fingerprint"
     val EPHEMERAL_KEYS = setOf(
@@ -121,6 +122,11 @@ internal object GpsPresenceStateKeysV2 {
         ENTRY_RESOLUTION_PENDING,
         ENTRY_RESOLUTION_TOKEN,
         PENDING_EXIT_ZONES,
+        PENDING_EXIT_OBSERVATIONS,
+        "pending_exit_deliveries",
+        "pending_exit_observation_context",
+        "worksite_return_observations",
+        "worksite_return_qualification",
         REGISTRATION_VALID,
         REGISTRATION_FINGERPRINT
     )

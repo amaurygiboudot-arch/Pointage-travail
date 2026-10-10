@@ -664,7 +664,7 @@ class MainActivity : Activity() {
         updatingGpsSwitch = true; autoGpsSwitch.isChecked = false; updatingGpsSwitch = false
         gpsPrefs.edit().putBoolean("enabled", false)
             .remove("active_zones").remove("entry_resolution_pending")
-            .remove("entry_resolution_token").remove("pending_exit_zones").apply()
+            .remove("entry_resolution_token").remove("pending_exit_zones").remove("pending_exit_observations").apply()
         GeofenceManager.reconfigureStoredZones(this)
         gpsStatusText.text = message
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()

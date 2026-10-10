@@ -261,6 +261,20 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         zones.first { $0.id == id }
     }
 
+    /// Re-read persisted evidence before a dialog callback writes paid-time history.
+    /// Its captured event may have been cancelled or replaced by another GPS callback.
+    func isCurrentPendingEvent(_ event: GpsPendingEventV2) -> Bool {
+        guard let fingerprint = GpsZoneConfigurationV2.fingerprint(
+            enabled: automaticEnabled,
+            zones: zones
+        ), let state = validatedState(fingerprint: fingerprint) else { return false }
+        return GpsEventConfirmationV2.isCurrent(event, pendingEvents: state.pendingEvents)
+    }
+
+    func hasVerifiedDepartureTime(_ event: GpsPendingEventV2) -> Bool {
+        isCurrentPendingEvent(event) && GpsDepartureTimeEvidenceV2.isVerified(event, configuredZones: zones)
+    }
+
     @discardableResult
     func clearPendingEvent() -> Bool {
         guard case .valid(var state) = GpsStateStoreV2.read(
@@ -286,15 +300,16 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     @discardableResult
-    func confirmArrival(eventId: UUID, sessionId: UUID) -> Bool {
+    func confirmArrival(eventId: UUID, sessionId: UUID, zoneId: UUID) -> Bool {
         updateStateForCompletedEvent(
             eventId: eventId,
             alreadyCompleted: { state in
-                state.confirmedSessionId == sessionId
+                state.confirmedSessionId == sessionId && state.confirmedZoneId == zoneId
                     && !state.pendingEvents.contains(where: { $0.id == eventId })
             }
         ) { state, event in
-            GpsVisitConfirmationV2.arrival(state: &state, event: event, sessionId: sessionId)
+            GpsVisitConfirmationV2.arrival(state: &state, event: event, sessionId: sessionId,
+                                           zoneId: zoneId, configuredZones: zones)
         }
     }
 
@@ -793,8 +808,9 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             return
         }
 
-        let next = GpsPresenceTransitionV2.plan(
+        let next = GpsConfiguredPresenceTransitionV2.plan(
             state: transitionState(from: stored),
+            configuredZones: zones,
             zoneId: zoneId,
             transition: transition,
             occurredAt: occurredAt
@@ -921,7 +937,9 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             pendingExitZoneIds: state.pendingExitZoneIds,
             pendingEvents: state.pendingEvents,
             confirmedSessionId: state.confirmedSessionId,
-            eventQueueOverflowed: state.eventQueueOverflowed
+            eventQueueOverflowed: state.eventQueueOverflowed,
+            confirmedZoneId: state.confirmedZoneId,
+            pendingExitObservations: state.pendingExitObservations
         )
     }
 
@@ -935,7 +953,9 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             pendingExitZoneIds: state.pendingExitZoneIds,
             pendingEvents: state.pendingEvents,
             confirmedSessionId: state.confirmedSessionId,
-            eventQueueOverflowed: state.eventQueueOverflowed
+            eventQueueOverflowed: state.eventQueueOverflowed,
+            confirmedZoneId: state.confirmedZoneId,
+            pendingExitObservations: state.pendingExitObservations
         )
     }
 

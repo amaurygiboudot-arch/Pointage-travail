@@ -132,16 +132,33 @@ enum GpsPendingKindV2: String, Codable {
     case departure
 }
 
+struct GpsZoneExitObservationV2: Codable, Equatable {
+    var zoneId: UUID
+    var occurredAt: Date
+    var continuingZoneIds: [UUID]? = nil
+}
+
 struct GpsPendingEventV2: Codable, Equatable, Identifiable {
     let id: UUID
     var kind: GpsPendingKindV2
     var zoneIds: [UUID]
     var occurredAt: Date
     var expectedSessionId: UUID? = nil
+    var exitObservations: [GpsZoneExitObservationV2]? = nil
+    var verifiedDepartureZoneId: UUID? = nil
+}
+
+enum GpsEventConfirmationV2 {
+    static func isCurrent(_ event: GpsPendingEventV2, pendingEvents: [GpsPendingEventV2]) -> Bool {
+        // Compare all evidence, not just its ID: an arrival can gain or lose zones
+        // while its dialog is visible, and a queued departure can be assigned a session.
+        pendingEvents.first == event
+    }
 }
 
 enum GpsPresenceTransitionV2 {
     static let maximumPendingEventCount = 32
+    static let maximumExitObservationCount = 320
 
     enum Transition {
         case enter
@@ -154,13 +171,17 @@ enum GpsPresenceTransitionV2 {
         var pendingEvents: [GpsPendingEventV2]
         var confirmedSessionId: UUID?
         var eventQueueOverflowed: Bool
+        var confirmedZoneId: UUID? = nil
+        var pendingExitObservations: [GpsZoneExitObservationV2]? = nil
     }
 
     static func plan(
         state: State,
         zoneId: UUID,
         transition: Transition,
-        occurredAt: Date
+        occurredAt: Date,
+        allowsSameZoneReturn: Bool = true,
+        verifiedOverlappingWorksiteReturn: Bool = false
     ) -> State {
         var next = state
         switch transition {
@@ -177,15 +198,22 @@ enum GpsPresenceTransitionV2 {
                    let pending = next.pendingEvents.last,
                    pending.kind == .departure,
                    pending.expectedSessionId == confirmedSessionId,
-                   pending.zoneIds.contains(zoneId) {
+                   ((allowsSameZoneReturn && pending.zoneIds.contains(zoneId)) ||
+                    (verifiedOverlappingWorksiteReturn &&
+                     occurredAt.timeIntervalSince(pending.occurredAt) <=
+                         GpsOverlappingWorkZoneContinuityV2.maximumGap)) {
                     guard occurredAt >= pending.occurredAt else { return state }
                     // Tant que la même session reste ouverte, revenir dans une zone qui avait
                     // déclenché la demande de départ invalide cette demande de fin de journée.
                     // La durée d'absence ne transforme pas un ancien EXIT non confirmé en vérité.
                     next.pendingEvents.removeLast()
+                    if next.confirmedZoneId != nil {
+                        next.confirmedZoneId = zoneId
+                    }
                 } else {
                     // Nouvelle visite : son départ éventuel ne doit pas être attribué à la session précédente.
                     next.confirmedSessionId = nil
+                    next.confirmedZoneId = nil
                     appendEvent(GpsPendingEventV2(
                         id: UUID(),
                         kind: .arrival,
@@ -202,8 +230,22 @@ enum GpsPresenceTransitionV2 {
 
         case .exit:
             guard next.activeZoneIds.contains(zoneId) else { return state }
+            let observations = next.pendingExitObservations ?? []
+            guard observations.count < maximumExitObservationCount else {
+                next.eventQueueOverflowed = true
+                return next
+            }
+            guard occurredAt.timeIntervalSinceReferenceDate.isFinite,
+                  observations.last.map({ $0.occurredAt <= occurredAt }) ?? true else { return state }
             next.activeZoneIds.remove(zoneId)
             next.pendingExitZoneIds.insert(zoneId)
+            // Keep earlier episodes: a later re-entry into B must not replace
+            // the exit of B that was continuously connected to the source A.
+            let updatedObservations = observations + [.init(
+                zoneId: zoneId, occurredAt: occurredAt,
+                continuingZoneIds: next.activeZoneIds.sorted { $0.uuidString < $1.uuidString }
+            )]
+            next.pendingExitObservations = updatedObservations
 
             if next.activeZoneIds.isEmpty {
                 appendEvent(GpsPendingEventV2(
@@ -213,17 +255,15 @@ enum GpsPresenceTransitionV2 {
                         $0.uuidString < $1.uuidString
                     },
                     occurredAt: occurredAt,
-                    expectedSessionId: next.confirmedSessionId
+                    expectedSessionId: next.confirmedSessionId,
+                    exitObservations: updatedObservations
                 ), to: &next)
                 next.pendingExitZoneIds.removeAll()
-            } else if var pending = next.pendingEvents.last, pending.kind == .arrival {
-                pending.zoneIds = pending.zoneIds.filter(next.activeZoneIds.contains)
-                if pending.zoneIds.isEmpty {
-                    next.pendingEvents.removeLast()
-                } else {
-                    next.pendingEvents[next.pendingEvents.count - 1] = pending
-                }
+                next.pendingExitObservations = nil
             }
+            // A deferred arrival describes the visit, not only the zones still
+            // active now. Keep its original candidates so the selected worksite
+            // can resolve the matching exit after all callbacks have arrived.
         }
         return next
     }
@@ -233,6 +273,7 @@ enum GpsPresenceTransitionV2 {
         var next = state
         let staleSessionId = next.confirmedSessionId
         next.confirmedSessionId = nil
+        next.confirmedZoneId = nil
         if let staleSessionId {
             next.pendingEvents.removeAll {
                 $0.kind == .departure && $0.expectedSessionId == staleSessionId
@@ -257,17 +298,37 @@ struct GpsPersistedStateV2: Codable, Equatable {
     var pendingEvents: [GpsPendingEventV2]
     var confirmedSessionId: UUID?
     var eventQueueOverflowed: Bool
+    var confirmedZoneId: UUID? = nil
+    var pendingExitObservations: [GpsZoneExitObservationV2]? = nil
 }
 
 /// Effets des confirmations explicites ; l'événement a été retiré de la file par le gestionnaire.
 enum GpsVisitConfirmationV2 {
-    static func arrival(state: inout GpsPersistedStateV2, event: GpsPendingEventV2, sessionId: UUID) -> Bool {
-        guard event.kind == .arrival else { return false }
+    static func arrival(
+        state: inout GpsPersistedStateV2,
+        event: GpsPendingEventV2,
+        sessionId: UUID,
+        zoneId: UUID,
+        configuredZones: [GpsZoneV2]
+    ) -> Bool {
+        guard event.kind == .arrival, event.zoneIds.contains(zoneId),
+              GpsZoneConfigurationV2.isValid(configuredZones),
+              configuredZones.contains(where: { $0.id == zoneId && $0.kind == .worksite }) else { return false }
         state.confirmedSessionId = sessionId
+        state.confirmedZoneId = zoneId
         if let nextDeparture = state.pendingEvents.firstIndex(where: {
             $0.kind == .departure && $0.expectedSessionId == nil
         }) {
             state.pendingEvents[nextDeparture].expectedSessionId = sessionId
+            state.pendingEvents[nextDeparture] = GpsDepartureTimeEvidenceV2.resolving(
+                state.pendingEvents[nextDeparture], sourceZoneId: zoneId,
+                configuredZones: configuredZones
+            )
+            if state.pendingEvents.dropFirst(nextDeparture + 1).contains(where: { $0.kind == .arrival }) {
+                // Later physical visits must not inherit an earlier deferred confirmation.
+                state.confirmedSessionId = nil
+                state.confirmedZoneId = nil
+            }
         }
         return true
     }
@@ -277,6 +338,7 @@ enum GpsVisitConfirmationV2 {
               event.expectedSessionId == sessionId,
               state.confirmedSessionId == nil || state.confirmedSessionId == sessionId else { return false }
         state.confirmedSessionId = nil
+        state.confirmedZoneId = nil
         return true
     }
 }
@@ -309,8 +371,18 @@ enum GpsStateValidationV2 {
                   state.activeZoneIds.isSubset(of: configuredZoneIds),
                   state.pendingExitZoneIds.isSubset(of: configuredZoneIds),
                   state.activeZoneIds.isDisjoint(with: state.pendingExitZoneIds),
+                  state.confirmedZoneId.map({ configuredZoneIds.contains($0) && state.confirmedSessionId != nil }) ?? true,
+                  GpsDepartureTimeEvidenceV2.observationsAreValid(
+                      state.pendingExitObservations, zoneIds: state.pendingExitZoneIds.union(state.activeZoneIds)
+                  ),
                   state.pendingEvents.allSatisfy({ event in
-                      Set(event.zoneIds).isSubset(of: configuredZoneIds)
+                      Set(event.zoneIds).isSubset(of: configuredZoneIds) &&
+                          GpsDepartureTimeEvidenceV2.observationsAreValid(
+                              event.exitObservations, zoneIds: Set(event.zoneIds)
+                          ) &&
+                          (event.verifiedDepartureZoneId.map {
+                              event.kind == .departure && event.expectedSessionId != nil && event.zoneIds.contains($0)
+                          } ?? true)
                   }),
                   zip(state.pendingEvents, state.pendingEvents.dropFirst()).allSatisfy({ pair in
                       pair.0.occurredAt <= pair.1.occurredAt

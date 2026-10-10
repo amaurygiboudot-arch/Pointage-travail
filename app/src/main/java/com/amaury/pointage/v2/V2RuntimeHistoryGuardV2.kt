@@ -2,6 +2,9 @@ package com.amaury.pointage.v2
 
 import android.content.Context
 import com.amaury.pointage.v2.model.EventSourceV2
+import com.amaury.pointage.v2.model.TimeBasisV2
+import com.amaury.pointage.v2.model.WorkSegmentKindV2
+import com.amaury.pointage.v2.model.DecisionStatusV2
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -116,6 +119,35 @@ object V2RuntimeHistoryGuardV2 {
             if (item.has("legacyFixedUnpaidPauseMs") && !item.isNull("legacyFixedUnpaidPauseMs")) {
                 val value = strictLong(item.opt("legacyFixedUnpaidPauseMs"))
                 if (value == null || value < 0L) malformed = true
+            }
+
+            if (item.has("timeBasis")) {
+                val basis = optionalString(item, "timeBasis")
+                if (basis == null || runCatching { TimeBasisV2.valueOf(basis) }.isFailure) malformed = true
+            }
+            if (item.has("workSegments")) {
+                val segments = item.optJSONArray("workSegments")
+                if (segments == null) {
+                    malformed = true
+                } else {
+                    for (segmentIndex in 0 until segments.length()) {
+                        val segment = segments.optJSONObject(segmentIndex)
+                        if (segment == null) {
+                            malformed = true
+                            continue
+                        }
+                        val start = positiveLong(segment, "start")
+                        val end = positiveLong(segment, "end")
+                        val kind = optionalString(segment, "kind")
+                        val status = optionalString(segment, "status")
+                        if (start == null || end == null || end <= start ||
+                            (realEntry != null && start < realEntry) ||
+                            (realExit.value != null && end > realExit.value) ||
+                            kind == null || runCatching { WorkSegmentKindV2.valueOf(kind) }.isFailure ||
+                            status == null || runCatching { DecisionStatusV2.valueOf(status) }.isFailure
+                        ) malformed = true
+                    }
+                }
             }
 
             val pauses = item.optJSONArray(KEY_PAUSES)

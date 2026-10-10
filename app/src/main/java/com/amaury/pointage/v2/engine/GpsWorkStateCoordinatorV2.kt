@@ -1,11 +1,14 @@
 package com.amaury.pointage.v2.engine
 
 import android.content.Context
+import com.amaury.pointage.GpsExitDeliveryV2
+import com.amaury.pointage.GpsExitDeliveryRecordV2
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.model.EventSourceV2
 import com.amaury.pointage.v2.model.SessionStatusV2
 import com.amaury.pointage.v2.model.WorkSessionV2
+import java.util.UUID
 
 /**
  * Couche de décision distincte du capteur GPS.
@@ -21,6 +24,11 @@ object GpsWorkStateCoordinatorV2 {
     private const val KEY_PENDING_TYPE = "pending_type"
     private const val KEY_PENDING_TRANSITION = "pending_transition"
     private const val KEY_PROMPTED_ID = "prompted_id"
+    private const val KEY_PROMPTED_PROCESS = "prompted_process"
+    private val processToken = UUID.randomUUID().toString()
+    private const val KEY_PENDING_DELIVERY = "pending_delivery_binding"
+    private const val KEY_DELIVERY_RECEIPTS = "delivery_receipts"
+    private const val KEY_RECEIPT_CONTEXT = "delivery_receipt_context"
     private const val RETURN_WINDOW_MS = 2L * 60_000L
 
     enum class Action {
@@ -35,7 +43,8 @@ object GpsWorkStateCoordinatorV2 {
     data class Outcome(
         val action: Action,
         val requiresConfirmation: Boolean,
-        val reason: String
+        val reason: String,
+        val durableAcknowledgement: Boolean = false
     )
 
     data class Pending(
@@ -49,7 +58,13 @@ object GpsWorkStateCoordinatorV2 {
         enum class Kind { EXIT_WORKSITE, AMBIGUOUS }
     }
 
-    fun route(context: Context, event: GpsEventV2, decision: GpsDecisionV2): Outcome {
+    internal fun route(
+        context: Context,
+        event: GpsEventV2,
+        decision: GpsDecisionV2,
+        verifiedOverlappingWorksiteReturn: Boolean = false,
+        durableDelivery: GpsExitDeliveryRecordV2? = null
+    ): Outcome {
         if (!decision.accepted || decision.duplicate) {
             return Outcome(Action.IGNORED, false, decision.reason)
         }
@@ -63,15 +78,25 @@ object GpsWorkStateCoordinatorV2 {
             )
         }
         val current = runtime.snapshot.session
+        if (durableDelivery != null && (durableDelivery.event != event ||
+                GpsExitDeliveryV2.matchesContext(context, durableDelivery) != true ||
+                !durableDelivery.matchesSession(current?.id, current?.realArrivalMs))) {
+            return Outcome(Action.NO_CHANGE, false, "Observation GPS liée à un autre contexte")
+        }
         var currentPending = pending(context)
-        if (shouldDiscardPending(currentPending, current)) {
-            clearPending(context)
+        val binding = pendingBindingMatches(context, current)
+        if (binding == null) return Outcome(Action.NO_CHANGE, false, "Contexte GPS à vérifier")
+        if (binding == false || shouldDiscardPending(currentPending, current)) {
+            if (!clearPending(context)) return Outcome(Action.NO_CHANGE, false, "Effacement GPS non enregistré")
             currentPending = null
         }
 
         if (event.pointType == GpsPointTypeV2.POSTE && event.transition == GpsTransitionV2.ENTER) {
-            if (canApplyReturnToPoste(currentPending, event, current)) {
-                clearPending(context)
+            if (canApplyReturnToPoste(currentPending, event, current) ||
+                canApplyVerifiedOverlappingReturn(
+                    currentPending, event, current, verifiedOverlappingWorksiteReturn
+                )) {
+                if (!clearPending(context)) return Outcome(Action.NO_CHANGE, false, "Retour GPS non enregistré")
                 return Outcome(
                     Action.RETURNED_TO_POSTE,
                     false,
@@ -97,15 +122,17 @@ object GpsWorkStateCoordinatorV2 {
             if (current == null || current.realExitMs != null) {
                 return Outcome(Action.NO_CHANGE, false, "Aucune session V2 ouverte à terminer")
             }
-            if (!canQueuePending(currentPending, Pending.Kind.EXIT_WORKSITE)) {
+            if (currentPending?.id != event.id && !canQueuePending(currentPending, Pending.Kind.EXIT_WORKSITE)) {
                 return Outcome(
                     Action.NO_CHANGE,
                     true,
                     "Une transition GPS attend déjà une confirmation"
                 )
             }
-            savePending(context, event, Pending.Kind.EXIT_WORKSITE)
-            return Outcome(Action.EXIT_PENDING_CONFIRMATION, true, "Sortie du poste détectée : fin de journée à confirmer")
+            val saved = savePending(context, event, Pending.Kind.EXIT_WORKSITE, durableDelivery)
+            return Outcome(if (saved) Action.EXIT_PENDING_CONFIRMATION else Action.NO_CHANGE,
+                saved, if (saved) "Sortie du poste détectée : fin de journée à confirmer" else "Sortie GPS non enregistrée",
+                durableAcknowledgement = saved && durableDelivery != null)
         }
 
         if (!canQueueAmbiguous(current, event.transition)) {
@@ -115,15 +142,17 @@ object GpsWorkStateCoordinatorV2 {
                 "État de travail incompatible avec cette transition GPS ambiguë"
             )
         }
-        if (!canQueuePending(currentPending, Pending.Kind.AMBIGUOUS)) {
+        if (currentPending?.id != event.id && !canQueuePending(currentPending, Pending.Kind.AMBIGUOUS)) {
             return Outcome(
                 Action.NO_CHANGE,
                 true,
                 "Une transition GPS attend déjà une confirmation"
             )
         }
-        savePending(context, event, Pending.Kind.AMBIGUOUS)
-        return Outcome(Action.AMBIGUOUS_PENDING_CONFIRMATION, true, "Transition GPS ambiguë à qualifier")
+        val saved = savePending(context, event, Pending.Kind.AMBIGUOUS, durableDelivery)
+        return Outcome(if (saved) Action.AMBIGUOUS_PENDING_CONFIRMATION else Action.NO_CHANGE,
+            saved, if (saved) "Transition GPS ambiguë à qualifier" else "Transition GPS non enregistrée",
+            durableAcknowledgement = saved && durableDelivery != null)
     }
 
     internal fun canQueueAmbiguous(
@@ -147,8 +176,10 @@ object GpsWorkStateCoordinatorV2 {
     ): Boolean {
         if (pending == null) return false
         if (entryStarted) return true
-        if (current?.status != SessionStatusV2.OPEN || current.realExitMs != null) return false
-        val arrival = current.realArrivalMs ?: return false
+        // A GPS exit prompt must never outlive the session that was closed manually.
+        // Keep unknown/corrupt runtime guarded by the caller's reliable-source check.
+        if (current?.status != SessionStatusV2.OPEN || current.realExitMs != null) return true
+        val arrival = current.realArrivalMs ?: return true
         return pending.atMs < arrival
     }
 
@@ -179,6 +210,27 @@ object GpsWorkStateCoordinatorV2 {
         return true
     }
 
+    /**
+     * A distinct GPS zone cancels an earlier pending EXIT only when the geofence
+     * caller has proved same employer+place, overlapping WORK circles and a
+     * <=2-minute transition. Never infer continuity from a common job title.
+     */
+    internal fun canApplyVerifiedOverlappingReturn(
+        pending: Pending?,
+        event: GpsEventV2,
+        current: WorkSessionV2?,
+        verifiedOverlap: Boolean
+    ): Boolean {
+        if (!verifiedOverlap || pending?.kind != Pending.Kind.EXIT_WORKSITE ||
+            current?.status != SessionStatusV2.OPEN || current.realExitMs != null ||
+            event.pointType != GpsPointTypeV2.POSTE ||
+            event.transition != GpsTransitionV2.ENTER ||
+            pending.placeId == event.placeId ||
+            pending.atMs < (current.realArrivalMs ?: Long.MAX_VALUE) ||
+            event.atMs < pending.atMs) return false
+        return event.atMs - pending.atMs <= 120_000L
+    }
+
     internal fun canApplyQuickReturn(
         pending: Pending?,
         event: GpsEventV2,
@@ -204,21 +256,50 @@ object GpsWorkStateCoordinatorV2 {
         return Pending(id, at, place, pointType, transition, kind)
     }
 
+    /**
+     * A pending geofence exit is only actionable for a verified OPEN session.
+     * Closing a day through the manual button must immediately revoke the stale
+     * GPS question, rather than inviting another end-of-day confirmation.
+     */
+    fun pendingForOpenSession(context: Context): Pending? {
+        GpsExitDeliveryV2.replay(context)
+        val found = pending(context) ?: return null
+        val runtime = V2RuntimeReader.current(context)
+        if (!runtime.reliable) return null
+        val binding = pendingBindingMatches(context, runtime.snapshot.session)
+        if (binding == null) return null
+        if (binding == false || shouldDiscardPending(found, runtime.snapshot.session)) {
+            clearPending(context)
+            return null
+        }
+        val delivery = pendingDelivery(context)
+        if (delivery != null && GpsExitDeliveryV2.hasProvenReturn(context, delivery)) {
+            acknowledgeReturnedDelivery(context, delivery)
+            return null
+        }
+        // Keep the durable question, but neither show nor confirm an old departure while
+        // an observed return is waiting for complete batch arbitration (including restart).
+        if (delivery != null && GpsExitDeliveryV2.hasUnresolvedReturn(context, delivery)) return null
+        return found
+    }
+
     fun shouldPrompt(context: Context, pending: Pending): Boolean {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        return prefs.getString(KEY_PROMPTED_ID, null) != pending.id
+        return prefs.getString(KEY_PROMPTED_ID, null) != pending.id ||
+            prefs.getString(KEY_PROMPTED_PROCESS, null) != processToken
     }
 
     fun markPromptShown(context: Context, pending: Pending) {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString(KEY_PROMPTED_ID, pending.id).apply()
+            .edit().putString(KEY_PROMPTED_ID, pending.id)
+            .putString(KEY_PROMPTED_PROCESS, processToken).apply()
     }
 
     /** Une fermeture sans réponse ne transforme pas l'événement en décision. */
     fun allowPromptAgain(context: Context, pending: Pending) {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (prefs.getString(KEY_PENDING_ID, null) == pending.id) {
-            prefs.edit().remove(KEY_PROMPTED_ID).apply()
+            prefs.edit().remove(KEY_PROMPTED_ID).remove(KEY_PROMPTED_PROCESS).apply()
         }
     }
 
@@ -227,7 +308,7 @@ object GpsWorkStateCoordinatorV2 {
         expectedPendingId: String,
         expectedEndMs: Long? = null
     ): Boolean {
-        val pending = pending(context)
+        val pending = pendingForOpenSession(context)
             ?.takeIf { matchesPendingId(it, expectedPendingId) }
             ?: return false
         if (pending.kind != Pending.Kind.EXIT_WORKSITE) return false
@@ -243,7 +324,7 @@ object GpsWorkStateCoordinatorV2 {
      * L'événement reste en attente si l'écriture runtime échoue.
      */
     fun confirmPauseStart(context: Context, expectedPendingId: String, paid: Boolean): Boolean {
-        val pending = pending(context)
+        val pending = pendingForOpenSession(context)
             ?.takeIf { matchesPendingId(it, expectedPendingId) }
             ?: return false
         if (pending.kind != Pending.Kind.AMBIGUOUS || pending.transition != GpsTransitionV2.ENTER) {
@@ -269,7 +350,7 @@ object GpsWorkStateCoordinatorV2 {
      * classification n'est inventée à la fermeture.
      */
     fun confirmPauseEnd(context: Context, expectedPendingId: String): Boolean {
-        val pending = pending(context)
+        val pending = pendingForOpenSession(context)
             ?.takeIf { matchesPendingId(it, expectedPendingId) }
             ?: return false
         if (pending.kind != Pending.Kind.AMBIGUOUS || pending.transition != GpsTransitionV2.EXIT) {
@@ -288,10 +369,9 @@ object GpsWorkStateCoordinatorV2 {
     }
 
     fun cancelPending(context: Context, expectedPendingId: String): Boolean {
-        val current = pending(context) ?: return false
+        val current = pendingForOpenSession(context) ?: return false
         if (!matchesPendingId(current, expectedPendingId)) return false
-        clearPending(context)
-        return true
+        return clearPending(context)
     }
 
     internal fun matchesPendingId(pending: Pending?, expectedPendingId: String): Boolean =
@@ -307,18 +387,79 @@ object GpsWorkStateCoordinatorV2 {
             .clear()
             .commit()
 
-    private fun savePending(context: Context, event: GpsEventV2, kind: Pending.Kind) {
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+    private fun savePending(context: Context, event: GpsEventV2, kind: Pending.Kind,
+        delivery: GpsExitDeliveryRecordV2? = null): Boolean {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val editor = prefs.edit()
             .putString(KEY_PENDING_ID, event.id)
             .putLong(KEY_PENDING_AT, event.atMs)
             .putString(KEY_PENDING_PLACE, event.placeId)
             .putString(KEY_PENDING_TYPE, "${event.pointType.name}:${kind.name}")
             .putString(KEY_PENDING_TRANSITION, event.transition.name)
-            .remove(KEY_PROMPTED_ID)
-            .apply()
+        if (prefs.getString(KEY_PENDING_ID, null) != event.id)
+            editor.remove(KEY_PROMPTED_ID).remove(KEY_PROMPTED_PROCESS)
+        if (delivery == null) editor.remove(KEY_PENDING_DELIVERY)
+        else {
+            val receipts = if (prefs.getString(KEY_RECEIPT_CONTEXT, null) == delivery.observationContext()) {
+                runCatching { prefs.getStringSet(KEY_DELIVERY_RECEIPTS, emptySet()) }.getOrNull() ?: return false
+            } else emptySet()
+            editor.putString(KEY_PENDING_DELIVERY, delivery.encode())
+                .putString(KEY_RECEIPT_CONTEXT, delivery.observationContext())
+                .putStringSet(KEY_DELIVERY_RECEIPTS, receipts + delivery.receiptId())
+        }
+        return editor.commit()
     }
 
-    private fun clearPending(context: Context) {
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
+    internal enum class DeliveryReceiptState { MISSING, ACKNOWLEDGED, RETRY }
+
+    internal fun acknowledgeReturnedDelivery(context: Context, delivery: GpsExitDeliveryRecordV2): Boolean {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val receipts = if (prefs.getString(KEY_RECEIPT_CONTEXT, null) == delivery.observationContext()) {
+            runCatching { prefs.getStringSet(KEY_DELIVERY_RECEIPTS, emptySet()) }.getOrNull() ?: return false
+        } else emptySet()
+        val editor = prefs.edit().putString(KEY_RECEIPT_CONTEXT, delivery.observationContext())
+            .putStringSet(KEY_DELIVERY_RECEIPTS, receipts + delivery.receiptId())
+        if (prefs.getString(KEY_PENDING_ID, null) == delivery.event.id) removePendingFields(editor)
+        return editor.commit()
+    }
+
+    internal fun confirmDurableDeliveryReceipt(context: Context, delivery: GpsExitDeliveryRecordV2): DeliveryReceiptState {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (prefs.getString(KEY_RECEIPT_CONTEXT, null) != delivery.observationContext()) return DeliveryReceiptState.MISSING
+        val receipts = runCatching { prefs.getStringSet(KEY_DELIVERY_RECEIPTS, emptySet()) }.getOrNull()
+            ?: return DeliveryReceiptState.RETRY
+        if (delivery.receiptId() !in receipts) return DeliveryReceiptState.MISSING
+        // commit=false may still mutate SharedPreferences' RAM cache. Recommit before ACK.
+        return if (prefs.edit().putStringSet(KEY_DELIVERY_RECEIPTS, receipts.toSet()).commit())
+            DeliveryReceiptState.ACKNOWLEDGED else DeliveryReceiptState.RETRY
+    }
+
+    private fun pendingBindingMatches(context: Context, current: WorkSessionV2?): Boolean? {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!prefs.contains(KEY_PENDING_DELIVERY)) return true // Historical unbound questions stay historical.
+        val raw = runCatching { prefs.getString(KEY_PENDING_DELIVERY, null) }.getOrNull() ?: return null
+        val delivery = GpsExitDeliveryRecordV2.decode(raw) ?: return null
+        if (!delivery.matchesSession(current?.id, current?.realArrivalMs)) return false
+        return GpsExitDeliveryV2.matchesContext(context, delivery)
+    }
+
+    private fun pendingDelivery(context: Context): GpsExitDeliveryRecordV2? {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return runCatching { prefs.getString(KEY_PENDING_DELIVERY, null) }.getOrNull()
+            ?.let { GpsExitDeliveryRecordV2.decode(it) }
+    }
+
+    private fun clearPending(context: Context): Boolean {
+        // ACK receipts survive cancellation/confirmation and failed outbox cleanup.
+        val editor = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        removePendingFields(editor)
+        return editor.commit()
+    }
+
+    private fun removePendingFields(editor: android.content.SharedPreferences.Editor) {
+        editor.remove(KEY_PENDING_ID).remove(KEY_PENDING_AT).remove(KEY_PENDING_PLACE)
+            .remove(KEY_PENDING_TYPE).remove(KEY_PENDING_TRANSITION).remove(KEY_PROMPTED_ID)
+            .remove(KEY_PROMPTED_PROCESS)
+            .remove(KEY_PENDING_DELIVERY)
     }
 }
