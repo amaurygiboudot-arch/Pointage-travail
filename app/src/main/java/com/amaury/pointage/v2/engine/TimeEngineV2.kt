@@ -3,6 +3,7 @@ package com.amaury.pointage.v2.engine
 import com.amaury.pointage.v2.model.SessionStatusV2
 import com.amaury.pointage.v2.model.TimeBasisV2
 import com.amaury.pointage.v2.model.TravelClassificationV2
+import com.amaury.pointage.v2.model.WorkSegmentKindV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 
 /** Moteur Temps HoraTrack V2 : source unique des calculs de présence et de temps payé. */
