@@ -123,16 +123,23 @@ object DefaultTimeEngineV2 : TimeEngineV2 {
         val segmentResolution = QualifiedWorkSegmentsV2.resolve(session, countedStart, countedEnd)
         problems += segmentResolution.issues
         val eligiblePeriods = segmentResolution.workedIntervals
-        val personalTravelOverConfirmedWork = session.travels.any { travel ->
-            travel.classification == TravelClassificationV2.PERSONAL &&
-                travel.endMs?.let { travelEnd ->
-                    eligiblePeriods.any { (workStart, workEnd) ->
-                        maxOf(workStart, travel.startMs) < minOf(workEnd, travelEnd)
-                    }
-                } == true
+        val contradictoryTravelClassification = session.travels.any { travel ->
+            val travelEnd = travel.endMs ?: return@any false
+            when (travel.classification) {
+                TravelClassificationV2.PERSONAL -> eligiblePeriods.any { (workStart, workEnd) ->
+                    maxOf(workStart, travel.startMs) < minOf(workEnd, travelEnd)
+                }
+                TravelClassificationV2.PAID -> session.workSegments.any { segment ->
+                    segment.kind in setOf(WorkSegmentKindV2.PERSONAL_TRAVEL, WorkSegmentKindV2.NON_WORK) &&
+                        segment.endMs?.let { segmentEnd ->
+                            maxOf(segment.startMs, travel.startMs) < minOf(segmentEnd, travelEnd)
+                        } == true
+                }
+                else -> false
+            }
         }
-        if (personalTravelOverConfirmedWork) {
-            problems += "Déplacement personnel chevauchant un temps de travail confirmé"
+        if (contradictoryTravelClassification) {
+            problems += "Déplacement et segment d'activité portent des classifications contradictoires"
         }
         val eligibleMs = PaidPauseResolutionV2.duration(eligiblePeriods)
         val explicitUnpaidMs = eligiblePeriods.sumOf { (a, b) ->

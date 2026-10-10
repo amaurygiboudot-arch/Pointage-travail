@@ -3,6 +3,8 @@ package com.amaury.pointage.v2.engine
 import com.amaury.pointage.v2.model.EventSourceV2
 import com.amaury.pointage.v2.model.PauseV2
 import com.amaury.pointage.v2.model.SessionStatusV2
+import com.amaury.pointage.v2.model.WorkSegmentKindV2
+import com.amaury.pointage.v2.model.WorkSegmentV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -10,6 +12,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MonthlyPaidWorkScopeV2Test {
+
+    @Test
+    fun nonWorkSegmentIsNotReportedAsAnUnpaidPause() {
+        val start = rangeStart
+        val workSession = session(start, start + 8 * 60 * minute).copy(
+            workSegments = listOf(
+                WorkSegmentV2(startMs = start, endMs = start + 4 * 60 * minute, kind = WorkSegmentKindV2.WORK),
+                WorkSegmentV2(startMs = start + 4 * 60 * minute, endMs = start + 8 * 60 * minute, kind = WorkSegmentKindV2.NON_WORK),
+            ),
+        )
+        val result = resolve(listOf(workSession))
+        assertTrue(result.reliable)
+        assertEquals(0L, result.unpaidPauseMs)
+    }
+
     private val minute = 60_000L
     private val day = 24 * 60 * minute
     private val rangeStart = day

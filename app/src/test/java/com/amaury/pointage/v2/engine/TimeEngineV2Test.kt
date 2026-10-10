@@ -51,6 +51,27 @@ class TimeEngineV2Test {
     }
 
     @Test
+    fun paidTravelContradictingPersonalTravelSegmentMakesSessionUnreliable() {
+        val session = closedSession(baseMs = dayBase).copy(
+            timeBasis = TimeBasisV2.REAL_FACTS,
+            travels = listOf(
+                TravelV2(
+                    startMs = dayBase + 4 * 60 * minute,
+                    endMs = dayBase + 8 * 60 * minute,
+                    employerBeforeId = null,
+                    employerAfterId = null,
+                    classification = TravelClassificationV2.PAID,
+                ),
+            ),
+            workSegments = listOf(
+                WorkSegmentV2(startMs = dayBase, endMs = dayBase + 4 * 60 * minute, kind = WorkSegmentKindV2.WORK),
+                WorkSegmentV2(startMs = dayBase + 4 * 60 * minute, endMs = dayBase + 8 * 60 * minute, kind = WorkSegmentKindV2.PERSONAL_TRAVEL),
+            ),
+        )
+        assertFalse(DefaultTimeEngineV2.calculate(session).reliable)
+    }
+
+    @Test
     fun `entree respecte trente minutes avec dix minutes de grace`() {
         assertEquals(morningBase, DefaultTimeEngineV2.countedEntryFromRealArrival(at(6, 0)))
         assertEquals(morningBase, DefaultTimeEngineV2.countedEntryFromRealArrival(at(6, 10)))

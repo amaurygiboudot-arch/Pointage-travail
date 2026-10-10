@@ -86,8 +86,24 @@ object MonthlyPaidWorkScopeV2 {
                 val start = maxOf(countedStart, rangeStartMs)
                 val end = minOf(countedEnd, rangeEndMs)
                 val countedSpan = (end - start).coerceAtLeast(0L)
-                val paid = PaidWorkAllocationV2.paidOverlap(session, rangeStartMs, rangeEndMs)
-                (countedSpan - paid).coerceAtLeast(0L)
+                if (session.workSegments.isEmpty()) {
+                    val paid = PaidWorkAllocationV2.paidOverlap(session, rangeStartMs, rangeEndMs)
+                    (countedSpan - paid).coerceAtLeast(0L)
+                } else {
+                    val pauseResolution = PaidPauseResolutionV2.resolve(
+                        pauses = session.pauses,
+                        rangeStartMs = rangeStartMs,
+                        rangeEndMs = rangeEndMs,
+                        openPauseEndMs = rangeEndMs,
+                        allowOpenPause = false,
+                    )
+                    QualifiedWorkSegmentsV2.resolve(session, rangeStartMs, rangeEndMs)
+                        .workedIntervals.sumOf { (workStart, workEnd) ->
+                            PaidPauseResolutionV2.overlapDuration(
+                                pauseResolution.unpaidIntervals, workStart, workEnd
+                            )
+                        }
+                }
             }
         } else null
         val warnings = buildList {
