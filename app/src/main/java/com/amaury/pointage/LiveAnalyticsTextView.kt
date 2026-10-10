@@ -99,7 +99,7 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
             ?.takeIf { it.kind == GpsWorkStateCoordinatorV2.Pending.Kind.EXIT_WORKSITE }
 
         val pendingGpsExitInPeriod = pendingGpsExit?.takeIf { pending ->
-            pending.at >= monthStart && pending.at < monthEnd
+            pending.atMs >= monthStart && pending.atMs < monthEnd
         }
         val analytics = AnalyticsEngineV2.summarize(safeSessions, HoraTrackV2.time, now)
         if (!analytics.timeTotalsReliable || pendingGpsExitInPeriod != null) {
