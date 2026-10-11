@@ -151,14 +151,14 @@ internal object GpsExitDeliveryV2 {
                 }
                 if (allowReturnAcknowledgement && hasProvenReturn(app, delivery)) {
                     if (GpsWorkStateCoordinatorV2.acknowledgeReturnedDelivery(app, delivery))
-                        removeAcknowledged(gps, encoded)
+                        removeAcknowledged(gps, encoded, acknowledged)
                     return@withTransaction
                 }
                 // The receipt survives user confirmation/cancellation and makes replay idempotent
                 // even when the previous outbox cleanup failed after a successful delivery.
                 when (GpsWorkStateCoordinatorV2.confirmDurableDeliveryReceipt(app, delivery)) {
                     GpsWorkStateCoordinatorV2.DeliveryReceiptState.ACKNOWLEDGED -> {
-                        removeAcknowledged(gps, encoded)
+                        removeAcknowledged(gps, encoded, acknowledged)
                         return@withTransaction
                     }
                     GpsWorkStateCoordinatorV2.DeliveryReceiptState.RETRY -> return@withTransaction
@@ -170,7 +170,7 @@ internal object GpsExitDeliveryV2 {
                     durableDelivery = delivery
                 )
                 // Do not ingest again: the RAM anti-bounce cache cannot acknowledge a disk write.
-                if (outcome.durableAcknowledgement) removeAcknowledged(gps, encoded)
+                if (outcome.durableAcknowledgement) removeAcknowledged(gps, encoded, acknowledged)
             }
         }
         if (acknowledged.isNotEmpty()) {
