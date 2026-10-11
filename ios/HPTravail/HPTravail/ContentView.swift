@@ -61,8 +61,8 @@ struct ContentView: View {
                 recoveryPreview = nil
             }
         } message: {
-            if let preview = recoveryPreview {
-                Text("Compte : \(authManager.user?.email ?? authManager.user?.uid ?? "indisponible"). \(preview.historicalCount) pointage(s), du \(preview.firstEntry?.formatted(date: .abbreviated, time: .shortened) ?? "—") au \(preview.lastEntry?.formatted(date: .abbreviated, time: .shortened) ?? "—").\n\n\(preview.containsOpenSession ? "Une session est encore ouverte.\n\n" : "")Confirme uniquement si TOUS ces pointages t’appartiennent. Si cet appareil a été partagé ou si tu as un doute, annule. Cette déclaration vient de toi ; Firebase ne vérifie pas la propriété de cet historique. Les originaux restent conservés.")
+            if recoveryPreview != nil {
+                Text("Compte : \(authManager.user?.email ?? authManager.user?.uid ?? "indisponible").\n\nConfirme uniquement si TOUS les pointages de l’ancien journal de cet appareil t’appartiennent. Si cet appareil a été partagé ou si tu as un doute, annule. Cette déclaration vient de toi ; Firebase ne vérifie pas la propriété de cet historique. Les originaux restent conservés.")
             }
         }
         .sheet(isPresented: $showManualEntry) {
@@ -127,6 +127,7 @@ struct ContentView: View {
             showGpsConfirmation = locationManager.pendingEvent != nil
         }
         .onChange(of: authManager.user?.uid) { _ in
+            recoveryFeedback = nil
             recoveryPreview = nil
             showRecoveryConfirmation = false
             store.reloadAccount()

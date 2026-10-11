@@ -202,8 +202,8 @@ object V2LegacyJournalRecovery {
         if (left.isEmpty()) return@runCatching right.toMap().takeIf { it.isEmpty() || validSource(it) }
         if (right.isEmpty()) return@runCatching left.toMap().takeIf { validSource(it) }
         require(validSource(left) && validSource(right))
-        val leftCurrent = left.filterKeys { it != "history" }
-        val rightCurrent = right.filterKeys { it != "history" }
+        val leftCurrent = left.filterKeys { it != "history" && it != "restored_legacy_provenance" }
+        val rightCurrent = right.filterKeys { it != "history" && it != "restored_legacy_provenance" }
         require(leftCurrent.isEmpty() || rightCurrent.isEmpty() || fingerprint(leftCurrent) == fingerprint(rightCurrent))
         val result = (if (leftCurrent.isNotEmpty()) leftCurrent else rightCurrent).toMutableMap()
         val identities = linkedMapOf<String, JSONObject>()
@@ -220,6 +220,14 @@ object V2LegacyJournalRecovery {
         val history = JSONArray()
         identities.values.forEach(history::put)
         result["history"] = history.toString()
+        val provenance = linkedSetOf<String>()
+        for (source in listOf(left, right)) {
+            (source["restored_legacy_provenance"] as? String)?.let { raw ->
+                val items = JSONArray(raw)
+                for (i in 0 until items.length()) provenance += items.getString(i)
+            }
+        }
+        if (provenance.isNotEmpty()) result["restored_legacy_provenance"] = JSONArray(provenance.sorted()).toString()
         result.takeIf { validSource(it) }
     }.getOrNull()
 
@@ -256,8 +264,13 @@ object V2LegacyJournalRecovery {
         val mapping = mapOf("session_id" to "id", "real_entry" to "realEntry", "counted_entry" to "countedEntry",
             "real_exit" to "realExit", "counted_exit" to "countedExit", "employer_id" to "employerId",
             "company_slot" to "companySlot", "place_id" to "placeId", "place_label" to "placeLabel", "time_basis" to "timeBasis")
-        val allowed = mapping.keys + setOf("history", "expected_end", "pauses", "pause_start", "pause_source", "pause_paid")
+        val allowed = mapping.keys + setOf("history", "expected_end", "pauses", "pause_start", "pause_source", "pause_paid", "restored_legacy_provenance")
         if (values.isEmpty() || values.keys.any { it !in allowed }) return false
+        if (values.containsKey("restored_legacy_provenance")) {
+            val raw = values["restored_legacy_provenance"] as? String ?: return false
+            val items = JSONArray(raw)
+            if ((0 until items.length()).any { items.opt(it) !is String }) return false
+        }
         val history = if (values.containsKey("history")) JSONArray(values["history"] as? String ?: return false) else JSONArray()
         if (!V2RuntimeHistoryGuardV2.inspect(history).reliable) return false
         if (!values.containsKey("real_entry")) return !V2RuntimeStore.hasOrphanedCurrentSession(values)

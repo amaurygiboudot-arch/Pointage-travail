@@ -53,6 +53,7 @@ object V2BackupManager {
     )
 
     data class RestoreResult(val restoredFiles:Int,val mergedSessions:Int)
+    internal data class RuntimeMergePlan(val values: Map<String, Any?>, val added: Int)
     internal data class HistoryMergePlan(val history:JSONArray,val added:Int)
     internal data class BackupCopy(
         val fileName: String,
@@ -93,6 +94,7 @@ object V2BackupManager {
             }
 
             val root = treeRootDocumentUri(tree)
+            check(owner == V2RuntimeAccountScope.currentScope()) { "Compte modifié pendant la sauvegarde" }
             val folder = ensureDirectory(context, root, accountBackupFolder(owner))
             val existing = currentRecoveryCandidates(context, folder)
             listOf(FILE_NAME, RECOVERY_FILE_A, RECOVERY_FILE_B).forEach { fileName ->
@@ -107,11 +109,12 @@ object V2BackupManager {
             val recovery = ensureFile(context, folder, recoveryName, "application/json")
 
             // Une copie validée est durable avant toute réécriture du fichier principal.
-            writeAndVerifyBackup(context, recovery, content)
+            writeAndVerifyBackup(context, recovery, content, owner)
 
+            check(owner == V2RuntimeAccountScope.currentScope()) { "Compte modifié pendant la sauvegarde" }
             val canonical = ensureFile(context, folder, FILE_NAME, "application/json")
             // Si cette seconde écriture échoue, la copie recovery validée reste disponible.
-            writeAndVerifyBackup(context, canonical, content)
+            writeAndVerifyBackup(context, canonical, content, owner)
 
             context.getSharedPreferences("horatrack_v2_backup", Context.MODE_PRIVATE)
                 .edit()
@@ -314,10 +317,12 @@ object V2BackupManager {
         return BackupCopy(fileName, createdAtMs, priority)
     }
 
-    private fun writeAndVerifyBackup(context: Context, uri: Uri, content: String) {
+    private fun writeAndVerifyBackup(context: Context, uri: Uri, content: String, owner: String) {
+        check(owner == V2RuntimeAccountScope.currentScope()) { "Compte modifié pendant la sauvegarde" }
         context.contentResolver.openOutputStream(uri, "w")
             ?.bufferedWriter(Charsets.UTF_8)
             ?.use { writer ->
+                check(owner == V2RuntimeAccountScope.currentScope()) { "Compte modifié pendant la sauvegarde" }
                 writer.write(content)
                 writer.flush()
             }
@@ -387,7 +392,7 @@ object V2BackupManager {
     internal fun isRestorablePreferencePayload(name: String, saved: JSONObject): Boolean {
         if (!isValidTypedPreferencePayload(saved)) return false
         return when (name) {
-            RUNTIME_PREFS -> runCatching { decodeBackupHistory(saved) }.isSuccess
+            RUNTIME_PREFS -> runCatching { mergeRuntimeValues(emptyMap<String, Any>(), decodeRuntimeValues(saved)) }.isSuccess
             V2PayrollCoverageStore.PREFS -> runCatching { decodeBackupCoverage(saved) }.isSuccess
             V2SegmentedProrationStore.PREFS -> saved.keys().asSequence().all { key ->
                 val item = saved.optJSONObject(key)
@@ -499,11 +504,54 @@ object V2BackupManager {
         else->value.toString()
     }
 
-    private fun prepareRuntimeMerge(context:Context,saved:JSONObject):HistoryMergePlan {
+    private const val ACTIVE_RECOVERY_RECEIPT = "legacy_recovery_receipt"
+    private const val RESTORED_PROVENANCE = "restored_legacy_provenance"
+
+    internal fun decodeRuntimeValues(saved: JSONObject): Map<String, Any?> {
+        require(isValidTypedPreferencePayload(saved)) { "Journal sauvegardé invalide" }
+        return saved.keys().asSequence().associateWith { key ->
+            val item = saved.getJSONObject(key)
+            when (item.getString("t")) {
+                "s" -> item.getString("v")
+                "b" -> item.getBoolean("v")
+                "l" -> strictLong(item.get("v")) ?: error("Long invalide")
+                "i" -> (strictLong(item.get("v")) ?: error("Entier invalide")).toInt()
+                else -> error("Type non pris en charge dans le journal")
+            }
+        }
+    }
+
+    /** Restore facts atomically; foreign recovery receipts are evidence, never local ownership. */
+    internal fun mergeRuntimeValues(local: Map<String, *>, saved: Map<String, *>): RuntimeMergePlan {
+        val metadata = setOf(ACTIVE_RECOVERY_RECEIPT, RESTORED_PROVENANCE)
+        fun facts(values: Map<String, *>) = values.filterKeys { it !in metadata }
+        val left = facts(local)
+        val right = facts(saved)
+        val merged = requireNotNull(V2LegacyJournalRecovery.merge(left, right)) {
+            "Session courante ou historique en conflit : restauration annulée sans remplacer les faits locaux"
+        }.toMutableMap()
+        val before = JSONArray(left["history"] as? String ?: "[]").length()
+        val after = JSONArray(merged["history"] as? String ?: "[]").length()
+        local[ACTIVE_RECOVERY_RECEIPT]?.let {
+            require(it is String)
+            merged[ACTIVE_RECOVERY_RECEIPT] = it
+        }
+        val provenance = linkedSetOf<String>()
+        for (values in listOf(local, saved)) {
+            values[RESTORED_PROVENANCE]?.let { raw ->
+                require(raw is String)
+                val items = JSONArray(raw)
+                for (i in 0 until items.length()) provenance += items.getString(i)
+            }
+        }
+        saved[ACTIVE_RECOVERY_RECEIPT]?.let { require(it is String); provenance += it }
+        if (provenance.isNotEmpty()) merged[RESTORED_PROVENANCE] = JSONArray(provenance.sorted()).toString()
+        return RuntimeMergePlan(merged, after - before)
+    }
+
+    private fun prepareRuntimeMerge(context:Context,saved:JSONObject):RuntimeMergePlan {
         V2RuntimeReader.allSessions(context).requireReliable()
-        val current=V2RuntimeHistoryGuardV2.read(context)
-        require(current.reliable){"Historique local illisible : restauration bloquée"}
-        return mergeHistories(current.history,decodeBackupHistory(saved))
+        return mergeRuntimeValues(preferences(context, RUNTIME_PREFS).all, decodeRuntimeValues(saved))
     }
 
     private fun prepareCoverageMerge(
@@ -524,9 +572,18 @@ object V2BackupManager {
         }
     }
 
-    private fun applyRuntimeMerge(context:Context,plan:HistoryMergePlan):Int {
-        if(plan.added==0)return 0
-        check(V2RuntimeHistoryGuardV2.save(context,plan.history)){"Impossible d'enregistrer l'historique fusionné"}
+    private fun applyRuntimeMerge(context:Context,plan:RuntimeMergePlan):Int {
+        val editor = preferences(context, RUNTIME_PREFS).edit()
+        for ((key, value) in plan.values) {
+            when (value) {
+                is String -> editor.putString(key, value)
+                is Long -> editor.putLong(key, value)
+                is Int -> editor.putInt(key, value)
+                is Boolean -> editor.putBoolean(key, value)
+                else -> error("Type de journal invalide")
+            }
+        }
+        check(editor.commit()) { "Impossible d'enregistrer le journal fusionné" }
         return plan.added
     }
     private fun strictLong(value:Any?):Long?=when(value){

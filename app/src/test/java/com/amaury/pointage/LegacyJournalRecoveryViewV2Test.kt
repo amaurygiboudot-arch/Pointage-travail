@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.app.Application
 import android.content.Context
+import android.os.Looper
 import android.widget.Button
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
@@ -14,6 +15,7 @@ import org.junit.runner.RunWith
 import org.mockito.Mockito
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowAlertDialog
 
@@ -49,16 +51,21 @@ class LegacyJournalRecoveryViewV2Test {
 
     @Test fun declarationStartsUncheckedAndCancelDoesNotAssign() {
         (view.getChildAt(1) as Button).performClick()
+        // Dialog.show posts OnShowListener; inspect the state after that UI turn.
+        shadowOf(Looper.getMainLooper()).idle()
         val dialog = ShadowAlertDialog.getLatestAlertDialog()
         assertNotNull(dialog)
         assertFalse(dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled)
         dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(dialog.isShowing)
         assertTrue(activity.getSharedPreferences("horatrack_v2_legacy_recovery_claim", Context.MODE_PRIVATE).all.isEmpty())
         assertEquals("[]", activity.getSharedPreferences("horatrack_v2_test_runtime", Context.MODE_PRIVATE).getString("history", null))
     }
 
     @Test fun changingAccountDismissesOwnershipDialogWithoutAssignment() {
         (view.getChildAt(1) as Button).performClick()
+        shadowOf(Looper.getMainLooper()).idle()
         val dialog = ShadowAlertDialog.getLatestAlertDialog()
         assertTrue(dialog.isShowing)
         account("B")
