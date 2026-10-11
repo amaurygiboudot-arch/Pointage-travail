@@ -581,7 +581,7 @@ final class GpsGeofenceV2Tests: XCTestCase {
                 configuredZoneIds: [first, second],
                 expectedAccountScope: "uid:account-b"
             ),
-            .suspend(state)
+            .suspend(nil)
         )
         state.accountScope = nil
         XCTAssertEqual(
@@ -591,7 +591,7 @@ final class GpsGeofenceV2Tests: XCTestCase {
                 configuredZoneIds: [first, second],
                 expectedAccountScope: "uid:account-a"
             ),
-            .suspend(state)
+            .suspend(nil)
         )
     }
 
