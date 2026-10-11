@@ -15,6 +15,11 @@ object V2LegacyJournalRecovery {
     private const val CLAIM = "horatrack_v2_legacy_recovery_claim"
     private const val RECEIPT = "legacy_recovery_receipt"
     @Volatile private var uncertainCommit = false
+    private val recoveryWriter = ThreadLocal<Boolean>()
+    internal fun canWrite(context: Context, scope: String?): Boolean = recoveryWriter.get() == true || runCatching {
+        val record = claim(context)
+        !(record.getString("owner", null) == scope && (record.getString("state", null) == "PENDING" || uncertainCommit))
+    }.getOrDefault(false)
     private fun source(context: Context) = context.applicationContext.getSharedPreferences(BASE, Context.MODE_PRIVATE)
     private fun claim(context: Context) = context.applicationContext.getSharedPreferences(CLAIM, Context.MODE_PRIVATE)
     private fun legacy(context: Context) = context.applicationContext.getSharedPreferences("pointage", Context.MODE_PRIVATE)
@@ -54,6 +59,8 @@ object V2LegacyJournalRecovery {
     }
 
     fun confirm(context: Context, preview: Preview, declaredOwnership: Boolean): Result = V2RuntimeStore.withTransaction {
+        recoveryWriter.set(true)
+        try {
         fun blocked() = Result(false, "Récupération non effectuée : contexte modifié, conflit ou sauvegarde non confirmée. Originaux conservés.")
         if (!declaredOwnership || !preview.eligible || !preview.scope.startsWith("uid:")) return@withTransaction blocked()
         val fresh = this.preview(context) ?: return@withTransaction blocked()
@@ -96,6 +103,7 @@ object V2LegacyJournalRecovery {
         if (!reservation.edit().putString("state", "COMPLETE").commit()) return@withTransaction blocked()
         uncertainCommit = false
         Result(true, "Ancien journal rattaché au compte déclaré. Originaux conservés ; qualifications de paie inchangées.")
+        } finally { recoveryWriter.remove() }
     }
 
     internal fun assigned(context: Context): Boolean = runCatching {

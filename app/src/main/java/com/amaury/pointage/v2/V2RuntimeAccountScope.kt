@@ -52,14 +52,16 @@ object V2RuntimeAccountScope {
         val scope = operationScope()
         val name = fileName(baseName, scope) ?: "${baseName}_auth_unavailable"
         val delegate = context.applicationContext.getSharedPreferences(name, Context.MODE_PRIVATE)
-        return GuardedPreferences(delegate) { scope != null && scope == currentScope() }
+        return GuardedPreferences(delegate,
+            valid = { scope != null && scope == currentScope() },
+            writeAllowed = { V2LegacyJournalRecovery.canWrite(context.applicationContext, scope) })
     }
 
     internal fun guardedPreferences(delegate: SharedPreferences, valid: () -> Boolean): SharedPreferences =
         GuardedPreferences(delegate, valid)
 
     /** An editor captured for A can never commit after the caller switches to B. */
-    private class GuardedPreferences(val delegate: SharedPreferences, val valid: () -> Boolean) : SharedPreferences by delegate {
+    private class GuardedPreferences(val delegate: SharedPreferences, val valid: () -> Boolean, val writeAllowed: () -> Boolean = { true }) : SharedPreferences by delegate {
         override fun getAll(): MutableMap<String, *> = if (valid()) delegate.all else mutableMapOf<String, Any>()
         override fun contains(key: String?) = valid() && delegate.contains(key)
         override fun getString(key: String?, defValue: String?) = if (valid()) delegate.getString(key, defValue) else defValue
@@ -68,7 +70,7 @@ object V2RuntimeAccountScope {
         override fun getLong(key: String?, defValue: Long) = if (valid()) delegate.getLong(key, defValue) else defValue
         override fun getFloat(key: String?, defValue: Float) = if (valid()) delegate.getFloat(key, defValue) else defValue
         override fun getBoolean(key: String?, defValue: Boolean) = if (valid()) delegate.getBoolean(key, defValue) else defValue
-        override fun edit(): SharedPreferences.Editor = GuardedEditor(delegate.edit(), valid)
+        override fun edit(): SharedPreferences.Editor = GuardedEditor(delegate.edit()) { valid() && writeAllowed() }
     }
 
     private class GuardedEditor(val delegate: SharedPreferences.Editor, val valid: () -> Boolean) : SharedPreferences.Editor {
