@@ -39,17 +39,17 @@ class MonthlyPaidWorkScopeV2Test {
     }
 
     @Test
-    fun `segmented session crossing month boundary clips pause to month`() {
+    fun `session activity crossing month boundary clips unpaid pause to month`() {
         val start = rangeStart - 2 * minute
         val pauseStart = rangeStart - minute
         val pauseEnd = rangeStart + 2 * minute
         val end = rangeStart + 3 * minute
         val crossing = session(start, end).copy(
             pauses = listOf(PauseV2(pauseStart, pauseEnd, false, EventSourceV2.MANUAL)),
+            // Activity is represented for the full session; the separately qualified pause
+            // overlays it so the month's two in-range pause minutes can be counted.
             workSegments = listOf(
-                WorkSegmentV2(start, pauseStart, WorkSegmentKindV2.WORK),
-                WorkSegmentV2(pauseStart, pauseEnd, WorkSegmentKindV2.NON_WORK),
-                WorkSegmentV2(pauseEnd, end, WorkSegmentKindV2.WORK),
+                WorkSegmentV2(start, end, WorkSegmentKindV2.WORK),
             ),
         )
 
