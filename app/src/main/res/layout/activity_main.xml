@@ -309,6 +309,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
+            <com.amaury.pointage.LegacyJournalRecoveryViewV2
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp" />
+
             <com.amaury.pointage.LiveAnalyticsTextView
                 android:id="@+id/historyText"
                 android:layout_width="match_parent"

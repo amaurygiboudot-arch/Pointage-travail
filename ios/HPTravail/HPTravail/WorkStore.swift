@@ -15,8 +15,16 @@ final class WorkStoreV2: ObservableObject {
     // Payroll must not treat that incomplete history as a verified zero.
     var payrollHistoryReliable: Bool { storageReliable && !hasUnassignedHistory }
     var hasUnassignedHistory: Bool {
-        defaults.object(forKey: WorkSessionStorageV2.primaryKey) != nil ||
-            defaults.object(forKey: WorkSessionStorageV2.legacyKey) != nil
+        WorkSessionAccountStorageV2.hasUnassignedHistory(defaults: defaults)
+    }
+
+    func recoveryPreview() throws -> WorkSessionAccountStorageV2.RecoveryPreview {
+        try WorkSessionAccountStorageV2.recoveryPreview(account: accountProvider(), defaults: defaults)
+    }
+
+    func recoverHistoricalJournal(_ preview: WorkSessionAccountStorageV2.RecoveryPreview) throws {
+        defer { reloadAccount() }
+        try WorkSessionAccountStorageV2.recover(preview, accountProvider: accountProvider, defaults: defaults)
     }
     private var accountMatches: Bool {
         loadedAccount != nil && loadedAccount == WorkSessionAccountStorageV2.scope(accountProvider())

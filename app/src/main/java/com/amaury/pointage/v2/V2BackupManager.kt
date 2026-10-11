@@ -93,7 +93,7 @@ object V2BackupManager {
             }
 
             val root = treeRootDocumentUri(tree)
-            val folder = ensureDirectory(context, root, ROOT_FOLDER)
+            val folder = ensureDirectory(context, root, accountBackupFolder(owner))
             val existing = currentRecoveryCandidates(context, folder)
             listOf(FILE_NAME, RECOVERY_FILE_A, RECOVERY_FILE_B).forEach { fileName ->
                 val existingUri = findChild(context, folder, fileName, "application/json") ?: return@forEach
@@ -238,7 +238,7 @@ object V2BackupManager {
         val root = treeRootDocumentUri(tree)
         val candidates = mutableListOf<BackupCandidate>()
 
-        backupSearchLocations().groupBy { it.first }.forEach { (folderName, locations) ->
+        backupSearchLocations(V2RuntimeAccountScope.currentScope()).groupBy { it.first }.forEach { (folderName, locations) ->
             val folder = findChild(context, root, folderName, DocumentsContract.Document.MIME_TYPE_DIR)
                 ?: return@forEach
             locations.forEach { (_, fileName) ->
@@ -262,8 +262,12 @@ object V2BackupManager {
                 ?.let { inspectBackupCandidate(context, it, fileName, priority) }
         }
 
-    internal fun backupSearchLocations(): List<Pair<String, String>> =
-        (listOf(ROOT_FOLDER) + LEGACY_ROOT_FOLDERS).flatMap { folder ->
+    /** A separate stable directory preserves unowned historical backups byte-for-byte. */
+    internal fun accountBackupFolder(scope: String): String =
+        requireNotNull(V2RuntimeAccountScope.fileName(ROOT_FOLDER, scope)) { "Compte indisponible" }
+
+    internal fun backupSearchLocations(scope: String? = null): List<Pair<String, String>> =
+        (listOfNotNull(scope?.let(::accountBackupFolder), ROOT_FOLDER) + LEGACY_ROOT_FOLDERS).flatMap { folder ->
             (listOf(FILE_NAME) + LEGACY_FILE_NAMES + listOf(RECOVERY_FILE_A, RECOVERY_FILE_B))
                 .map { file -> folder to file }
         }
@@ -294,8 +298,12 @@ object V2BackupManager {
         uri: Uri,
         fileName: String,
         priority: Int
-    ): BackupCandidate? = inspectBackupContent(fileName, priority) { readBackupText(context, uri) }
-        ?.let { BackupCandidate(uri, it) }
+    ): BackupCandidate? {
+        val raw = readBackupText(context, uri)
+        val root = runCatching { JSONObject(raw) }.getOrNull() ?: return null
+        if (!backupOwnerMatches(root, V2RuntimeAccountScope.currentScope())) return null
+        return inspectBackupContent(fileName, priority) { raw }?.let { BackupCandidate(uri, it) }
+    }
 
     /** Une erreur I/O reste une erreur : elle ne rend jamais une copie disponible à l'écrasement. */
     internal fun inspectBackupContent(fileName: String, priority: Int, read: () -> String): BackupCopy? {

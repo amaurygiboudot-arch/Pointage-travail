@@ -48,5 +48,29 @@ final class WorkStoreAccountIsolationV2Tests: XCTestCase {
         XCTAssertEqual(restarted.sessions, store.sessions)
         XCTAssertFalse(restarted.payrollHistoryReliable)
     }
+    func testExplicitRecoveryRestoresPayrollAndSurvivesStoreRecreation() throws {
+        let suite = "workstore-recovery-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let historical = WorkSession(id: UUID(), entry: Date().addingTimeInterval(-3600), exit: Date().addingTimeInterval(-1800), pauses: [])
+        let bytes = try JSONEncoder().encode([historical])
+        defaults.set(bytes, forKey: WorkSessionStorageV2.primaryKey)
+        var account: String? = "uid:A"
+        let store = WorkStoreV2(defaults: defaults, accountProvider: { account })
+        XCTAssertFalse(store.payrollHistoryReliable)
+        let preview = try store.recoveryPreview()
+        try store.recoverHistoricalJournal(preview)
+        XCTAssertTrue(store.payrollHistoryReliable)
+        XCTAssertEqual(store.sessions, [historical])
+        let restarted = WorkStoreV2(defaults: defaults, accountProvider: { account })
+        XCTAssertTrue(restarted.payrollHistoryReliable)
+        XCTAssertEqual(restarted.sessions, [historical])
+        account = "uid:B"
+        store.reloadAccount()
+        XCTAssertTrue(store.sessions.isEmpty)
+        XCTAssertTrue(store.payrollHistoryReliable)
+        XCTAssertEqual(defaults.data(forKey: WorkSessionStorageV2.primaryKey), bytes)
+    }
+
 }
 #endif

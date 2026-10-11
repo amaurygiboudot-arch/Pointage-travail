@@ -250,13 +250,25 @@ class GpsExitDeliveryIntegrationV2Test {
     }
 
     @Test fun guestIsExplicitAndCannotBePromotedToAnotherAccount() {
+        val accountSession = checkNotNull(V2RuntimeReader.current(context).snapshot.session)
         changeAccount(null)
+        // Signing out must not promote account A's active session into the guest journal.
+        assertNull(V2RuntimeReader.current(context).snapshot.session)
+        assertTrue(V2RuntimeStore.entry(context, arrival))
+        val guestSession = checkNotNull(V2RuntimeReader.current(context).snapshot.session)
+        assertNotEquals(accountSession.id, guestSession.id)
         val guest = record()
         assertEquals("guest", guest.accountScope)
         stage(guest)
         changeAccount("account-b")
         GpsExitDeliveryV2.replay(context)
         assertNull(GpsWorkStateCoordinatorV2.pending(context))
+        changeAccount(null)
+        assertEquals(guestSession.id, V2RuntimeReader.current(context).snapshot.session?.id)
+        assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
+        changeAccount("account-a")
+        assertEquals(accountSession.id, V2RuntimeReader.current(context).snapshot.session?.id)
+        assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
     }
 
     @Test fun changedGpsConfigurationInvalidatesQueuedDeparture() {

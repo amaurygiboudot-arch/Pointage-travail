@@ -24,6 +24,9 @@ struct ContentView: View {
     @State private var clockInFeedback: String?
     @State private var gpsFeedback: String?
     @State private var homeTabBarVisible = true
+    @State private var recoveryPreview: WorkSessionAccountStorageV2.RecoveryPreview?
+    @State private var showRecoveryConfirmation = false
+    @State private var recoveryFeedback: String?
     @State private var settingsPage: SettingsPage?
 
     private enum SettingsPage: String {
@@ -47,6 +50,21 @@ struct ContentView: View {
                 .tabItem { Label("Réglages", systemImage: "gearshape") }
         }
         .tint(accent)
+        .alert("Déclarer la propriété de l’ancien journal", isPresented: $showRecoveryConfirmation) {
+            Button("Annuler", role: .cancel) { recoveryPreview = nil }
+            Button("Tous ces pointages m’appartiennent") {
+                guard let preview = recoveryPreview else { return }
+                do {
+                    try store.recoverHistoricalJournal(preview)
+                    recoveryFeedback = "Journal récupéré dans ce compte. Les originaux sont conservés."
+                } catch { recoveryFeedback = error.localizedDescription }
+                recoveryPreview = nil
+            }
+        } message: {
+            if let preview = recoveryPreview {
+                Text("Compte : \(authManager.user?.email ?? authManager.user?.uid ?? "indisponible"). \(preview.historicalCount) pointage(s), du \(preview.firstEntry?.formatted(date: .abbreviated, time: .shortened) ?? "—") au \(preview.lastEntry?.formatted(date: .abbreviated, time: .shortened) ?? "—").\n\n\(preview.containsOpenSession ? "Une session est encore ouverte.\n\n" : "")Confirme uniquement si TOUS ces pointages t’appartiennent. Si cet appareil a été partagé ou si tu as un doute, annule. Cette déclaration vient de toi ; Firebase ne vérifie pas la propriété de cet historique. Les originaux restent conservés.")
+            }
+        }
         .sheet(isPresented: $showManualEntry) {
             ManualEntrySheetV2()
         }
@@ -109,6 +127,8 @@ struct ContentView: View {
             showGpsConfirmation = locationManager.pendingEvent != nil
         }
         .onChange(of: authManager.user?.uid) { _ in
+            recoveryPreview = nil
+            showRecoveryConfirmation = false
             store.reloadAccount()
             locationManager.reloadAndReconcile()
         }
@@ -159,10 +179,22 @@ struct ContentView: View {
                             .font(.footnote)
                     }
                     if store.hasUnassignedHistory {
-                        Text("Un ancien journal est conservé sur cet appareil. Son propriétaire doit être confirmé avant toute récupération ; il n’est pas inclus dans ce compte.")
+                        Text("Un ancien journal est conservé sur cet appareil. Les calculs restent à confirmer tant que son propriétaire n’est pas déclaré.")
                             .font(.footnote)
                             .foregroundStyle(.orange)
+                        Button("Examiner la récupération de mon journal") {
+                            do {
+                                recoveryPreview = try store.recoveryPreview()
+                                recoveryFeedback = nil
+                                showRecoveryConfirmation = true
+                            } catch { recoveryFeedback = error.localizedDescription }
+                        }
+                        .disabled(!authManager.isSignedIn)
+                        if !authManager.isSignedIn {
+                            Text("Connecte-toi pour déclarer la propriété de l’ancien journal.").font(.footnote)
+                        }
                     }
+                    if let recoveryFeedback { Text(recoveryFeedback).font(.footnote) }
                     clockEmployerCard
 
                     HStack(spacing: 18) {

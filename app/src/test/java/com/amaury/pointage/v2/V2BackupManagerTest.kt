@@ -9,6 +9,20 @@ import org.junit.Test
 
 class V2BackupManagerTest {
     @Test
+    fun `account backup location preserves unowned historical files and separates accounts`() {
+        val a = V2BackupManager.accountBackupFolder("uid:A")
+        val b = V2BackupManager.accountBackupFolder("uid:B")
+        assertFalse(a == b)
+        assertFalse(a == "AGKGMG")
+        assertFalse(a.contains("uid:A"))
+        assertEquals(a, V2BackupManager.accountBackupFolder("uid:A"))
+        val locations = V2BackupManager.backupSearchLocations("uid:A")
+        assertTrue(locations.contains(a to "AGKGMG_backup.json"))
+        assertTrue(locations.contains("AGKGMG" to "AGKGMG_backup.json"))
+        assertFalse(locations.any { it.first == b })
+    }
+
+    @Test
     fun `backup owner must match and historical unowned data is not claimed`() {
         val owned = JSONObject().put("accountScope", "uid:A")
         assertTrue(V2BackupManager.backupOwnerMatches(owned, "uid:A"))

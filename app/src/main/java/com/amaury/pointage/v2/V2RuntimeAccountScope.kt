@@ -43,6 +43,7 @@ object V2RuntimeAccountScope {
 
     fun hasUnassignedHistory(context: Context): Boolean {
         val app = context.applicationContext
+        if (V2LegacyJournalRecovery.assigned(app)) return false
         return app.getSharedPreferences("horatrack_v2_test_runtime", Context.MODE_PRIVATE).all.isNotEmpty() ||
             app.getSharedPreferences("pointage", Context.MODE_PRIVATE).contains("data")
     }
