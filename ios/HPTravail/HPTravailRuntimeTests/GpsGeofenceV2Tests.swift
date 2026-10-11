@@ -559,6 +559,42 @@ final class GpsGeofenceV2Tests: XCTestCase {
         )
     }
 
+    func testPersistedGpsStateIsBoundToAccountAcrossRestart() throws {
+        var state = persistedState()
+        state.accountScope = "uid:account-a"
+        let data = try JSONEncoder().encode(state)
+        let restored = GpsStateStoreV2.read(data)
+        XCTAssertEqual(restored, .valid(state))
+        XCTAssertEqual(
+            GpsStateValidationV2.startupState(
+                read: restored,
+                expectedFingerprint: state.fingerprint,
+                configuredZoneIds: [first, second],
+                expectedAccountScope: "uid:account-a"
+            ),
+            .resume(state)
+        )
+        XCTAssertEqual(
+            GpsStateValidationV2.startupState(
+                read: restored,
+                expectedFingerprint: state.fingerprint,
+                configuredZoneIds: [first, second],
+                expectedAccountScope: "uid:account-b"
+            ),
+            .suspend(state)
+        )
+        state.accountScope = nil
+        XCTAssertEqual(
+            GpsStateValidationV2.startupState(
+                read: .valid(state),
+                expectedFingerprint: state.fingerprint,
+                configuredZoneIds: [first, second],
+                expectedAccountScope: "uid:account-a"
+            ),
+            .suspend(state)
+        )
+    }
+
     func testStartupStateSuspendsOverflowAndSemanticMismatch() {
         var overflowed = persistedState()
         overflowed.eventQueueOverflowed = true

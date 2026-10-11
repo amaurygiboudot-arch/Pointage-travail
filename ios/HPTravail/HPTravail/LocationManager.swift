@@ -3,6 +3,7 @@ import CoreLocation
 import CoreMotion
 import Foundation
 import FirebaseAuth
+import FirebaseCore
 import UIKit
 
 struct CelestialTrackingStateV2 {
@@ -66,7 +67,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     /// zone creation; continuous celestial tracking must not overwrite it.
     private var celestialLocation: CLLocation?
 
-    private var gpsAccountScope: String {
+    private var gpsAccountScope: String? {
+        guard FirebaseApp.app() != nil else { return nil }
         let uid = Auth.auth().currentUser?.uid.trimmingCharacters(in: .whitespacesAndNewlines)
         return uid.flatMap { $0.isEmpty ? nil : "uid:\($0)" } ?? "guest"
     }
@@ -353,7 +355,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             pendingEvent = stored.pendingEvents.first
             return true
         }
-        let persisted = persistedState(from: reconciled, fingerprint: fingerprint)
+        let persisted = persistedState(from: reconciled, fingerprint: fingerprint, accountScope: stored.accountScope)
         guard GpsStateStoreV2.write(persisted, defaults: defaults) else {
             suspendRegistration(message: "État GPS non fiable — automatisme suspendu")
             return false
@@ -418,6 +420,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             enabled: automaticEnabled,
             zones: zones
         )
+        if fingerprint != nil && gpsAccountScope == nil {
+            suspendRegistration(message: "Compte Firebase indisponible — pointage GPS suspendu")
+            pendingEvent = nil
+            return
+        }
         if configurationChanged {
             GpsStateStoreV2.clear(defaults: defaults)
             pendingEvent = nil
@@ -823,7 +830,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             transition: transition,
             occurredAt: occurredAt
         )
-        let persisted = persistedState(from: next, fingerprint: fingerprint)
+        let persisted = persistedState(from: next, fingerprint: fingerprint, accountScope: stored.accountScope)
         guard persisted != stored else { return }
         guard GpsStateStoreV2.write(persisted, defaults: defaults) else {
             suspendRegistration(message: "État GPS non fiable — automatisme suspendu")
@@ -842,11 +849,14 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             pendingEvent = nil
             return nil
         }
+        guard let accountScope = gpsAccountScope else {
+            return "Compte Firebase indisponible — pointage GPS suspendu"
+        }
         let startup = GpsStateValidationV2.startupState(
             read: GpsStateStoreV2.read(defaults.data(forKey: GpsStateStoreV2.key)),
             expectedFingerprint: expectedFingerprint,
             configuredZoneIds: GpsZoneConfigurationV2.automaticZoneIds(zones),
-            expectedAccountScope: gpsAccountScope
+            expectedAccountScope: accountScope
         )
         switch startup {
         case .resume(let state):
@@ -875,7 +885,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     private func isValid(state: GpsPersistedStateV2, fingerprint: String) -> Bool {
-        GpsStateValidationV2.startupState(
+        guard let accountScope = gpsAccountScope else { return false }
+        return GpsStateValidationV2.startupState(
             read: .valid(state),
             expectedFingerprint: fingerprint,
             configuredZoneIds: GpsZoneConfigurationV2.automaticZoneIds(zones),
@@ -949,14 +960,14 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             confirmedSessionId: state.confirmedSessionId,
             eventQueueOverflowed: state.eventQueueOverflowed,
             confirmedZoneId: state.confirmedZoneId,
-            pendingExitObservations: state.pendingExitObservations,
-            accountScope: gpsAccountScope
+            pendingExitObservations: state.pendingExitObservations
         )
     }
 
     private func persistedState(
         from state: GpsPresenceTransitionV2.State,
-        fingerprint: String
+        fingerprint: String,
+        accountScope: String?
     ) -> GpsPersistedStateV2 {
         .init(
             fingerprint: fingerprint,
@@ -966,7 +977,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             confirmedSessionId: state.confirmedSessionId,
             eventQueueOverflowed: state.eventQueueOverflowed,
             confirmedZoneId: state.confirmedZoneId,
-            pendingExitObservations: state.pendingExitObservations
+            pendingExitObservations: state.pendingExitObservations,
+            accountScope: accountScope
         )
     }
 

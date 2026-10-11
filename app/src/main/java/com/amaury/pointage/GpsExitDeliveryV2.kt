@@ -146,7 +146,7 @@ internal object GpsExitDeliveryV2 {
                 val session = runtime.snapshot.session
                 if (session?.status != SessionStatusV2.OPEN || session.realExitMs != null ||
                     !delivery.matchesSession(session.id, session.realArrivalMs)) {
-                    removeAcknowledged(gps, encoded)
+                    removeAcknowledged(gps, encoded, acknowledged)
                     return@withTransaction
                 }
                 if (allowReturnAcknowledgement && hasProvenReturn(app, delivery)) {

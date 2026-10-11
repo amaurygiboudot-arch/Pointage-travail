@@ -26,7 +26,13 @@ class MonthlyPaidWorkScopeV2Test {
             ),
         )
 
-        val result = resolve(listOf(workSession))
+        val result = MonthlyPaidWorkScopeV2.resolve(
+            sessions = listOf(workSession),
+            acceptedEmployerIds = setOf("company"),
+            rangeStartMs = rangeStart,
+            rangeEndMs = rangeEnd,
+            nowMs = end + minute
+        )
 
         assertTrue(result.reliable)
         assertEquals(30 * minute, result.unpaidPauseMs)

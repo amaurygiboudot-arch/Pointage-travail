@@ -173,7 +173,6 @@ enum GpsPresenceTransitionV2 {
         var eventQueueOverflowed: Bool
         var confirmedZoneId: UUID? = nil
         var pendingExitObservations: [GpsZoneExitObservationV2]? = nil
-    var accountScope: String? = nil
     }
 
     static func plan(
@@ -301,6 +300,7 @@ struct GpsPersistedStateV2: Codable, Equatable {
     var eventQueueOverflowed: Bool
     var confirmedZoneId: UUID? = nil
     var pendingExitObservations: [GpsZoneExitObservationV2]? = nil
+    var accountScope: String? = nil
 }
 
 /// Effets des confirmations explicites ; l'événement a été retiré de la file par le gestionnaire.
