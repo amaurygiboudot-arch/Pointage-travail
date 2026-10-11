@@ -178,12 +178,17 @@ class DatedWorkRulesEditorV2(
             read == null || !read.reliable -> "Lecture bloquée : compte, contrat ou stockage incohérent."
             read.records.isEmpty() -> "Aucune règle enregistrée pour ce contrat."
             else -> read.records.sortedByDescending { it.effectiveFromEpochDay }.joinToString("\n\n") { r ->
-                "${topicTitle(r.topic)} • ${r.confirmation.name}\n" +
+                "${topicTitle(r.topic)} • ${confirmationTitle(r.confirmation)}\n" +
                     "${LocalDate.ofEpochDay(r.effectiveFromEpochDay)} → " +
                     (r.effectiveToEpochDay?.let { LocalDate.ofEpochDay(it - 1).toString() } ?: "en cours") +
                     "\nSource : ${r.sourceId.ifBlank { "à fournir" }} | ${r.ruleReference.ifBlank { "à préciser" }}"
             }
         }
+    }
+
+    private fun confirmationTitle(value: WorkRuleConfirmationV2): String = when (value) {
+        WorkRuleConfirmationV2.CONFIRMED -> "Confirmée"
+        WorkRuleConfirmationV2.TO_CONFIRM -> "À confirmer"
     }
 
     private fun currentContract() = contracts.getOrNull(contractSpinner.selectedItemPosition)

@@ -14,6 +14,48 @@ import org.junit.Test
 class MonthlyPaidWorkScopeV2Test {
 
     @Test
+    fun `ordinary workday resolves unpaid pause from full session segments`() {
+        val start = rangeStart + 8 * 60 * minute
+        val pauseStart = start + 4 * 60 * minute
+        val pauseEnd = pauseStart + 30 * minute
+        val end = start + 8 * 60 * minute
+        val workSession = session(start, end).copy(
+            pauses = listOf(PauseV2(pauseStart, pauseEnd, false, EventSourceV2.MANUAL)),
+            workSegments = listOf(
+                WorkSegmentV2(start, pauseStart, WorkSegmentKindV2.WORK),
+                WorkSegmentV2(pauseStart, pauseEnd, WorkSegmentKindV2.NON_WORK),
+                WorkSegmentV2(pauseEnd, end, WorkSegmentKindV2.WORK),
+            ),
+        )
+
+        val result = resolve(listOf(workSession))
+
+        assertTrue(result.reliable)
+        assertEquals(30 * minute, result.unpaidPauseMs)
+    }
+
+    @Test
+    fun `segmented session crossing month boundary clips pause to month`() {
+        val start = rangeStart - 2 * minute
+        val pauseStart = rangeStart - minute
+        val pauseEnd = rangeStart + 2 * minute
+        val end = rangeStart + 3 * minute
+        val crossing = session(start, end).copy(
+            pauses = listOf(PauseV2(pauseStart, pauseEnd, false, EventSourceV2.MANUAL)),
+            workSegments = listOf(
+                WorkSegmentV2(start, pauseStart, WorkSegmentKindV2.WORK),
+                WorkSegmentV2(pauseStart, pauseEnd, WorkSegmentKindV2.NON_WORK),
+                WorkSegmentV2(pauseEnd, end, WorkSegmentKindV2.WORK),
+            ),
+        )
+
+        val result = resolve(listOf(crossing))
+
+        assertTrue(result.reliable)
+        assertEquals(2 * minute, result.unpaidPauseMs)
+    }
+
+    @Test
     fun nonWorkSegmentIsNotReportedAsAnUnpaidPause() {
         val start = rangeStart
         val workSession = session(start, start + 8 * 60 * minute).copy(

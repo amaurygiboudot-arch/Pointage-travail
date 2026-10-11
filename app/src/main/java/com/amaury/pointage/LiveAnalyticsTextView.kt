@@ -108,7 +108,9 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
                 if (pendingGpsExitInPeriod != null) {
                     append("Une sortie GPS est proposée, mais n'a pas été confirmée : aucune heure de fin n'est présumée.\n")
                 }
-                append("Une ou plusieurs sessions contiennent une durée ou une pause non certifiable. Aucun total partiel n'est présenté comme définitif.")
+                if (!analytics.timeTotalsReliable) {
+                    append("Une ou plusieurs sessions contiennent une durée ou une pause non certifiable. Aucun total partiel n'est présenté comme définitif.")
+                }
                 if (staleOpenSessions > 0) {
                     append("\nSessions anciennes restées ouvertes exclues : ").append(staleOpenSessions)
                 }
