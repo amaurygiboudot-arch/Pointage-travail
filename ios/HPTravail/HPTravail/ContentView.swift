@@ -107,6 +107,9 @@ struct ContentView: View {
             _ = locationManager.reconcileSession(openSessionId: store.currentSession?.id)
             showGpsConfirmation = locationManager.pendingEvent != nil
         }
+        .onChange(of: authManager.user?.uid) { _ in
+            locationManager.reloadAndReconcile()
+        }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
             _ = locationManager.reconcileSession(openSessionId: store.currentSession?.id)

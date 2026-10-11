@@ -173,6 +173,7 @@ enum GpsPresenceTransitionV2 {
         var eventQueueOverflowed: Bool
         var confirmedZoneId: UUID? = nil
         var pendingExitObservations: [GpsZoneExitObservationV2]? = nil
+    var accountScope: String? = nil
     }
 
     static func plan(
@@ -359,7 +360,8 @@ enum GpsStateValidationV2 {
     static func startupState(
         read: GpsStateReadV2,
         expectedFingerprint: String,
-        configuredZoneIds: Set<UUID>
+        configuredZoneIds: Set<UUID>,
+        expectedAccountScope: String? = nil
     ) -> GpsStartupStateV2 {
         switch read {
         case .missing:
@@ -367,6 +369,10 @@ enum GpsStateValidationV2 {
         case .corrupt:
             return .suspend(nil)
         case .valid(let state):
+            if let expectedAccountScope, state.accountScope != expectedAccountScope {
+                // Legacy or other-account GPS prompts remain readable only as non-actionable history.
+                return .suspend(nil)
+            }
             guard state.fingerprint == expectedFingerprint,
                   state.activeZoneIds.isSubset(of: configuredZoneIds),
                   state.pendingExitZoneIds.isSubset(of: configuredZoneIds),

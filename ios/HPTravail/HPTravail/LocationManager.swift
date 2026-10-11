@@ -2,6 +2,7 @@ import Combine
 import CoreLocation
 import CoreMotion
 import Foundation
+import FirebaseAuth
 import UIKit
 
 struct CelestialTrackingStateV2 {
@@ -64,6 +65,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     /// remains the result of an explicit one-shot request used by pointage and
     /// zone creation; continuous celestial tracking must not overwrite it.
     private var celestialLocation: CLLocation?
+
+    private var gpsAccountScope: String {
+        let uid = Auth.auth().currentUser?.uid.trimmingCharacters(in: .whitespacesAndNewlines)
+        return uid.flatMap { $0.isEmpty ? nil : "uid:\($0)" } ?? "guest"
+    }
     private var celestialTrackingActive = false
 
     @Published private(set) var authorizationStatus: CLAuthorizationStatus
@@ -386,6 +392,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     func reloadAndReconcile(configurationChanged: Bool = false) {
+        pendingEvent = nil
         automaticEnabled = defaults.bool(forKey: GpsZoneConfigurationV2.enabledKey)
         switch GpsZoneConfigurationV2.read(
             defaults.data(forKey: GpsZoneConfigurationV2.zonesKey)
@@ -732,7 +739,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             pendingExitZoneIds: [],
             pendingEvents: [],
             confirmedSessionId: nil,
-            eventQueueOverflowed: false
+            eventQueueOverflowed: false,
+            accountScope: gpsAccountScope
         )
         guard GpsStateStoreV2.write(reconciledState, defaults: defaults) else {
             statusMessage = "Impossible d'enregistrer l'état GPS"
@@ -837,7 +845,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         let startup = GpsStateValidationV2.startupState(
             read: GpsStateStoreV2.read(defaults.data(forKey: GpsStateStoreV2.key)),
             expectedFingerprint: expectedFingerprint,
-            configuredZoneIds: GpsZoneConfigurationV2.automaticZoneIds(zones)
+            configuredZoneIds: GpsZoneConfigurationV2.automaticZoneIds(zones),
+            expectedAccountScope: gpsAccountScope
         )
         switch startup {
         case .resume(let state):
@@ -869,7 +878,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         GpsStateValidationV2.startupState(
             read: .valid(state),
             expectedFingerprint: fingerprint,
-            configuredZoneIds: GpsZoneConfigurationV2.automaticZoneIds(zones)
+            configuredZoneIds: GpsZoneConfigurationV2.automaticZoneIds(zones),
+            expectedAccountScope: gpsAccountScope
         ) == .resume(state)
     }
 
@@ -939,7 +949,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             confirmedSessionId: state.confirmedSessionId,
             eventQueueOverflowed: state.eventQueueOverflowed,
             confirmedZoneId: state.confirmedZoneId,
-            pendingExitObservations: state.pendingExitObservations
+            pendingExitObservations: state.pendingExitObservations,
+            accountScope: gpsAccountScope
         )
     }
 

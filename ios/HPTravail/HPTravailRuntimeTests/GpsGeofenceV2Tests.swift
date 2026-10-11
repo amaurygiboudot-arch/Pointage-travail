@@ -7,6 +7,50 @@ final class GpsGeofenceV2Tests: XCTestCase {
     private let second = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
     private let now = Date(timeIntervalSinceReferenceDate: 1_000)
 
+    func testPersistedGpsStateCannotBeRestoredForAnotherOrUnknownAccount() {
+        let state = GpsPersistedStateV2(
+            fingerprint: "fingerprint",
+            activeZoneIds: [],
+            pendingExitZoneIds: [],
+            pendingEvents: [],
+            confirmedSessionId: nil,
+            eventQueueOverflowed: false,
+            accountScope: "uid:account-a"
+        )
+        let configured = GpsStateReadV2.valid(state)
+
+        XCTAssertEqual(
+            GpsStateValidationV2.startupState(
+                read: configured,
+                expectedFingerprint: "fingerprint",
+                configuredZoneIds: [],
+                expectedAccountScope: "uid:account-a"
+            ),
+            .resume(state)
+        )
+        XCTAssertEqual(
+            GpsStateValidationV2.startupState(
+                read: configured,
+                expectedFingerprint: "fingerprint",
+                configuredZoneIds: [],
+                expectedAccountScope: "uid:account-b"
+            ),
+            .suspend(nil)
+        )
+
+        var legacy = state
+        legacy.accountScope = nil
+        XCTAssertEqual(
+            GpsStateValidationV2.startupState(
+                read: .valid(legacy),
+                expectedFingerprint: "fingerprint",
+                configuredZoneIds: [],
+                expectedAccountScope: "uid:account-b"
+            ),
+            .suspend(nil)
+        )
+    }
+
     func testConfigurationRejectsCorruptionDuplicatesAndMoreThanTenZones() throws {
         XCTAssertEqual(GpsZoneConfigurationV2.read(nil), .missing)
         XCTAssertEqual(GpsZoneConfigurationV2.read(Data("bad".utf8)), .corrupt)
