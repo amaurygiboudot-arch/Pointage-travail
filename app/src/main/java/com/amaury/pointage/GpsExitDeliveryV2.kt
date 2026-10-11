@@ -133,10 +133,11 @@ internal object GpsExitDeliveryV2 {
             { GpsExitDeliveryRecordV2.decode(it)?.event?.atMs ?: Long.MAX_VALUE },
             { GpsExitDeliveryRecordV2.decode(it)?.event?.id.orEmpty() }
         ))
+        val acknowledged = linkedSetOf<String>()
         for (encoded in ordered) {
             val delivery = GpsExitDeliveryRecordV2.decode(encoded) ?: continue
             if (scope != delivery.accountScope || fingerprint != delivery.configurationFingerprint) {
-                removeAcknowledged(gps, encoded)
+                removeAcknowledged(gps, encoded, acknowledged)
                 continue
             }
             V2RuntimeStore.withTransaction {
@@ -172,14 +173,25 @@ internal object GpsExitDeliveryV2 {
                 if (outcome.durableAcknowledgement) removeAcknowledged(gps, encoded)
             }
         }
+        if (acknowledged.isNotEmpty()) {
+            val current = readRaw(gps) ?: return
+            // Persist the whole acknowledged batch once; a failed cleanup remains idempotent
+            // because per-delivery receipts were committed before this outbox cleanup.
+            gps.edit().putStringSet(KEY, current - acknowledged).commit()
+        }
     }
 
     private fun readRaw(prefs: SharedPreferences): Set<String>? = runCatching {
         prefs.getStringSet(KEY, emptySet())?.toSet()
     }.getOrNull()
 
-    private fun removeAcknowledged(prefs: SharedPreferences, encoded: String): Boolean {
-        val current = readRaw(prefs) ?: return false
-        return prefs.edit().putStringSet(KEY, current - encoded).commit()
+    private fun removeAcknowledged(
+        prefs: SharedPreferences,
+        encoded: String,
+        acknowledged: MutableSet<String>
+    ): Boolean {
+        if (readRaw(prefs) == null) return false
+        acknowledged += encoded
+        return true
     }
 }

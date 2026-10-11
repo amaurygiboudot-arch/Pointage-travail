@@ -189,6 +189,28 @@ class GpsExitDeliveryIntegrationV2Test {
         assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
     }
 
+    @Test fun directPendingQuestionIsBoundToAccountAndCannotCrossSwitch() {
+        val event = record().event
+        assertNotNull(GpsWorkStateCoordinatorV2.route(context, event,
+            GpsDecisionV2(true, false, true, "test")))
+        assertNotNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
+
+        changeAccount("account-b")
+
+        assertNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
+        assertFalse(GpsWorkStateCoordinatorV2.confirmExit(context, event.id))
+    }
+
+    @Test fun legacyUnboundQuestionCannotBeConfirmed() {
+        val record = record()
+        stage(record)
+        GpsExitDeliveryV2.replay(context)
+        business.edit().remove("pending_account_scope").commit()
+
+        assertNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
+        assertFalse(GpsWorkStateCoordinatorV2.confirmExit(context, record.event.id))
+    }
+
     @Test fun accountSwitchInvalidatesQueuedAndAlreadyDeliveredQuestions() {
         val record = record()
         stage(record)

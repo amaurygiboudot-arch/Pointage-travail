@@ -27,6 +27,7 @@ object GpsWorkStateCoordinatorV2 {
     private const val KEY_PROMPTED_PROCESS = "prompted_process"
     private val processToken = UUID.randomUUID().toString()
     private const val KEY_PENDING_DELIVERY = "pending_delivery_binding"
+    private const val KEY_PENDING_ACCOUNT_SCOPE = "pending_account_scope"
     private const val KEY_DELIVERY_RECEIPTS = "delivery_receipts"
     private const val KEY_RECEIPT_CONTEXT = "delivery_receipt_context"
     private const val RETURN_WINDOW_MS = 2L * 60_000L
@@ -390,12 +391,14 @@ object GpsWorkStateCoordinatorV2 {
     private fun savePending(context: Context, event: GpsEventV2, kind: Pending.Kind,
         delivery: GpsExitDeliveryRecordV2? = null): Boolean {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val accountScope = GpsExitDeliveryV2.accountScope() ?: return false
         val editor = prefs.edit()
             .putString(KEY_PENDING_ID, event.id)
             .putLong(KEY_PENDING_AT, event.atMs)
             .putString(KEY_PENDING_PLACE, event.placeId)
             .putString(KEY_PENDING_TYPE, "${event.pointType.name}:${kind.name}")
             .putString(KEY_PENDING_TRANSITION, event.transition.name)
+            .putString(KEY_PENDING_ACCOUNT_SCOPE, accountScope)
         if (prefs.getString(KEY_PENDING_ID, null) != event.id)
             editor.remove(KEY_PROMPTED_ID).remove(KEY_PROMPTED_PROCESS)
         if (delivery == null) editor.remove(KEY_PENDING_DELIVERY)
@@ -436,7 +439,11 @@ object GpsWorkStateCoordinatorV2 {
 
     private fun pendingBindingMatches(context: Context, current: WorkSessionV2?): Boolean? {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (!prefs.contains(KEY_PENDING_DELIVERY)) return true // Historical unbound questions stay historical.
+        val storedScope = runCatching { prefs.getString(KEY_PENDING_ACCOUNT_SCOPE, null) }.getOrNull()
+            ?: return false // Legacy unbound questions remain historical and cannot be confirmed.
+        val currentScope = GpsExitDeliveryV2.accountScope() ?: return null
+        if (storedScope != currentScope) return false
+        if (!prefs.contains(KEY_PENDING_DELIVERY)) return true
         val raw = runCatching { prefs.getString(KEY_PENDING_DELIVERY, null) }.getOrNull() ?: return null
         val delivery = GpsExitDeliveryRecordV2.decode(raw) ?: return null
         if (!delivery.matchesSession(current?.id, current?.realArrivalMs)) return false
