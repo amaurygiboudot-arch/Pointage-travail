@@ -22,9 +22,7 @@ class MonthlyPaidWorkScopeV2Test {
         val workSession = session(start, end).copy(
             pauses = listOf(PauseV2(pauseStart, pauseEnd, false, EventSourceV2.MANUAL)),
             workSegments = listOf(
-                WorkSegmentV2(start, pauseStart, WorkSegmentKindV2.WORK),
-                WorkSegmentV2(pauseStart, pauseEnd, WorkSegmentKindV2.NON_WORK),
-                WorkSegmentV2(pauseEnd, end, WorkSegmentKindV2.WORK),
+                WorkSegmentV2(start, end, WorkSegmentKindV2.WORK),
             ),
         )
 
