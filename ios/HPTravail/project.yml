@@ -64,6 +64,9 @@ targets:
       - path: HPTravail/CelestialV2/Core/AtmosphericRefractionV2.swift
       - path: HPTravail/CelestialV2/Core/SolarEclipseGeometryV2.swift
       - path: HPTravail/RuntimeV2/WorkSessionPersistenceV2.swift
+      - path: HPTravail/RuntimeV2/WorkSessionAccountStorageV2.swift
+      - path: HPTravail/RuntimeV2/ManualSessionPolicyV2.swift
+      - path: HPTravail/WorkStore.swift
       # Même module canonique complet que la cible Swift Package SalaryV2Contract.
       - path: HPTravail/SalaryV2
     settings:

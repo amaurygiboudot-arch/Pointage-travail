@@ -19,6 +19,8 @@ import com.amaury.pointage.V2AppLock
 class V2InitProvider : ContentProvider() {
     private var runtimePrefs: SharedPreferences? = null
     private var iconStateListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
+    private var accountListener: com.google.firebase.auth.FirebaseAuth.AuthStateListener? = null
+    private var observedScope: String? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onCreate(): Boolean {
@@ -38,13 +40,7 @@ class V2InitProvider : ContentProvider() {
     }
 
     private fun installIconStateSync(app: Application) {
-        val prefs = app.getSharedPreferences("horatrack_v2_test_runtime", Context.MODE_PRIVATE)
-        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-            syncIconNowAndAfterStateCommit(app)
-        }
-        runtimePrefs = prefs
-        iconStateListener = listener
-        prefs.registerOnSharedPreferenceChangeListener(listener)
+        observeCurrentAccount(app)
 
         app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             override fun onActivityPaused(activity: Activity) = syncIconNowAndAfterStateCommit(app)
@@ -52,6 +48,7 @@ class V2InitProvider : ContentProvider() {
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
             override fun onActivityStarted(activity: Activity) = Unit
             override fun onActivityResumed(activity: Activity) {
+                observeCurrentAccount(app)
                 // Une alarme de fin peut être retardée par Android/HyperOS.
                 // Au retour dans l'app, on réconcilie immédiatement l'état avec le créneau prévu.
                 PauseScheduleManager.applyCurrentWindow(app)
@@ -63,6 +60,31 @@ class V2InitProvider : ContentProvider() {
 
         PauseScheduleManager.applyCurrentWindow(app)
         syncIconNowAndAfterStateCommit(app)
+    }
+
+    private fun observeCurrentAccount(app: Application) {
+        if (accountListener == null) {
+            runCatching {
+                val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
+                val listener = com.google.firebase.auth.FirebaseAuth.AuthStateListener {
+                    observeCurrentAccount(app)
+                    syncIconNowAndAfterStateCommit(app)
+                }
+                accountListener = listener
+                auth.addAuthStateListener(listener)
+            }
+        }
+        val scope = V2RuntimeAccountScope.currentScope()
+        if (scope == observedScope && runtimePrefs != null) return
+        iconStateListener?.let { runtimePrefs?.unregisterOnSharedPreferenceChangeListener(it) }
+        observedScope = scope
+        val prefs = V2RuntimeAccountScope.preferences(app, "horatrack_v2_test_runtime")
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            syncIconNowAndAfterStateCommit(app)
+        }
+        runtimePrefs = prefs
+        iconStateListener = listener
+        prefs.registerOnSharedPreferenceChangeListener(listener)
     }
 
     private fun syncIconNowAndAfterStateCommit(app: Application) {

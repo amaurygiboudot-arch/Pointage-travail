@@ -129,15 +129,15 @@ internal object GpsExitDeliveryV2 {
         val stored = readPersistedGpsZones(gps)
         if (stored !is GpsZonesReadResult.Valid) return
         val fingerprint = storedGpsAutomaticFingerprintV2(gps.getBoolean("enabled", false), stored)
-        val ordered = raw.sortedWith(compareBy(
-            { GpsExitDeliveryRecordV2.decode(it)?.event?.atMs ?: Long.MAX_VALUE },
-            { GpsExitDeliveryRecordV2.decode(it)?.event?.id.orEmpty() }
-        ))
+        // Decode once per entry, not during each comparison. Keep undecodable raw
+        // records untouched: an unreadable observation is not an acknowledgement.
+        val ordered = raw.mapNotNull { encoded ->
+            GpsExitDeliveryRecordV2.decode(encoded)?.let { encoded to it }
+        }.sortedWith(compareBy({ it.second.event.atMs }, { it.second.event.id }))
         val acknowledged = linkedSetOf<String>()
-        for (encoded in ordered) {
-            val delivery = GpsExitDeliveryRecordV2.decode(encoded) ?: continue
+        for ((encoded, delivery) in ordered) {
             if (scope != delivery.accountScope || fingerprint != delivery.configurationFingerprint) {
-                removeAcknowledged(gps, encoded, acknowledged)
+                acknowledged.add(encoded)
                 continue
             }
             V2RuntimeStore.withTransaction {
@@ -146,19 +146,19 @@ internal object GpsExitDeliveryV2 {
                 val session = runtime.snapshot.session
                 if (session?.status != SessionStatusV2.OPEN || session.realExitMs != null ||
                     !delivery.matchesSession(session.id, session.realArrivalMs)) {
-                    removeAcknowledged(gps, encoded, acknowledged)
+                    acknowledged.add(encoded)
                     return@withTransaction
                 }
                 if (allowReturnAcknowledgement && hasProvenReturn(app, delivery)) {
                     if (GpsWorkStateCoordinatorV2.acknowledgeReturnedDelivery(app, delivery))
-                        removeAcknowledged(gps, encoded, acknowledged)
+                        acknowledged.add(encoded)
                     return@withTransaction
                 }
                 // The receipt survives user confirmation/cancellation and makes replay idempotent
                 // even when the previous outbox cleanup failed after a successful delivery.
                 when (GpsWorkStateCoordinatorV2.confirmDurableDeliveryReceipt(app, delivery)) {
                     GpsWorkStateCoordinatorV2.DeliveryReceiptState.ACKNOWLEDGED -> {
-                        removeAcknowledged(gps, encoded, acknowledged)
+                        acknowledged.add(encoded)
                         return@withTransaction
                     }
                     GpsWorkStateCoordinatorV2.DeliveryReceiptState.RETRY -> return@withTransaction
@@ -170,7 +170,7 @@ internal object GpsExitDeliveryV2 {
                     durableDelivery = delivery
                 )
                 // Do not ingest again: the RAM anti-bounce cache cannot acknowledge a disk write.
-                if (outcome.durableAcknowledgement) removeAcknowledged(gps, encoded, acknowledged)
+                if (outcome.durableAcknowledgement) acknowledged.add(encoded)
             }
         }
         if (acknowledged.isNotEmpty()) {
@@ -185,13 +185,4 @@ internal object GpsExitDeliveryV2 {
         prefs.getStringSet(KEY, emptySet())?.toSet()
     }.getOrNull()
 
-    private fun removeAcknowledged(
-        prefs: SharedPreferences,
-        encoded: String,
-        acknowledged: MutableSet<String>
-    ): Boolean {
-        if (readRaw(prefs) == null) return false
-        acknowledged += encoded
-        return true
-    }
 }

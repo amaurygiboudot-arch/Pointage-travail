@@ -67,14 +67,18 @@ struct SalaryDatedWorkRulesEditorV2: View {
             loadSelectedContract()
         }
         .onChange(of: authentication.user?.uid) { _ in
+            clearConfirmation()
             savedRecords = []
+            selectedContractId = ""
+            sourceId = ""
+            ruleReference = ""
             info = "Le compte a changé : fermez puis rouvrez l'écran avant d'enregistrer."
             confirmsOwnContract = false
         }
+        .onDisappear { clearConfirmation() }
         .alert("Confirmer la référence", isPresented: $showConfirmation) {
             Button("Annuler", role: .cancel) {
-                proposal = nil
-                replacingId = nil
+                clearConfirmation()
             }
             Button("Enregistrer") { saveProposal() }
         } message: {
@@ -95,8 +99,10 @@ struct SalaryDatedWorkRulesEditorV2: View {
                       systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
             }
-            Text("Entreprise sélectionnée : \(companyId)")
-                .font(.caption)
+            if accountStillValid {
+                Text("Entreprise sélectionnée : \(companyId)")
+                    .font(.caption)
+            }
         }
     }
 
@@ -311,6 +317,7 @@ struct SalaryDatedWorkRulesEditorV2: View {
     }
 
     private func saveProposal() {
+        defer { clearConfirmation() }
         guard accountStillValid, let uid = authenticatedUid,
               let selected = selectedContract, let record = proposal,
               selected.versionId == record.owner.contractVersionId,
@@ -335,6 +342,13 @@ struct SalaryDatedWorkRulesEditorV2: View {
             ? "Référence datée enregistrée, sans modifier le barème de paie."
             : "Refus : compte, contrat, doublon ou période incohérente."
         if saved { reloadHistory() }
+    }
+
+    private func clearConfirmation() {
+        showConfirmation = false
+        preview = ""
+        proposal = nil
+        replacingId = nil
     }
 
     private func epochDay(_ date: Date) -> Int64? {

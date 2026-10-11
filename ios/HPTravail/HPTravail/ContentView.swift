@@ -104,14 +104,17 @@ struct ContentView: View {
             Text("La présence GPS reste un indice. AGKGMG n'enregistre aucun temps payé sans ta confirmation.")
         }
         .onAppear {
+            store.reloadAccount()
             _ = locationManager.reconcileSession(openSessionId: store.currentSession?.id)
             showGpsConfirmation = locationManager.pendingEvent != nil
         }
         .onChange(of: authManager.user?.uid) { _ in
+            store.reloadAccount()
             locationManager.reloadAndReconcile()
         }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
+            store.reloadAccount()
             _ = locationManager.reconcileSession(openSessionId: store.currentSession?.id)
         }
         .onChange(of: locationManager.pendingEvent?.id) { pendingId in
@@ -151,6 +154,15 @@ struct ContentView: View {
                     Text(Date.now.formatted(date: .omitted, time: .shortened))
                         .font(.system(size: 52, weight: .bold, design: .rounded))
 
+                    if !authManager.isFirebaseConfigured {
+                        Text("Authentification indisponible : le journal de pointage est temporairement bloqué.")
+                            .font(.footnote)
+                    }
+                    if store.hasUnassignedHistory {
+                        Text("Un ancien journal est conservé sur cet appareil. Son propriétaire doit être confirmé avant toute récupération ; il n’est pas inclus dans ce compte.")
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                    }
                     clockEmployerCard
 
                     HStack(spacing: 18) {

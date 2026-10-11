@@ -30,17 +30,23 @@ object V2RuntimeHistoryGuardV2 {
 
     data class SourceState(
         val reliable: Boolean,
-        val warnings: List<String>
+        val warnings: List<String>,
+        val accountScope: String? = null
     )
 
-    @Volatile
-    private var lastSourceState = SourceState(true, emptyList())
+    // Source reliability belongs to the caller's read, never to another worker's last read.
+    private val lastSourceState = ThreadLocal<SourceState>()
 
     fun read(
         context: Context,
         allowLegacyMissingIds: Boolean = false
     ): ReadResult {
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!V2RuntimeAccountScope.available()) {
+            val warning = V2RuntimeAccountScope.AUTH_WARNING
+            publishSourceState(false, listOf(warning))
+            return ReadResult(JSONArray(), false, listOf(warning))
+        }
+        val prefs = V2RuntimeAccountScope.preferences(context, PREFS)
         val result = if (!prefs.contains(KEY_HISTORY)) {
             ReadResult(JSONArray(), true, emptyList())
         } else {
@@ -51,13 +57,18 @@ object V2RuntimeHistoryGuardV2 {
         return result
     }
 
-    internal fun sourceState(): SourceState = lastSourceState
+    internal fun sourceState(): SourceState {
+        val state = lastSourceState.get() ?: return SourceState(false, listOf(V2RuntimeAccountScope.AUTH_WARNING))
+        return if (V2RuntimeAccountScope.available() && state.accountScope == V2RuntimeAccountScope.currentScope()) state
+        else SourceState(false, listOf(V2RuntimeAccountScope.AUTH_WARNING))
+    }
 
     internal fun publishSourceState(reliable: Boolean, warnings: List<String> = emptyList()) {
-        lastSourceState = SourceState(
+        lastSourceState.set(SourceState(
             reliable = reliable,
-            warnings = warnings.distinct()
-        )
+            warnings = warnings.distinct(),
+            accountScope = V2RuntimeAccountScope.operationScope()
+        ))
     }
 
     internal fun decode(
@@ -190,13 +201,14 @@ object V2RuntimeHistoryGuardV2 {
     }
 
     fun save(context: Context, history: JSONArray): Boolean {
+        if (!V2RuntimeAccountScope.available()) return false
         val inspected = inspect(history)
         if (!inspected.reliable) {
             publishSourceState(false, inspected.warnings)
             return false
         }
         val saved = runCatching {
-            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            V2RuntimeAccountScope.preferences(context, PREFS)
                 .edit()
                 .putString(KEY_HISTORY, history.toString())
                 .commit()

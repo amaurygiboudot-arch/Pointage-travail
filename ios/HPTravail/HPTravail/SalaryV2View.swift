@@ -47,7 +47,7 @@ struct SalaryV2View: View {
                 resetPayrollCoverageConfirmation()
                 clearPayslipComparisonResult()
             }
-            .onChange(of: workStore.storageReliable) { _ in
+            .onChange(of: workStore.payrollHistoryReliable) { _ in
                 salaryStore.refresh()
                 resetPayrollCoverageConfirmation()
                 clearPayslipComparisonResult()

@@ -48,6 +48,7 @@ class DatedWorkRulesEditorV2(
     private val ownContract = CheckBox(context)
     private val status = label("")
     private val history = label("")
+    private var confirmationDialog: AlertDialog? = null
 
     init {
         orientation = VERTICAL
@@ -113,6 +114,7 @@ class DatedWorkRulesEditorV2(
 
     override fun onDetachedFromWindow() {
         runCatching { FirebaseAuth.getInstance().removeAuthStateListener(accountListener) }
+        dismissConfirmation()
         super.onDetachedFromWindow()
     }
 
@@ -122,6 +124,7 @@ class DatedWorkRulesEditorV2(
     }
 
     private fun hideWhenAccountChanges() {
+        dismissConfirmation()
         contracts = emptyList()
         fromField.setText("")
         toField.setText("")
@@ -133,6 +136,13 @@ class DatedWorkRulesEditorV2(
         // Remove the old user's company/contract form immediately, without deleting facts.
         for (index in 3 until childCount) getChildAt(index).visibility = View.GONE
         status.text = "Le compte a changé : fermez cet écran avant de continuer."
+    }
+
+    private fun dismissConfirmation() {
+        val dialog = confirmationDialog
+        confirmationDialog = null
+        dialog?.setMessage("")
+        dialog?.dismiss()
     }
 
     private fun loadVersions() {
@@ -248,7 +258,8 @@ class DatedWorkRulesEditorV2(
             append("Qualification : ${if (contractReference) "provenance contractuelle vérifiée, PAS taux de paie" else "à confirmer (ne certifie aucun salaire)"}")
             if (open != null) append("\nL'ancienne version ${open.id} sera fermée à la date d'effet.")
         }
-        AlertDialog.Builder(context)
+        dismissConfirmation()
+        val dialog = AlertDialog.Builder(context)
             .setTitle("Vérifier la règle datée")
             .setMessage(preview)
             .setNegativeButton("ANNULER", null)
@@ -262,7 +273,12 @@ class DatedWorkRulesEditorV2(
                 message(if (saved) "Référence enregistrée avec sa date et sa source." else
                     "Enregistrement refusé : doublon, conflit, contrat ou compte à vérifier.")
                 if (saved) refreshHistory()
-            }.show()
+            }.create()
+        confirmationDialog = dialog
+        dialog.setOnDismissListener {
+            if (confirmationDialog === dialog) confirmationDialog = null
+        }
+        dialog.show()
     }
 
     private fun activeUid(): String? = runCatching {

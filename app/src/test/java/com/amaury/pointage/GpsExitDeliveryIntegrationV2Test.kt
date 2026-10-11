@@ -117,6 +117,31 @@ class GpsExitDeliveryIntegrationV2Test {
         assertEquals(exit, V2RuntimeReader.current(context).snapshot.session?.realExitMs)
     }
 
+    @Test fun fullBacklogCleansStaleEntriesOnceAndRetainsMalformedEvidenceAfterRetry() {
+        val current = record()
+        val stale = (1..254).map { index ->
+            current.copy(event = current.event.copy(id = "stale-$index"),
+                accountScope = "uid:previous-account").encode()
+        }
+        val raw = (stale + current.encode() + "malformed-evidence").toSet()
+        assertEquals(256, raw.size)
+        assertTrue(gps.edit().putStringSet(GpsExitDeliveryV2.KEY, raw).commit())
+        gps.deliverySetReads = 0
+        gps.failNext = 1
+        GpsExitDeliveryV2.replay(context)
+        // A single initial snapshot and a final reread, independent of backlog size.
+        assertEquals(2, gps.deliverySetReads)
+        assertEquals(current.event.id, GpsWorkStateCoordinatorV2.pending(context)?.id)
+        gps.restart()
+        assertEquals(raw, gps.getStringSet(GpsExitDeliveryV2.KEY, mutableSetOf()))
+        GpsExitDeliveryV2.replay(context)
+        restartPreferences()
+        assertEquals(setOf("malformed-evidence"),
+            gps.getStringSet(GpsExitDeliveryV2.KEY, mutableSetOf()))
+        assertEquals(current.event.id, GpsWorkStateCoordinatorV2.pending(context)?.id)
+        assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
+    }
+
     @Test fun failedPendingCommitDoesNotAcknowledgeDespiteMutatedMemoryCache() {
         stage()
         business.failNext = 1
@@ -169,7 +194,7 @@ class GpsExitDeliveryIntegrationV2Test {
 
     @Test fun unreliableRuntimeRetainsOutboxUntilVerifiedAgain() {
         stage()
-        val runtime = context.getSharedPreferences("horatrack_v2_test_runtime", Context.MODE_PRIVATE)
+        val runtime = com.amaury.pointage.v2.V2RuntimeAccountScope.preferences(context, "horatrack_v2_test_runtime")
         assertTrue(runtime.edit().putString("history", "not-json").commit())
         GpsExitDeliveryV2.replay(context)
         assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, mutableSetOf())!!.isNotEmpty())
@@ -398,13 +423,16 @@ class GpsExitDeliveryIntegrationV2Test {
         private var memory = mutableMapOf<String, Any>()
         private var disk = mapOf<String, Any>()
         var failNext = 0
+        var deliverySetReads = 0
         fun restart() { memory = disk.toMutableMap() }
         override fun getAll(): MutableMap<String, *> = memory.toMutableMap()
         override fun contains(key: String): Boolean = memory.containsKey(key)
         override fun getString(key: String, defValue: String?): String? = memory[key] as? String ?: defValue
         @Suppress("UNCHECKED_CAST")
-        override fun getStringSet(key: String, defValues: MutableSet<String>?): MutableSet<String>? =
-            (memory[key] as? Set<String>)?.toMutableSet() ?: defValues
+        override fun getStringSet(key: String, defValues: MutableSet<String>?): MutableSet<String>? {
+            if (key == GpsExitDeliveryV2.KEY) deliverySetReads++
+            return (memory[key] as? Set<String>)?.toMutableSet() ?: defValues
+        }
         override fun getInt(key: String, defValue: Int) = memory[key] as? Int ?: defValue
         override fun getLong(key: String, defValue: Long) = memory[key] as? Long ?: defValue
         override fun getFloat(key: String, defValue: Float) = memory[key] as? Float ?: defValue

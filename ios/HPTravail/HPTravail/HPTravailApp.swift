@@ -1,5 +1,7 @@
 import SwiftUI
 import GoogleSignIn
+import FirebaseAuth
+import FirebaseCore
 
 @main
 @MainActor
@@ -7,10 +9,17 @@ struct HPTravailApp: App {
     @StateObject private var store: WorkStoreV2
     @StateObject private var salaryStore: SalaryV2Store
     @StateObject private var locationManager = LocationManager()
-    @StateObject private var authManager = AuthManager()
+    @StateObject private var authManager: AuthManager
 
     init() {
-        let workStore = WorkStoreV2()
+        let auth = AuthManager()
+        _authManager = StateObject(wrappedValue: auth)
+        let workStore = WorkStoreV2(accountProvider: {
+            guard FirebaseApp.app() != nil else { return nil }
+            return WorkSessionAccountStorageV2.authenticationScope(
+                available: true, userId: Auth.auth().currentUser?.uid
+            )
+        })
         _store = StateObject(wrappedValue: workStore)
         _salaryStore = StateObject(
             wrappedValue: SalaryV2Store(
@@ -46,7 +55,7 @@ struct HPTravailApp: App {
 
                     let workSource = SalaryWorkSessionBridgeV2.source(
                         from: workStore.sessions,
-                        storageReliable: workStore.storageReliable
+                        storageReliable: workStore.payrollHistoryReliable
                     )
                     let absenceSource = SalaryAbsenceStoreV2.resolve(
                         companyId: companyId,
@@ -160,7 +169,7 @@ struct HPTravailApp: App {
                 segmentedProvider: { companyId, period in
                     let workSource = SalaryWorkSessionBridgeV2.source(
                         from: workStore.sessions,
-                        storageReliable: workStore.storageReliable
+                        storageReliable: workStore.payrollHistoryReliable
                     )
                     return SalarySegmentedCanonicalReferenceProviderV2.build(
                         companyId: companyId,
@@ -171,7 +180,7 @@ struct HPTravailApp: App {
                 workSourceProvider: {
                     SalaryWorkSessionBridgeV2.source(
                         from: workStore.sessions,
-                        storageReliable: workStore.storageReliable
+                        storageReliable: workStore.payrollHistoryReliable
                     )
                 }
             )

@@ -35,7 +35,12 @@ object V2MigrationManager {
         return V2RuntimeStore.withTransaction {
             if (!HoraTrackV2.ENABLED) return Result(0, 0, 0, 0)
             val app = context.applicationContext
-            val meta = app.getSharedPreferences(META_PREFS, Context.MODE_PRIVATE)
+            if (!V2RuntimeAccountScope.available()) {
+                val warning = V2RuntimeAccountScope.AUTH_WARNING
+                V2RuntimeHistoryGuardV2.publishSourceState(false, listOf(warning))
+                return Result(0, 0, 0, 0, false, listOf(warning))
+            }
+            val meta = V2RuntimeAccountScope.preferences(app, META_PREFS)
             val completedVersion = meta.getInt("version", 0)
 
             // Une migration legacy validée pour la version courante devient immuable : les démarrages
@@ -53,13 +58,9 @@ object V2MigrationManager {
                 )
             }
 
-            val prefs = app.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
-            if (!prefs.contains(LEGACY_KEY)) return importLegacyArray(app, JSONArray())
-            val raw = runCatching { prefs.getString(LEGACY_KEY, null) }.getOrNull()
-            if (raw == null) return migrationFailure()
-            if (raw.isBlank()) return migrationFailure()
-            val legacy = runCatching { JSONArray(raw) }.getOrNull() ?: return migrationFailure()
-            return importLegacyArray(app, legacy)
+            // Device-wide legacy data has no proven account owner. Keep it untouched;
+            // initialise only the new scoped journal. Payroll guards preserve incompleteness.
+            return importLegacyArray(app, JSONArray())
         }
     }
 
@@ -69,7 +70,12 @@ object V2MigrationManager {
         return V2RuntimeStore.withTransaction {
             if (!HoraTrackV2.ENABLED) return Result(0, 0, legacy.length(), 0)
             val app = context.applicationContext
-            val runtime = app.getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
+            if (!V2RuntimeAccountScope.available()) {
+                val warning = V2RuntimeAccountScope.AUTH_WARNING
+                V2RuntimeHistoryGuardV2.publishSourceState(false, listOf(warning))
+                return Result(0, 0, 0, 0, false, listOf(warning))
+            }
+            val runtime = V2RuntimeAccountScope.preferences(app, RUNTIME_PREFS)
             val storedHistory = V2RuntimeHistoryGuardV2.read(app, allowLegacyMissingIds = true)
             if (!storedHistory.reliable) {
                 return Result(
@@ -154,7 +160,7 @@ object V2MigrationManager {
                 )
             }
             if (!persistCompletion(
-                    app.getSharedPreferences(META_PREFS, Context.MODE_PRIVATE),
+                    V2RuntimeAccountScope.preferences(app, META_PREFS),
                     legacy.length(), history.length(), System.currentTimeMillis()
                 )) {
                 val warnings = listOf("Historique V2 enregistré, mais confirmation de migration non sauvegardée : nouvelle vérification requise.")

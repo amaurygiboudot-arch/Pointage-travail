@@ -34,10 +34,10 @@ object V2RuntimeReader {
     fun allSessions(
         context: Context,
         nowMs: Long = System.currentTimeMillis()
-    ): SessionsRead {
+    ): SessionsRead = V2RuntimeStore.withTransaction {
         val sessions = V2RuntimeStore.allSessions(context, nowMs)
         val source = V2RuntimeHistoryGuardV2.sourceState()
-        return SessionsRead(
+        return@withTransaction SessionsRead(
             sessions = sessions,
             reliable = source.reliable,
             warnings = source.warnings
@@ -51,11 +51,11 @@ object V2RuntimeReader {
     fun current(
         context: Context,
         nowMs: Long = System.currentTimeMillis()
-    ): CurrentRead {
-        V2RuntimeStore.allSessions(context, nowMs)
+    ): CurrentRead = V2RuntimeStore.withTransaction {
+        V2RuntimeStore.allSessions(context, nowMs, requireCompleteHistory = false)
         val fullSource = V2RuntimeHistoryGuardV2.sourceState()
         if (!fullSource.reliable) {
-            return CurrentRead(
+            return@withTransaction CurrentRead(
                 snapshot = V2RuntimeStore.Snapshot(null, null),
                 reliable = false,
                 warnings = fullSource.warnings
@@ -64,7 +64,7 @@ object V2RuntimeReader {
 
         val snapshot = V2RuntimeStore.snapshot(context, nowMs)
         val source = V2RuntimeHistoryGuardV2.sourceState()
-        return CurrentRead(
+        return@withTransaction CurrentRead(
             snapshot = if (source.reliable) snapshot else V2RuntimeStore.Snapshot(null, null),
             reliable = source.reliable,
             warnings = source.warnings

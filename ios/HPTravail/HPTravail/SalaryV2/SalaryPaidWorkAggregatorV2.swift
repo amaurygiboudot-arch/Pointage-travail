@@ -135,7 +135,7 @@ enum SalaryPaidWorkAggregatorV2 {
             warnings.append(unassignedEmployerWarning)
         }
         var completedSessionCount = 0
-        var paidMinutesByWeek: [WeekKey: Int] = [:]
+        var paidSecondsByWeek: [WeekKey: TimeInterval] = [:]
         var coveredIntervals: [(start: Date, end: Date)] = []
 
         for session in sessions where normalizedEmployerId(session.employerId) == employerId {
@@ -239,9 +239,8 @@ enum SalaryPaidWorkAggregatorV2 {
                 let key = WeekKey(year: weekYear, week: weekOfYear)
                 let paidSeconds = max(0, assessment.paidDuration)
                 if paidSeconds.isFinite {
-                    let roundedMinutes = Int(floor(paidSeconds / 60.0))
                     if paidSeconds > 0 || !assessment.reliable {
-                        paidMinutesByWeek[key, default: 0] += roundedMinutes
+                        paidSecondsByWeek[key, default: 0] += paidSeconds
                     }
                 } else {
                     reliable = false
@@ -261,11 +260,12 @@ enum SalaryPaidWorkAggregatorV2 {
             warnings.append(overlapWarning)
         }
 
-        let weeks = paidMinutesByWeek.keys.sorted().map { key in
+        // Preserve seconds across sessions; convert once per payroll week.
+        let weeks = paidSecondsByWeek.keys.sorted().map { key in
             SalaryPaidWeekV2(
                 yearForWeekOfYear: key.year,
                 weekOfYear: key.week,
-                paidMinutes: paidMinutesByWeek[key, default: 0]
+                paidMinutes: Int(floor(paidSecondsByWeek[key, default: 0] / 60.0))
             )
         }
 

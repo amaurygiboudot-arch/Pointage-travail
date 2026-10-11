@@ -9,13 +9,34 @@ import org.junit.Test
 
 class V2BackupManagerTest {
     @Test
+    fun `backup owner must match and historical unowned data is not claimed`() {
+        val owned = JSONObject().put("accountScope", "uid:A")
+        assertTrue(V2BackupManager.backupOwnerMatches(owned, "uid:A"))
+        assertFalse(V2BackupManager.backupOwnerMatches(owned, "uid:B"))
+        assertFalse(V2BackupManager.backupOwnerMatches(owned, "guest"))
+        assertFalse(V2BackupManager.backupOwnerMatches(owned, null))
+        assertFalse(V2BackupManager.backupOwnerMatches(JSONObject(), "uid:A"))
+        assertFalse(V2BackupManager.backupOwnerMatches(JSONObject().put("accountScope", 1), "1"))
+    }
+
+    @Test
+    fun `authenticated legacy cloud provenance cannot override an explicit different owner`() {
+        assertTrue(V2BackupManager.backupOwnerAuthorized(JSONObject(), "uid:A", "uid:A"))
+        assertFalse(V2BackupManager.backupOwnerAuthorized(JSONObject(), "uid:B", "uid:A"))
+        assertFalse(V2BackupManager.backupOwnerAuthorized(JSONObject(), "guest", "guest"))
+        assertFalse(V2BackupManager.backupOwnerAuthorized(JSONObject(), "uid:A", null))
+        assertFalse(V2BackupManager.backupOwnerAuthorized(JSONObject().put("accountScope", "uid:B"), "uid:A", "uid:A"))
+    }
+
+    @Test
     fun `versions de sauvegarde historiques et courante sont acceptees`() {
         assertTrue(V2BackupManager.isSupportedFormatVersion(1))
         assertTrue(V2BackupManager.isSupportedFormatVersion(2))
         assertTrue(V2BackupManager.isSupportedFormatVersion(3))
         assertTrue(V2BackupManager.isSupportedFormatVersion(4))
         assertFalse(V2BackupManager.isSupportedFormatVersion(0))
-        assertFalse(V2BackupManager.isSupportedFormatVersion(5))
+        assertTrue(V2BackupManager.isSupportedFormatVersion(5))
+        assertFalse(V2BackupManager.isSupportedFormatVersion(6))
     }
 
     @Test

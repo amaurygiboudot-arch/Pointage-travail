@@ -56,7 +56,7 @@ object V2RuntimeStore {
     )
 
     /** Même moniteur que les mutations @Synchronized du runtime, réentrant sans verrou secondaire. */
-    internal inline fun <T> withTransaction(block: () -> T): T = synchronized(this, block)
+    internal inline fun <T> withTransaction(block: () -> T): T = synchronized(this) { V2RuntimeAccountScope.withScope(block) }
 
     fun bind(context: Context) {
         boundContext = context.applicationContext
@@ -73,6 +73,10 @@ object V2RuntimeStore {
      */
     private fun readForWrite(context: Context, nowMs: Long = System.currentTimeMillis()): WriteRead {
         bind(context)
+        if (!V2RuntimeAccountScope.available()) {
+            V2RuntimeHistoryGuardV2.publishSourceState(false, listOf(V2RuntimeAccountScope.AUTH_WARNING))
+            return WriteRead(false, null)
+        }
         val migration = V2MigrationManager.ensureMigrated(context)
         if (!migration.reliable) {
             V2RuntimeHistoryGuardV2.publishSourceState(false, migration.warnings)
@@ -92,6 +96,7 @@ object V2RuntimeStore {
         expectedEndMs: Long? = null,
         companySlot: Int? = null
     ): Boolean {
+        return V2RuntimeAccountScope.withScope {
         if (nowMs <= 0L) return false
         val current = readForWrite(context, nowMs)
         if (!current.reliable || current.session?.status == SessionStatusV2.OPEN) return false
@@ -134,10 +139,12 @@ object V2RuntimeStore {
         employerId?.let { editor.putString(KEY_EMPLOYER_ID, it) }
         knownExpected?.let { editor.putLong(KEY_EXPECTED_END, it) }
         return editor.commit()
+        }
     }
 
     @Synchronized
     fun setExpectedEnd(context: Context, expectedEndMs: Long?): Boolean {
+        return V2RuntimeAccountScope.withScope {
         val current = readForWrite(context)
         val session = current.session ?: return false
         if (!current.reliable || session.status != SessionStatusV2.OPEN) return false
@@ -149,6 +156,7 @@ object V2RuntimeStore {
         }
         if (expectedEndMs <= entry) return false
         return editor.putLong(KEY_EXPECTED_END, expectedEndMs).commit()
+        }
     }
 
     fun expectedEnd(context: Context): Long? = safeLong(prefs(context).all[KEY_EXPECTED_END]).takeIf { it > 0L }
@@ -161,6 +169,7 @@ object V2RuntimeStore {
         paid: Boolean? = null,
         expectedTarget: PauseActionPolicyV2.Target? = null
     ): Boolean {
+        return V2RuntimeAccountScope.withScope {
         val current = readForWrite(context, nowMs)
         val session = current.session ?: return false
         if (!current.reliable || session.status != SessionStatusV2.OPEN) return false
@@ -196,6 +205,7 @@ object V2RuntimeStore {
             .remove(KEY_PAUSE_SOURCE)
             .remove(KEY_PAUSE_PAID)
             .commit()
+        }
     }
 
     /**
@@ -204,6 +214,7 @@ object V2RuntimeStore {
      */
     @Synchronized
     fun addQualifiedManualPauses(context: Context, pauses: List<QualifiedManualPauseV2>): Int {
+        return V2RuntimeAccountScope.withScope {
         val qualified = ManualPauseQualificationV2.qualify(
             pauses.map { ManualPauseDraftV2(it.startMs, it.endMs, it.paid) }
         ) ?: return 0
@@ -254,6 +265,7 @@ object V2RuntimeStore {
             if (!editor.commit()) return 0
         }
         return added
+        }
     }
 
     internal fun historyWithUpdatedCurrentPauses(
@@ -299,7 +311,7 @@ object V2RuntimeStore {
         dayEnd: Long
     ): List<QualifiedManualPauseV2>? {
         if (dayStart <= 0L || dayEnd <= dayStart) return null
-        val sessions = allSessions(context)
+        val sessions = allSessions(context, requireCompleteHistory = false)
         if (!V2RuntimeHistoryGuardV2.sourceState().reliable) return null
 
         return sessions
@@ -344,6 +356,7 @@ object V2RuntimeStore {
         dayEnd: Long,
         pauses: List<QualifiedManualPauseV2>
     ): Boolean {
+        return V2RuntimeAccountScope.withScope {
         bind(context)
         val migration = V2MigrationManager.ensureMigrated(context)
         if (!migration.reliable) return false
@@ -457,6 +470,7 @@ object V2RuntimeStore {
             .putString(KEY_HISTORY, history.toString())
             .putString(KEY_PAUSES, currentPauses.toString())
             .commit()
+        }
     }
 
     @Deprecated("Utiliser replaceQualifiedEditablePausesForDay avec un statut payé explicite")
@@ -473,6 +487,7 @@ object V2RuntimeStore {
         nowMs: Long = System.currentTimeMillis(),
         expectedEndMs: Long? = null
     ): Boolean {
+        return V2RuntimeAccountScope.withScope {
         val current = readForWrite(context, nowMs)
         val session = current.session ?: return false
         if (!current.reliable || session.status != SessionStatusV2.OPEN) return false
@@ -538,6 +553,7 @@ object V2RuntimeStore {
         V2RuntimeHistoryGuardV2.publishSourceState(true)
         WidgetLocationExpiryScheduler.schedule(context, nowMs)
         return true
+        }
     }
 
     /**
@@ -554,17 +570,36 @@ object V2RuntimeStore {
     /** Réservé aux tests isolés. Aucun écran utilisateur ne doit appeler ce reset. */
     @Synchronized
     fun reset(context: Context) {
+        return V2RuntimeAccountScope.withScope {
         bind(context)
         prefs(context).edit().clear().commit()
+        Unit
+        }
     }
+
+    /** History alone is legitimate; residual current-session facts must never be discarded. */
+    internal fun hasOrphanedCurrentSession(values: Map<String, *>): Boolean =
+        !values.containsKey(KEY_REAL_ENTRY) && setOf(
+            KEY_ID, KEY_EMPLOYER_ID, KEY_COMPANY_SLOT, KEY_COUNTED_ENTRY,
+            KEY_REAL_EXIT, KEY_COUNTED_EXIT, KEY_EXPECTED_END, KEY_TIME_BASIS,
+            KEY_PAUSE_START, KEY_PAUSE_SOURCE, KEY_PAUSE_PAID, KEY_PAUSES,
+            KEY_PLACE_ID, KEY_PLACE_LABEL
+        ).any(values::containsKey)
 
     @Synchronized
     fun snapshot(context: Context, nowMs: Long = System.currentTimeMillis()): Snapshot {
+        return V2RuntimeAccountScope.withScope {
         bind(context)
+        if (!V2RuntimeAccountScope.available()) {
+            V2RuntimeHistoryGuardV2.publishSourceState(false, listOf(V2RuntimeAccountScope.AUTH_WARNING))
+            return Snapshot(null, null)
+        }
         // Toutes les clés proviennent du même instant, même si un autre écrivain met à jour
         // les préférences pendant la reconstruction de cette session.
         val values = prefs(context).all
-        if (!values.containsKey(KEY_REAL_ENTRY)) return Snapshot(null, null)
+        if (!values.containsKey(KEY_REAL_ENTRY)) {
+            return if (hasOrphanedCurrentSession(values)) corruptCurrentSnapshot() else Snapshot(null, null)
+        }
         val realEntry = strictPositive(values[KEY_REAL_ENTRY]) ?: return corruptCurrentSnapshot()
 
         val realExitRead = optionalStrictPositive(values, KEY_REAL_EXIT)
@@ -657,11 +692,17 @@ object V2RuntimeStore {
             timeBasis = timeBasis
         )
         return Snapshot(session, HoraTrackV2.time.calculate(session, nowMs))
+        }
     }
 
     @Synchronized
-    fun allSessions(context: Context, nowMs: Long = System.currentTimeMillis()): List<WorkSessionV2> {
+    fun allSessions(context: Context, nowMs: Long = System.currentTimeMillis(), requireCompleteHistory: Boolean = true): List<WorkSessionV2> {
+        return V2RuntimeAccountScope.withScope {
         bind(context)
+        if (requireCompleteHistory && V2RuntimeAccountScope.hasUnassignedHistory(context)) {
+            V2RuntimeHistoryGuardV2.publishSourceState(false, listOf(V2RuntimeAccountScope.UNASSIGNED_WARNING))
+            return emptyList()
+        }
         val migration = V2MigrationManager.ensureMigrated(context)
         if (!migration.reliable) {
             V2RuntimeHistoryGuardV2.publishSourceState(false, migration.warnings)
@@ -679,6 +720,7 @@ object V2RuntimeStore {
         if (!V2RuntimeHistoryGuardV2.sourceState().reliable) return emptyList()
         if (current != null && history.none { it.id == current.id }) history += current
         return history.distinctBy { it.id }.sortedBy { it.realArrivalMs ?: Long.MAX_VALUE }
+        }
     }
 
     /**
@@ -815,7 +857,7 @@ object V2RuntimeStore {
         return HistoryEmployerSource(null, slot ?: 1, useLegacyProfile = true)
     }
 
-    private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private fun prefs(context: Context) = V2RuntimeAccountScope.preferences(context, PREFS)
 
     private fun appendPause(raw: String, start: Long, end: Long, source: EventSourceV2, paid: Boolean): String? {
         val array = pauseArrayOrNull(raw) ?: return null

@@ -1,15 +1,33 @@
 import Foundation
+import Combine
 
 @MainActor
 final class WorkStoreV2: ObservableObject {
-    @Published private(set) var sessions: [WorkSession] = []
-    @Published private(set) var storageReliable = true
+    @Published private var loadedSessions: [WorkSession] = []
+    @Published private var loadedStorageReliable = false
+    private var loadedAccount: String?
+    private let accountProvider: () -> String?
+
+    // Never expose the previous account while the authentication notification is pending.
+    var sessions: [WorkSession] { accountMatches ? loadedSessions : [] }
+    var storageReliable: Bool { accountMatches && loadedStorageReliable }
+    // The active journal can accept new facts while historical ownership remains unresolved.
+    // Payroll must not treat that incomplete history as a verified zero.
+    var payrollHistoryReliable: Bool { storageReliable && !hasUnassignedHistory }
+    var hasUnassignedHistory: Bool {
+        defaults.object(forKey: WorkSessionStorageV2.primaryKey) != nil ||
+            defaults.object(forKey: WorkSessionStorageV2.legacyKey) != nil
+    }
+    private var accountMatches: Bool {
+        loadedAccount != nil && loadedAccount == WorkSessionAccountStorageV2.scope(accountProvider())
+    }
 
     private let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, accountProvider: @escaping () -> String?) {
         self.defaults = defaults
-        load()
+        self.accountProvider = accountProvider
+        reloadAccount()
     }
 
     var currentSession: WorkSession? {
@@ -81,10 +99,10 @@ final class WorkStoreV2: ObservableObject {
             )
         )
         guard persistCanonical(updated) else {
-            storageReliable = false
+            loadedStorageReliable = false
             return false
         }
-        sessions = updated
+        loadedSessions = updated
         return true
     }
 
@@ -100,10 +118,10 @@ final class WorkStoreV2: ObservableObject {
             return false
         }
         guard persistCanonical(updated) else {
-            storageReliable = false
+            loadedStorageReliable = false
             return false
         }
-        sessions = updated
+        loadedSessions = updated
         return true
     }
 
@@ -122,10 +140,10 @@ final class WorkStoreV2: ObservableObject {
             return false
         }
         guard persistCanonical(updated) else {
-            storageReliable = false
+            loadedStorageReliable = false
             return false
         }
-        sessions = updated
+        loadedSessions = updated
         return true
     }
 
@@ -140,10 +158,10 @@ final class WorkStoreV2: ObservableObject {
         var updated = sessions
         updated.remove(at: index)
         guard persistCanonical(updated) else {
-            storageReliable = false
+            loadedStorageReliable = false
             return false
         }
-        sessions = updated
+        loadedSessions = updated
         return true
     }
 
@@ -180,10 +198,10 @@ final class WorkStoreV2: ObservableObject {
             return false
         }
         guard persistCanonical(updated) else {
-            storageReliable = false
+            loadedStorageReliable = false
             return false
         }
-        sessions = updated
+        loadedSessions = updated
         return true
     }
 
@@ -199,53 +217,23 @@ final class WorkStoreV2: ObservableObject {
     }
 
     private func persistCanonical(_ decoded: [WorkSession]) -> Bool {
-        WorkSessionPersistenceV2.write(decoded, defaults: defaults)
+        guard accountMatches, let loadedAccount else { return false }
+        return WorkSessionAccountStorageV2.write(decoded, account: loadedAccount, defaults: defaults)
     }
 
-    private func load() {
-        let primaryData = defaults.data(forKey: WorkSessionStorageV2.primaryKey)
-        let legacyData = defaults.data(forKey: WorkSessionStorageV2.legacyKey)
-        let paidRepairAlreadyHandled = defaults.bool(forKey: WorkSessionStorageV2.paidRepairMarkerKey)
-
-        let resolution = WorkSessionStorageV2.resolve(
-            primaryData: primaryData,
-            legacyData: legacyData,
-            allowTransitionalPrimaryRepair: !paidRepairAlreadyHandled
-        )
-
-        if !paidRepairAlreadyHandled {
-            defaults.set(true, forKey: WorkSessionStorageV2.paidRepairMarkerKey)
-        }
-
-        switch resolution {
+    func reloadAccount() {
+        loadedSessions = []
+        loadedStorageReliable = false
+        loadedAccount = WorkSessionAccountStorageV2.scope(accountProvider())
+        guard let loadedAccount else { return }
+        switch WorkSessionAccountStorageV2.read(account: loadedAccount, defaults: defaults) {
         case .missing:
-            sessions = []
-            storageReliable = true
-
-        case .valid(let decoded, let origin):
-            switch origin {
-            case .primary:
-                sessions = decoded
-                storageReliable = true
-
-            case .legacyMigration, .transitionalPrimaryRepair:
-                guard persistCanonical(decoded) else {
-                    sessions = []
-                    storageReliable = false
-                    return
-                }
-
-                if origin == .legacyMigration {
-                    defaults.removeObject(forKey: WorkSessionStorageV2.legacyKey)
-                }
-
-                sessions = decoded
-                storageReliable = true
-            }
-
+            loadedStorageReliable = true
+        case .valid(let decoded):
+            loadedSessions = decoded
+            loadedStorageReliable = true
         case .corrupt:
-            sessions = []
-            storageReliable = false
+            break
         }
     }
 }
