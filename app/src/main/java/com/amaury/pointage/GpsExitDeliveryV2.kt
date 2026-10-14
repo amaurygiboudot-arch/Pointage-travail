@@ -10,7 +10,7 @@ import com.amaury.pointage.v2.engine.GpsEventV2
 import com.amaury.pointage.v2.engine.GpsTransitionV2
 import com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2
 import com.amaury.pointage.v2.model.SessionStatusV2
-import com.google.firebase.auth.FirebaseAuth
+import com.amaury.pointage.v2.V2RuntimeAccountScope
 
 /** Durable outbox in the same preference file/commit as the final GPS presence transition. */
 internal object GpsExitDeliveryV2 {
@@ -18,10 +18,8 @@ internal object GpsExitDeliveryV2 {
     const val OBSERVATION_CONTEXT_KEY = "pending_exit_observation_context"
     private const val MAX_PENDING = 256
 
-    internal fun accountScope(): String? = runCatching {
-        val user = FirebaseAuth.getInstance().currentUser
-        if (user == null) "guest" else user.uid.trim().takeIf(String::isNotBlank)?.let { "uid:$it" }
-    }.getOrNull()
+    internal fun accountScope(): String? = V2RuntimeAccountScope.operationScope()
+        ?.takeIf { V2RuntimeAccountScope.available() }
 
     fun observationContext(context: Context): String? {
         val scope = accountScope() ?: return null
@@ -136,11 +134,15 @@ internal object GpsExitDeliveryV2 {
         }.sortedWith(compareBy({ it.second.event.atMs }, { it.second.event.id }))
         val acknowledged = linkedSetOf<String>()
         for ((encoded, delivery) in ordered) {
-            if (scope != delivery.accountScope || fingerprint != delivery.configurationFingerprint) {
+            if (accountScope() != scope) return
+            // A switch is not an acknowledgement. Leave foreign-account evidence untouched.
+            if (scope != delivery.accountScope) continue
+            if (fingerprint != delivery.configurationFingerprint) {
                 acknowledged.add(encoded)
                 continue
             }
             V2RuntimeStore.withTransaction {
+                if (accountScope() != delivery.accountScope) return@withTransaction
                 val runtime = V2RuntimeReader.current(app)
                 if (!runtime.reliable) return@withTransaction
                 val session = runtime.snapshot.session
@@ -173,6 +175,7 @@ internal object GpsExitDeliveryV2 {
                 if (outcome.durableAcknowledgement) acknowledged.add(encoded)
             }
         }
+        if (accountScope() != scope) return
         if (acknowledged.isNotEmpty()) {
             val current = readRaw(gps) ?: return
             // Persist the whole acknowledged batch once; a failed cleanup remains idempotent
