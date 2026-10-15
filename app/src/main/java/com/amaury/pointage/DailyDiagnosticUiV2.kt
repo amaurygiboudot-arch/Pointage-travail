@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import android.app.Activity
+import android.app.AlertDialog
 import android.app.DatePickerDialog
 import android.content.ClipData
 import android.content.Intent
@@ -8,8 +10,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.widget.SwitchCompat
+import android.widget.Switch
 import androidx.core.content.FileProvider
 import com.amaury.pointage.v2.V2RuntimeAccountScope
 import java.io.File
@@ -36,7 +37,7 @@ internal object DailyDiagnosticUiV2 {
         dialog.setOnDismissListener { auth.removeAuthStateListener(listener) }
         auth.addAuthStateListener(listener)
     }
-    private fun show(activity: MainActivity) {
+    internal fun show(activity: Activity) {
         val scope = V2RuntimeAccountScope.currentScope() ?: return
         var mainDialog: AlertDialog? = null
         val content = LinearLayout(activity).apply {
@@ -52,7 +53,7 @@ internal object DailyDiagnosticUiV2 {
         content.addView(TextView(activity).apply {
             text = "Journal local facultatif, séparé pour chaque compte. Conserve jusqu’à 14 jours et 2 000 événements (purge à la prochaine utilisation), sans coordonnées GPS ni nom de lieu. Il commence à l'activation : les journées passées ne sont pas reconstituées. Après partage ici, nous comparerons la trace à ton récit."
         })
-        content.addView(SwitchCompat(activity).apply {
+        content.addView(Switch(activity).apply {
             text = "Enregistrer le diagnostic sur cet appareil"
             minHeight = (48 * resources.displayMetrics.density).toInt()
             isChecked = state.enabled
