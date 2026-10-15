@@ -30,6 +30,12 @@ final class WorkStoreV2: ObservableObject {
         loadedAccount != nil && loadedAccount == WorkSessionAccountStorageV2.scope(accountProvider())
     }
 
+    var diagnosticAccount: String? { accountMatches ? loadedAccount : nil }
+    private func diagnostic(_ kind: DailyDiagnosticV2.Kind, at date: Date? = nil, sessionId: UUID? = nil) {
+        // Diagnostic failures never change the canonical journal or its commit result.
+        try? DailyDiagnosticV2.append(kind, account: diagnosticAccount, occurredAt: date, sessionId: sessionId)
+    }
+
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard, accountProvider: @escaping () -> String?) {
@@ -59,6 +65,7 @@ final class WorkStoreV2: ObservableObject {
         employerId requestedEmployerId: String? = nil,
         placeLabel: String? = nil
     ) -> Bool {
+        diagnostic(.clockInRequested, at: entryDate, sessionId: currentSession?.id)
         guard storageReliable, !isWorking else { return false }
         let companies = SalaryCompanyStoreV2.readConfirmed(defaults: defaults)
         switch ClockInEmployerResolverV2.resolve(
@@ -111,11 +118,13 @@ final class WorkStoreV2: ObservableObject {
             return false
         }
         loadedSessions = updated
+        diagnostic(.clockInCommitted, at: entryDate, sessionId: updated.last?.id)
         return true
     }
 
     @discardableResult
     func togglePause(paid: Bool? = nil, at date: Date = Date()) -> Bool {
+        diagnostic(.pauseRequested, at: date, sessionId: currentSession?.id)
         guard storageReliable,
               date <= Date().addingTimeInterval(300),
               let updated = WorkSessionMutationV2.togglingPause(
@@ -130,6 +139,7 @@ final class WorkStoreV2: ObservableObject {
             return false
         }
         loadedSessions = updated
+        diagnostic(isPaused ? .pauseStarted : .pauseEnded, at: date, sessionId: currentSession?.id)
         return true
     }
 
@@ -138,6 +148,8 @@ final class WorkStoreV2: ObservableObject {
         at exitDate: Date = Date(),
         expectedSessionId: UUID? = nil
     ) -> Bool {
+        diagnostic(.clockOutRequested, at: exitDate, sessionId: currentSession?.id)
+        let closingSessionId = currentSession?.id
         guard storageReliable,
               exitDate <= Date().addingTimeInterval(300),
               let updated = WorkSessionMutationV2.closingSession(
@@ -152,6 +164,7 @@ final class WorkStoreV2: ObservableObject {
             return false
         }
         loadedSessions = updated
+        diagnostic(.clockOutCommitted, at: exitDate, sessionId: closingSessionId)
         return true
     }
 
@@ -170,6 +183,7 @@ final class WorkStoreV2: ObservableObject {
             return false
         }
         loadedSessions = updated
+        diagnostic(.clockInRolledBack, at: nil, sessionId: expectedSessionId)
         return true
     }
 
@@ -180,6 +194,7 @@ final class WorkStoreV2: ObservableObject {
         employerId requestedEmployerId: String?,
         placeLabel: String?
     ) -> Bool {
+        diagnostic(.manualSessionRequested, at: entry, sessionId: currentSession?.id)
         guard storageReliable else { return false }
 
         let companies = SalaryCompanyStoreV2.readConfirmed(defaults: defaults)
@@ -210,6 +225,8 @@ final class WorkStoreV2: ObservableObject {
             return false
         }
         loadedSessions = updated
+        diagnostic(.manualSessionAdded, at: entry, sessionId: updated.first(where: { $0.entry == entry && $0.exit == exit })?.id)
+        diagnostic(.manualSessionExit, at: exit, sessionId: updated.first(where: { $0.entry == entry && $0.exit == exit })?.id)
         return true
     }
 
@@ -234,6 +251,7 @@ final class WorkStoreV2: ObservableObject {
         loadedStorageReliable = false
         loadedAccount = WorkSessionAccountStorageV2.scope(accountProvider())
         guard let loadedAccount else { return }
+        diagnostic(.journalLoadRequested)
         switch WorkSessionAccountStorageV2.read(account: loadedAccount, defaults: defaults) {
         case .missing:
             loadedStorageReliable = true

@@ -1,5 +1,8 @@
 package com.amaury.pointage.v2.engine
 
+import com.amaury.pointage.DailyDiagnosticStoreV2
+import com.amaury.pointage.DailyDiagnosticKindV2
+import com.amaury.pointage.DailyDiagnosticModelV2
 import android.content.Context
 import android.content.SharedPreferences
 import com.amaury.pointage.v2.V2RuntimeAccountScope
@@ -121,6 +124,22 @@ object GpsWorkStateCoordinatorV2 {
     }
 
     internal fun route(
+        context: Context,
+        event: GpsEventV2,
+        decision: GpsDecisionV2,
+        verifiedOverlappingWorksiteReturn: Boolean = false,
+        durableDelivery: GpsExitDeliveryRecordV2? = null
+    ): Outcome = V2RuntimeAccountScope.withScope {
+        DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.GPS_EVENT, event.atMs, "${event.pointType}_${event.transition}", zoneId = event.placeId)
+        DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.GPS_DECISION, event.atMs,
+            if (decision.duplicate) "DUPLICATE" else if (decision.accepted) "ACCEPTED" else "REJECTED", zoneId = event.placeId)
+        val outcome = routeInternal(context, event, decision, verifiedOverlappingWorksiteReturn, durableDelivery)
+        DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.GPS_OUTCOME, event.atMs, outcome.action.name, zoneId = event.placeId)
+        if (outcome.action == Action.NO_CHANGE) DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.GPS_REASON, event.atMs, DailyDiagnosticModelV2.reasonCode(outcome.reason), zoneId = event.placeId)
+        outcome
+    }
+
+    private fun routeInternal(
         context: Context,
         event: GpsEventV2,
         decision: GpsDecisionV2,
@@ -356,6 +375,7 @@ object GpsWorkStateCoordinatorV2 {
     }
 
     fun markPromptShown(context: Context, pending: Pending) {
+        DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.PROMPT_SHOWN, pending.atMs)
         preferences(context)
             .edit().putString(KEY_PROMPTED_ID, pending.id)
             .putString(KEY_PROMPTED_PROCESS, processToken).apply()
@@ -375,6 +395,7 @@ object GpsWorkStateCoordinatorV2 {
         expectedEndMs: Long? = null
     ): Boolean {
         V2RuntimeAccountScope.withScope {
+            DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.CONFIRM_EXIT)
             val pending = pendingForOpenSession(context)
                 ?.takeIf { matchesPendingId(it, expectedPendingId) }
                 ?: return false
@@ -393,6 +414,7 @@ object GpsWorkStateCoordinatorV2 {
      */
     fun confirmPauseStart(context: Context, expectedPendingId: String, paid: Boolean): Boolean {
         V2RuntimeAccountScope.withScope {
+            DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.CONFIRM_PAUSE_START)
             val pending = pendingForOpenSession(context)
                 ?.takeIf { matchesPendingId(it, expectedPendingId) }
                 ?: return false
@@ -421,6 +443,7 @@ object GpsWorkStateCoordinatorV2 {
      */
     fun confirmPauseEnd(context: Context, expectedPendingId: String): Boolean {
         V2RuntimeAccountScope.withScope {
+            DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.CONFIRM_PAUSE_END)
             val pending = pendingForOpenSession(context)
                 ?.takeIf { matchesPendingId(it, expectedPendingId) }
                 ?: return false
@@ -442,6 +465,7 @@ object GpsWorkStateCoordinatorV2 {
 
     fun cancelPending(context: Context, expectedPendingId: String): Boolean {
         V2RuntimeAccountScope.withScope {
+            DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.CONFIRM_CANCEL)
             val current = pendingForOpenSession(context) ?: return false
             if (!matchesPendingId(current, expectedPendingId)) return false
             return clearPending(context)

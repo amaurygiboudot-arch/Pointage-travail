@@ -1,5 +1,7 @@
 package com.amaury.pointage.v2
 
+import com.amaury.pointage.DailyDiagnosticStoreV2
+import com.amaury.pointage.DailyDiagnosticKindV2
 import android.content.Context
 import com.amaury.pointage.WidgetLocationExpiryScheduler
 import com.amaury.pointage.v2.model.EventSourceV2
@@ -97,6 +99,7 @@ object V2RuntimeStore {
         companySlot: Int? = null
     ): Boolean {
         return V2RuntimeAccountScope.withScope {
+        DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.ENTRY_REQUEST, nowMs, value = expectedEndMs)
         if (nowMs <= 0L) return false
         val current = readForWrite(context, nowMs)
         if (!current.reliable || current.session?.status == SessionStatusV2.OPEN) return false
@@ -138,7 +141,7 @@ object V2RuntimeStore {
         legacySlot?.let { editor.putInt(KEY_COMPANY_SLOT, it) }
         employerId?.let { editor.putString(KEY_EMPLOYER_ID, it) }
         knownExpected?.let { editor.putLong(KEY_EXPECTED_END, it) }
-        return editor.commit()
+        return editor.commit().also { DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.ENTRY_WRITE, nowMs, if (it) "SUCCESS" else "FAILED", value = nowMs) }
         }
     }
 
@@ -170,6 +173,7 @@ object V2RuntimeStore {
         expectedTarget: PauseActionPolicyV2.Target? = null
     ): Boolean {
         return V2RuntimeAccountScope.withScope {
+        DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.PAUSE_REQUEST, nowMs, source.name)
         val current = readForWrite(context, nowMs)
         val session = current.session ?: return false
         if (!current.reliable || session.status != SessionStatusV2.OPEN) return false
@@ -191,7 +195,7 @@ object V2RuntimeStore {
                 .putLong(KEY_PAUSE_START, nowMs)
                 .putString(KEY_PAUSE_SOURCE, source.name)
                 .putBoolean(KEY_PAUSE_PAID, openingPaid)
-                .commit()
+                .commit().also { DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.PAUSE_START_WRITE, nowMs, if (!it) "FAILED" else if (openingPaid) "SUCCESS_PAID" else "SUCCESS_UNPAID") }
         }
         val storedSource = parseSourceOrNull(prefs.getString(KEY_PAUSE_SOURCE, null)) ?: return false
         val hasStoredPaid = prefs.contains(KEY_PAUSE_PAID)
@@ -204,7 +208,7 @@ object V2RuntimeStore {
             .remove(KEY_PAUSE_START)
             .remove(KEY_PAUSE_SOURCE)
             .remove(KEY_PAUSE_PAID)
-            .commit()
+            .commit().also { DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.PAUSE_END_WRITE, nowMs, if (!it) "FAILED" else if (resolvedPaid) "SUCCESS_PAID" else "SUCCESS_UNPAID") }
         }
     }
 
@@ -488,6 +492,7 @@ object V2RuntimeStore {
         expectedEndMs: Long? = null
     ): Boolean {
         return V2RuntimeAccountScope.withScope {
+        DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.EXIT_REQUEST, nowMs, value = expectedEndMs)
         val current = readForWrite(context, nowMs)
         val session = current.session ?: return false
         if (!current.reliable || session.status != SessionStatusV2.OPEN) return false
@@ -543,6 +548,7 @@ object V2RuntimeStore {
                 else putLong(KEY_COUNTED_EXIT, countedExit)
             }
             .commit()
+        DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.EXIT_WRITE, nowMs, if (closed) "SUCCESS" else "FAILED", value = countedExit)
         if (!closed) {
             V2RuntimeHistoryGuardV2.publishSourceState(
                 false,

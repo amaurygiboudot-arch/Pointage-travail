@@ -34,17 +34,29 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val observedAtMs = System.currentTimeMillis()
         val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("enabled", false)) return
+        if (!prefs.getBoolean("enabled", false)) {
+            DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.GPS_DISABLED, observedAtMs)
+            return
+        }
 
         val event = GeofencingEvent.fromIntent(intent) ?: return
-        if (event.hasError()) return
+        if (event.hasError()) {
+            DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.GEOFENCE_ERROR, observedAtMs)
+            return
+        }
 
         val triggeredIds = event.triggeringGeofences?.map { it.requestId }.orEmpty()
         if (triggeredIds.isEmpty()) return
+        DailyDiagnosticStoreV2.record(context, when (event.geofenceTransition) {
+            Geofence.GEOFENCE_TRANSITION_ENTER -> DailyDiagnosticKindV2.GEOFENCE_ENTER
+            Geofence.GEOFENCE_TRANSITION_EXIT -> DailyDiagnosticKindV2.GEOFENCE_EXIT
+            else -> DailyDiagnosticKindV2.GEOFENCE_OTHER
+        }, observedAtMs, value = triggeredIds.size.toLong())
 
         val stored = readPersistedGpsZones(prefs)
         val canonicalZones = (stored as? GpsZonesReadResult.Valid)?.zones
         if (canonicalZones == null) {
+            DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.GPS_CONFIG_UNREADABLE, observedAtMs)
             // Absent/corrompu != vide. Aucun ancien geofence de la plateforme ne doit
             // pouvoir fabriquer un événement métier à partir d'un état non prouvé.
             finishAfterGpsReconciliation(context, configurationChanged = true)
@@ -52,6 +64,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         }
 
         if (!GeofenceManager.isStoredRegistrationCurrent(context)) {
+            DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.GPS_REGISTRATION_STALE, observedAtMs)
             // Le verrou d'empreinte protège aussi les zones candidates : une ancienne
             // géométrie ne doit ni pointer ni alimenter un apprentissage de présence.
             finishAfterGpsReconciliation(
@@ -78,6 +91,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
         val zonesById = canonicalZones.associateBy { it.id }
         if (regularIds.any { it !in zonesById }) {
+            DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.GPS_ZONE_UNKNOWN, observedAtMs)
             // Un requestId inconnu est un geofence Android périmé, pas une zone de travail.
             // On refuse l'événement et on resynchronise la plateforme avec la configuration
             // canonique actuelle afin que le stale geofence ne puisse plus se représenter.

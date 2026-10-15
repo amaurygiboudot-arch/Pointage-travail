@@ -300,6 +300,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             state.eventQueueOverflowed = false
         }
         if GpsStateStoreV2.write(state, defaults: defaults) {
+            try? DailyDiagnosticV2.append(.gpsConfirmationDismissed, account: gpsAccountScope)
             pendingEvent = state.pendingEvents.first
             return true
         }
@@ -309,7 +310,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
     @discardableResult
     func confirmArrival(eventId: UUID, sessionId: UUID, zoneId: UUID) -> Bool {
-        updateStateForCompletedEvent(
+        let result = updateStateForCompletedEvent(
             eventId: eventId,
             alreadyCompleted: { state in
                 state.confirmedSessionId == sessionId && state.confirmedZoneId == zoneId
@@ -319,11 +320,13 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             GpsVisitConfirmationV2.arrival(state: &state, event: event, sessionId: sessionId,
                                            zoneId: zoneId, configuredZones: zones)
         }
+        try? DailyDiagnosticV2.append(.gpsConfirmationRequested, account: gpsAccountScope, detail: result ? 1 : 0, sessionId: sessionId)
+        return result
     }
 
     @discardableResult
     func confirmDeparture(eventId: UUID, sessionId: UUID) -> Bool {
-        updateStateForCompletedEvent(
+        let result = updateStateForCompletedEvent(
             eventId: eventId,
             alreadyCompleted: { state in
                 state.confirmedSessionId != sessionId
@@ -332,6 +335,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         ) { state, event in
             GpsVisitConfirmationV2.departure(state: &state, event: event, sessionId: sessionId)
         }
+        try? DailyDiagnosticV2.append(.gpsConfirmationRequested, account: gpsAccountScope, detail: result ? 1 : 0, sessionId: sessionId)
+        return result
     }
 
     @discardableResult
@@ -357,6 +362,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         }
         let persisted = persistedState(from: reconciled, fingerprint: fingerprint, accountScope: stored.accountScope)
         guard GpsStateStoreV2.write(persisted, defaults: defaults) else {
+            try? DailyDiagnosticV2.append(.gpsPersistenceFailed, account: gpsAccountScope)
             suspendRegistration(message: "État GPS non fiable — automatisme suspendu")
             return false
         }
@@ -455,6 +461,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        try? DailyDiagnosticV2.append(.gpsAuthorizationChanged, account: gpsAccountScope, detail: Int(manager.authorizationStatus.rawValue))
         authorizationStatus = manager.authorizationStatus
         if locationRequestPending,
            (authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways) {
@@ -658,6 +665,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        try? DailyDiagnosticV2.append(.gpsFailure, account: gpsAccountScope)
         locationRequestPending = false
         if (error as? CLError)?.code == .denied {
             reloadAndReconcile()
@@ -800,7 +808,9 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         transition: GpsPresenceTransitionV2.Transition,
         occurredAt: Date
     ) {
-        guard registrationFingerprintInFlight == nil, !registrationSuspended else { return }
+        guard registrationFingerprintInFlight == nil, !registrationSuspended else {
+            return
+        }
         guard configurationReliable,
               automaticEnabled,
               manager.authorizationStatus == .authorizedAlways,
@@ -823,6 +833,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             return
         }
 
+        // Only attribute callbacks after validating registration identity AND account ownership.
+        let diagnosticTransition: Int
+        switch transition { case .enter: diagnosticTransition = 1; case .exit: diagnosticTransition = 2 }
+        try? DailyDiagnosticV2.append(.gpsRegionCallback, account: stored.accountScope,
+            detail: diagnosticTransition, zoneId: zoneId, sessionId: stored.confirmedSessionId, now: occurredAt)
         let next = GpsConfiguredPresenceTransitionV2.plan(
             state: transitionState(from: stored),
             configuredZones: zones,
@@ -831,11 +846,16 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             occurredAt: occurredAt
         )
         let persisted = persistedState(from: next, fingerprint: fingerprint, accountScope: stored.accountScope)
-        guard persisted != stored else { return }
+        guard persisted != stored else {
+            try? DailyDiagnosticV2.append(.gpsTransitionUnchanged, account: gpsAccountScope)
+            return
+        }
         guard GpsStateStoreV2.write(persisted, defaults: defaults) else {
+            try? DailyDiagnosticV2.append(.gpsPersistenceFailed, account: gpsAccountScope)
             suspendRegistration(message: "État GPS non fiable — automatisme suspendu")
             return
         }
+        try? DailyDiagnosticV2.append(.gpsTransitionSaved, account: gpsAccountScope, detail: next.pendingEvents.count, zoneId: zoneId, sessionId: stored.confirmedSessionId)
         pendingEvent = next.pendingEvents.first
         if next.eventQueueOverflowed {
             suspendRegistration(

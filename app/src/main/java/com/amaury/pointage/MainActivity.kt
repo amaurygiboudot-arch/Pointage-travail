@@ -287,6 +287,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        DailyDiagnosticStoreV2.record(this, DailyDiagnosticKindV2.APP_OPENED)
         if (HoraTrackV2.ENABLED) V2RuntimeStore.bind(this)
         gpsRegistrationConfirmed = false
         gpsRegistrationError = null

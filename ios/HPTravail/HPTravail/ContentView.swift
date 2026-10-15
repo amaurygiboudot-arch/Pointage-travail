@@ -486,6 +486,7 @@ struct ContentView: View {
                 }
 
                 if settingsPage == .pointage {
+                    DailyDiagnosticView()
                     Section("Pointage & lieux") {
                         Text(locationLabel)
                         Text(locationManager.statusMessage)
