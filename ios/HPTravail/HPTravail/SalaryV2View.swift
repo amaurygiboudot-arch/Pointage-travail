@@ -3,6 +3,7 @@ import SwiftUI
 struct SalaryV2View: View {
     @EnvironmentObject private var salaryStore: SalaryV2Store
     @EnvironmentObject private var workStore: WorkStoreV2
+    @EnvironmentObject private var authManager: AuthManager
     @State private var payrollCoverageAgreed = false
     @State private var payrollCoverageFeedback: String?
     @State private var salaryPdfURL: URL?
@@ -46,7 +47,7 @@ struct SalaryV2View: View {
                 resetPayrollCoverageConfirmation()
                 clearPayslipComparisonResult()
             }
-            .onChange(of: workStore.storageReliable) { _ in
+            .onChange(of: workStore.payrollHistoryReliable) { _ in
                 salaryStore.refresh()
                 resetPayrollCoverageConfirmation()
                 clearPayslipComparisonResult()
@@ -157,6 +158,20 @@ struct SalaryV2View: View {
 
                 Text("Avec plusieurs employeurs, HoraTrack n'en choisit jamais un à votre place.")
                     .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let company = salaryStore.selectedCompany {
+                NavigationLink {
+                    SalaryDatedWorkRulesEditorV2(companyId: company.id)
+                        .id(authManager.user?.uid ?? "non-connecte")
+                } label: {
+                    Label("MES RÈGLES DE TRAVAIL DATÉES", systemImage: "calendar.badge.clock")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+                Text("Les règles sont personnelles au compte connecté et à la version de contrat.")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }

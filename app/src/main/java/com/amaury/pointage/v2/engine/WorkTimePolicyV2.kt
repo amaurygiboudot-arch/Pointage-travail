@@ -28,6 +28,11 @@ object WorkTimePolicyV2 {
         if (realArrivalMs == null || storedCountedEntryMs == null || realArrivalMs <= 0L || storedCountedEntryMs <= 0L) {
             return storedCountedEntryMs
         }
+        // A new factual pointage stores the real arrival in both fields. It must
+        // never be mistaken for the old 15-minute rounding bug at :15 or :45.
+        // Ambiguous historical records with matching real and counted times
+        // are deliberately preserved rather than rewritten without proof.
+        if (storedCountedEntryMs == realArrivalMs) return storedCountedEntryMs
         val buggy = roundEntry(realArrivalMs, LEGACY_BUG_ENTRY_SLOT_MS, LEGACY_BUG_ENTRY_GRACE_MS)
         val correct = countedEntry(realArrivalMs)
         return if (storedCountedEntryMs == buggy && buggy != correct) correct else storedCountedEntryMs

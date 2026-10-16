@@ -7,6 +7,50 @@ final class GpsGeofenceV2Tests: XCTestCase {
     private let second = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
     private let now = Date(timeIntervalSinceReferenceDate: 1_000)
 
+    func testPersistedGpsStateCannotBeRestoredForAnotherOrUnknownAccount() {
+        let state = GpsPersistedStateV2(
+            fingerprint: "fingerprint",
+            activeZoneIds: [],
+            pendingExitZoneIds: [],
+            pendingEvents: [],
+            confirmedSessionId: nil,
+            eventQueueOverflowed: false,
+            accountScope: "uid:account-a"
+        )
+        let configured = GpsStateReadV2.valid(state)
+
+        XCTAssertEqual(
+            GpsStateValidationV2.startupState(
+                read: configured,
+                expectedFingerprint: "fingerprint",
+                configuredZoneIds: [],
+                expectedAccountScope: "uid:account-a"
+            ),
+            .resume(state)
+        )
+        XCTAssertEqual(
+            GpsStateValidationV2.startupState(
+                read: configured,
+                expectedFingerprint: "fingerprint",
+                configuredZoneIds: [],
+                expectedAccountScope: "uid:account-b"
+            ),
+            .suspend(nil)
+        )
+
+        var legacy = state
+        legacy.accountScope = nil
+        XCTAssertEqual(
+            GpsStateValidationV2.startupState(
+                read: .valid(legacy),
+                expectedFingerprint: "fingerprint",
+                configuredZoneIds: [],
+                expectedAccountScope: "uid:account-b"
+            ),
+            .suspend(nil)
+        )
+    }
+
     func testConfigurationRejectsCorruptionDuplicatesAndMoreThanTenZones() throws {
         XCTAssertEqual(GpsZoneConfigurationV2.read(nil), .missing)
         XCTAssertEqual(GpsZoneConfigurationV2.read(Data("bad".utf8)), .corrupt)
@@ -331,7 +375,8 @@ final class GpsGeofenceV2Tests: XCTestCase {
         XCTAssertTrue(GpsVisitConfirmationV2.departure(state: &state, event: departureA, sessionId: firstSession))
         let arrivalB = state.pendingEvents.removeFirst()
         sessions.append(WorkSession(id: secondSession, entry: arrivalB.occurredAt, exit: nil, pauses: []))
-        XCTAssertTrue(GpsVisitConfirmationV2.arrival(state: &state, event: arrivalB, sessionId: secondSession))
+        XCTAssertTrue(GpsVisitConfirmationV2.arrival(state: &state, event: arrivalB, sessionId: secondSession,
+            zoneId: second, configuredZones: [zone(first), zone(second)]))
         XCTAssertEqual(state.pendingEvents[0].expectedSessionId, secondSession)
         let departureB = state.pendingEvents.removeFirst()
         let beforeWrongConfirmation = state
@@ -396,7 +441,7 @@ final class GpsGeofenceV2Tests: XCTestCase {
         )
     }
 
-    func testReconcileRemovesOnlyDeparturesForClosedGpsSession() {
+    func testReconcileRemovesAllDeparturesBoundToClosedSessions() {
         let staleSession = UUID()
         let otherSession = UUID()
         let staleDeparture = pending(.departure, sessionId: staleSession, at: now)
@@ -416,7 +461,7 @@ final class GpsGeofenceV2Tests: XCTestCase {
         )
 
         XCTAssertNil(reconciled.confirmedSessionId)
-        XCTAssertEqual(reconciled.pendingEvents, [arrival, otherDeparture])
+        XCTAssertEqual(reconciled.pendingEvents, [arrival])
     }
 
     func testReconcileClosedSessionAllowsNextArrival() {
@@ -511,6 +556,42 @@ final class GpsGeofenceV2Tests: XCTestCase {
                 configuredZoneIds: [first, second]
             ),
             .resume(state)
+        )
+    }
+
+    func testPersistedGpsStateIsBoundToAccountAcrossRestart() throws {
+        var state = persistedState()
+        state.accountScope = "uid:account-a"
+        let data = try JSONEncoder().encode(state)
+        let restored = GpsStateStoreV2.read(data)
+        XCTAssertEqual(restored, .valid(state))
+        XCTAssertEqual(
+            GpsStateValidationV2.startupState(
+                read: restored,
+                expectedFingerprint: state.fingerprint,
+                configuredZoneIds: [first, second],
+                expectedAccountScope: "uid:account-a"
+            ),
+            .resume(state)
+        )
+        XCTAssertEqual(
+            GpsStateValidationV2.startupState(
+                read: restored,
+                expectedFingerprint: state.fingerprint,
+                configuredZoneIds: [first, second],
+                expectedAccountScope: "uid:account-b"
+            ),
+            .suspend(nil)
+        )
+        state.accountScope = nil
+        XCTAssertEqual(
+            GpsStateValidationV2.startupState(
+                read: .valid(state),
+                expectedFingerprint: state.fingerprint,
+                configuredZoneIds: [first, second],
+                expectedAccountScope: "uid:account-a"
+            ),
+            .suspend(nil)
         )
     }
 

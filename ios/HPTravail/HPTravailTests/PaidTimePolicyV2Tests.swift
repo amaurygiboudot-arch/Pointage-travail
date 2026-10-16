@@ -83,7 +83,7 @@ final class PaidTimePolicyV2Tests: XCTestCase {
         XCTAssertTrue(result.reliable)
     }
 
-    func testPauseOutsideRequestedSessionDoesNotDegradeReliability() {
+    func testOutOfRangePauseIsNotSilentlyCertifiedInFullSession() {
         let result = PaidTimePolicyV2.assess(
             sessionStart: at(8),
             sessionEnd: at(16),
@@ -92,6 +92,62 @@ final class PaidTimePolicyV2Tests: XCTestCase {
         )
 
         XCTAssertEqual(result.paidDuration, 8 * 3_600, accuracy: 0.001)
-        XCTAssertTrue(result.reliable)
+        XCTAssertFalse(result.reliable)
     }
+    func testPartiallyOutOfRangePauseBlocksFullSessionButNotValidatedWeekSlice() {
+        let pause = PaidPauseFactV2(start: at(7), end: at(9), paid: false)
+        let full = PaidTimePolicyV2.assess(
+            sessionStart: at(8), sessionEnd: at(16), pauses: [pause], until: at(16)
+        )
+        XCTAssertEqual(full.paidDuration, 8 * 3_600, accuracy: 0.001)
+        XCTAssertFalse(full.reliable)
+
+        // A separately verified full session may have a pause crossing a week boundary.
+        let validForSlice = PaidTimePolicyV2.assess(
+            sessionStart: at(8), sessionEnd: at(12), pauses: [pause], until: at(12),
+            enforcePauseSessionBounds: false
+        )
+        XCTAssertEqual(validForSlice.paidDuration, 3 * 3_600, accuracy: 0.001)
+        XCTAssertTrue(validForSlice.reliable)
+    }
+
+    func testClosedSessionCannotTreatOpenPauseAsSixConfirmedUnpaidHours() {
+        let result = PaidTimePolicyV2.assess(
+            sessionStart: at(8), sessionEnd: at(16),
+            pauses: [PaidPauseFactV2(start: at(10), end: nil, paid: false)],
+            until: at(16)
+        )
+        XCTAssertEqual(result.paidDuration, 8 * 3_600, accuracy: 0.001)
+        XCTAssertFalse(result.reliable)
+    }
+
+    func testConflictingPaidAndUnpaidBreaksRequireReview() {
+        let result = PaidTimePolicyV2.assess(
+            sessionStart: at(8), sessionEnd: at(16),
+            pauses: [
+                PaidPauseFactV2(start: at(10), end: at(10, 30), paid: true),
+                PaidPauseFactV2(start: at(10), end: at(10, 30), paid: false)
+            ],
+            until: at(16)
+        )
+        XCTAssertEqual(result.paidDuration, 7 * 3_600 + 30 * minute, accuracy: 0.001)
+        XCTAssertFalse(result.reliable)
+    }
+
+    func testStandbyDoesNotBecomeFourteenHoursWorkedWithoutInterventionEvidence() {
+        let segments = [
+            PaidWorkSegmentFactV2(start: at(18), end: at(20), kind: .onCall, confirmed: true),
+            PaidWorkSegmentFactV2(start: at(20), end: at(21), kind: .intervention, confirmed: true),
+            PaidWorkSegmentFactV2(start: at(21), end: at(28), kind: .onCall, confirmed: true),
+            PaidWorkSegmentFactV2(start: at(28), end: at(29), kind: .intervention, confirmed: true),
+            PaidWorkSegmentFactV2(start: at(29), end: at(32), kind: .onCall, confirmed: true)
+        ]
+        let result = PaidTimePolicyV2.assess(
+            sessionStart: at(18), sessionEnd: at(32),
+            pauses: [], until: at(32), segments: segments
+        )
+        XCTAssertEqual(result.paidDuration, 2 * 3_600, accuracy: 0.001)
+        XCTAssertFalse(result.reliable) // Standby compensation requires separate rules.
+    }
+
 }

@@ -57,13 +57,10 @@ targets:
     deploymentTarget: "16.0"
     sources:
       - HPTravailTests
-      - HPTravailCelestialTests
-      - path: HPTravail/CelestialV2/Core/CelestialEngineV2.swift
-      - path: HPTravail/CelestialV2/Core/CelestialProjectionV2.swift
-      - path: HPTravail/CelestialV2/Core/CelestialQualityV2.swift
-      - path: HPTravail/CelestialV2/Core/AtmosphericRefractionV2.swift
-      - path: HPTravail/CelestialV2/Core/SolarEclipseGeometryV2.swift
-      - path: HPTravail/RuntimeV2/WorkSessionPersistenceV2.swift
+      # Celestial/Runtime contract tests run through SwiftPM (Package.swift).
+      # Compile the canonical runtime alongside the real Combine WorkStore here.
+      - path: HPTravail/RuntimeV2
+      - path: HPTravail/WorkStore.swift
       # Même module canonique complet que la cible Swift Package SalaryV2Contract.
       - path: HPTravail/SalaryV2
     settings:

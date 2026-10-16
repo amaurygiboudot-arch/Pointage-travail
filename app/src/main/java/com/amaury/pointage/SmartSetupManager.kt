@@ -404,14 +404,14 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
                 .remove("active_zones")
                 .remove("entry_resolution_pending")
                 .remove("entry_resolution_token")
-                .remove("pending_exit_zones")
+                .remove("pending_exit_zones").remove("pending_exit_observations")
                 .apply()
         } else {
             gps.edit().putString("zones", zones.toString())
                 .remove("active_zones")
                 .remove("entry_resolution_pending")
                 .remove("entry_resolution_token")
-                .remove("pending_exit_zones")
+                .remove("pending_exit_zones").remove("pending_exit_observations")
                 .apply()
         }
         registerStoredZones(context)

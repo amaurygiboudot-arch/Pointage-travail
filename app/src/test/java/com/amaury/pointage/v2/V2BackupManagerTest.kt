@@ -8,6 +8,99 @@ import org.json.JSONObject
 import org.junit.Test
 
 class V2BackupManagerTest {
+    private fun openJournal(id: String = "open-1", start: Long = 10_000L) = mapOf<String, Any>(
+        "session_id" to id, "real_entry" to start, "counted_entry" to start,
+        "time_basis" to "REAL_FACTS", "pauses" to "[]", "history" to "[]",
+        "expected_end" to 90_000L, "pause_start" to 20_000L,
+        "pause_source" to "MANUAL", "pause_paid" to false
+    )
+
+    @Test
+    fun `open session and pending pause survive restore exactly and repeat idempotently`() {
+        val saved = openJournal()
+        val first = V2BackupManager.mergeRuntimeValues(emptyMap<String, Any>(), saved)
+        assertEquals(saved, first.values)
+        assertEquals(first, V2BackupManager.mergeRuntimeValues(first.values, saved))
+    }
+
+    @Test
+    fun `inert restored provenance stays valid through a subsequent legacy journal merge`() {
+        val local = openJournal() + ("restored_legacy_provenance" to "[\"remote-proof\"]")
+        assertTrue(V2LegacyJournalRecovery.validSource(local))
+        val merged = V2LegacyJournalRecovery.merge(local, mapOf("history" to "[]"))!!
+        assertEquals("[\"remote-proof\"]", merged["restored_legacy_provenance"])
+        assertFalse(V2LegacyJournalRecovery.validSource(local + ("restored_legacy_provenance" to "[1]")))
+        assertFalse(V2LegacyJournalRecovery.validSource(local + ("real_entry" to -1L)))
+    }
+
+    @Test
+    fun `open restore conflicting with archived time is rejected`() {
+        val local = mapOf("history" to JSONArray().put(session("closed", 15_000L, 30_000L)).toString())
+        assertTrue(runCatching { V2BackupManager.mergeRuntimeValues(local, openJournal()) }.isFailure)
+    }
+
+    @Test
+    fun `different current session rejects entire runtime merge`() {
+        val local = openJournal("local")
+        assertTrue(runCatching { V2BackupManager.mergeRuntimeValues(local, openJournal("remote")) }.isFailure)
+        assertEquals("local", local["session_id"])
+    }
+
+    @Test
+    fun `restored recovery receipt remains inert provenance and local ownership is retained`() {
+        val saved = openJournal() + ("legacy_recovery_receipt" to "remote-proof")
+        val first = V2BackupManager.mergeRuntimeValues(emptyMap<String, Any>(), saved)
+        assertFalse(first.values.containsKey("legacy_recovery_receipt"))
+        assertEquals("remote-proof", JSONArray(first.values["restored_legacy_provenance"] as String).getString(0))
+        val repeated = V2BackupManager.mergeRuntimeValues(first.values, saved)
+        assertEquals(first, repeated)
+        val owned = V2BackupManager.mergeRuntimeValues(openJournal() + ("legacy_recovery_receipt" to "local-proof"), saved)
+        assertEquals("local-proof", owned.values["legacy_recovery_receipt"])
+    }
+
+    @Test
+    fun `typed backup current fields decode without losing timestamp types`() {
+        val saved = JSONObject().put("session_id", typed("s", "open-1"))
+            .put("real_entry", typed("l", 10_000L)).put("counted_entry", typed("l", 10_000L))
+            .put("pauses", typed("s", "[]")).put("history", typed("s", "[]"))
+        val plan = V2BackupManager.mergeRuntimeValues(emptyMap<String, Any>(), V2BackupManager.decodeRuntimeValues(saved))
+        assertEquals(10_000L, plan.values["real_entry"])
+    }
+
+    @Test
+    fun `account backup location preserves unowned historical files and separates accounts`() {
+        val a = V2BackupManager.accountBackupFolder("uid:A")
+        val b = V2BackupManager.accountBackupFolder("uid:B")
+        assertFalse(a == b)
+        assertFalse(a == "AGKGMG")
+        assertFalse(a.contains("uid:A"))
+        assertEquals(a, V2BackupManager.accountBackupFolder("uid:A"))
+        val locations = V2BackupManager.backupSearchLocations("uid:A")
+        assertTrue(locations.contains(a to "AGKGMG_backup.json"))
+        assertTrue(locations.contains("AGKGMG" to "AGKGMG_backup.json"))
+        assertFalse(locations.any { it.first == b })
+    }
+
+    @Test
+    fun `backup owner must match and historical unowned data is not claimed`() {
+        val owned = JSONObject().put("accountScope", "uid:A")
+        assertTrue(V2BackupManager.backupOwnerMatches(owned, "uid:A"))
+        assertFalse(V2BackupManager.backupOwnerMatches(owned, "uid:B"))
+        assertFalse(V2BackupManager.backupOwnerMatches(owned, "guest"))
+        assertFalse(V2BackupManager.backupOwnerMatches(owned, null))
+        assertFalse(V2BackupManager.backupOwnerMatches(JSONObject(), "uid:A"))
+        assertFalse(V2BackupManager.backupOwnerMatches(JSONObject().put("accountScope", 1), "1"))
+    }
+
+    @Test
+    fun `authenticated legacy cloud provenance cannot override an explicit different owner`() {
+        assertTrue(V2BackupManager.backupOwnerAuthorized(JSONObject(), "uid:A", "uid:A"))
+        assertFalse(V2BackupManager.backupOwnerAuthorized(JSONObject(), "uid:B", "uid:A"))
+        assertFalse(V2BackupManager.backupOwnerAuthorized(JSONObject(), "guest", "guest"))
+        assertFalse(V2BackupManager.backupOwnerAuthorized(JSONObject(), "uid:A", null))
+        assertFalse(V2BackupManager.backupOwnerAuthorized(JSONObject().put("accountScope", "uid:B"), "uid:A", "uid:A"))
+    }
+
     @Test
     fun `versions de sauvegarde historiques et courante sont acceptees`() {
         assertTrue(V2BackupManager.isSupportedFormatVersion(1))
@@ -15,7 +108,8 @@ class V2BackupManagerTest {
         assertTrue(V2BackupManager.isSupportedFormatVersion(3))
         assertTrue(V2BackupManager.isSupportedFormatVersion(4))
         assertFalse(V2BackupManager.isSupportedFormatVersion(0))
-        assertFalse(V2BackupManager.isSupportedFormatVersion(5))
+        assertTrue(V2BackupManager.isSupportedFormatVersion(5))
+        assertFalse(V2BackupManager.isSupportedFormatVersion(6))
     }
 
     @Test

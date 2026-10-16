@@ -15,12 +15,15 @@ object MonthlyPaidWorkScopeV2 {
         "Temps de travail : un pointage de l'entreprise est ouvert, à confirmer ou incomplet ; le temps payé et le brut restent à confirmer."
     const val PAUSE_WARNING =
         "Pause à confirmer ou statut payé/non payé inconnu : le temps payé et le brut restent à confirmer."
+    const val ACTIVITY_WARNING =
+        "Segments d'activité incomplets ou à confirmer : le temps payé et le brut restent à confirmer."
 
     data class Result(
         val selected: List<WorkSessionV2>,
         val reliable: Boolean,
         val incompleteSession: Boolean,
         val allocationReliable: Boolean,
+        val activityReliable: Boolean,
         val overlappingSessions: Boolean,
         val unassignedEmployerSession: Boolean,
         val unpaidPauseMs: Long?,
@@ -41,6 +44,7 @@ object MonthlyPaidWorkScopeV2 {
                 reliable = false,
                 incompleteSession = false,
                 allocationReliable = false,
+                activityReliable = false,
                 overlappingSessions = false,
                 unassignedEmployerSession = false,
                 unpaidPauseMs = null,
@@ -62,6 +66,18 @@ object MonthlyPaidWorkScopeV2 {
         val allocationReliable = selected.all {
             PaidWorkAllocationV2.isReliableForRange(it, rangeStartMs, rangeEndMs)
         }
+        val activityReliable = selected.all { session ->
+            if (session.workSegments.isEmpty()) true
+            else {
+                val start = WorkTimePolicyV2.repairKnownCountedEntry(
+                    session.realArrivalMs,
+                    session.countedEntryMs
+                )
+                val end = session.countedExitMs
+                start != null && end != null &&
+                    QualifiedWorkSegmentsV2.resolve(session, start, end).reliable
+            }
+        }
         val overlapping = WorkSessionOverlapV2.hasOverlapWithinEmployerGroup(
             sessions = sessions,
             acceptedEmployerIds = ids,
@@ -75,7 +91,7 @@ object MonthlyPaidWorkScopeV2 {
             rangeEndMs = rangeEndMs,
             openEndMs = nowMs
         )
-        val reliable = !incomplete && allocationReliable && !overlapping && !unassigned
+        val reliable = !incomplete && allocationReliable && activityReliable && !overlapping && !unassigned
         val unpaidPauseMs = if (reliable) {
             selected.sumOf { session ->
                 val countedStart = WorkTimePolicyV2.repairKnownCountedEntry(
@@ -86,13 +102,32 @@ object MonthlyPaidWorkScopeV2 {
                 val start = maxOf(countedStart, rangeStartMs)
                 val end = minOf(countedEnd, rangeEndMs)
                 val countedSpan = (end - start).coerceAtLeast(0L)
-                val paid = PaidWorkAllocationV2.paidOverlap(session, rangeStartMs, rangeEndMs)
-                (countedSpan - paid).coerceAtLeast(0L)
+                if (session.workSegments.isEmpty()) {
+                    val paid = PaidWorkAllocationV2.paidOverlap(session, rangeStartMs, rangeEndMs)
+                    (countedSpan - paid).coerceAtLeast(0L)
+                } else {
+                    val pauseResolution = PaidPauseResolutionV2.resolve(
+                        pauses = session.pauses,
+                        rangeStartMs = rangeStartMs,
+                        rangeEndMs = rangeEndMs,
+                        openPauseEndMs = rangeEndMs,
+                        allowOpenPause = false,
+                    )
+                    val resolution = QualifiedWorkSegmentsV2.resolve(session, countedStart, countedEnd)
+                    resolution.workedIntervals.sumOf { (workStart, workEnd) ->
+                        val clippedStart = maxOf(workStart, rangeStartMs)
+                        val clippedEnd = minOf(workEnd, rangeEndMs)
+                        PaidPauseResolutionV2.overlapDuration(
+                            pauseResolution.unpaidIntervals, clippedStart, clippedEnd
+                        )
+                    }
+                }
             }
         } else null
         val warnings = buildList {
             if (incomplete) add(INCOMPLETE_WARNING)
             if (!allocationReliable) add(PAUSE_WARNING)
+            if (!activityReliable) add(ACTIVITY_WARNING)
             if (overlapping) add(WorkSessionOverlapV2.WARNING)
             if (unassigned) add(WorkSessionEmployerAssignmentV2.WARNING)
         }.distinct()
@@ -102,6 +137,7 @@ object MonthlyPaidWorkScopeV2 {
             reliable = reliable,
             incompleteSession = incomplete,
             allocationReliable = allocationReliable,
+            activityReliable = activityReliable,
             overlappingSessions = overlapping,
             unassignedEmployerSession = unassigned,
             unpaidPauseMs = unpaidPauseMs,

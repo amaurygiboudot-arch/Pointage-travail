@@ -24,6 +24,9 @@ struct ContentView: View {
     @State private var clockInFeedback: String?
     @State private var gpsFeedback: String?
     @State private var homeTabBarVisible = true
+    @State private var recoveryPreview: WorkSessionAccountStorageV2.RecoveryPreview?
+    @State private var showRecoveryConfirmation = false
+    @State private var recoveryFeedback: String?
     @State private var settingsPage: SettingsPage?
 
     private enum SettingsPage: String {
@@ -47,6 +50,21 @@ struct ContentView: View {
                 .tabItem { Label("Réglages", systemImage: "gearshape") }
         }
         .tint(accent)
+        .alert("Déclarer la propriété de l’ancien journal", isPresented: $showRecoveryConfirmation) {
+            Button("Annuler", role: .cancel) { recoveryPreview = nil }
+            Button("Tous ces pointages m’appartiennent") {
+                guard let preview = recoveryPreview else { return }
+                do {
+                    try store.recoverHistoricalJournal(preview)
+                    recoveryFeedback = "Journal récupéré dans ce compte. Les originaux sont conservés."
+                } catch { recoveryFeedback = error.localizedDescription }
+                recoveryPreview = nil
+            }
+        } message: {
+            if recoveryPreview != nil {
+                Text("Compte : \(authManager.user?.email ?? authManager.user?.uid ?? "indisponible").\n\nConfirme uniquement si TOUS les pointages de l’ancien journal de cet appareil t’appartiennent. Si cet appareil a été partagé ou si tu as un doute, annule. Cette déclaration vient de toi ; Firebase ne vérifie pas la propriété de cet historique. Les originaux restent conservés.")
+            }
+        }
         .sheet(isPresented: $showManualEntry) {
             ManualEntrySheetV2()
         }
@@ -84,28 +102,36 @@ struct ContentView: View {
                             }
                         }
                     }
-                } else {
-                    Button("Confirmer la sortie", role: .destructive) {
-                        confirmGpsDeparture(event: event)
-                    }
                 }
                 Button("Ignorer cet événement", role: .destructive) {
-                    _ = locationManager.reconcileSession(
+                    guard locationManager.reconcileSession(
                         openSessionId: store.currentSession?.id
-                    )
+                    ), locationManager.isCurrentPendingEvent(event) else {
+                        gpsFeedback = "Cet événement GPS a changé : consulte l'événement actuel."
+                        return
+                    }
                     locationManager.clearPendingEvent()
                 }
             }
             Button("Plus tard", role: .cancel) {}
         } message: {
-            Text("La présence GPS reste un indice. AGKGMG n'enregistre aucun temps payé sans ta confirmation.")
+            Text("La présence GPS reste un indice. AGKGMG n'enregistre aucun temps payé sans ta confirmation. Le pointage et la qualification du temps payé restent distincts.")
         }
         .onAppear {
+            store.reloadAccount()
             _ = locationManager.reconcileSession(openSessionId: store.currentSession?.id)
             showGpsConfirmation = locationManager.pendingEvent != nil
         }
+        .onChange(of: authManager.user?.uid) { _ in
+            recoveryFeedback = nil
+            recoveryPreview = nil
+            showRecoveryConfirmation = false
+            store.reloadAccount()
+            locationManager.reloadAndReconcile()
+        }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
+            store.reloadAccount()
             _ = locationManager.reconcileSession(openSessionId: store.currentSession?.id)
         }
         .onChange(of: locationManager.pendingEvent?.id) { pendingId in
@@ -145,6 +171,27 @@ struct ContentView: View {
                     Text(Date.now.formatted(date: .omitted, time: .shortened))
                         .font(.system(size: 52, weight: .bold, design: .rounded))
 
+                    if !authManager.isFirebaseConfigured {
+                        Text("Authentification indisponible : le journal de pointage est temporairement bloqué.")
+                            .font(.footnote)
+                    }
+                    if store.hasUnassignedHistory {
+                        Text("Un ancien journal est conservé sur cet appareil. Les calculs restent à confirmer tant que son propriétaire n’est pas déclaré.")
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                        Button("Examiner la récupération de mon journal") {
+                            do {
+                                recoveryPreview = try store.recoveryPreview()
+                                recoveryFeedback = nil
+                                showRecoveryConfirmation = true
+                            } catch { recoveryFeedback = error.localizedDescription }
+                        }
+                        .disabled(!authManager.isSignedIn)
+                        if !authManager.isSignedIn {
+                            Text("Connecte-toi pour déclarer la propriété de l’ancien journal.").font(.footnote)
+                        }
+                    }
+                    if let recoveryFeedback { Text(recoveryFeedback).font(.footnote) }
                     clockEmployerCard
 
                     HStack(spacing: 18) {
@@ -167,6 +214,9 @@ struct ContentView: View {
                             }
 
                             let didClockIn = store.clockIn(employerId: employerId)
+                            if didClockIn {
+                                _ = locationManager.reconcileSession(openSessionId: store.currentSession?.id)
+                            }
                             refreshClockEmployerSelection()
                             if !didClockIn {
                                 clockInFeedback = "Entrée non enregistrée : entreprise ou historique à vérifier."
@@ -187,7 +237,7 @@ struct ContentView: View {
                             if store.currentPauseNeedsQualification {
                                 showPausePaymentChoice = true
                             } else {
-                                if store.clockOut() {
+                                if store.clockOut(origin: .manual) {
                                     if !locationManager.reconcileSession(openSessionId: nil) {
                                         gpsFeedback = "Sortie enregistrée, mais le suivi GPS est à vérifier."
                                     }
@@ -209,6 +259,11 @@ struct ContentView: View {
                     }
 
                     statusCard
+                    if locationManager.isOutsideAwaitingReview && store.isWorking {
+                        Text("Hors site / à vérifier — la session reste ouverte. Une sortie manuelle utilise l’heure observée uniquement si elle est encore valide.")
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                    }
                     if locationManager.pendingEvent != nil {
                         Button {
                             showGpsConfirmation = true
@@ -435,6 +490,7 @@ struct ContentView: View {
                 }
 
                 if settingsPage == .pointage {
+                    DailyDiagnosticView()
                     Section("Pointage & lieux") {
                         Text(locationLabel)
                         Text(locationManager.statusMessage)
@@ -624,6 +680,10 @@ struct ContentView: View {
             gpsFeedback = "État GPS à vérifier avant de confirmer cet événement."
             return
         }
+        guard locationManager.isCurrentPendingEvent(event) else {
+            gpsFeedback = "Cet événement GPS a changé : consulte l'événement actuel."
+            return
+        }
         guard !store.isWorking else {
             gpsFeedback = "Une entrée est déjà en cours : événement GPS ignoré."
             locationManager.clearPendingEvent()
@@ -639,7 +699,7 @@ struct ContentView: View {
             employerId: clockInFacts.employerId,
             placeLabel: clockInFacts.placeLabel
         ), let sessionId = store.currentSession?.id {
-            if locationManager.confirmArrival(eventId: event.id, sessionId: sessionId) {
+            if locationManager.confirmArrival(eventId: event.id, sessionId: sessionId, zoneId: zone.id) {
                 gpsFeedback = nil
             } else {
                 if store.rollbackClockIn(expectedSessionId: sessionId) {
@@ -652,44 +712,6 @@ struct ContentView: View {
             refreshClockEmployerSelection()
         } else {
             gpsFeedback = "Entrée GPS non enregistrée : entreprise ou historique à vérifier."
-        }
-    }
-
-    private func confirmGpsDeparture(event: GpsPendingEventV2) {
-        guard locationManager.reconcileSession(openSessionId: store.currentSession?.id) else {
-            gpsFeedback = "État GPS à vérifier avant de confirmer cet événement."
-            return
-        }
-        guard let currentSession = store.currentSession else {
-            gpsFeedback = "Aucune entrée en cours : sortie GPS ignorée."
-            locationManager.clearPendingEvent()
-            return
-        }
-        if store.currentPauseNeedsQualification {
-            gpsFeedback = "Qualifie d'abord la pause en cours avant de confirmer la sortie."
-            showPausePaymentChoice = true
-            return
-        }
-        guard event.expectedSessionId == currentSession.id else {
-            gpsFeedback = "Cette sortie GPS ne correspond pas au pointage en cours."
-            return
-        }
-        if store.clockOut(
-            at: event.occurredAt,
-            expectedSessionId: currentSession.id
-        ) {
-            if locationManager.confirmDeparture(
-                eventId: event.id,
-                sessionId: currentSession.id
-            ) {
-                gpsFeedback = nil
-            } else {
-                _ = locationManager.reconcileSession(openSessionId: nil)
-                gpsFeedback = "Sortie enregistrée, mais le suivi GPS est à vérifier."
-            }
-            refreshClockEmployerSelection()
-        } else {
-            gpsFeedback = "Sortie GPS non enregistrée : chronologie ou historique à vérifier."
         }
     }
 
