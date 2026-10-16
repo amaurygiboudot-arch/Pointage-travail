@@ -3,6 +3,29 @@ import XCTest
 @testable import RuntimeV2Contract
 
 final class WorkSessionAccountStorageV2Tests: XCTestCase {
+    func testDiagnosticSeparatesUnassignedAndCorruptHistoryWithoutMutation() throws {
+        let suite = "diagnostic-history-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let current = WorkSession(id: UUID(), entry: Date(), exit: nil, pauses: [])
+        XCTAssertTrue(WorkSessionAccountStorageV2.write([current], account: "A", defaults: defaults))
+        XCTAssertEqual(WorkSessionAccountStorageV2.diagnosticHistory(defaults: defaults), .complete)
+        let historical = WorkSession(id: UUID(), entry: Date(timeIntervalSince1970: 100),
+                                     exit: Date(timeIntervalSince1970: 200), pauses: [])
+        let original = try JSONEncoder().encode([historical])
+        defaults.set(original, forKey: WorkSessionStorageV2.primaryKey)
+        XCTAssertEqual(WorkSessionAccountStorageV2.diagnosticHistory(defaults: defaults), .unassigned)
+        XCTAssertEqual(defaults.data(forKey: WorkSessionStorageV2.primaryKey), original)
+        defaults.set(Data("broken".utf8), forKey: WorkSessionStorageV2.primaryKey)
+        XCTAssertEqual(WorkSessionAccountStorageV2.diagnosticHistory(defaults: defaults), .corrupt)
+        XCTAssertEqual(WorkSessionAccountStorageV2.read(account: "A", defaults: defaults), .valid([current]))
+        XCTAssertTrue(WorkSessionAccountStorageV2.hasUnassignedHistory(defaults: defaults))
+        defaults.set(original, forKey: WorkSessionStorageV2.primaryKey)
+        defaults.set(Data("broken receipt".utf8), forKey: WorkSessionAccountStorageV2.recoveryKey)
+        XCTAssertEqual(WorkSessionAccountStorageV2.diagnosticHistory(defaults: defaults), .corrupt)
+        XCTAssertEqual(WorkSessionAccountStorageV2.read(account: "A", defaults: defaults), .corrupt)
+    }
+
     func testGuestIsAvailableOnlyWhenAuthenticationStateIsKnownAndHasSeparateNamespace() throws {
         XCTAssertNil(WorkSessionAccountStorageV2.authenticationScope(available: false, userId: nil))
         XCTAssertNil(WorkSessionAccountStorageV2.authenticationScope(available: false, userId: "A"))

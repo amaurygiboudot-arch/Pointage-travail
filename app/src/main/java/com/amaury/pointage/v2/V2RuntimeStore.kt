@@ -2,6 +2,7 @@ package com.amaury.pointage.v2
 
 import com.amaury.pointage.DailyDiagnosticStoreV2
 import com.amaury.pointage.DailyDiagnosticKindV2
+import com.amaury.pointage.ClosureOriginV2
 import android.content.Context
 import com.amaury.pointage.WidgetLocationExpiryScheduler
 import com.amaury.pointage.v2.model.EventSourceV2
@@ -100,15 +101,20 @@ object V2RuntimeStore {
     ): Boolean {
         return V2RuntimeAccountScope.withScope {
         DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.ENTRY_REQUEST, nowMs, value = expectedEndMs)
-        if (nowMs <= 0L) return false
+        fun refused(reason: String): Boolean {
+            DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.ENTRY_REFUSED, nowMs, reason)
+            return false
+        }
+        if (nowMs <= 0L) return refused("INVALID_TIME")
         val current = readForWrite(context, nowMs)
-        if (!current.reliable || current.session?.status == SessionStatusV2.OPEN) return false
+        if (!current.reliable) return refused("RUNTIME_UNRELIABLE")
+        if (current.session?.status == SessionStatusV2.OPEN) return refused("SESSION_ALREADY_OPEN")
         val storedHistory = V2RuntimeHistoryGuardV2.read(context)
-        if (!storedHistory.reliable) return false
+        if (!storedHistory.reliable) return refused("HISTORY_UNRELIABLE")
         // Une nouvelle session est ouverte sans fin connue. Elle ne peut donc commencer avant
         // une session déjà archivée (y compris une saisie manuelle future), sinon deux vérités
         // temporelles coexisteraient jusqu'à sa fermeture.
-        if (historyOverlapsRange(storedHistory.history, nowMs, Long.MAX_VALUE) != false) return false
+        if (historyOverlapsRange(storedHistory.history, nowMs, Long.MAX_VALUE) != false) return refused("HISTORY_OVERLAP_OR_INVALID")
         val prefs = prefs(context)
 
         // Les anciens appels peuvent encore imposer un slot 1/2. Le flux normal utilise désormais
@@ -130,7 +136,7 @@ object V2RuntimeStore {
         val editor = prefs.edit()
             .remove(KEY_ID).remove(KEY_EMPLOYER_ID).remove(KEY_COMPANY_SLOT)
             .remove(KEY_REAL_ENTRY).remove(KEY_COUNTED_ENTRY).remove(KEY_TIME_BASIS)
-            .remove(KEY_REAL_EXIT).remove(KEY_COUNTED_EXIT).remove(KEY_EXPECTED_END)
+            .remove("departureObservedAtMs").remove("closureOrigin").remove(KEY_REAL_EXIT).remove(KEY_COUNTED_EXIT).remove(KEY_EXPECTED_END)
             .remove(KEY_PAUSE_START).remove(KEY_PAUSE_SOURCE).remove(KEY_PAUSE_PAID).remove(KEY_PAUSES)
             .remove(KEY_PLACE_ID).remove(KEY_PLACE_LABEL)
             .putString(KEY_ID, UUID.randomUUID().toString())
@@ -485,19 +491,29 @@ object V2RuntimeStore {
         ranges: List<Pair<Long, Long>>
     ): Boolean = false
 
+    /** Explicit user exit uses a validated observation when available, otherwise the click instant. */
+    internal fun userExit(context: Context, nowMs: Long = System.currentTimeMillis(), origin: ClosureOriginV2): Boolean = withTransaction {
+        require(origin == ClosureOriginV2.MANUAL || origin == ClosureOriginV2.WIDGET)
+        val observed = com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2.eligibleDepartureAt(context, nowMs)
+        exit(context, observed ?: nowMs, origin = origin, departureObservedAtMs = observed)
+    }
+
     @Synchronized
-    fun exit(
+    internal fun exit(
         context: Context,
         nowMs: Long = System.currentTimeMillis(),
-        expectedEndMs: Long? = null
+        expectedEndMs: Long? = null,
+        origin: ClosureOriginV2 = ClosureOriginV2.UNKNOWN,
+        departureObservedAtMs: Long? = null
     ): Boolean {
         return V2RuntimeAccountScope.withScope {
-        DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.EXIT_REQUEST, nowMs, value = expectedEndMs)
+        DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.EXIT_REQUEST, nowMs, origin.name, value = expectedEndMs)
         val current = readForWrite(context, nowMs)
         val session = current.session ?: return false
         if (!current.reliable || session.status != SessionStatusV2.OPEN) return false
         val entry = session.realArrivalMs ?: return false
         if (nowMs <= entry) return false
+        if (departureObservedAtMs != null && departureObservedAtMs != nowMs) return false
         val prefs = prefs(context)
         val pauseStart = safeLong(prefs.all[KEY_PAUSE_START])
         var pauses = prefs.getString(KEY_PAUSES, "[]").orEmpty()
@@ -527,7 +543,9 @@ object V2RuntimeStore {
             countedExitMs = countedExit,
             realExitMs = nowMs,
             pauses = closedPauses,
-            status = SessionStatusV2.CLOSED
+            status = SessionStatusV2.CLOSED,
+            closureOrigin = origin.name,
+            departureObservedAtMs = departureObservedAtMs
         )
         val storedHistory = V2RuntimeHistoryGuardV2.read(context)
         if (!storedHistory.reliable) return false
@@ -542,6 +560,11 @@ object V2RuntimeStore {
             .remove(KEY_PAUSE_START)
             .remove(KEY_PAUSE_SOURCE)
             .remove(KEY_PAUSE_PAID)
+            .apply {
+                if (departureObservedAtMs == null) remove("departureObservedAtMs")
+                else putLong("departureObservedAtMs", departureObservedAtMs)
+            }
+            .putString("closureOrigin", origin.name)
             .putLong(KEY_REAL_EXIT, nowMs)
             .apply {
                 if (countedExit == null) remove(KEY_COUNTED_EXIT)
@@ -695,7 +718,9 @@ object V2RuntimeStore {
             status = if (realExit == null) SessionStatusV2.OPEN else SessionStatusV2.CLOSED,
             placeId = placeId,
             placeLabel = placeLabel,
-            timeBasis = timeBasis
+            timeBasis = timeBasis,
+            closureOrigin = values["closureOrigin"] as? String,
+            departureObservedAtMs = strictPositive(values["departureObservedAtMs"])
         )
         return Snapshot(session, HoraTrackV2.time.calculate(session, nowMs))
         }
@@ -789,6 +814,8 @@ object V2RuntimeStore {
         .put("placeId", session.placeId ?: JSONObject.NULL)
         .put("placeLabel", session.placeLabel ?: JSONObject.NULL)
         .put("legacyFixedUnpaidPauseMs", session.legacyFixedUnpaidPauseMs)
+        .put("departureObservedAtMs", session.departureObservedAtMs ?: JSONObject.NULL)
+        .put("closureOrigin", session.closureOrigin ?: JSONObject.NULL)
         .put("timeBasis", session.timeBasis.name)
         .put("workSegments", workSegmentsToJson(session.workSegments))
         .put(KEY_PAUSES, pausesToJson(session.pauses))
@@ -829,7 +856,9 @@ object V2RuntimeStore {
                         placeLabel = placeLabel,
                         legacyFixedUnpaidPauseMs = positiveOrZero(o, "legacyFixedUnpaidPauseMs"),
                         timeBasis = timeBasis,
-                        workSegments = workSegments
+                        workSegments = workSegments,
+                        closureOrigin = o.optString("closureOrigin").takeIf { it.isNotBlank() && it != "null" },
+                        departureObservedAtMs = positive(o, "departureObservedAtMs")
                     )
                 )
             }

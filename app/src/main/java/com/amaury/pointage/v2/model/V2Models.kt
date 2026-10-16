@@ -19,7 +19,11 @@ data class WorkSessionV2(
     /** Missing in historical records: old counted times remain unverified until qualified. */
     val timeBasis: TimeBasisV2 = TimeBasisV2.LEGACY_UNVERIFIED,
     /** Optional exhaustive activity breakdown (not inferred from GPS). */
-    val workSegments: List<WorkSegmentV2> = emptyList()
+    val workSegments: List<WorkSegmentV2> = emptyList(),
+    /** Explicit action provenance, absent for historical records. */
+    val closureOrigin: String? = null,
+    /** GPS evidence actually used for closure; never inferred for historical sessions. */
+    val departureObservedAtMs: Long? = null
 )
 
 data class PauseV2(val startMs:Long,val endMs:Long?,val paid:Boolean?,val source:EventSourceV2,val status:DecisionStatusV2=DecisionStatusV2.CONFIRMED)

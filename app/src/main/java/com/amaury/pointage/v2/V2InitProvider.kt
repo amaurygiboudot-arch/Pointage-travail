@@ -74,6 +74,7 @@ class V2InitProvider : ContentProvider() {
                 auth.addAuthStateListener(listener)
             }
         }
+        V2RuntimeAccountScope.monitoringEpoch(app)
         val scope = V2RuntimeAccountScope.currentScope()
         if (scope == observedScope && runtimePrefs != null) return
         iconStateListener?.let { runtimePrefs?.unregisterOnSharedPreferenceChangeListener(it) }

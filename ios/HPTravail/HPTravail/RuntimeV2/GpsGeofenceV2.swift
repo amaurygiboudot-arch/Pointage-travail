@@ -146,6 +146,9 @@ struct GpsPendingEventV2: Codable, Equatable, Identifiable {
     var expectedSessionId: UUID? = nil
     var exitObservations: [GpsZoneExitObservationV2]? = nil
     var verifiedDepartureZoneId: UUID? = nil
+    // Only newly observed departures may confirm a timestamp; old prompts stay inert.
+    var departureEvidenceVersion: Int? = nil
+    var expectedSessionEntry: Date? = nil
 }
 
 enum GpsEventConfirmationV2 {
@@ -269,15 +272,29 @@ enum GpsPresenceTransitionV2 {
     }
 
     static func reconcileSession(state: State, openSessionId: UUID?) -> State {
-        guard state.confirmedSessionId != openSessionId else { return state }
-        var next = state
-        let staleSessionId = next.confirmedSessionId
+        var next = arbitrateDepartures(state: state)
+        // A later visit can already have cleared confirmedSessionId. Cleanup must
+        // therefore use each observation's session identity, even for nil == nil.
+        next.pendingEvents.removeAll {
+            $0.kind == .departure && $0.expectedSessionId != nil && $0.expectedSessionId != openSessionId
+        }
+        guard next.confirmedSessionId != openSessionId else { return next }
         next.confirmedSessionId = nil
         next.confirmedZoneId = nil
-        if let staleSessionId {
-            next.pendingEvents.removeAll {
-                $0.kind == .departure && $0.expectedSessionId == staleSessionId
+        return next
+    }
+
+    /// A subsequent physical visit invalidates an earlier departure observation.
+    /// Remove it from the canonical queue before projecting an arrival into UI;
+    /// never close the old session or invent a replacement departure timestamp.
+    static func arbitrateDepartures(state: State) -> State {
+        var next = state
+        next.pendingEvents = state.pendingEvents.enumerated().compactMap { index, event in
+            if event.kind == .departure,
+               state.pendingEvents.dropFirst(index + 1).contains(where: { $0.kind == .arrival }) {
+                return nil
             }
+            return event
         }
         return next
     }
@@ -418,10 +435,14 @@ enum GpsStateStoreV2 {
         return .valid(state)
     }
 
-    static func write(_ state: GpsPersistedStateV2, defaults: UserDefaults) -> Bool {
+    static func scopedKey(account: String) -> String {
+        key + ".account." + Data(account.utf8).base64EncodedString()
+    }
+
+    static func write(_ state: GpsPersistedStateV2, defaults: UserDefaults, storageKey: String = key) -> Bool {
         guard let data = try? JSONEncoder().encode(state) else { return false }
-        defaults.set(data, forKey: key)
-        return read(defaults.data(forKey: key)) == .valid(state)
+        defaults.set(data, forKey: storageKey)
+        return read(defaults.data(forKey: storageKey)) == .valid(state)
     }
 
     static func clear(defaults: UserDefaults) {

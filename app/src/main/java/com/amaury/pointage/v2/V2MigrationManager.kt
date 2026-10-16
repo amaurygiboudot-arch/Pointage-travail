@@ -66,6 +66,19 @@ object V2MigrationManager {
 
     internal fun migrationRequired(completedVersion: Int): Boolean = completedVersion < VERSION
 
+    /** Diagnostic preflight only: never initialise, repair or persist migration metadata. */
+    internal fun completedForDiagnostic(context: Context): Boolean {
+        if (!V2RuntimeAccountScope.available()) return false
+        val version = runCatching {
+            val meta = V2RuntimeAccountScope.preferences(context.applicationContext, META_PREFS)
+            // ensureMigrated's completed branch also reads this metadata field.
+            // Reject malformed types here so diagnostics report the problem rather than throw.
+            meta.getInt("legacy_count", 0)
+            meta.getInt("version", 0)
+        }.getOrNull() ?: return false
+        return !migrationRequired(version)
+    }
+
     fun importLegacyArray(context: Context, legacy: JSONArray): Result {
         return V2RuntimeStore.withTransaction {
             if (!HoraTrackV2.ENABLED) return Result(0, 0, legacy.length(), 0)

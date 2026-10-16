@@ -244,7 +244,7 @@ class MainActivity : Activity() {
         exitButton?.setOnClickListener {
             animateClick(exitButton)
             val ok = if (HoraTrackV2.ENABLED) {
-                V2RuntimeStore.exit(this)
+                V2RuntimeStore.userExit(this, origin = ClosureOriginV2.MANUAL)
             } else {
                 V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.POINTAGE)
                 PointageStore.exit(this)
@@ -409,6 +409,7 @@ class MainActivity : Activity() {
     }
 
     private fun showHomeTab() {
+        updateDepartureObservationStatus()
         setCelestialHomeBackground(true)
         persistActiveTab("home")
         setActiveTab(tabHome)
@@ -698,7 +699,20 @@ class MainActivity : Activity() {
         }
     }
 
+    /** A separate non-blocking banner preserves permission/registration error messages. */
+    private fun updateDepartureObservationStatus() {
+        val banner = findViewById<TextView>(R.id.departureObservationStatus) ?: return
+        val observation = if (HoraTrackV2.ENABLED)
+            com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2.pendingForOpenSession(this)
+                ?.takeIf { it.kind == com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2.Pending.Kind.EXIT_WORKSITE }
+            else null
+        banner.visibility = if (observation == null) View.GONE else View.VISIBLE
+        banner.text = if (observation == null) "" else
+            "Hors site / \u00e0 v\u00e9rifier depuis ${java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(Date(observation.atMs))}. Session ouverte."
+    }
+
     private fun updateGpsStatus() {
+        updateDepartureObservationStatus()
         val precisePermission =
             checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val backgroundPermission =
@@ -750,6 +764,7 @@ class MainActivity : Activity() {
     }
 
     private fun refreshScreen() {
+        updateDepartureObservationStatus()
         if (HoraTrackV2.ENABLED) {
             val read = V2RuntimeReader.current(this)
             if (!read.reliable) {

@@ -441,7 +441,7 @@ final class GpsGeofenceV2Tests: XCTestCase {
         )
     }
 
-    func testReconcileRemovesOnlyDeparturesForClosedGpsSession() {
+    func testReconcileRemovesAllDeparturesBoundToClosedSessions() {
         let staleSession = UUID()
         let otherSession = UUID()
         let staleDeparture = pending(.departure, sessionId: staleSession, at: now)
@@ -461,7 +461,7 @@ final class GpsGeofenceV2Tests: XCTestCase {
         )
 
         XCTAssertNil(reconciled.confirmedSessionId)
-        XCTAssertEqual(reconciled.pendingEvents, [arrival, otherDeparture])
+        XCTAssertEqual(reconciled.pendingEvents, [arrival])
     }
 
     func testReconcileClosedSessionAllowsNextArrival() {

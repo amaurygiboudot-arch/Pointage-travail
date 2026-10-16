@@ -160,6 +160,25 @@ enum WorkSessionAccountStorageV2 {
         return original.1 != receipt.recoveredHistorical
     }
 
+    enum DiagnosticHistory: String {
+        case complete, unassigned, corrupt, conflict, recoveryIncomplete, changed
+    }
+
+    /// Read-only explanation; never assigns historical records or relaxes payroll checks.
+    static func diagnosticHistory(defaults: UserDefaults) -> DiagnosticHistory {
+        lock.lock(); defer { lock.unlock() }
+        if defaults.object(forKey: recoveryKey) != nil {
+            guard let value = receipt(defaults) else { return .corrupt }
+            guard value.complete else { return .recoveryIncomplete }
+        }
+        guard hasUnassignedHistory(defaults: defaults) else { return .complete }
+        do {
+            _ = try source(defaults)
+            return defaults.object(forKey: recoveryKey) == nil ? .unassigned : .changed
+        } catch RecoveryError.conflict { return .conflict }
+        catch { return .corrupt }
+    }
+
     private static func merged(_ historical: [WorkSession], _ current: [WorkSession]) throws -> [WorkSession] {
         var merged = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
         for session in historical {

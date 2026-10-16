@@ -36,7 +36,7 @@ class GpsRegressionV2Test {
     }
 
     @Test
-    fun `une sortie chantier remplace une ambiguite mais aucune autre confirmation`() {
+    fun `une sortie chantier ne remplace aucune ambiguite`() {
         val exit = pending(atMs = 10_000L)
         val ambiguous = exit.copy(
             kind = GpsWorkStateCoordinatorV2.Pending.Kind.AMBIGUOUS,
@@ -68,7 +68,7 @@ class GpsRegressionV2Test {
                 GpsWorkStateCoordinatorV2.Pending.Kind.AMBIGUOUS
             )
         )
-        assertTrue(
+        assertFalse(
             GpsWorkStateCoordinatorV2.canQueuePending(
                 ambiguous,
                 GpsWorkStateCoordinatorV2.Pending.Kind.EXIT_WORKSITE

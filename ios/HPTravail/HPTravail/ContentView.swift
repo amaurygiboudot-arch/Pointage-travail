@@ -102,10 +102,6 @@ struct ContentView: View {
                             }
                         }
                     }
-                } else {
-                    Button("Confirmer la sortie", role: .destructive) {
-                        confirmGpsDeparture(event: event)
-                    }
                 }
                 Button("Ignorer cet événement", role: .destructive) {
                     guard locationManager.reconcileSession(
@@ -119,7 +115,7 @@ struct ContentView: View {
             }
             Button("Plus tard", role: .cancel) {}
         } message: {
-            Text("La présence GPS reste un indice. AGKGMG n'enregistre aucun temps payé sans ta confirmation.")
+            Text("La présence GPS reste un indice. Le pointage et la qualification du temps payé sont distincts.")
         }
         .onAppear {
             store.reloadAccount()
@@ -218,6 +214,9 @@ struct ContentView: View {
                             }
 
                             let didClockIn = store.clockIn(employerId: employerId)
+                            if didClockIn {
+                                _ = locationManager.reconcileSession(openSessionId: store.currentSession?.id)
+                            }
                             refreshClockEmployerSelection()
                             if !didClockIn {
                                 clockInFeedback = "Entrée non enregistrée : entreprise ou historique à vérifier."
@@ -238,7 +237,7 @@ struct ContentView: View {
                             if store.currentPauseNeedsQualification {
                                 showPausePaymentChoice = true
                             } else {
-                                if store.clockOut() {
+                                if store.clockOut(origin: .manual) {
                                     if !locationManager.reconcileSession(openSessionId: nil) {
                                         gpsFeedback = "Sortie enregistrée, mais le suivi GPS est à vérifier."
                                     }
@@ -260,6 +259,11 @@ struct ContentView: View {
                     }
 
                     statusCard
+                    if locationManager.isOutsideAwaitingReview && store.isWorking {
+                        Text("Hors site / à vérifier — la session reste ouverte. Une sortie manuelle utilise l’heure observée uniquement si elle est encore valide.")
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                    }
                     if locationManager.pendingEvent != nil {
                         Button {
                             showGpsConfirmation = true
@@ -708,52 +712,6 @@ struct ContentView: View {
             refreshClockEmployerSelection()
         } else {
             gpsFeedback = "Entrée GPS non enregistrée : entreprise ou historique à vérifier."
-        }
-    }
-
-    private func confirmGpsDeparture(event: GpsPendingEventV2) {
-        guard locationManager.reconcileSession(openSessionId: store.currentSession?.id) else {
-            gpsFeedback = "État GPS à vérifier avant de confirmer cet événement."
-            return
-        }
-        guard locationManager.isCurrentPendingEvent(event) else {
-            gpsFeedback = "Cet événement GPS a changé : consulte l'événement actuel."
-            return
-        }
-        guard let currentSession = store.currentSession else {
-            gpsFeedback = "Aucune entrée en cours : sortie GPS ignorée."
-            locationManager.clearPendingEvent()
-            return
-        }
-        if store.currentPauseNeedsQualification {
-            gpsFeedback = "Qualifie d'abord la pause en cours avant de confirmer la sortie."
-            showPausePaymentChoice = true
-            return
-        }
-        guard event.expectedSessionId == currentSession.id else {
-            gpsFeedback = "Cette sortie GPS ne correspond pas au pointage en cours."
-            return
-        }
-        guard locationManager.hasVerifiedDepartureTime(event) else {
-            gpsFeedback = "Heure de sortie GPS non vérifiée. Vérifie le pointage avant de le clôturer manuellement."
-            return
-        }
-        if store.clockOut(
-            at: event.occurredAt,
-            expectedSessionId: currentSession.id
-        ) {
-            if locationManager.confirmDeparture(
-                eventId: event.id,
-                sessionId: currentSession.id
-            ) {
-                gpsFeedback = nil
-            } else {
-                _ = locationManager.reconcileSession(openSessionId: nil)
-                gpsFeedback = "Sortie enregistrée, mais le suivi GPS est à vérifier."
-            }
-            refreshClockEmployerSelection()
-        } else {
-            gpsFeedback = "Sortie GPS non enregistrée : chronologie ou historique à vérifier."
         }
     }
 

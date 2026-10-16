@@ -38,7 +38,7 @@ class GpsReturnObservationV2Test {
     }
 
     @Test fun returnBeforeNewDepartureDoesNotCancelThatLaterDeparture() {
-        val later = delivery.copy(event = delivery.event.copy(id = "second-exit", atMs = 85_000L))
+        val later = delivery.copy(event = delivery.event.copy(id = "second-exit", atMs = 85_000L), lastObservedAtMs = 85_000L)
         assertFalse(GpsReturnObservationV2.provesReturn(observed(), later, context, 90_000L))
     }
 

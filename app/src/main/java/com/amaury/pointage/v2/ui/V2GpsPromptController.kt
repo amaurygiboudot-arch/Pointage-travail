@@ -14,6 +14,7 @@ object V2GpsPromptController {
 
     fun maybeShow(activity: Activity) {
         if (activity.isFinishing || activity.isDestroyed || showing[activity] == true) return
+        GpsWorkStateCoordinatorV2.resolveAutomaticDeparture(activity)
         val pending = GpsWorkStateCoordinatorV2.pendingForOpenSession(activity) ?: return
         if (!GpsWorkStateCoordinatorV2.shouldPrompt(activity, pending)) return
 
@@ -21,40 +22,7 @@ object V2GpsPromptController {
         showing[activity] = true
 
         when (pending.kind) {
-            GpsWorkStateCoordinatorV2.Pending.Kind.EXIT_WORKSITE -> {
-                AlertDialog.Builder(activity)
-                    .setTitle("Tu as terminé ta journée ?")
-                    .setMessage(
-                        "HoraTrack te pose cette question parce que le GPS a détecté une sortie du lieu de travail. " +
-                            "Ta réponse détermine si ce moment doit devenir une vraie fin de travail."
-                    )
-                    .setPositiveButton("OUI") { _, _ ->
-                        if (!GpsWorkStateCoordinatorV2.confirmExit(
-                                activity,
-                                pending.id,
-                                V2RuntimeStore.expectedEnd(activity)
-                            )
-                        ) {
-                            GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
-                            Toast.makeText(
-                                activity,
-                                "Sortie non enregistrée : vérifie l'état du pointage puis réessaie.",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-                    }
-                    .setNegativeButton("NON") { _, _ ->
-                        GpsWorkStateCoordinatorV2.cancelPending(activity, pending.id)
-                    }
-                    .setOnCancelListener {
-                        GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
-                    }
-                    .setOnDismissListener {
-                        showing.remove(activity)
-                        GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
-                    }
-                    .show()
-            }
+            GpsWorkStateCoordinatorV2.Pending.Kind.EXIT_WORKSITE -> { showing.remove(activity); return }
 
             GpsWorkStateCoordinatorV2.Pending.Kind.AMBIGUOUS -> {
                 val entering = pending.transition == GpsTransitionV2.ENTER

@@ -7,12 +7,14 @@ import android.os.Build
 import android.os.PowerManager
 import androidx.core.content.ContextCompat
 import com.amaury.pointage.v2.V2RuntimeAccountScope
-import com.amaury.pointage.v2.V2RuntimeHistoryGuardV2
-import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.V2RuntimeReader
 import java.time.LocalDate
 import java.time.ZoneId
 
 internal object DailyDiagnosticExportV2 {
+    internal fun canonicalOrigin(raw: String?): String =
+        ClosureOriginV2.values().firstOrNull { it.name == raw }?.name ?: "UNKNOWN"
+
     fun render(context: Context, scope: String, date: LocalDate): String = V2RuntimeAccountScope.withScope {
         check(scope == V2RuntimeAccountScope.operationScope()) { "Compte modifié : rouvrir le diagnostic." }
         val zone = ZoneId.systemDefault()
@@ -21,13 +23,14 @@ internal object DailyDiagnosticExportV2 {
         val events = DailyDiagnosticModelV2.forDay(read.events, date, zone)
         val start = date.atStartOfDay(zone).toInstant().toEpochMilli()
         val end = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
-        val allSessions = V2RuntimeStore.allSessions(context)
+        val runtime = V2RuntimeReader.diagnostic(context, now)
+        val allSessions = runtime.history.sessions
         val sessions = allSessions.filter {
             (it.realArrivalMs ?: it.countedEntryMs)?.let { arrival ->
                 arrival < end && (it.realExitMs ?: it.countedExitMs ?: now) >= start
             } ?: ((it.realExitMs ?: it.countedExitMs)?.let { exit -> exit in start until end } == true)
         }
-        val reliable = V2RuntimeHistoryGuardV2.sourceState().reliable
+        val reliable = runtime.history.reliable
         check(scope == V2RuntimeAccountScope.currentScope()) { "Compte modifié : export annulé." }
         fun time(value: Long?) = value?.let { DailyDiagnosticModelV2.timestamp(it, zone) } ?: "inconnu / non enregistré"
         buildString {
@@ -58,17 +61,39 @@ internal object DailyDiagnosticExportV2 {
             events.forEach { appendLine("${time(it.observedAtMs)} | ${time(it.recordedAtMs)} | ${it.kind} | ${it.code} | ${it.value ?: ""} | ${it.zoneToken ?: ""}") }
             appendLine("Valeur : nombre de zones pour GEOFENCE_* ; fin attendue fournie pour ENTRY_REQUEST/EXIT_REQUEST ; heure retenue pour ENTRY_WRITE/EXIT_WRITE (millisecondes UTC). PAUSE_START/END_WRITE distingue début/fin ; SUCCESS_PAID/UNPAID indique le statut payé. Zone pseudonyme : corrélation locale, sans nom ni adresse, renouvelée après effacement du journal.")
             appendLine("REQUEST = tentative, WRITE/SUCCESS = écriture confirmée, WRITE/FAILED = écriture échouée. Une tentative sans succès ne prouve aucune modification.")
+            appendLine("EXIT_REQUEST : code = origine de la demande (MANUAL, WIDGET, AUTOMATIC, GPS_CONFIRMATION ou UNKNOWN), pas preuve de fermeture. EXIT_WRITE/SUCCESS confirme l'écriture ; aucune origine n'est reconstruite pour les anciennes traces. GPS_CONFIRMATION désigne la confirmation utilisateur d'une observation GPS, pas une clôture automatique.")
             appendLine()
             appendLine("POINTAGES ACTUELLEMENT CONSERVÉS — instantané à l'export, pas trace historique")
             appendLine("Source complète et fiable : $reliable")
+            appendLine("Historique ancien non attribué : ${V2RuntimeAccountScope.UNASSIGNED_WARNING in runtime.history.warnings}")
+            if (V2RuntimeAccountScope.UNASSIGNED_WARNING in runtime.history.warnings) appendLine("L'intégrité de l'ancien journal non attribué n'est pas vérifiée par cette lecture du compte courant.")
+            appendLine("Journal du compte courant lisible et cohérent : ${runtime.current.reliable}")
+            // Reader warnings are fixed application messages, never persisted user labels or IDs.
+            runtime.history.warnings.distinct().forEach { appendLine("Motif historique complet : $it") }
+            runtime.current.warnings.distinct().forEach { appendLine("Motif journal du compte : $it") }
+            if (!reliable) appendLine("Historique complet et calcul global restent à confirmer, même si une session courante est lisible.")
             appendLine("Sessions impossibles à rattacher à une date : ${allSessions.count { it.realArrivalMs == null && it.countedEntryMs == null && it.realExitMs == null && it.countedExitMs == null }}")
             if (sessions.isEmpty()) appendLine("Aucune session retournée ; si la source est non fiable, cela ne signifie pas qu'aucun travail n'a été effectué.")
             sessions.forEachIndexed { index, session ->
                 appendLine("Session ${index + 1} : ${session.status} ; base ${session.timeBasis}")
                 appendLine("Arrivée réelle ${time(session.realArrivalMs)} ; retenue ${time(session.countedEntryMs)}")
                 appendLine("Sortie réelle ${time(session.realExitMs)} ; retenue ${time(session.countedExitMs)}")
+                appendLine("Origine canonique : ${canonicalOrigin(session.closureOrigin)} ; observation GPS utilis\u00e9e : ${time(session.departureObservedAtMs)}")
                 session.pauses.forEach { appendLine("Pause ${time(it.startMs)} → ${time(it.endMs)} ; payée ${it.paid ?: "à confirmer"} ; source ${it.source}") }
                 session.travels.forEach { appendLine("Déplacement ${time(it.startMs)} → ${time(it.endMs)} ; qualification ${it.classification}") }
+            }
+            if (!reliable && runtime.current.reliable) {
+                appendLine("SESSION COURANTE DU COMPTE — instantané séparé à l'export, toutes dates, sans validation de l'historique complet")
+                val current = runtime.current.snapshot.session
+                if (current == null) appendLine("Aucune session courante dans le journal du compte ; cela ne décrit pas l'ancien historique non attribué.")
+                else {
+                    appendLine("État ${current.status} ; base ${current.timeBasis}")
+                    appendLine("Arrivée réelle ${time(current.realArrivalMs)} ; retenue ${time(current.countedEntryMs)}")
+                    appendLine("Sortie réelle ${time(current.realExitMs)} ; retenue ${time(current.countedExitMs)}")
+                    appendLine("Origine canonique : ${canonicalOrigin(current.closureOrigin)} ; observation GPS utilis\u00e9e : ${time(current.departureObservedAtMs)}")
+                    current.pauses.forEach { appendLine("Pause ${time(it.startMs)} → ${time(it.endMs)} ; payée ${it.paid ?: "à confirmer"} ; source ${it.source}") }
+                    current.travels.forEach { appendLine("Déplacement ${time(it.startMs)} → ${time(it.endMs)} ; qualification ${it.classification}") }
+                }
             }
             appendLine()
             appendLine("RÉCIT À DEMANDER À L'UTILISATEUR APRÈS LECTURE")

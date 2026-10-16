@@ -9,6 +9,42 @@ final class DailyDiagnosticV2Tests: XCTestCase {
     }
     override func tearDown() { try? FileManager.default.removeItem(at: root) }
 
+    func testIncompleteHistoryDoesNotHideCurrentFactsOrCertifyPayroll() throws {
+        let session = WorkSession(id: UUID(), entry: now.addingTimeInterval(-60), exit: nil, pauses: [])
+        for history in [WorkSessionAccountStorageV2.DiagnosticHistory.unassigned, .corrupt, .conflict, .recoveryIncomplete, .changed] {
+            let report = try DailyDiagnosticV2.export(account: "a", day: now, root: root, now: now,
+                sessions: [session], history: history, currentSourceIssue: DailyDiagnosticV2.SourceIssue.none)
+            XCTAssertTrue(report.contains("historique : \(history.rawValue)"))
+            XCTAssertTrue(report.contains("Historique complet fiable : false"))
+            XCTAssertTrue(report.contains("sortie=ouverte/inconnue"))
+            XCTAssertFalse(report.contains(session.id.uuidString))
+        }
+        let unavailable = try DailyDiagnosticV2.export(account: "a", day: now, root: root, now: now,
+            history: .corrupt, currentSourceIssue: .corrupt)
+        XCTAssertTrue(unavailable.contains("Session courante à l'export : inconnue"))
+        XCTAssertFalse(unavailable.contains("aucune dans le journal lisible"))
+    }
+
+    func testLegacyEventsKeepUnknownOriginAndNewEventsRetainSeparateTimesAndReasons() throws {
+        let legacy = Data("{\"recordedAt\":0,\"kind\":\"clockOutCommitted\"}".utf8)
+        let decoded = try JSONDecoder().decode(DailyDiagnosticV2.Event.self, from: legacy)
+        XCTAssertNil(decoded.origin)
+        XCTAssertNil(decoded.rejection)
+        try DailyDiagnosticV2.setEnabled(true, account: "a", root: root, now: now)
+        let observed = now.addingTimeInterval(-60)
+        try DailyDiagnosticV2.append(.clockOutCommitted, account: "a", occurredAt: observed,
+            origin: .gpsConfirmation, root: root, now: now)
+        try DailyDiagnosticV2.append(.clockInRejected, account: "a", occurredAt: observed,
+            rejection: .sessionAlreadyOpen, root: root, now: now)
+        let events = try DailyDiagnosticV2.read(account: "a", root: root, now: now).events
+        XCTAssertEqual(events[1].occurredAt, observed)
+        XCTAssertEqual(events[1].recordedAt, now)
+        XCTAssertEqual(events[1].origin, .gpsConfirmation)
+        let report = try DailyDiagnosticV2.export(account: "a", day: now, root: root, now: now)
+        XCTAssertTrue(report.contains("origine=GPS_CONFIRMATION"))
+        XCTAssertTrue(report.contains("refus=sessionAlreadyOpen"))
+    }
+
     func testOptInIsolationAndErasePreserveOtherAccount() throws {
         try DailyDiagnosticV2.append(.clockInCommitted, account: "a", root: root, now: now)
         XCTAssertTrue(try DailyDiagnosticV2.read(account: "a", root: root, now: now).events.isEmpty)
@@ -19,6 +55,32 @@ final class DailyDiagnosticV2Tests: XCTestCase {
         try DailyDiagnosticV2.erase(account: "a", root: root)
         XCTAssertFalse(try DailyDiagnosticV2.read(account: "a", root: root, now: now).enabled)
         XCTAssertTrue(try DailyDiagnosticV2.read(account: "b", root: root, now: now).enabled)
+    }
+
+    func testCanonicalClosureEvidenceExportsWhenDiagnosticsDisabledOrErased() throws {
+        let observed = now.addingTimeInterval(-60)
+        var session = WorkSession(id: UUID(), entry: now.addingTimeInterval(-600), exit: observed, pauses: [])
+        session.closureOrigin = DailyDiagnosticV2.Origin.widget.rawValue
+        session.departureObservedAt = observed
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = Calendar.current.timeZone
+        for eraseFirst in [false, true] {
+            if eraseFirst {
+                try DailyDiagnosticV2.setEnabled(true, account: "a", root: root, now: now)
+                try DailyDiagnosticV2.erase(account: "a", root: root)
+            }
+            let report = try DailyDiagnosticV2.export(account: "a", day: now, root: root, now: now, sessions: [session])
+            XCTAssertTrue(report.contains("origine=WIDGET"))
+            XCTAssertTrue(report.contains("départ observé=\(formatter.string(from: observed))"))
+            XCTAssertTrue(try DailyDiagnosticV2.read(account: "a", root: root, now: now).events.isEmpty)
+        }
+        for origin: String? in [nil, "private-free-text"] {
+            session.closureOrigin = origin
+            session.departureObservedAt = nil
+            let report = try DailyDiagnosticV2.export(account: "a", day: now, root: root, now: now, sessions: [session])
+            XCTAssertTrue(report.contains("origine=UNKNOWN, départ observé=inconnue"))
+            XCTAssertFalse(report.contains("private-free-text"))
+        }
     }
 
     func testDisabledRecordingAndRetentionAreExplicit() throws {

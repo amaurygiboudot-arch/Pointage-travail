@@ -41,6 +41,21 @@ object V2RuntimeAccountScope {
     internal fun operationScope(): String? = if ((pinDepth.get() ?: 0) > 0) pinnedScope.get() else currentScope()
     internal fun available(): Boolean = operationScope()?.let { it == currentScope() } == true
 
+    /** Durable surveillance continuity, independent of per-account journals. */
+    @Synchronized
+    internal fun monitoringEpoch(context: Context): String? {
+        val scope = currentScope()
+        val owner = fileName("monitor", scope) ?: "unavailable"
+        val prefs = context.applicationContext.getSharedPreferences("departure_monitoring_v2", Context.MODE_PRIVATE)
+        val previousOwner = prefs.all["owner"] as? String
+        val previousEpoch = prefs.all["epoch"] as? String
+        val epoch = if (previousOwner == owner && !previousEpoch.isNullOrBlank()) previousEpoch
+            else java.util.UUID.randomUUID().toString()
+        // Recommit to reject a RAM-only epoch after a failed write.
+        return if (prefs.edit().putString("owner", owner).putString("epoch", epoch).commit() && scope != null)
+            epoch else null
+    }
+
     fun hasUnassignedHistory(context: Context): Boolean {
         val app = context.applicationContext
         if (V2LegacyJournalRecovery.assigned(app)) return false

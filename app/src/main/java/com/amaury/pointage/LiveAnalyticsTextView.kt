@@ -106,7 +106,7 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
             return buildString {
                 append("⚠️ ANALYSE À CONFIRMER\n")
                 if (pendingGpsExitInPeriod != null) {
-                    append("Une sortie GPS est proposée, mais n'a pas été confirmée : aucune heure de fin n'est présumée.\n")
+                    append("Hors site / \u00e0 v\u00e9rifier : aucune heure de fin ni qualification de paie pr\u00e9sum\u00e9e.\n")
                 }
                 if (!analytics.timeTotalsReliable) {
                     append("Une ou plusieurs sessions contiennent une durée ou une pause non certifiable. Aucun total partiel n'est présenté comme définitif.")

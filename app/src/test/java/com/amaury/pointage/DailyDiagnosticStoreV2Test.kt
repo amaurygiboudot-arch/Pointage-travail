@@ -95,6 +95,21 @@ class DailyDiagnosticStoreV2Test {
         drain()
         assertFalse(DailyDiagnosticStoreV2.read(context, scope).readable)
     }
+
+    @Test fun runtimeRefusalsAndClosureOriginAreProspectiveWithoutChangingRetainedTime() {
+        assertTrue(DailyDiagnosticStoreV2.setEnabled(context, scope, true))
+        val arrival = System.currentTimeMillis() - 60_000
+        val departure = arrival + 30_000
+        assertTrue(com.amaury.pointage.v2.V2RuntimeStore.entry(context, arrival))
+        assertFalse(com.amaury.pointage.v2.V2RuntimeStore.entry(context, arrival + 1))
+        assertTrue(com.amaury.pointage.v2.V2RuntimeStore.exit(context, departure, origin = ClosureOriginV2.WIDGET))
+        drain()
+        val events = DailyDiagnosticStoreV2.read(context, scope).events
+        assertTrue(events.any { it.kind == DailyDiagnosticKindV2.ENTRY_REFUSED && it.code == "SESSION_ALREADY_OPEN" })
+        assertTrue(events.any { it.kind == DailyDiagnosticKindV2.EXIT_REQUEST && it.code == "WIDGET" && it.observedAtMs == departure })
+        assertTrue(events.any { it.kind == DailyDiagnosticKindV2.EXIT_WRITE && it.code == "SUCCESS" && it.value == departure })
+        assertEquals(departure, com.amaury.pointage.v2.V2RuntimeReader.current(context).snapshot.session?.realExitMs)
+    }
 }
 
 @Implements(value = FirebaseAuth::class, isInAndroidSdk = false)

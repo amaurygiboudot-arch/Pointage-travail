@@ -124,6 +124,7 @@ internal object GpsPresenceStateKeysV2 {
         PENDING_EXIT_ZONES,
         PENDING_EXIT_OBSERVATIONS,
         "pending_exit_deliveries",
+        "inactive_legacy_exit_deliveries",
         "pending_exit_observation_context",
         "worksite_return_observations",
         "worksite_return_qualification",

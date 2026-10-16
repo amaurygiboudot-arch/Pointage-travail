@@ -27,7 +27,9 @@ struct DailyDiagnosticView: View {
             Button("Préparer le diagnostic de la journée") {
                 guard let account = store.diagnosticAccount else { return }
                 do {
-                    let text = try DailyDiagnosticV2.export(account: account, day: day, sessions: store.storageReliable ? store.sessions : nil)
+                    let text = try DailyDiagnosticV2.export(account: account, day: day,
+                        sessions: store.storageReliable ? store.sessions : nil,
+                        history: store.diagnosticHistory, currentSourceIssue: store.diagnosticSourceIssue)
                     guard store.diagnosticAccount == account else { return }
                     clearReport()
                     let folder = FileManager.default.temporaryDirectory.appendingPathComponent("HoraTrackDiagnostics", isDirectory: true)

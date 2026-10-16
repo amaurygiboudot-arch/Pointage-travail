@@ -112,6 +112,17 @@
                 android:fontFamily="serif" />
         </LinearLayout>
 
+        <TextView
+            android:id="@+id/departureObservationStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="12dp"
+            android:textColor="@color/hp_gold_light"
+            android:textSize="14sp"
+            android:background="@drawable/navigation_tabs_contrast"
+            android:accessibilityLiveRegion="polite"
+            android:visibility="gone" />
+
         <com.amaury.pointage.CelestialHomePanel
             android:id="@+id/celestialHomePanel"
             android:layout_width="match_parent"

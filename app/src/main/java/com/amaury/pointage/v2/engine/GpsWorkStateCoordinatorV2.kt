@@ -23,6 +23,7 @@ import java.util.UUID
  */
 object GpsWorkStateCoordinatorV2 {
     private const val PREFS = "horatrack_v2_gps_state"
+    private const val KEY_EVIDENCE_VERSION = "departure_evidence_version"
     private const val KEY_PENDING_ID = "pending_id"
     private const val KEY_PENDING_AT = "pending_at"
     private const val KEY_PENDING_PLACE = "pending_place"
@@ -58,12 +59,13 @@ object GpsWorkStateCoordinatorV2 {
             val pendingOwned = values[KEY_PENDING_ACCOUNT_SCOPE] == scope &&
                 (!values.containsKey(KEY_PENDING_DELIVERY) || binding?.accountScope == scope)
             if (pendingOwned) {
-                for (key in listOf(KEY_PENDING_ID, KEY_PENDING_AT, KEY_PENDING_PLACE,
+                for (key in listOf(KEY_EVIDENCE_VERSION, KEY_PENDING_ID, KEY_PENDING_AT, KEY_PENDING_PLACE,
                     KEY_PENDING_TYPE, KEY_PENDING_TRANSITION, KEY_PENDING_ACCOUNT_SCOPE,
                     KEY_PENDING_DELIVERY)) {
                     when (val value = values[key]) {
                         is String -> editor.putString(key, value)
                         is Long -> editor.putLong(key, value)
+                        is Int -> editor.putInt(key, value)
                         is Set<*> -> if (value.all { it is String })
                             editor.putStringSet(key, value.filterIsInstance<String>().toSet())
                     }
@@ -100,7 +102,7 @@ object GpsWorkStateCoordinatorV2 {
         IGNORED,
         ENTRY_STARTED,
         RETURNED_TO_POSTE,
-        EXIT_PENDING_CONFIRMATION,
+        DEPARTURE_OBSERVED,
         AMBIGUOUS_PENDING_CONFIRMATION,
         NO_CHANGE
     }
@@ -186,6 +188,10 @@ object GpsWorkStateCoordinatorV2 {
                     )
                 }
 
+                if (currentPending?.kind == Pending.Kind.EXIT_WORKSITE) {
+                    if (!clearPending(context)) return Outcome(Action.NO_CHANGE, false, "Retour GPS non enregistr?")
+                    currentPending = null
+                }
                 if (current == null || current.realExitMs != null) {
                     val started = V2RuntimeStore.entry(context, event.atMs)
                     if (shouldDiscardPending(currentPending, current, entryStarted = started)) {
@@ -212,8 +218,8 @@ object GpsWorkStateCoordinatorV2 {
                     )
                 }
                 val saved = savePending(context, event, Pending.Kind.EXIT_WORKSITE, durableDelivery)
-                return Outcome(if (saved) Action.EXIT_PENDING_CONFIRMATION else Action.NO_CHANGE,
-                    saved, if (saved) "Sortie du poste détectée : fin de journée à confirmer" else "Sortie GPS non enregistrée",
+                return Outcome(if (saved) Action.DEPARTURE_OBSERVED else Action.NO_CHANGE,
+                    false, if (saved) "Hors site / \u00e0 v\u00e9rifier" else "Sortie GPS non enregistr\u00e9e",
                     durableAcknowledgement = saved && durableDelivery != null)
             }
 
@@ -267,10 +273,7 @@ object GpsWorkStateCoordinatorV2 {
     }
 
     internal fun canQueuePending(existing: Pending?, incomingKind: Pending.Kind): Boolean =
-        existing == null || (
-            incomingKind == Pending.Kind.EXIT_WORKSITE &&
-                existing.kind == Pending.Kind.AMBIGUOUS
-            )
+        existing == null
 
     internal fun isQuickReturnToPoste(pending: Pending?, event: GpsEventV2): Boolean {
         if (pending?.kind != Pending.Kind.EXIT_WORKSITE) return false
@@ -333,6 +336,11 @@ object GpsWorkStateCoordinatorV2 {
         val parts = raw.split(':')
         val pointType = runCatching { GpsPointTypeV2.valueOf(parts.first()) }.getOrNull() ?: return null
         val kind = runCatching { Pending.Kind.valueOf(parts.getOrNull(1) ?: "") }.getOrNull() ?: return null
+        // Old questions are not new observations; never close retroactively after an update.
+        if (kind == Pending.Kind.EXIT_WORKSITE && prefs.all[KEY_EVIDENCE_VERSION] != 1) {
+            clearPending(context)
+            return null
+        }
         val transition = runCatching {
             GpsTransitionV2.valueOf(prefs.getString(KEY_PENDING_TRANSITION, null).orEmpty())
         }.getOrNull() ?: return null
@@ -368,7 +376,52 @@ object GpsWorkStateCoordinatorV2 {
         }
     }
 
+    /** One canonical observation, with existing durable return/arbitration guards. */
+    internal fun eligibleDepartureAt(context: Context, nowMs: Long, automatic: Boolean = false): Long? {
+        val found = pendingForOpenSession(context)?.takeIf { it.kind == Pending.Kind.EXIT_WORKSITE } ?: return null
+        val delivery = pendingDelivery(context) ?: return null
+        if (confirmDurableDeliveryReceipt(context, delivery) != DeliveryReceiptState.ACKNOWLEDGED) return null
+        val runtime = V2RuntimeReader.current(context, nowMs)
+        val session = runtime.snapshot.session ?: return null
+        val gps = context.applicationContext.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val zones = (com.amaury.pointage.readPersistedGpsZones(gps) as? com.amaury.pointage.GpsZonesReadResult.Valid)?.zones ?: return null
+        val zone = zones.singleOrNull { it.id == found.placeId } ?: return null
+        val employer = session.employerId?.takeIf { it.isNotBlank() } ?: return null
+        val episodeConsistent = delivery.episodeZoneIds.all { id ->
+            val other = zones.singleOrNull { it.id == id } ?: return@all false
+            other.companyId == employer && (id == zone.id ||
+                com.amaury.pointage.GpsTriggeredZoneSelectionV2.pointType(other) == GpsPointTypeV2.PARKING ||
+                com.amaury.pointage.GpsOverlappingWorkZoneContinuityV2.hasEquivalentWorkGeometry(zone, other))
+        }
+        // A missing stable company binding is unknown, not permission to infer an employer.
+        val active = runCatching { gps.getStringSet(com.amaury.pointage.GpsPresenceStateKeysV2.ACTIVE_ZONES, null) }.getOrNull() ?: return null
+        val facts = DeparturePolicyV2.Facts(found.atMs, session.realArrivalMs ?: return null, nowMs,
+            runtime.reliable && episodeConsistent && zone.companyId == employer && pendingBindingMatches(context, session) == true,
+            session.status == SessionStatusV2.OPEN && session.realExitMs == null,
+            active.isNotEmpty(),
+            gps.getBoolean(com.amaury.pointage.GpsPresenceStateKeysV2.ENTRY_RESOLUTION_PENDING, false) ||
+                session.pauses.any { it.endMs == null || it.paid == null || (it.endMs ?: Long.MAX_VALUE) > found.atMs } ||
+                session.travels.isNotEmpty() || session.workSegments.any { it.endMs == null || (it.endMs ?: Long.MAX_VALUE) > found.atMs },
+            lastObservedAtMs = delivery.lastObservedAtMs)
+        val eligible = if (automatic) DeparturePolicyV2.automatic(facts,
+            com.amaury.pointage.v2.V2DeparturePolicyStore.enabled(context, employer), V2RuntimeStore.expectedEnd(context))
+            else DeparturePolicyV2.eligible(facts)
+        return found.atMs.takeIf { eligible }
+    }
+
+    internal fun resolveAutomaticDeparture(context: Context, nowMs: Long = System.currentTimeMillis(), movementResolved: Boolean = false): Boolean =
+        V2RuntimeStore.withTransaction {
+            // No complete canonical travel proof is wired on Android yet. Production callers
+            // must remain fail-closed until such a source explicitly supplies this fact.
+            if (!movementResolved) return@withTransaction false
+            val at = eligibleDepartureAt(context, nowMs, automatic = true) ?: return@withTransaction false
+            val closed = V2RuntimeStore.exit(context, at, origin = com.amaury.pointage.ClosureOriginV2.AUTOMATIC, departureObservedAtMs = at)
+            if (closed) clearPending(context)
+            closed
+        }
+
     fun shouldPrompt(context: Context, pending: Pending): Boolean {
+        if (pending.kind == Pending.Kind.EXIT_WORKSITE) return false
         val prefs = preferences(context)
         return prefs.getString(KEY_PROMPTED_ID, null) != pending.id ||
             prefs.getString(KEY_PROMPTED_PROCESS, null) != processToken
@@ -394,15 +447,13 @@ object GpsWorkStateCoordinatorV2 {
         expectedPendingId: String,
         expectedEndMs: Long? = null
     ): Boolean {
-        V2RuntimeAccountScope.withScope {
-            DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.CONFIRM_EXIT)
-            val pending = pendingForOpenSession(context)
-                ?.takeIf { matchesPendingId(it, expectedPendingId) }
-                ?: return false
-            if (pending.kind != Pending.Kind.EXIT_WORKSITE) return false
-            val ok = V2RuntimeStore.exit(context, pending.atMs, expectedEndMs)
-            if (ok) clearPending(context)
-            return ok
+        return V2RuntimeStore.withTransaction {
+            val found = pendingForOpenSession(context) ?: return@withTransaction false
+            if (!matchesPendingId(found, expectedPendingId)) return@withTransaction false
+            val at = eligibleDepartureAt(context, System.currentTimeMillis()) ?: return@withTransaction false
+            val closed = V2RuntimeStore.exit(context, at, origin = com.amaury.pointage.ClosureOriginV2.MANUAL, departureObservedAtMs = at)
+            if (closed) clearPending(context)
+            closed
         }
     }
 
@@ -491,6 +542,7 @@ object GpsWorkStateCoordinatorV2 {
         val prefs = preferences(context)
         val accountScope = GpsExitDeliveryV2.accountScope() ?: return false
         val editor = prefs.edit()
+            .putInt(KEY_EVIDENCE_VERSION, 1)
             .putString(KEY_PENDING_ID, event.id)
             .putLong(KEY_PENDING_AT, event.atMs)
             .putString(KEY_PENDING_PLACE, event.placeId)
@@ -562,7 +614,7 @@ object GpsWorkStateCoordinatorV2 {
     }
 
     private fun removePendingFields(editor: android.content.SharedPreferences.Editor) {
-        editor.remove(KEY_PENDING_ID).remove(KEY_PENDING_AT).remove(KEY_PENDING_PLACE)
+        editor.remove(KEY_EVIDENCE_VERSION).remove(KEY_PENDING_ID).remove(KEY_PENDING_AT).remove(KEY_PENDING_PLACE)
             .remove(KEY_PENDING_TYPE).remove(KEY_PENDING_TRANSITION).remove(KEY_PROMPTED_ID)
             .remove(KEY_PROMPTED_PROCESS)
             .remove(KEY_PENDING_DELIVERY)

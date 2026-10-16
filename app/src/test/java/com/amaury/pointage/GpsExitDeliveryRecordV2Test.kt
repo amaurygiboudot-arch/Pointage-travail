@@ -11,6 +11,17 @@ class GpsExitDeliveryRecordV2Test {
         GpsEventV2("exit|α", 57_600_000L, "atelier|à% +", GpsPointTypeV2.POSTE, GpsTransitionV2.EXIT),
         "session-a", 36_000_000L, "uid:account-a", "enabled|valid|{site}")
 
+    @Test fun completeEpisodeAndLastExitSurviveEncodingWhileVersionOneRemainsUnknown() {
+        val complete = record.copy(lastObservedAtMs = record.event.atMs + 300_000,
+            episodeZoneIds = setOf(record.event.placeId, "parking|escaped"))
+        assertEquals(complete, GpsExitDeliveryRecordV2.decode(complete.encode()))
+        val legacy = complete.encode().split('|').take(9).toMutableList().also { it[0] = "1" }.joinToString("|")
+        assertNull(GpsExitDeliveryRecordV2.decode(legacy))
+        assertEquals(record.accountScope, GpsExitDeliveryRecordV2.legacyOwner(legacy))
+        assertNull(GpsExitDeliveryRecordV2.legacyOwner(complete.encode()))
+        assertNull(GpsExitDeliveryRecordV2.legacyOwner("1|invalid"))
+    }
+
     @Test fun recordRoundTripPreservesObservedTimeAndAllBindings() {
         assertEquals(record, GpsExitDeliveryRecordV2.decode(record.encode()))
         assertEquals(record.receiptId(), GpsExitDeliveryRecordV2.decode(record.encode())?.receiptId())
@@ -24,12 +35,12 @@ class GpsExitDeliveryRecordV2Test {
             record.copy(accountScope = "uid:account-b"),
             record.copy(accountScope = "guest"),
             record.copy(configurationFingerprint = "enabled|valid|other"),
-            record.copy(event = record.event.copy(atMs = record.event.atMs + 1L))
+            record.copy(event = record.event.copy(atMs = record.event.atMs + 1L), lastObservedAtMs = record.event.atMs + 1L)
         )) assertNotEquals(record.receiptId(), other.receiptId())
     }
 
     @Test fun partialObservationContextDoesNotDependOnDelayedExitSelection() {
-        val later = record.copy(event = record.event.copy(atMs = record.event.atMs + 420_000L))
+        val later = record.copy(event = record.event.copy(atMs = record.event.atMs + 420_000L), lastObservedAtMs = record.event.atMs + 420_000L)
         assertEquals(record.observationContext(), later.observationContext())
         assertNotEquals(record.observationContext(), record.copy(accountScope = "guest").observationContext())
         assertNotEquals(record.observationContext(), record.copy(sessionId = "new").observationContext())

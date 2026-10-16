@@ -65,6 +65,7 @@ class GpsExitDeliveryIntegrationV2Test {
         exit = arrival + 600_000L
         V2RuntimeStore.reset(context)
         assertTrue(V2RuntimeStore.entry(context, arrival))
+        V2RuntimeAccountScope.preferences(context, "horatrack_v2_test_runtime").edit().putString("employer_id", "company-a").commit()
         assertTrue(V2RuntimeReader.current(context).reliable)
         assertTrue(gps.edit().putBoolean("enabled", true).putString("zones", zones).commit())
         HoraTrackV2.gps.reset()
@@ -75,6 +76,7 @@ class GpsExitDeliveryIntegrationV2Test {
             Mockito.mock(FirebaseUser::class.java).also { user -> Mockito.`when`(user.uid).thenReturn(uid) }
         }
         Mockito.`when`(auth.currentUser).thenReturn(user)
+        if (::context.isInitialized) V2RuntimeAccountScope.monitoringEpoch(context)
     }
 
     private fun record(): GpsExitDeliveryRecordV2 = checkNotNull(GpsExitDeliveryV2.prepare(context,
@@ -124,6 +126,109 @@ class GpsExitDeliveryIntegrationV2Test {
         assertTrue(gps.getStringSet(GpsExitDeliveryV2.KEY, mutableSetOf())!!.isEmpty())
         assertTrue(GpsWorkStateCoordinatorV2.confirmExit(context, record.event.id))
         assertEquals(exit, V2RuntimeReader.current(context).snapshot.session?.realExitMs)
+    }
+
+    @Test fun manualAndWidgetUseObservedTimeAndPersistOrigin() {
+        for (origin in listOf(ClosureOriginV2.MANUAL, ClosureOriginV2.WIDGET)) {
+            setup()
+            stage()
+            assertTrue(V2RuntimeStore.userExit(context, exit + 300_000L, origin))
+            assertEquals(exit, V2RuntimeReader.current(context).snapshot.session?.realExitMs)
+            val history = V2RuntimeAccountScope.preferences(context, "horatrack_v2_test_runtime").getString("history", null)
+            assertEquals(origin.name, org.json.JSONArray(history).getJSONObject(0).getString("closureOrigin"))
+            assertEquals(exit, org.json.JSONArray(history).getJSONObject(0).getLong("departureObservedAtMs"))
+            assertEquals(exit, V2RuntimeReader.current(context).snapshot.session?.departureObservedAtMs)
+            assertEquals(exit, V2RuntimeStore.allSessions(context).single().departureObservedAtMs)
+            assertFalse(V2RuntimeStore.userExit(context, exit + 300_000L, origin))
+        }
+    }
+
+    @Test fun automaticRequiresOptInExpectedEndAndReturnWindow() {
+        stage()
+        assertTrue(V2RuntimeStore.setExpectedEnd(context, exit - 1))
+        assertFalse(GpsWorkStateCoordinatorV2.resolveAutomaticDeparture(context, exit + 300_000, movementResolved = true))
+        assertTrue(com.amaury.pointage.v2.V2DeparturePolicyStore.setEnabled(context, "company-a", true))
+        assertFalse(GpsWorkStateCoordinatorV2.resolveAutomaticDeparture(context, exit + 300_000))
+        assertFalse(GpsWorkStateCoordinatorV2.resolveAutomaticDeparture(context, exit + 119_999, movementResolved = true))
+        assertTrue(GpsWorkStateCoordinatorV2.resolveAutomaticDeparture(context, exit + 120_000, movementResolved = true))
+        assertEquals(exit, V2RuntimeReader.current(context).snapshot.session?.realExitMs)
+    }
+
+    @Test fun oldPendingIsNeutralizedWithoutClosingOrPrompting() {
+        stage()
+        GpsExitDeliveryV2.replay(context)
+        business.edit().remove("departure_evidence_version").commit()
+        assertNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
+        assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
+    }
+
+    @Test fun accountSwitchInvalidatesDepartureEvenWithoutGpsOperationOnOtherAccount() {
+        stage()
+        assertNotNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
+        changeAccount("account-b")
+        V2RuntimeAccountScope.monitoringEpoch(context) // Same hook as the AuthStateListener.
+        changeAccount("account-a")
+        V2RuntimeAccountScope.monitoringEpoch(context)
+        assertNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
+        assertTrue(V2RuntimeStore.userExit(context, exit + 300_000, ClosureOriginV2.MANUAL))
+        assertEquals(exit + 300_000, V2RuntimeReader.current(context).snapshot.session?.realExitMs)
+        assertNull(V2RuntimeReader.current(context).snapshot.session?.departureObservedAtMs)
+    }
+
+    @Test fun lastArbitratedExitWindowSurvivesDeliveryRestart() {
+        val work = record()
+        val parkingExitAt = exit + 300_000
+        val record = work.copy(lastObservedAtMs = parkingExitAt)
+        stage(record)
+        restartPreferences()
+        assertNull(GpsWorkStateCoordinatorV2.eligibleDepartureAt(context, parkingExitAt + 119_999))
+        assertEquals(exit, GpsWorkStateCoordinatorV2.eligibleDepartureAt(context, parkingExitAt + 120_000))
+        assertTrue(V2RuntimeStore.userExit(context, parkingExitAt + 120_000, ClosureOriginV2.WIDGET))
+        assertEquals(exit, V2RuntimeReader.current(context).snapshot.session?.realExitMs)
+    }
+
+    @Test fun mixedEmployerEpisodeNeverReusesOldDepartureTime() {
+        val second = zones.replace("work", "other-work").replace("company-a", "company-b")
+        gps.edit().putString("zones", zones.dropLast(1) + "," + second.drop(1)).commit()
+        val record = record().copy(episodeZoneIds = setOf("work", "other-work"))
+        stage(record)
+        assertNull(GpsWorkStateCoordinatorV2.eligibleDepartureAt(context, exit + 300_000))
+        assertTrue(V2RuntimeStore.userExit(context, exit + 300_000, ClosureOriginV2.MANUAL))
+        assertEquals(exit + 300_000, V2RuntimeReader.current(context).snapshot.session?.realExitMs)
+        assertNull(V2RuntimeReader.current(context).snapshot.session?.departureObservedAtMs)
+    }
+
+    @Test fun sameEmployerDifferentWorksiteEpisodeIsNotAConfirmedDeparture() {
+        val second = zones.replace("work", "other-work").replace("Site A", "Other site").replace("46.7", "48.0")
+        gps.edit().putString("zones", zones.dropLast(1) + "," + second.drop(1)).commit()
+        stage(record().copy(episodeZoneIds = setOf("work", "other-work")))
+        assertNull(GpsWorkStateCoordinatorV2.eligibleDepartureAt(context, exit + 300_000))
+        assertTrue(V2RuntimeStore.userExit(context, exit + 300_000, ClosureOriginV2.WIDGET))
+        assertEquals(exit + 300_000, V2RuntimeReader.current(context).snapshot.session?.realExitMs)
+    }
+
+    @Test fun deliveryCodecPreservesWindowAndAllZonesAndRejectsOldIncompleteVersion() {
+        val record = record().copy(lastObservedAtMs = exit + 300_000, episodeZoneIds = setOf("work", "parking|escaped"))
+        assertEquals(record, GpsExitDeliveryRecordV2.decode(record.encode()))
+        val legacy = record.encode().split('|').take(9).toMutableList().also { it[0] = "1" }.joinToString("|")
+        assertNull(GpsExitDeliveryRecordV2.decode(legacy))
+    }
+
+    @Test fun fullOwnedLegacyOutboxIsQuarantinedAtomicallyWithoutClosingSession() {
+        val current = record()
+        val legacy = (1..256).map { n -> current.copy(event = current.event.copy(id = "legacy-$n"))
+            .encode().split('|').take(9).toMutableList().also { it[0] = "1" }.joinToString("|") }.toSet()
+        gps.edit().putStringSet(GpsExitDeliveryV2.KEY, legacy).commit()
+        gps.failNext = 1
+        assertFalse(GpsExitDeliveryV2.commitPresence(gps, gps.edit(), current))
+        gps.restart()
+        assertEquals(legacy, gps.getStringSet(GpsExitDeliveryV2.KEY, emptySet()))
+        assertFalse(gps.contains(GpsExitDeliveryV2.LEGACY_ARCHIVE_KEY))
+        assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
+        assertTrue(GpsExitDeliveryV2.commitPresence(gps, gps.edit(), current))
+        assertEquals(legacy, gps.getStringSet(GpsExitDeliveryV2.LEGACY_ARCHIVE_KEY, emptySet()))
+        assertEquals(setOf(current.encode()), gps.getStringSet(GpsExitDeliveryV2.KEY, emptySet()))
+        assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
     }
 
     @Test fun fullBacklogRetainsForeignAccountAndMalformedEvidenceAfterRetry() {
@@ -245,29 +350,30 @@ class GpsExitDeliveryIntegrationV2Test {
         assertFalse(GpsWorkStateCoordinatorV2.confirmExit(context, record.event.id))
     }
 
-    @Test fun accountSwitchPreservesDeliveredQuestionAndReceiptAcrossRestart() {
+    @Test fun accountSwitchInvalidatesDeliveredEvidenceAcrossRestart() {
         val record = record()
         stage(record)
         GpsExitDeliveryV2.replay(context)
         changeAccount("account-b")
         assertNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
         assertFalse(GpsWorkStateCoordinatorV2.confirmExit(context, record.event.id))
-        stage(record)
+        // Existing foreign backlog, not a new write authorized under B.
+        gps.edit().putStringSet(GpsExitDeliveryV2.KEY, setOf(record.encode())).commit()
         GpsExitDeliveryV2.replay(context)
         assertNull(GpsWorkStateCoordinatorV2.pending(context))
         assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
         restartPreferences()
         changeAccount("account-a")
-        assertEquals(record.event.id, GpsWorkStateCoordinatorV2.pendingForOpenSession(context)?.id)
-        assertTrue(GpsWorkStateCoordinatorV2.confirmExit(context, record.event.id))
+        assertNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
+        assertFalse(GpsWorkStateCoordinatorV2.confirmExit(context, record.event.id))
         restartPreferences()
         GpsExitDeliveryV2.replay(context)
         assertNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
         assertFalse(GpsWorkStateCoordinatorV2.confirmExit(context, record.event.id))
-        assertEquals(exit, V2RuntimeReader.current(context).snapshot.session?.realExitMs)
+        assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
     }
 
-    @Test fun queuedDepartureSurvivesOtherAccountAndRestart() {
+    @Test fun queuedDepartureCannotCloseAfterAccountSwitchAndRestart() {
         val record = record()
         stage(record)
         changeAccount("account-b")
@@ -277,8 +383,8 @@ class GpsExitDeliveryIntegrationV2Test {
         assertEquals(setOf(record.encode()), gps.getStringSet(GpsExitDeliveryV2.KEY, mutableSetOf()))
         restartPreferences()
         changeAccount("account-a")
-        assertEquals(record.event.id, GpsWorkStateCoordinatorV2.pendingForOpenSession(context)?.id)
-        assertTrue(GpsWorkStateCoordinatorV2.confirmExit(context, record.event.id))
+        assertNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
+        assertFalse(GpsWorkStateCoordinatorV2.confirmExit(context, record.event.id))
         assertFalse(GpsWorkStateCoordinatorV2.confirmExit(context, record.event.id))
     }
 
@@ -292,8 +398,8 @@ class GpsExitDeliveryIntegrationV2Test {
         assertNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
         restartPreferences()
         changeAccount("account-a")
-        assertEquals(record.event.id, GpsWorkStateCoordinatorV2.pendingForOpenSession(context)?.id)
-        assertTrue(GpsWorkStateCoordinatorV2.cancelPending(context, record.event.id))
+        assertNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
+        assertFalse(GpsWorkStateCoordinatorV2.cancelPending(context, record.event.id))
         assertTrue(GpsWorkStateCoordinatorV2.clearForGpsConfigurationChange(context))
         restartPreferences()
         assertNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
@@ -304,6 +410,7 @@ class GpsExitDeliveryIntegrationV2Test {
         for ((key, value) in business.all) when (value) {
             is String -> legacyBusiness.edit().putString(key, value).commit()
             is Long -> legacyBusiness.edit().putLong(key, value).commit()
+            is Int -> legacyBusiness.edit().putInt(key, value).commit()
             is Set<*> -> legacyBusiness.edit().putStringSet(key, value.filterIsInstance<String>().toSet()).commit()
         }
         business.edit().clear().commit()
@@ -364,7 +471,7 @@ class GpsExitDeliveryIntegrationV2Test {
         changeAccount(null)
         restartPreferences()
         assertEquals(guestSession.id, V2RuntimeReader.current(context).snapshot.session?.id)
-        assertEquals(guest.event.id, GpsWorkStateCoordinatorV2.pendingForOpenSession(context)?.id)
+        assertNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
         assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
         changeAccount("account-a")
         assertEquals(accountSession.id, V2RuntimeReader.current(context).snapshot.session?.id)
@@ -404,13 +511,13 @@ class GpsExitDeliveryIntegrationV2Test {
         assertNull(GpsWorkStateCoordinatorV2.pending(context))
     }
 
-    @Test fun unfinishedPromptFromDeadProcessCanBeShownAgain() {
+    @Test fun departureNeverPromptsEvenAfterProcessRestart() {
         stage()
         val pending = checkNotNull(GpsWorkStateCoordinatorV2.pendingForOpenSession(context))
         GpsWorkStateCoordinatorV2.markPromptShown(context, pending)
         assertFalse(GpsWorkStateCoordinatorV2.shouldPrompt(context, pending))
         assertTrue(business.edit().putString("prompted_process", "previous-process").commit())
-        assertTrue(GpsWorkStateCoordinatorV2.shouldPrompt(context, pending))
+        assertFalse(GpsWorkStateCoordinatorV2.shouldPrompt(context, pending))
     }
 
     @Test fun crashAfterReturnEnterBeforeTimerDoesNotRestoreOldExitQuestion() {

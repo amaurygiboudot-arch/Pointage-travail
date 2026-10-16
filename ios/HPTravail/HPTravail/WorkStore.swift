@@ -5,6 +5,7 @@ import Combine
 final class WorkStoreV2: ObservableObject {
     @Published private var loadedSessions: [WorkSession] = []
     @Published private var loadedStorageReliable = false
+    private var loadedDiagnosticIssue: DailyDiagnosticV2.SourceIssue = .accountUnavailable
     private var loadedAccount: String?
     private let accountProvider: () -> String?
 
@@ -31,15 +32,26 @@ final class WorkStoreV2: ObservableObject {
     }
 
     var diagnosticAccount: String? { accountMatches ? loadedAccount : nil }
-    private func diagnostic(_ kind: DailyDiagnosticV2.Kind, at date: Date? = nil, sessionId: UUID? = nil) {
+    var diagnosticHistory: WorkSessionAccountStorageV2.DiagnosticHistory {
+        WorkSessionAccountStorageV2.diagnosticHistory(defaults: defaults)
+    }
+    var diagnosticSourceIssue: DailyDiagnosticV2.SourceIssue {
+        accountMatches ? loadedDiagnosticIssue : .accountUnavailable
+    }
+    private func diagnostic(_ kind: DailyDiagnosticV2.Kind, at date: Date? = nil, sessionId: UUID? = nil,
+                            origin: DailyDiagnosticV2.Origin? = nil, rejection: DailyDiagnosticV2.Rejection? = nil) {
         // Diagnostic failures never change the canonical journal or its commit result.
-        try? DailyDiagnosticV2.append(kind, account: diagnosticAccount, occurredAt: date, sessionId: sessionId)
+        try? DailyDiagnosticV2.append(kind, account: diagnosticAccount, occurredAt: date, sessionId: sessionId,
+                                     origin: origin, rejection: rejection, root: diagnosticRoot)
     }
 
     private let defaults: UserDefaults
+    private let diagnosticRoot: URL
 
-    init(defaults: UserDefaults = .standard, accountProvider: @escaping () -> String?) {
+    init(defaults: UserDefaults = .standard, diagnosticRoot: URL = DailyDiagnosticV2.directory,
+         accountProvider: @escaping () -> String?) {
         self.defaults = defaults
+        self.diagnosticRoot = diagnosticRoot
         self.accountProvider = accountProvider
         reloadAccount()
     }
@@ -66,7 +78,14 @@ final class WorkStoreV2: ObservableObject {
         placeLabel: String? = nil
     ) -> Bool {
         diagnostic(.clockInRequested, at: entryDate, sessionId: currentSession?.id)
-        guard storageReliable, !isWorking else { return false }
+        guard storageReliable else {
+            diagnostic(.clockInRejected, at: entryDate, rejection: .storageUnavailable)
+            return false
+        }
+        guard !isWorking else {
+            diagnostic(.clockInRejected, at: entryDate, sessionId: currentSession?.id, rejection: .sessionAlreadyOpen)
+            return false
+        }
         let companies = SalaryCompanyStoreV2.readConfirmed(defaults: defaults)
         switch ClockInEmployerResolverV2.resolve(
             requestedEmployerId: requestedEmployerId,
@@ -85,6 +104,7 @@ final class WorkStoreV2: ObservableObject {
                 placeLabel: placeLabel
             )
         case .rejected:
+            diagnostic(.clockInRejected, at: entryDate, rejection: .employerUnresolved)
             return false
         }
     }
@@ -100,6 +120,7 @@ final class WorkStoreV2: ObservableObject {
                   guard let exit = session.exit else { return false }
                   return exit <= entryDate
               }) else {
+            diagnostic(.clockInRejected, at: entryDate, rejection: .invalidTimeOrOverlap)
             return false
         }
         var updated = sessions
@@ -115,6 +136,7 @@ final class WorkStoreV2: ObservableObject {
         )
         guard persistCanonical(updated) else {
             loadedStorageReliable = false
+            diagnostic(.clockInRejected, at: entryDate, rejection: .persistenceFailed)
             return false
         }
         loadedSessions = updated
@@ -146,26 +168,80 @@ final class WorkStoreV2: ObservableObject {
     @discardableResult
     func clockOut(
         at exitDate: Date = Date(),
-        expectedSessionId: UUID? = nil
+        expectedSessionId: UUID? = nil,
+        origin: DailyDiagnosticV2.Origin = .unknown
     ) -> Bool {
-        diagnostic(.clockOutRequested, at: exitDate, sessionId: currentSession?.id)
+        let observed = (origin == .manual || origin == .widget)
+            ? eligibleDeparture(at: exitDate) : nil
+        let exitDate = observed ?? exitDate
+        diagnostic(.clockOutRequested, at: exitDate, sessionId: currentSession?.id, origin: origin)
         let closingSessionId = currentSession?.id
         guard storageReliable,
               exitDate <= Date().addingTimeInterval(300),
-              let updated = WorkSessionMutationV2.closingSession(
+              var updated = WorkSessionMutationV2.closingSession(
                   in: sessions,
                   at: exitDate,
                   expectedSessionId: expectedSessionId
               ) else {
+            diagnostic(.clockOutRejected, at: exitDate, sessionId: closingSessionId, origin: origin,
+                       rejection: storageReliable ? .invalidTimeOrSession : .storageUnavailable)
             return false
+        }
+        if let index = updated.firstIndex(where: { $0.id == closingSessionId }) {
+            updated[index].closureOrigin = origin.rawValue
+            updated[index].departureObservedAt = observed ?? (origin == .automatic ? exitDate : nil)
         }
         guard persistCanonical(updated) else {
             loadedStorageReliable = false
+            diagnostic(.clockOutRejected, at: exitDate, sessionId: closingSessionId, origin: origin, rejection: .persistenceFailed)
             return false
         }
         loadedSessions = updated
-        diagnostic(.clockOutCommitted, at: exitDate, sessionId: closingSessionId)
+        diagnostic(.clockOutCommitted, at: exitDate, sessionId: closingSessionId, origin: origin)
         return true
+    }
+
+    private func departureContext() -> (GpsPersistedStateV2, [GpsZoneV2], String, WorkSession)? {
+        guard storageReliable, let account = diagnosticAccount, let session = currentSession,
+              defaults.bool(forKey: GpsZoneConfigurationV2.enabledKey),
+              case .valid(let zones) = GpsZoneConfigurationV2.read(defaults.data(forKey: GpsZoneConfigurationV2.zonesKey)),
+              case .valid(let state) = GpsStateStoreV2.read(defaults.data(forKey: GpsStateStoreV2.scopedKey(account: account))),
+              let fingerprint = GpsZoneConfigurationV2.fingerprint(enabled: true, zones: zones),
+              GpsStateValidationV2.startupState(read: .valid(state), expectedFingerprint: fingerprint,
+                configuredZoneIds: GpsZoneConfigurationV2.automaticZoneIds(zones), expectedAccountScope: account) == .resume(state)
+        else { return nil }
+        return (state, zones, account, session)
+    }
+
+    private func eligibleDeparture(at now: Date) -> Date? {
+        guard let (state, zones, account, session) = departureContext() else { return nil }
+        return DeparturePolicyV2.eligibleObservation(state: state, account: account, session: session, zones: zones, now: now)
+    }
+
+    /// Explicit account/company API. No UI activation is shipped before a canonical movement
+    /// resolver exists on iOS. Absence of travel evidence is not evidence of no travel.
+    func departurePolicy(employerId: String) -> DepartureAccountPolicyV2? {
+        guard let account = diagnosticAccount else { return nil }
+        return DepartureAccountPolicyStoreV2.read(account: account, employerId: employerId, defaults: defaults)
+    }
+
+    @discardableResult
+    func setDeparturePolicy(_ policy: DepartureAccountPolicyV2) -> Bool {
+        guard policy.account == diagnosticAccount else { return false }
+        return DepartureAccountPolicyStoreV2.write(policy, defaults: defaults)
+    }
+
+    /// Invoke on a future canonical movement resolver cycle/app wake. Default is fail-closed;
+    /// the production UI never supplies fabricated movement clearance.
+    @discardableResult
+    func resolveAutomaticDeparture(movementAndAmbiguityResolved: Bool = false, now: Date = Date()) -> Bool {
+        guard let (state, zones, account, session) = departureContext(),
+              let employerId = session.employerId,
+              let policy = departurePolicy(employerId: employerId),
+              let observed = DeparturePolicyV2.automaticExit(state: state, account: account,
+                session: session, zones: zones, policy: policy,
+                movementAndAmbiguityResolved: movementAndAmbiguityResolved, now: now) else { return false }
+        return clockOut(at: observed, expectedSessionId: session.id, origin: .automatic)
     }
 
     @discardableResult
@@ -243,23 +319,28 @@ final class WorkStoreV2: ObservableObject {
 
     private func persistCanonical(_ decoded: [WorkSession]) -> Bool {
         guard accountMatches, let loadedAccount else { return false }
-        return WorkSessionAccountStorageV2.write(decoded, account: loadedAccount, defaults: defaults)
+        let committed = WorkSessionAccountStorageV2.write(decoded, account: loadedAccount, defaults: defaults)
+        if !committed { loadedDiagnosticIssue = .writeFailed }
+        return committed
     }
 
     func reloadAccount() {
         loadedSessions = []
         loadedStorageReliable = false
+        loadedDiagnosticIssue = .accountUnavailable
         loadedAccount = WorkSessionAccountStorageV2.scope(accountProvider())
         guard let loadedAccount else { return }
         diagnostic(.journalLoadRequested)
         switch WorkSessionAccountStorageV2.read(account: loadedAccount, defaults: defaults) {
         case .missing:
             loadedStorageReliable = true
+            loadedDiagnosticIssue = .none
         case .valid(let decoded):
             loadedSessions = decoded
             loadedStorageReliable = true
+            loadedDiagnosticIssue = .none
         case .corrupt:
-            break
+            loadedDiagnosticIssue = .corrupt
         }
     }
 }

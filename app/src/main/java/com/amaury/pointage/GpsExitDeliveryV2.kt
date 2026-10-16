@@ -15,6 +15,7 @@ import com.amaury.pointage.v2.V2RuntimeAccountScope
 /** Durable outbox in the same preference file/commit as the final GPS presence transition. */
 internal object GpsExitDeliveryV2 {
     const val KEY = "pending_exit_deliveries"
+    const val LEGACY_ARCHIVE_KEY = "inactive_legacy_exit_deliveries"
     const val OBSERVATION_CONTEXT_KEY = "pending_exit_observation_context"
     private const val MAX_PENDING = 256
 
@@ -23,6 +24,7 @@ internal object GpsExitDeliveryV2 {
 
     fun observationContext(context: Context): String? {
         val scope = accountScope() ?: return null
+        val epoch = V2RuntimeAccountScope.monitoringEpoch(context) ?: return null
         val runtime = V2RuntimeReader.current(context)
         val session = runtime.snapshot.session ?: return null
         val arrival = session.realArrivalMs ?: return null
@@ -31,13 +33,14 @@ internal object GpsExitDeliveryV2 {
         val stored = readPersistedGpsZones(gps) as? GpsZonesReadResult.Valid ?: return null
         if (!gps.getBoolean("enabled", false)) return null
         return GpsExitDeliveryRecordV2.encodeObservationContext(session.id, arrival, scope,
-            storedGpsAutomaticFingerprintV2(true, stored))
+            storedGpsAutomaticFingerprintV2(true, stored) + ":" + epoch)
     }
 
-    fun prepare(context: Context, event: GpsEventV2, observationContext: String?): GpsExitDeliveryRecordV2? {
+    fun prepare(context: Context, event: GpsEventV2, observationContext: String?, lastObservedAtMs: Long = event.atMs, episodeZoneIds: Set<String> = setOf(event.placeId)): GpsExitDeliveryRecordV2? {
         if (!HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)) return null
-        if (observationContext == null || event.transition != GpsTransitionV2.EXIT) return null
+        if (observationContext == null || event.transition != GpsTransitionV2.EXIT || lastObservedAtMs < event.atMs || event.placeId !in episodeZoneIds || episodeZoneIds.any { it.isBlank() }) return null
         val scope = accountScope() ?: return null
+        val epoch = V2RuntimeAccountScope.monitoringEpoch(context) ?: return null
         val runtime = V2RuntimeReader.current(context, event.atMs)
         val session = runtime.snapshot.session ?: return null
         val arrival = session.realArrivalMs ?: return null
@@ -47,16 +50,17 @@ internal object GpsExitDeliveryV2 {
         val stored = readPersistedGpsZones(gps) as? GpsZonesReadResult.Valid ?: return null
         if (!gps.getBoolean("enabled", false) || stored.zones.none { it.id == event.placeId }) return null
         return GpsExitDeliveryRecordV2(event, session.id, arrival, scope,
-            storedGpsAutomaticFingerprintV2(true, stored)).takeIf { it.observationContext() == observationContext }
+            storedGpsAutomaticFingerprintV2(true, stored) + ":" + epoch, lastObservedAtMs, episodeZoneIds).takeIf { it.observationContext() == observationContext }
     }
 
     internal fun matchesContext(context: Context, delivery: GpsExitDeliveryRecordV2): Boolean? {
         val scope = accountScope() ?: return null
+        val epoch = V2RuntimeAccountScope.monitoringEpoch(context) ?: return null
         val gps = context.applicationContext.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
         val stored = readPersistedGpsZones(gps)
         if (stored !is GpsZonesReadResult.Valid) return null
         return scope == delivery.accountScope &&
-            storedGpsAutomaticFingerprintV2(gps.getBoolean("enabled", false), stored) == delivery.configurationFingerprint
+            (storedGpsAutomaticFingerprintV2(gps.getBoolean("enabled", false), stored) + ":" + epoch) == delivery.configurationFingerprint
     }
 
     internal fun hasProvenReturn(context: Context, delivery: GpsExitDeliveryRecordV2): Boolean {
@@ -108,9 +112,20 @@ internal object GpsExitDeliveryV2 {
     ): Boolean {
         if (delivery != null) {
             val existing = readRaw(prefs) ?: return false
+            val scope = accountScope() ?: return false
+            if (scope != delivery.accountScope) return false
+            val legacy = existing.filterTo(mutableSetOf()) { GpsExitDeliveryRecordV2.legacyOwner(it) == scope }
+            val active = existing - legacy
             val encoded = delivery.encode()
-            if (existing.size >= MAX_PENDING && encoded !in existing) return false
-            editor.putStringSet(KEY, existing + encoded)
+            if (active.size >= MAX_PENDING && encoded !in active) return false
+            if (legacy.isNotEmpty()) {
+                val archive = runCatching { prefs.getStringSet(LEGACY_ARCHIVE_KEY, emptySet())?.toSet() }.getOrNull()
+                    ?: return false
+                // One commit: no evidence promotion and no loss on failed migration.
+                editor.putStringSet(LEGACY_ARCHIVE_KEY, archive + legacy)
+            }
+            editor.putStringSet(KEY, active + encoded)
+            if (accountScope() != scope) return false
         }
         return editor.commit()
     }
@@ -126,7 +141,8 @@ internal object GpsExitDeliveryV2 {
         val scope = accountScope() ?: return // Auth unavailable is unknown, not a guest account.
         val stored = readPersistedGpsZones(gps)
         if (stored !is GpsZonesReadResult.Valid) return
-        val fingerprint = storedGpsAutomaticFingerprintV2(gps.getBoolean("enabled", false), stored)
+        val epoch = V2RuntimeAccountScope.monitoringEpoch(app) ?: return
+        val fingerprint = storedGpsAutomaticFingerprintV2(gps.getBoolean("enabled", false), stored) + ":" + epoch
         // Decode once per entry, not during each comparison. Keep undecodable raw
         // records untouched: an unreadable observation is not an acknowledgement.
         val ordered = raw.mapNotNull { encoded ->

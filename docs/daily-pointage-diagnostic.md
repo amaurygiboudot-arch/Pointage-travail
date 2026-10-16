@@ -28,3 +28,37 @@ Comparer dans un tableau : récit de l'utilisateur, observation du téléphone, 
 7. Effacer le diagnostic : enregistrement arrêté, pointages conservés, exports temporaires supprimés.
 
 Les tests automatiques ne remplacent pas ces essais physiques, notamment pour les délais GPS et les restrictions des fabricants.
+
+## Sous-lot diagnostic préparé le 15 octobre 2026
+
+Le diff de travail distingue désormais la complétude de l'historique et la
+lisibilité du journal du compte courant. Un historique non attribué ne valide
+pas son contenu ; une session courante lisible ne certifie pas un total global.
+Les motifs de refus et les origines renseignées concernent les nouvelles traces
+facultatives uniquement. Une demande de fermeture n'est pas une écriture réussie.
+
+Le [bilan initial](diagnostic-subset-20261015.md) décrit le checkpoint diagnostic,
+avant la migration du départ. L'état du travail courant, ses limites et les
+commandes de validation figurent dans la [reprise du départ](departure-evidence-handoff.md).
+Les tests runtime Android/iOS n'ont pas pu être exécutés localement ; aucune
+livraison n'est attestée.
+
+## Observation de départ et provenance
+
+Une observation GPS est distincte d'une demande de fermeture et de son écriture
+réussie. Une sortie volontaire admissible peut reprendre l'heure observée plus
+tôt ; son origine reste MANUAL ou WIDGET, même si l'heure vient du GPS. Une
+ancienne trace GPS_CONFIRMATION ne doit pas être réinterprétée comme une clôture
+automatique. Les origines historiques absentes restent inconnues.
+
+L'état « hors site / à vérifier » conserve la session ouverte sans question
+systématique de fin de journée. L'heure observée n'est réutilisable qu'après les
+contrôles de session, compte, entreprise, configuration et retour. Les anciennes
+demandes persistées ne sont pas des preuves nouvelles. Une politique automatique
+reste un choix explicite par compte/entreprise, désactivé par défaut ; sa présence ne
+prouve pas que ses conditions d'exécution soient remplies.
+
+La présence GPS ne qualifie jamais à elle seule une période comme payée.
+Le diagnostic reste facultatif, local et sans noms, adresses ni coordonnées.
+La rétention est appliquée lors des accès actifs ; un fichier illisible ne permet
+pas de garantir une purge à échéance exacte.

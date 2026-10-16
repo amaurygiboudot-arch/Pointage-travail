@@ -244,7 +244,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                         pointType = GpsTriggeredZoneSelectionV2.pointType(choice),
                         transition = GpsTransitionV2.EXIT,
                         atMs = exitAtMs
-                    ), observationContext)
+                    ), observationContext, lastObservedAtMs = observedAtMs, episodeZoneIds = action.zoneIds.toSet())
                 } else null
                 // Without a proven session/account, retain observations as unknown. A later
                 // session may not appropriate them by filling in the missing binding.

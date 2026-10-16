@@ -9,6 +9,13 @@ enum DailyDiagnosticV2 {
         case clockInCommitted, clockOutCommitted, pauseStarted, pauseEnded, manualSessionAdded, manualSessionExit, clockInRolledBack
         case gpsRegionCallback, gpsTransitionSaved, gpsTransitionUnchanged
         case gpsPersistenceFailed, gpsAuthorizationChanged, gpsFailure, gpsConfirmationRequested
+        case clockInRejected, clockOutRejected
+    }
+    enum Origin: String, Codable { case manual = "MANUAL", widget = "WIDGET", automatic = "AUTOMATIC", gpsConfirmation = "GPS_CONFIRMATION", unknown = "UNKNOWN" }
+    enum SourceIssue: String { case none, accountUnavailable, corrupt, writeFailed }
+    enum Rejection: String, Codable {
+        case storageUnavailable, sessionAlreadyOpen, employerUnresolved, invalidTimeOrOverlap, persistenceFailed
+        case invalidTimeOrSession
     }
     struct Event: Codable, Equatable {
         var recordedAt: Date
@@ -17,6 +24,8 @@ enum DailyDiagnosticV2 {
         var detail: Int?
         var zoneId: UUID? = nil
         var sessionId: UUID? = nil
+        var origin: Origin? = nil
+        var rejection: Rejection? = nil
     }
     struct Journal: Codable {
         var enabled = false
@@ -93,13 +102,14 @@ enum DailyDiagnosticV2 {
         try save(journal, account: account, root: root)
     }
     static func append(_ kind: Kind, account: String?, occurredAt: Date? = nil,
-                       detail: Int? = nil, zoneId: UUID? = nil, sessionId: UUID? = nil, root: URL = directory, now: Date = Date()) throws {
+                       detail: Int? = nil, zoneId: UUID? = nil, sessionId: UUID? = nil,
+                       origin: Origin? = nil, rejection: Rejection? = nil, root: URL = directory, now: Date = Date()) throws {
         guard let account, !account.isEmpty else { return }
         lock.lock(); defer { lock.unlock() }
         do {
             var journal = try read(account: account, root: root, now: now)
             guard journal.enabled else { return }
-            journal.events.append(Event(recordedAt: now, occurredAt: occurredAt, kind: kind, detail: detail, zoneId: zoneId, sessionId: sessionId))
+            journal.events.append(Event(recordedAt: now, occurredAt: occurredAt, kind: kind, detail: detail, zoneId: zoneId, sessionId: sessionId, origin: origin, rejection: rejection))
             trim(&journal)
             try save(journal, account: account, root: root)
         } catch {
@@ -119,7 +129,9 @@ enum DailyDiagnosticV2 {
         if FileManager.default.fileExists(atPath: path.path) { try FileManager.default.removeItem(at: path) }
     }
     static func export(account: String, day: Date, calendar: Calendar = .current,
-                       root: URL = directory, now: Date = Date(), sessions: [WorkSession]? = nil) throws -> String {
+                       root: URL = directory, now: Date = Date(), sessions: [WorkSession]? = nil,
+                       history: WorkSessionAccountStorageV2.DiagnosticHistory? = nil,
+                       currentSourceIssue: SourceIssue? = nil) throws -> String {
         lock.lock(); defer { lock.unlock() }
         let journal = try read(account: account, root: root, now: now)
         let formatter = ISO8601DateFormatter()
@@ -151,14 +163,27 @@ enum DailyDiagnosticV2 {
         if events.isEmpty { lines.append("Aucune trace disponible pour ce jour : déroulement inconnu.") }
         for event in events {
             let effective = event.occurredAt.map { formatter.string(from: $0) } ?? "inconnue"
-            lines.append("\(formatter.string(from: event.recordedAt)) | \(event.kind.rawValue) | heure effective=\(effective) | détail=\(event.detail.map(String.init) ?? "inconnu") | zone=\(alias(event.zoneId)) | session=\(alias(event.sessionId))")
+            lines.append("\(formatter.string(from: event.recordedAt)) | \(event.kind.rawValue) | heure effective=\(effective) | détail=\(event.detail.map(String.init) ?? "inconnu") | zone=\(alias(event.zoneId)) | session=\(alias(event.sessionId)) | origine=\(event.origin?.rawValue ?? "UNKNOWN") | refus=\(event.rejection?.rawValue ?? "inconnu")")
+        }
+        lines.append("Source du compte lisible : \(sessions != nil) ; historique : \(history?.rawValue ?? "unknown") ; motif source courante : \(currentSourceIssue?.rawValue ?? "unknown")")
+        lines.append("Historique complet fiable : \(sessions != nil && history == .complete). Ce diagnostic ne certifie aucun total de paie.")
+        lines.append("Historique : unassigned=non attribué ; corrupt=illisible ; conflict=incompatible ; recoveryIncomplete=récupération inachevée ; changed=source modifiée. Les faits du compte lisibles restent visibles séparément.")
+        if let sessions {
+            let current = sessions.last { $0.exit == nil }
+            lines.append("Session courante à l'export (indépendante du jour choisi) : \(current.map { alias($0.id) } ?? "aucune dans le journal lisible")")
+        } else {
+            lines.append("Session courante à l'export : inconnue, source indisponible.")
         }
         lines.append("\nINSTANTANÉ du journal canonique lu à l'export (pas une trace historique) :")
         if let sessions, let interval = calendar.dateInterval(of: .day, for: day) {
             let selected = sessions.filter { $0.entry < interval.end && ($0.exit ?? now) >= interval.start }
             if selected.isEmpty { lines.append("Aucune session actuellement enregistrée sur ce jour ; cela ne prouve pas l'absence de travail.") }
             for session in selected {
-                lines.append("Session \(alias(session.id)) : entrée=\(formatter.string(from: session.entry)), sortie=\(session.exit.map { formatter.string(from: $0) } ?? "ouverte/inconnue")")
+                // Canonical facts survive diagnostic opt-out/erasure. Never export arbitrary
+                // persisted origin strings, which are not an approved diagnostic vocabulary.
+                let closureOrigin = session.closureOrigin.flatMap(Origin.init(rawValue:)) ?? .unknown
+                let departureObserved = session.departureObservedAt.map { formatter.string(from: $0) } ?? "inconnue"
+                lines.append("Session \(alias(session.id)) : entrée=\(formatter.string(from: session.entry)), sortie=\(session.exit.map { formatter.string(from: $0) } ?? "ouverte/inconnue"), origine=\(closureOrigin.rawValue), départ observé=\(departureObserved)")
                 for pause in session.pauses {
                     lines.append("Pause : début=\(formatter.string(from: pause.start)), fin=\(pause.end.map { formatter.string(from: $0) } ?? "ouverte/inconnue"), payée=\(pause.paid.map { $0 ? "oui" : "non" } ?? "inconnue")")
                 }
