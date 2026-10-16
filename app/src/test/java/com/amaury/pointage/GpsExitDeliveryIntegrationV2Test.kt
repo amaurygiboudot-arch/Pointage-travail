@@ -222,12 +222,12 @@ class GpsExitDeliveryIntegrationV2Test {
         gps.failNext = 1
         assertFalse(GpsExitDeliveryV2.commitPresence(gps, gps.edit(), current))
         gps.restart()
-        assertEquals(legacy, gps.getStringSet(GpsExitDeliveryV2.KEY, emptySet()))
+        assertEquals(legacy, gps.getStringSet(GpsExitDeliveryV2.KEY, mutableSetOf<String>()))
         assertFalse(gps.contains(GpsExitDeliveryV2.LEGACY_ARCHIVE_KEY))
         assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
         assertTrue(GpsExitDeliveryV2.commitPresence(gps, gps.edit(), current))
-        assertEquals(legacy, gps.getStringSet(GpsExitDeliveryV2.LEGACY_ARCHIVE_KEY, emptySet()))
-        assertEquals(setOf(current.encode()), gps.getStringSet(GpsExitDeliveryV2.KEY, emptySet()))
+        assertEquals(legacy, gps.getStringSet(GpsExitDeliveryV2.LEGACY_ARCHIVE_KEY, mutableSetOf<String>()))
+        assertEquals(setOf(current.encode()), gps.getStringSet(GpsExitDeliveryV2.KEY, mutableSetOf<String>()))
         assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
     }
 
