@@ -115,7 +115,7 @@ struct ContentView: View {
             }
             Button("Plus tard", role: .cancel) {}
         } message: {
-            Text("La présence GPS reste un indice. Le pointage et la qualification du temps payé sont distincts.")
+            Text("La présence GPS reste un indice. AGKGMG n'enregistre aucun temps payé sans ta confirmation. Le pointage et la qualification du temps payé restent distincts.")
         }
         .onAppear {
             store.reloadAccount()
