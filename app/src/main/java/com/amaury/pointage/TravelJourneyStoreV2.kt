@@ -115,7 +115,8 @@ internal object TravelJourneyStoreV2 {
         if (!V2RuntimeAccountScope.available()) return null
         val prefs = V2RuntimeAccountScope.preferences(context, PREFS)
         if (!prefs.contains(KEY)) return emptyList()
-        val raw = prefs.getString(KEY, null) ?: return null
+        // An unexpected value type is corruption, not an empty journal.
+        val raw = runCatching { prefs.getString(KEY, null) }.getOrNull() ?: return null
         return TravelJourneyCodecV2.decode(owner, raw)
     }
 
