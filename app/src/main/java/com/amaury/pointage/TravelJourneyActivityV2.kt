@@ -12,6 +12,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import com.amaury.pointage.v2.V2RuntimeAccountScope
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
@@ -123,6 +124,8 @@ class TravelJourneyActivityV2 : Activity() {
     }
 
     private fun requestPositionFor(id: String, isDeparture: Boolean, eventAtMs: Long) {
+        // Account changes while the GPS provider is responding must never reassign a sample.
+        val ownerAtRequest = V2RuntimeAccountScope.currentScope() ?: return
         if (!hasPositionPermission()) {
             Toast.makeText(this, "Heure conservée ; autorise le GPS pour les prochains trajets", Toast.LENGTH_LONG).show()
             return
@@ -132,6 +135,8 @@ class TravelJourneyActivityV2 : Activity() {
             LocationServices.getFusedLocationProviderClient(this)
                 .getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, source.token)
                 .addOnSuccessListener { position ->
+                    if (!travelGpsAccountStillCurrentV2(ownerAtRequest, V2RuntimeAccountScope.currentScope()))
+                        return@addOnSuccessListener
                     if (position == null || !position.hasAccuracy() ||
                         abs(position.time - eventAtMs) > 180_000L) return@addOnSuccessListener
                     val fix = TravelFixV2(
