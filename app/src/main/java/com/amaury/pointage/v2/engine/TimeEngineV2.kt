@@ -25,11 +25,13 @@ data class TimeResultV2(
 )
 
 object DefaultTimeEngineV2 : TimeEngineV2 {
+    // Repartir de zéro pour les NOUVEAUX pointages : aucune grille horaire ni tolérance
+    // implicite. Les règles historiques restent disponibles pour relire les archives.
     override fun countedEntryFromRealArrival(realArrivalMs: Long): Long =
-        WorkTimePolicyV2.countedEntry(realArrivalMs)
+        realArrivalMs.also { require(it > 0L) { "realArrivalMs doit être positif" } }
 
     override fun countedExitFromRealExit(realExitMs: Long, expectedEndMs: Long?): Long =
-        WorkTimePolicyV2.countedExit(realExitMs, expectedEndMs)
+        realExitMs.also { require(it > 0L) { "realExitMs doit être positif" } }
 
     override fun calculate(session: WorkSessionV2, nowMs: Long): TimeResultV2 {
         val warnings = mutableListOf<String>()

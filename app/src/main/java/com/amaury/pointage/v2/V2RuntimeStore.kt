@@ -586,14 +586,15 @@ object V2RuntimeStore {
     }
 
     /**
-     * Une présence courte peut se terminer avant l'entrée arrondie. La sortie réelle reste
-     * enregistrable ; seul le temps compté est laissé à confirmer, sans fabriquer de durée.
+     * Compatibilité des sessions historiques non vérifiées uniquement.
+     * Les nouveaux pointages REAL_FACTS conservent déjà la sortie réelle sans tolérance.
+     * Une fermeture historique ambiguë reste à confirmer, sans fabriquer de durée.
      */
     internal fun countedExitForClosure(
         realExitMs: Long,
         expectedEndMs: Long?,
         countedEntryMs: Long?
-    ): Long? = HoraTrackV2.time.countedExitFromRealExit(realExitMs, expectedEndMs)
+    ): Long? = com.amaury.pointage.v2.engine.WorkTimePolicyV2.countedExit(realExitMs, expectedEndMs)
         .takeIf { countedEntryMs == null || it > countedEntryMs }
 
     /** Réservé aux tests isolés. Aucun écran utilisateur ne doit appeler ce reset. */

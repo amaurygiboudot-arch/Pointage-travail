@@ -72,11 +72,11 @@ class TimeEngineV2Test {
     }
 
     @Test
-    fun `entree respecte trente minutes avec dix minutes de grace`() {
+    fun `nouvelle entree preserve chaque minute reelle sans grille`() {
         assertEquals(morningBase, DefaultTimeEngineV2.countedEntryFromRealArrival(at(6, 0)))
-        assertEquals(morningBase, DefaultTimeEngineV2.countedEntryFromRealArrival(at(6, 10)))
-        assertEquals(at(6, 30), DefaultTimeEngineV2.countedEntryFromRealArrival(at(6, 11)))
-        assertEquals(at(6, 30), DefaultTimeEngineV2.countedEntryFromRealArrival(at(6, 28)))
+        assertEquals(at(6, 10), DefaultTimeEngineV2.countedEntryFromRealArrival(at(6, 10)))
+        assertEquals(at(6, 11), DefaultTimeEngineV2.countedEntryFromRealArrival(at(6, 11)))
+        assertEquals(at(6, 28), DefaultTimeEngineV2.countedEntryFromRealArrival(at(6, 28)))
     }
 
     @Test
@@ -102,10 +102,10 @@ class TimeEngineV2Test {
     }
 
     @Test
-    fun `sortie jusque vingt minutes apres reste heure prevue puis devient reelle`() {
+    fun `nouvelle sortie conserve heure reelle meme dans ancienne tolerance`() {
         val expected = at(13, 0)
         assertEquals(expected, DefaultTimeEngineV2.countedExitFromRealExit(expected, expected))
-        assertEquals(expected, DefaultTimeEngineV2.countedExitFromRealExit(at(13, 20), expected))
+        assertEquals(at(13, 20), DefaultTimeEngineV2.countedExitFromRealExit(at(13, 20), expected))
         assertEquals(at(13, 21), DefaultTimeEngineV2.countedExitFromRealExit(at(13, 21), expected))
         assertEquals(at(15, 0), DefaultTimeEngineV2.countedExitFromRealExit(at(15, 0), expected))
     }
