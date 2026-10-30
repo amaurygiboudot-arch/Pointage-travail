@@ -7,6 +7,10 @@ import org.json.JSONObject
 import java.util.UUID
 import kotlin.math.abs
 
+/** An async GPS response is attributable only to the account that initiated it. */
+internal fun travelGpsAccountStillCurrentV2(requestAccount: String?, responseAccount: String?): Boolean =
+    !requestAccount.isNullOrBlank() && requestAccount == responseAccount
+
 /** A GPS observation is evidence of a location, not evidence of paid work or mileage. */
 internal data class TravelFixV2(
     val latitude: Double,
