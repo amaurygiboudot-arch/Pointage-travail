@@ -9,6 +9,13 @@ class TravelJourneyCodecV2Test {
     private val start = 1_800_000_000_000L
 
     @Test
+    fun rejectsStaleAccountGps() {
+        assertTrue(travelGpsAccountStillCurrentV2("uid:one", "uid:one"))
+        assertFalse(travelGpsAccountStillCurrentV2("uid:one", "uid:two"))
+        assertFalse(travelGpsAccountStillCurrentV2(null, "uid:one"))
+    }
+
+    @Test
     fun roundTripPreservesKnownAndUnknownFacts() {
         val departure = TravelFixV2(46.78, -1.75, 14.0, start + 4_000)
         val trip = TravelJourneyV2("trip-1", start, start + 3_600_000,
