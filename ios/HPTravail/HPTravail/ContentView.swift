@@ -15,6 +15,7 @@ struct ContentView: View {
     @AppStorage(CelestialGlobeModeV2.preferenceKey) private var celestialGlobeMode = CelestialGlobeModeV2.local.rawValue
     @State private var showPausePaymentChoice = false
     @State private var showManualEntry = false
+    @State private var showTravelJourneys = false
     @State private var showGpsZoneEditor = false
     @State private var editingGpsZone: GpsZoneV2?
     @State private var gpsZonePendingDeletion: GpsZoneV2?
@@ -67,6 +68,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showManualEntry) {
             ManualEntrySheetV2()
+        }
+        .sheet(isPresented: $showTravelJourneys) {
+            TravelJourneyViewV2()
         }
         .sheet(isPresented: $showGpsZoneEditor) {
             GpsZoneEditorSheetV2(existingZone: editingGpsZone)
@@ -490,6 +494,16 @@ struct ContentView: View {
                 }
 
                 if settingsPage == .pointage {
+                    Section("Déplacements") {
+                        Button {
+                            showTravelJourneys = true
+                        } label: {
+                            Label("Ouvrir le journal GPS / Maps", systemImage: "car.fill")
+                        }
+                        Text("Trajets distincts du pointage et du temps rémunéré")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                     DailyDiagnosticView()
                     Section("Pointage & lieux") {
                         Text(locationLabel)
