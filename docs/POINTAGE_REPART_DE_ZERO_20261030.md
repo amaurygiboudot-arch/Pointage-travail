@@ -6,7 +6,9 @@ Statut : CHANTIER EN COURS. Document d'architecture et premier lot local, non pu
 
 ## Intention et frontière de suppression
 
-Retirer progressivement toutes les règles métier historiques **du pointage actif**, sans les transposer automatiquement dans une nouvelle version. Ne pas retirer les protections d'intégrité, la provenance des faits, le cloisonnement des comptes, ni les règles légales/salariales qui relèvent du moteur Salaire V2.
+CORRECTION DU 30/10/2026 : ENTRÉE et SORTIE restent possibles par deux déclenchements : bouton manuel OU détection GPS automatique (arrivée/départ). Conserver les deux voies Android/iOS ; ne pas désactiver le GPS. L'interface de pointage doit rester limitée à ces deux actions, sans bouton pause ni règles métier superflues. Le GPS doit garder ses protections de précision, anti-doublon et reprise ; toute incertitude reste à vérifier.
+
+Retirer progressivement les règles métier historiques obsolètes **du pointage actif**, sans les transposer automatiquement dans une nouvelle version. Ne pas retirer les protections d'intégrité, la provenance des faits, le cloisonnement des comptes, ni les règles légales/salariales qui relèvent du moteur Salaire V2.
 
 **Restent obligatoirement conservés :**
 - événements factuels (arrivée, début/fin d'activité, pauses, déplacements, sortie), heures réelles et fuseau ;
@@ -20,7 +22,7 @@ Retirer progressivement toutes les règles métier historiques **du pointage act
 **À retirer du moteur de pointage actif après cartographie et validation :**
 - arrondis et tolérances automatiques d'entrée/sortie sans règle nouvellement confirmée ;
 - déductions et qualifications automatiques de pauses ou déplacements ;
-- interprétations GPS qui créent ou clôturent seules des sessions à partir de seuils/heuristiques anciens ;
+- anciennes heuristiques GPS non fiables à remplacer par une détection automatique d'entrée/sortie vérifiable, sans supprimer l'automatisation GPS ;
 - règles particulières à un employeur, des équipes, zones ou heures codées en dur ;
 - chemins concurrents et fallbacks de pointage quand le remplacement est autonome et prouvé.
 
@@ -37,7 +39,7 @@ Base PR 689 constatée au début : 670be78942d82d4a2893b85e2de47d9c2977326f.
 5. Android V2RuntimeStore : la fermeture d'une session LEGACY_UNVERIFIED garde explicitement WorkTimePolicyV2.countedExit, pour ne pas altérer la lecture historique. Les sessions REAL_FACTS passent toujours par leurs heures réelles.
 6. iOS : WorkStoreV2 possède déjà une saisie factuelle ; pas de modification iOS de ce premier lot. La parité de la refonte globale reste à tester.
 
-**Reste ENCORE actif et n'a pas été retiré** : traitement géorepères Android/iOS, politiques de départ/retour, heuristiques d'ancienne observation et conventions de périodes ; aucune suppression globale n'est prétendue. Les anciens fichiers ne seront effacés qu'après absence de consommateurs vérifiée.
+**À conserver et fiabiliser** : détection GPS automatique des entrées et sorties sur Android/iOS, géorepères, règles de départ/retour pertinentes, états persistants et protections anti-doublons. Les heuristiques anciennes sont à auditer et non à supprimer sans remplacement. Aucune suppression globale n'est prétendue. Les anciens fichiers ne seront effacés qu'après absence de consommateurs vérifiée.
 
 ## Carte des dépendances à préserver
 
