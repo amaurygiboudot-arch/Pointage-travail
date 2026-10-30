@@ -1,5 +1,6 @@
 package com.amaury.pointage
 
+import android.content.Intent
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -104,6 +105,9 @@ object SettingsCompactMenuV2 {
             })
             addView(categoryButton(activity, "POINTAGE & LIEUX") {
                 showPage(activity, Page.POINTAGE)
+            })
+            addView(categoryButton(activity, "DÉPLACEMENTS") {
+                activity.startActivity(Intent(activity, TravelJourneyActivityV2::class.java))
             })
             addView(categoryButton(activity, "PERSONNALISATION") {
                 showPage(activity, Page.PERSONALIZATION)
