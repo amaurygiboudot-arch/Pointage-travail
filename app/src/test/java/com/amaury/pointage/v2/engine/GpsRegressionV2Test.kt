@@ -10,6 +10,21 @@ import org.junit.Test
 
 class GpsRegressionV2Test {
     @Test
+    fun `une entree GPS nefface pas la reprise avant un enregistrement prouve`() {
+        assertFalse(GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(false, true, GpsWorkStateCoordinatorV2.Action.ENTRY_STARTED))
+        assertTrue(GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(true, false, null))
+        assertFalse(GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(true, true, null))
+        assertFalse(GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(true, true, GpsWorkStateCoordinatorV2.Action.NO_CHANGE))
+        assertFalse(GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(true, true, GpsWorkStateCoordinatorV2.Action.IGNORED))
+        assertTrue(GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(true, true, GpsWorkStateCoordinatorV2.Action.ENTRY_STARTED))
+        assertTrue(GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(true, true, GpsWorkStateCoordinatorV2.Action.RETURNED_TO_POSTE))
+        assertFalse(GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(
+            true, true, GpsWorkStateCoordinatorV2.Action.IGNORED, existingSessionVerified = true))
+        assertTrue(GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(
+            true, true, GpsWorkStateCoordinatorV2.Action.NO_CHANGE, existingSessionVerified = true))
+    }
+
+    @Test
     fun `runtime non fiable bloque toute transition GPS y compris une entree ambigue`() {
         assertFalse(GpsWorkStateCoordinatorV2.canRouteWithRuntime(false))
         assertTrue(GpsWorkStateCoordinatorV2.canRouteWithRuntime(true))

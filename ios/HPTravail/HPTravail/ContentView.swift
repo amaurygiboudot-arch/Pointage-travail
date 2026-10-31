@@ -685,8 +685,9 @@ struct ContentView: View {
             return
         }
         guard !store.isWorking else {
-            gpsFeedback = "Une entrée est déjà en cours : événement GPS ignoré."
-            locationManager.clearPendingEvent()
+            // Une session manuelle existe déjà : ne pas créer de doublon ni
+            // effacer la preuve GPS avant sa réconciliation canonique.
+            gpsFeedback = "Session déjà ouverte : événement GPS à vérifier."
             return
         }
         guard let clockInFacts = GpsClockInFactsPolicyV2.facts(for: zone) else {
@@ -702,12 +703,10 @@ struct ContentView: View {
             if locationManager.confirmArrival(eventId: event.id, sessionId: sessionId, zoneId: zone.id) {
                 gpsFeedback = nil
             } else {
-                if store.rollbackClockIn(expectedSessionId: sessionId) {
-                    _ = locationManager.reconcileSession(openSessionId: nil)
-                    gpsFeedback = "Entrée annulée : l'état GPS n'a pas pu être confirmé."
-                } else {
-                    gpsFeedback = "Entrée enregistrée, mais les données sont à vérifier."
-                }
+                // La session est déjà persistée. Un échec du reçu GPS ne doit
+                // jamais supprimer une entrée de travail confirmée par le store.
+                // Le GPS reste à vérifier, sans nouvelle entrée ni heure inventée.
+                gpsFeedback = "Entrée conservée. Confirmation GPS à vérifier."
             }
             refreshClockEmployerSelection()
         } else {
