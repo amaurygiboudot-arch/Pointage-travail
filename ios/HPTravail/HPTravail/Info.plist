@@ -5,7 +5,7 @@
     <key>CFBundleDisplayName</key>
     <string>AGKGMG</string>
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>AGKGMG utilise votre position pour le pointage GPS et l'affichage soleil/lune.</string>
+    <string>AGKGMG utilise votre position pour le pointage GPS, les relevés ponctuels de départ et d'arrivée des déplacements si vous les activez, et l'affichage soleil/lune.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
     <string>AGKGMG peut utiliser votre position en arrière-plan pour le pointage automatique si vous l'activez.</string>
     <key>NSMotionUsageDescription</key>

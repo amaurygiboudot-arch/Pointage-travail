@@ -1,6 +1,6 @@
 # Politique de confidentialité — HP Travail
 
-Dernière mise à jour : 16 août 2026
+Dernière mise à jour : 31 octobre 2026
 
 HP Travail est une application de pointage personnel permettant d'enregistrer des heures de travail, de produire des rapports PDF et, si l'utilisateur l'active, d'automatiser les entrées et sorties à l'aide de zones géographiques configurées par l'utilisateur.
 
@@ -10,7 +10,9 @@ HP Travail est une application de pointage personnel permettant d'enregistrer de
 
 HP Travail peut demander l'accès à la localisation précise et à la localisation en arrière-plan lorsque l'utilisateur active le pointage automatique par zone GPS.
 
-Cette autorisation sert uniquement à détecter l'entrée ou la sortie des lieux de travail enregistrés par l'utilisateur afin de déclencher le pointage automatique. La localisation en arrière-plan est nécessaire pour cette fonction lorsque l'application n'est pas visible à l'écran.
+Pour le pointage automatique, l'application utilise les zones géographiques configurées par l'utilisateur afin de détecter des entrées et sorties de lieu de travail. Cette fonction peut nécessiter la localisation en arrière-plan lorsque l'application n'est pas visible.
+
+Dans la rubrique facultative « Déplacements professionnels », la position est demandée ponctuellement lors de l'action volontaire « Démarrer un déplacement » ou « Terminer le déplacement » si la permission est disponible. Cette première version n'enregistre pas de parcours GPS continu et ne calcule pas de kilomètres réellement parcourus. L'utilisateur peut enregistrer les heures du trajet sans fournir sa position.
 
 HP Travail n'utilise pas la localisation à des fins publicitaires, de profilage ou de suivi commercial.
 
@@ -19,6 +21,14 @@ L'application utilise les services de localisation Android et Google Play Servic
 ### Adresses et lieux de travail
 
 Les noms des lieux, adresses, coordonnées géographiques, rayons de zone GPS, noms de contacts et numéros de téléphone saisis par l'utilisateur sont conservés dans le stockage privé de l'application sur l'appareil.
+
+### Journal facultatif des déplacements professionnels
+
+Le journal de déplacements conserve localement, dans l'espace privé de l'application et séparément des temps de travail et du moteur salarial, les horaires déclarés de début et de fin, l'identifiant de compte, l'entreprise si elle est connue et, uniquement si elles sont disponibles et suffisamment fiables, les deux positions de départ et d'arrivée. Aucune rémunération ni indemnité n'est déduite automatiquement de ces données.
+
+Les coordonnées du trajet ne sont pas transmises automatiquement à Google Maps par cette rubrique. Si l'utilisateur décide d'ouvrir la carte ou l'itinéraire dans Google Maps, les coordonnées enregistrées pertinentes peuvent être insérées dans l'URL ouverte, puis traitées par Google selon les propres règles de confidentialité de ce service. Ne pas ouvrir Maps évite ce partage par cette fonctionnalité.
+
+À ce stade, le journal de déplacements ne dispose pas d'une commande de suppression par trajet ni d'une exportation dédiée. La suppression complète des données locales demeure possible en effaçant les données de l'application ou en la désinstallant selon le système. Les futures commandes de suppression/export et les règles de conservation spécifiques devront être validées avant un lancement commercial de cette rubrique.
 
 ### Données de pointage
 
