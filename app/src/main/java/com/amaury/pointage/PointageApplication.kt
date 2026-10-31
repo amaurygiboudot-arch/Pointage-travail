@@ -375,6 +375,7 @@ object SettingsUiInstaller {
         listOf(updates, appearance, widget, drive, help).forEach(panel::addView)
         SettingsV2SectionOrganizer.organize(activity)
         installPointageAddressButton(activity)
+        DailyDiagnosticUiV2.install(activity)
         refreshDriveSection(activity)
         SettingsCompactMenuV2.installOrRefresh(activity)
         AppearanceManager.apply(activity)

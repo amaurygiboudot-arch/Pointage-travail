@@ -50,6 +50,52 @@ class SegmentedPayrollSessionEvidenceBuilderV2Test {
         assertBlocked(fixture(listOf(session("s", 4, 8, 4, 16).copy(
             status = SessionStatusV2.OPEN, countedExitMs = null, realExitMs = null))))
     }
+    @Test fun missingArrivalWithKnownExitBlocksPayrollEvidence() {
+        assertBlocked(fixture(listOf(session("missing-arrival", 4, 8, 4, 16).copy(
+            realArrivalMs = null, countedEntryMs = null))))
+    }
+    @Test fun secondsFromSeparateSessionsAreAddedBeforeConvertingToPayrollMinutes() {
+        val first = session("first", 4, 8, 4, 12).let {
+            val exit = ms(4, 12) + 30_000L
+            it.copy(countedExitMs = exit, realExitMs = exit)
+        }
+        val second = session("second", 4, 13, 4, 17).let {
+            val exit = ms(4, 17) + 30_000L
+            it.copy(countedExitMs = exit, realExitMs = exit)
+        }
+        val proof = fixture(listOf(first, second)).build()
+
+        assertTrue(proof.reliable)
+        assertEquals(481, proof.slices.single().weeks.single().week.paidMinutes)
+    }
+    @Test fun secondsInSaturdayPremiumAreAddedBeforeConvertingToPayrollMinutes() {
+        val first = session("first", 9, 8, 9, 12).let {
+            val exit = ms(9, 12) + 30_000L
+            it.copy(countedExitMs = exit, realExitMs = exit)
+        }
+        val second = session("second", 9, 13, 9, 17).let {
+            val exit = ms(9, 17) + 30_000L
+            it.copy(countedExitMs = exit, realExitMs = exit)
+        }
+        val week = fixture(listOf(first, second)).build().slices.single().weeks.single().week
+
+        assertEquals(481, week.paidMinutes)
+        assertEquals(481, week.saturdayMinutes)
+    }
+    @Test fun secondsDoNotCarryAcrossPayrollWeeks() {
+        val first = session("first", 4, 8, 4, 12).let {
+            val exit = ms(4, 12) + 30_000L
+            it.copy(countedExitMs = exit, realExitMs = exit)
+        }
+        val second = session("second", 11, 8, 11, 12).let {
+            val exit = ms(11, 12) + 30_000L
+            it.copy(countedExitMs = exit, realExitMs = exit)
+        }
+        val weeks = fixture(listOf(first, second), start = 4, end = 17)
+            .build().slices.single().weeks
+
+        assertEquals(listOf(240, 240), weeks.map { it.week.paidMinutes })
+    }
     @Test fun storageReliabilityDoesNotProveExhaustiveHistory() {
         val f = fixture(emptyList())
         assertBlocked(f.copy(source = f.source.copy(exhaustive = false)))

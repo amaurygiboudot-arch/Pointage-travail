@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import com.amaury.pointage.SalaryCompanyStore
 import java.io.File
+import com.google.firebase.auth.FirebaseAuth
 
 /**
  * Déclenche une sauvegarde V2 après toute modification fonctionnelle importante.
@@ -39,20 +40,40 @@ object V2AutoBackupCoordinator {
     private val registeredNames = linkedSetOf<String>()
     private var appContext: Context? = null
     private var pending: Runnable? = null
+    private var registeredScope: String? = null
+    private val authListener = FirebaseAuth.AuthStateListener { reloadAccountListeners() }
+
+    @Synchronized
+    private fun reloadAccountListeners() {
+        val app = appContext ?: return
+        val scope = V2RuntimeAccountScope.currentScope()
+        if (scope == registeredScope && listeners.isNotEmpty()) return
+        pending?.let(handler::removeCallbacks)
+        pending = null
+        listeners.forEach { (prefs, listener) -> prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+        listeners.clear()
+        registeredNames.clear()
+        registeredScope = scope
+        if (scope == null) return
+        watchedFiles.forEach { register(app, it) }
+        registerDynamicSalaryFiles(app)
+    }
 
     @Synchronized
     fun install(context: Context) {
         if (appContext != null) return
         val app = context.applicationContext
         appContext = app
-        watchedFiles.forEach { name -> register(app, name) }
-        registerDynamicSalaryFiles(app)
+        reloadAccountListeners()
+        runCatching { FirebaseAuth.getInstance().addAuthStateListener(authListener) }
     }
 
     @Synchronized
     private fun register(app: Context, name: String) {
         if (!registeredNames.add(name)) return
-        val prefs = app.getSharedPreferences(name, Context.MODE_PRIVATE)
+        val prefs = if (name == "horatrack_v2_test_runtime")
+            V2RuntimeAccountScope.preferences(app, name)
+        else app.getSharedPreferences(name, Context.MODE_PRIVATE)
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
             if (name == SALARY_COMPANIES_PREFS) registerDynamicSalaryFiles(app)
             schedule()
@@ -94,7 +115,10 @@ object V2AutoBackupCoordinator {
     private fun schedule() {
         val app = appContext ?: return
         pending?.let(handler::removeCallbacks)
-        val task = Runnable { V2BackupManager.backupIfConfiguredAsync(app) }
+        val scope = V2RuntimeAccountScope.currentScope() ?: return
+        val task = Runnable {
+            if (scope == V2RuntimeAccountScope.currentScope()) V2BackupManager.backupIfConfiguredAsync(app)
+        }
         pending = task
         handler.postDelayed(task, 2500L)
     }

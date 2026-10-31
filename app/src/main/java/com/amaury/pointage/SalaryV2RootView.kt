@@ -209,6 +209,7 @@ class SalaryV2RootView @JvmOverloads constructor(
             })
             addView(legalWatchStatus)
             addView(actionButton("FICHE DE RENSEIGNEMENTS") { showInformationSheet(company) })
+            addView(actionButton("MES RÈGLES DE TRAVAIL DATÉES") { showDatedWorkRules(company) }, buttonLp())
             addView(actionButton("INFORMATIONS ENTREPRISE") { showCompanyInformation(company) }, buttonLp())
             addView(actionButton("FICHE DE SALAIRE") { showPayslipWorkspace(company) }, buttonLp())
             addView(actionButton("SOURCES LÉGALES (LEGI)") { showLegalSources() }, buttonLp())
@@ -251,6 +252,12 @@ class SalaryV2RootView @JvmOverloads constructor(
         }
         if (summary.readyJobs == 0) return "Veille juridique : à jour."
         return "Veille juridique : mises à jour déjà analysées sur cet appareil."
+    }
+
+    private fun showDatedWorkRules(company: SalaryCompanyStore.Company) {
+        themedDialog("Règles de travail — ${company.name}", ScrollView(context).apply {
+            addView(DatedWorkRulesEditorV2(context, company.id))
+        })
     }
 
     private fun showCompanyInformation(company: SalaryCompanyStore.Company) {

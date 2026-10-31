@@ -221,7 +221,7 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
                 if (HoraTrackV2.ENABLED && !V2RuntimeReader.current(context).reliable) {
                     Toast.makeText(context, "Pointage bloqué : données HoraTrack à vérifier", Toast.LENGTH_LONG).show()
                 } else {
-                    val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.exit(context) else PointageStore.exit(context)
+                    val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.userExit(context, origin = ClosureOriginV2.WIDGET) else PointageStore.exit(context)
                     Toast.makeText(context, if (ok) "Sortie enregistrée" else "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
                 }
             }

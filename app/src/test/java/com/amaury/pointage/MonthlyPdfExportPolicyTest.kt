@@ -23,7 +23,11 @@ class MonthlyPdfExportPolicyTest {
         val openPause = closed.copy(pauses = listOf(PauseV2(150L, null, false, EventSourceV2.MANUAL)))
         fun eligible(s: WorkSessionV2) = ConfirmedWorkPdfPolicyV2.stableSession(s)
         assertTrue(DefaultTimeEngineV2.calculate(open, 300L).paidWorkMs != DefaultTimeEngineV2.calculate(open, 900L).paidWorkMs)
-        assertTrue(DefaultTimeEngineV2.calculate(openPause, 300L).paidWorkMs != DefaultTimeEngineV2.calculate(openPause, 900L).paidWorkMs)
+        // Une pause ouverte avec session fermée reste provisoire, jamais recalculée
+        // comme six cents millisecondes de pause déduite au fil du temps.
+        assertEquals(DefaultTimeEngineV2.calculate(openPause, 300L).paidWorkMs,
+            DefaultTimeEngineV2.calculate(openPause, 900L).paidWorkMs)
+        assertFalse(DefaultTimeEngineV2.calculate(openPause, 300L).reliable)
         assertFalse(eligible(open))
         assertFalse(eligible(openPause))
         assertTrue(eligible(closed))

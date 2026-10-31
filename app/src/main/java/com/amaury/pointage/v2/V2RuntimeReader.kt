@@ -28,16 +28,46 @@ object V2RuntimeReader {
         val warnings: List<String>
     )
 
+    data class DiagnosticRead(val history: SessionsRead, val current: CurrentRead)
+
+    internal const val DIAGNOSTIC_MIGRATION_WARNING =
+        "Migration du journal du compte non achevée ou métadonnées illisibles : diagnostic sans migration, faits non présentés comme fiables."
+
+    /** Keep completeness and current-account integrity separate, without relaxing payroll reads. */
+    fun diagnostic(context: Context, nowMs: Long = System.currentTimeMillis()): DiagnosticRead =
+        V2RuntimeStore.withTransaction {
+            // allSessions/current normally migrate. An export must never trigger that mutation,
+            // including repair of historical timestamps or generation of missing session IDs.
+            if (!V2RuntimeAccountScope.available() || !V2MigrationManager.completedForDiagnostic(context)) {
+                val currentWarnings = listOf(if (!V2RuntimeAccountScope.available())
+                    V2RuntimeAccountScope.AUTH_WARNING else DIAGNOSTIC_MIGRATION_WARNING)
+                val historyWarnings = currentWarnings + if (V2RuntimeAccountScope.available() &&
+                    V2RuntimeAccountScope.hasUnassignedHistory(context)) listOf(V2RuntimeAccountScope.UNASSIGNED_WARNING)
+                    else emptyList()
+                V2RuntimeHistoryGuardV2.publishSourceState(false, historyWarnings)
+                return@withTransaction DiagnosticRead(
+                    SessionsRead(emptyList(), false, historyWarnings),
+                    CurrentRead(V2RuntimeStore.Snapshot(null, null), false, currentWarnings)
+                )
+            }
+            val history = allSessions(context, nowMs)
+            val current = current(context, nowMs)
+            // current() can succeed with unassigned legacy data. Do not leave that success as
+            // the ambient state of the complete source consumed by existing callers.
+            V2RuntimeHistoryGuardV2.publishSourceState(history.reliable, history.warnings)
+            DiagnosticRead(history, current)
+        }
+
     const val UNRELIABLE_MESSAGE =
         "Historique HoraTrack V2 non fiable : données, analyses et exports bloqués jusqu'à vérification."
 
     fun allSessions(
         context: Context,
         nowMs: Long = System.currentTimeMillis()
-    ): SessionsRead {
+    ): SessionsRead = V2RuntimeStore.withTransaction {
         val sessions = V2RuntimeStore.allSessions(context, nowMs)
         val source = V2RuntimeHistoryGuardV2.sourceState()
-        return SessionsRead(
+        return@withTransaction SessionsRead(
             sessions = sessions,
             reliable = source.reliable,
             warnings = source.warnings
@@ -51,11 +81,11 @@ object V2RuntimeReader {
     fun current(
         context: Context,
         nowMs: Long = System.currentTimeMillis()
-    ): CurrentRead {
-        V2RuntimeStore.allSessions(context, nowMs)
+    ): CurrentRead = V2RuntimeStore.withTransaction {
+        V2RuntimeStore.allSessions(context, nowMs, requireCompleteHistory = false)
         val fullSource = V2RuntimeHistoryGuardV2.sourceState()
         if (!fullSource.reliable) {
-            return CurrentRead(
+            return@withTransaction CurrentRead(
                 snapshot = V2RuntimeStore.Snapshot(null, null),
                 reliable = false,
                 warnings = fullSource.warnings
@@ -64,7 +94,7 @@ object V2RuntimeReader {
 
         val snapshot = V2RuntimeStore.snapshot(context, nowMs)
         val source = V2RuntimeHistoryGuardV2.sourceState()
-        return CurrentRead(
+        return@withTransaction CurrentRead(
             snapshot = if (source.reliable) snapshot else V2RuntimeStore.Snapshot(null, null),
             reliable = source.reliable,
             warnings = source.warnings
