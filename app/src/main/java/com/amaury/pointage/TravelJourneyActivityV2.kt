@@ -3,7 +3,10 @@ package com.amaury.pointage
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Context
 import android.content.Intent
+import android.location.Location
+import android.location.LocationManager
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
@@ -123,56 +126,88 @@ class TravelJourneyActivityV2 : Activity() {
         ), 802)
     }
 
+    private fun recordLocationIfFresh(
+        id: String, isDeparture: Boolean, eventAtMs: Long,
+        requestedBy: String, location: Location?
+    ): Boolean {
+        if (!travelGpsAccountStillCurrentV2(requestedBy, V2RuntimeAccountScope.currentScope()) ||
+            location == null || !location.hasAccuracy() ||
+            kotlin.math.abs(location.time - eventAtMs) > 180_000L) return false
+        val fix = TravelFixV2(location.latitude, location.longitude,
+            location.accuracy.toDouble(), location.time)
+        return fix.isUsable() && TravelJourneyStoreV2.attachFix(this, id, isDeparture, fix)
+    }
+
+    /** Fail-safe, no continuous tracking or new sensor request on devices without Play services.
+     * A cached system fix is accepted ONLY through the same time/accuracy/account guards. */
+    private fun trySystemCachedLocation(
+        id: String, isDeparture: Boolean, eventAtMs: Long, requestedBy: String
+    ) {
+        if (!hasPositionPermission() ||
+            !travelGpsAccountStillCurrentV2(requestedBy, V2RuntimeAccountScope.currentScope())) return
+        val manager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return
+        val best = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+            .mapNotNull { provider ->
+                runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
+            }
+            .filter { it.hasAccuracy() && it.accuracy <= 150f &&
+                kotlin.math.abs(it.time - eventAtMs) <= 180_000L }
+            .minByOrNull { it.accuracy }
+        recordLocationIfFresh(id, isDeparture, eventAtMs, requestedBy, best)
+    }
+
     private fun requestPositionFor(id: String, isDeparture: Boolean, eventAtMs: Long) {
-        // Account changes while the GPS provider is responding must never reassign a sample.
+        // A result obtained for account A must never be re-attributed to a different account.
         val ownerAtRequest = V2RuntimeAccountScope.currentScope() ?: return
         if (!hasPositionPermission()) {
             Toast.makeText(this, "Heure conservée ; autorise le GPS pour les prochains trajets", Toast.LENGTH_LONG).show()
             return
         }
-        val source = CancellationTokenSource()
         try {
+            val cancellation = CancellationTokenSource()
             LocationServices.getFusedLocationProviderClient(this)
-                .getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, source.token)
-                .addOnSuccessListener { position ->
-                    if (!travelGpsAccountStillCurrentV2(ownerAtRequest, V2RuntimeAccountScope.currentScope()))
-                        return@addOnSuccessListener
-                    if (position == null || !position.hasAccuracy() ||
-                        abs(position.time - eventAtMs) > 180_000L) return@addOnSuccessListener
-                    val fix = TravelFixV2(
-                        position.latitude, position.longitude,
-                        position.accuracy.toDouble(), position.time
-                    )
-                    if (fix.isUsable()) {
-                        TravelJourneyStoreV2.attachFix(this, id, isDeparture, fix)
-                    }
+                .getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cancellation.token)
+                .addOnSuccessListener { location ->
+                    if (!recordLocationIfFresh(id, isDeparture, eventAtMs, ownerAtRequest, location))
+                        trySystemCachedLocation(id, isDeparture, eventAtMs, ownerAtRequest)
                     if (!isFinishing) render()
                 }
                 .addOnFailureListener {
+                    trySystemCachedLocation(id, isDeparture, eventAtMs, ownerAtRequest)
                     if (!isFinishing) render()
                 }
-        } catch (_: SecurityException) {
-            // The user's recorded action survives GPS permission changes.
+        } catch (_: RuntimeException) {
+            // Optional GPS is unavailable, but the departure/arrival timestamp remains saved.
+            trySystemCachedLocation(id, isDeparture, eventAtMs, ownerAtRequest)
         }
     }
 
     private fun selectedTrip(): TravelJourneyV2? =
         TravelJourneyStoreV2.read(this)?.lastOrNull()
 
+    /** Uri.Builder encodes latitude/longitude commas per the official Maps URL contract. */
     private fun mapsUrl(trip: TravelJourneyV2?): String {
         val departure = trip?.departure
         val arrival = trip?.arrival
-        return if (departure != null && arrival != null) {
-            "https://www.google.com/maps/dir/?api=1&origin=" +
-                "${departure.latitude},${departure.longitude}&destination=" +
-                "${arrival.latitude},${arrival.longitude}&travelmode=driving"
-        } else if (departure != null || arrival != null) {
-            val location = requireNotNull(departure ?: arrival)
-            "https://www.google.com/maps/search/?api=1&query=" +
-                "${location.latitude},${location.longitude}"
-        } else {
-            "https://www.google.com/maps/@?api=1&map_action=map"
+        val base = when {
+            departure != null && arrival != null -> "https://www.google.com/maps/dir/"
+            departure != null || arrival != null -> "https://www.google.com/maps/search/"
+            else -> "https://www.google.com/maps/@"
         }
+        val builder = Uri.parse(base).buildUpon().appendQueryParameter("api", "1")
+        when {
+            departure != null && arrival != null -> {
+                builder.appendQueryParameter("origin", "${departure.latitude},${departure.longitude}")
+                    .appendQueryParameter("destination", "${arrival.latitude},${arrival.longitude}")
+                    .appendQueryParameter("travelmode", "driving")
+            }
+            departure != null || arrival != null -> {
+                val fix = requireNotNull(departure ?: arrival)
+                builder.appendQueryParameter("query", "${fix.latitude},${fix.longitude}")
+            }
+            else -> builder.appendQueryParameter("map_action", "map")
+        }
+        return builder.build().toString()
     }
 
     private fun openMapWithConsent() {
