@@ -1,6 +1,5 @@
 package com.amaury.pointage
 
-import android.app.Activity
 import android.app.AlertDialog
 import android.app.Application
 import android.content.Context
@@ -104,7 +103,6 @@ class TravelJourneyActivityV2SmokeTest {
             val trip = TravelJourneyV2("sample", atMs, atMs + 60_000, "employer",
                 TravelFixV2(46.78, -1.75, 10.0, atMs),
                 TravelFixV2(46.79, -1.74, 10.0, atMs + 60_000))
-            val method = Activity::class.java // Find the private real production builder.
             val urlMethod = controller.get().javaClass.getDeclaredMethod("mapsUrl", TravelJourneyV2::class.java)
                 .apply { isAccessible = true }
             val raw = urlMethod.invoke(controller.get(), trip) as String
