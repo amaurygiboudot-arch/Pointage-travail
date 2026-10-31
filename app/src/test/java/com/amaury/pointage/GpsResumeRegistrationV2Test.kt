@@ -116,6 +116,24 @@ class GpsResumeRegistrationV2Test {
         ))
     }
 
+    @Test fun unknownGeofenceMustPreserveCurrentPresenceDuringPlatformResync() {
+        val root = generateSequence(File(System.getProperty("user.dir"))) { it.parentFile }
+            .first { File(it, "app/src/main/java/com/amaury/pointage/GeofenceBroadcastReceiver.kt").isFile }
+        val receiver = File(root, "app/src/main/java/com/amaury/pointage/GeofenceBroadcastReceiver.kt").readText()
+        val unknown = receiver.substringAfter("if (regularIds.any { it !in zonesById })")
+            .substringBefore("val transition = when")
+        assertFalse("Unknown zone must not erase existing active/pending presence",
+            unknown.contains("clearZonePresenceState("))
+        assertTrue("Unknown zone must select non-destructive platform resync",
+            unknown.contains("preservePresence = true"))
+
+        val manager = File(root, "app/src/main/java/com/amaury/pointage/GeofenceManager.kt").readText()
+        val preserving = manager.substringAfter("fun resyncStoredZonesPreservingPresence(")
+            .substringBefore("private fun enqueueStoredZonesReconciliation(")
+        assertTrue(preserving.contains("clearBusinessState = false"))
+        assertTrue(preserving.contains("clearPresenceState = false"))
+    }
+
     @Test fun unavailableGmsErrorMustInvalidateRegistrationWithoutClosingSession() {
         val root = generateSequence(File(System.getProperty("user.dir"))) { it.parentFile }
             .first { File(it, "app/src/main/java/com/amaury/pointage/GeofenceBroadcastReceiver.kt").isFile }
