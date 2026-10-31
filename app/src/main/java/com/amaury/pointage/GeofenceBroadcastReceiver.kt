@@ -105,11 +105,11 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             // Un requestId inconnu est un geofence Android périmé, pas une zone de travail.
             // On refuse l'événement et on resynchronise la plateforme avec la configuration
             // canonique actuelle afin que le stale geofence ne puisse plus se représenter.
-            clearZonePresenceState(prefs)
+            // Un identifiant inconnu ne prouve aucune sortie : conserver la présence.
             if (canonicalZones.isEmpty()) {
                 finishAfterGpsReconciliation(context, configurationChanged = true)
             } else {
-                finishAfterGpsReconciliation(context, configurationChanged = false)
+                finishAfterGpsReconciliation(context, configurationChanged = false, preservePresence = true)
             }
             return
         }
@@ -283,11 +283,13 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         updateWidgets(context)
     }
 
-    private fun finishAfterGpsReconciliation(context: Context, configurationChanged: Boolean) {
+    private fun finishAfterGpsReconciliation(context: Context, configurationChanged: Boolean, preservePresence: Boolean = false) {
         val pendingResult = goAsync()
         val callback: (Boolean, String) -> Unit = { _, _ -> pendingResult.finish() }
         if (configurationChanged) {
             GeofenceManager.reconfigureStoredZones(context, callback)
+        } else if (preservePresence) {
+            GeofenceManager.resyncStoredZonesPreservingPresence(context, callback)
         } else {
             GeofenceManager.resyncStoredZones(context, callback)
         }
@@ -641,13 +643,6 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 prefs.getStringSet(GpsPresenceStateKeysV2.PENDING_EXIT_OBSERVATIONS, emptySet())
             }.getOrNull()
         )
-
-    private fun clearZonePresenceState(prefs: android.content.SharedPreferences) {
-        val editor = prefs.edit()
-        GpsPresenceStateKeysV2.EPHEMERAL_KEYS.filterNot { it in setOf(GpsExitDeliveryV2.KEY, GpsReturnObservationV2.KEY, GpsReturnObservationV2.QUALIFICATION_KEY) }
-            .forEach { editor.remove(it) }
-        editor.commit()
-    }
 
     private fun applyZoneEmployer(
         context: Context,
