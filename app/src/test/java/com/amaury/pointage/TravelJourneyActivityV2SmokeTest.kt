@@ -3,6 +3,8 @@ package com.amaury.pointage
 import android.app.AlertDialog
 import android.app.Application
 import android.content.Context
+import android.content.ComponentName
+import android.content.IntentFilter
 import android.content.Intent
 import android.location.Location
 import android.net.Uri
@@ -24,6 +26,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowAlertDialog
+import org.robolectric.shadows.ShadowToast
 import java.util.UUID
 
 /** UI and URL simulations with Robolectric. No physical GPS or Google Maps session. */
@@ -73,7 +76,7 @@ class TravelJourneyActivityV2SmokeTest {
     }
 
     @Test
-    fun mapsNeedsUserConfirmationBeforeExternalIntent() {
+    fun mapsRequiresConfirmationAndHandlesMissingBrowser() {
         val controller = beginActivity()
         try {
             val activity = controller.get()
@@ -86,8 +89,35 @@ class TravelJourneyActivityV2SmokeTest {
             open.performClick()
             requireNotNull(ShadowAlertDialog.getLatestAlertDialog())
                 .getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+            // This sandbox has no browser application: failure is handled visibly, without a crash.
+            assertNull(Shadows.shadowOf(activity).nextStartedActivity)
+            assertEquals("Aucune application de cartes disponible", ShadowToast.getTextOfLatestToast())
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test
+    fun mapsStartsOnlyAfterConfirmationWhenBrowserHandlerIsRegistered() {
+        val controller = beginActivity()
+        try {
+            val activity = controller.get()
+            val component = ComponentName(activity.packageName, activity.packageName + ".SimulatedBrowser")
+            val packages = Shadows.shadowOf(activity.packageManager)
+            packages.addActivityIfNotPresent(component)
+            packages.addIntentFilterForActivity(component, IntentFilter(Intent.ACTION_VIEW).apply {
+                addCategory(Intent.CATEGORY_DEFAULT)
+                addDataScheme("https")
+            })
+
+            val open = requireNotNull(button(activity.window.decorView, "VOIR LE TRAJET DANS MAPS"))
+            open.performClick()
+            assertNull(Shadows.shadowOf(activity).nextStartedActivity)
+            requireNotNull(ShadowAlertDialog.getLatestAlertDialog())
+                .getButton(AlertDialog.BUTTON_POSITIVE).performClick()
             val intent = requireNotNull(Shadows.shadowOf(activity).nextStartedActivity)
             assertEquals(Intent.ACTION_VIEW, intent.action)
+            assertEquals("https", intent.data?.scheme)
             assertEquals("www.google.com", intent.data?.host)
             assertEquals("1", intent.data?.getQueryParameter("api"))
         } finally {
