@@ -688,8 +688,19 @@ class MainActivity : Activity() {
                     disableAutomaticGps("Aucune zone GPS valide enregistrée")
                     return
                 }
-                // Reopening the app only reconciles Android's registrations. It must
-                // not discard a business event (for example an EXIT awaiting confirmation).
+                // A successful registration is retained by Google Play services across
+                // ordinary app process death. Never clear the current GPS presence on resume.
+                // BootReceiver and stale configuration still trigger a full resync.
+                if (shouldKeepGeofenceRegistrationOnResumeV2(
+                        enabled = gpsPrefs.getBoolean("enabled", false),
+                        hasPermissions = GeofenceManager.hasRequiredPermissions(this),
+                        locationEnabled = DeviceLocationAvailability.isEnabled(this),
+                        registrationCurrent = GeofenceManager.isStoredRegistrationCurrent(this)
+                    )) {
+                    showGpsReconciliationResult(true, "Zones GPS déjà synchronisées")
+                    return
+                }
+                // Only a missing/stale registration takes the destructive platform resync path.
                 GeofenceManager.resyncStoredZones(this) { success, message ->
                     runOnUiThread {
                         showGpsReconciliationResult(success, message)

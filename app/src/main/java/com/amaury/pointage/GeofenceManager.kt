@@ -116,6 +116,14 @@ internal fun isCurrentStoredGeofenceRegistrationV2(
     !registeredFingerprint.isNullOrEmpty() &&
     registeredFingerprint == currentFingerprint
 
+/** A normal app resume must not drop known GPS presence or interrupt live geofences. */
+internal fun shouldKeepGeofenceRegistrationOnResumeV2(
+    enabled: Boolean,
+    hasPermissions: Boolean,
+    locationEnabled: Boolean,
+    registrationCurrent: Boolean
+): Boolean = enabled && hasPermissions && locationEnabled && registrationCurrent
+
 object GeofenceManager {
     private const val GPS_PREFS = "gps_settings"
     private const val LAST_GOOD_ZONES = "zones_last_good"
@@ -155,6 +163,10 @@ object GeofenceManager {
             .putBoolean(GpsPresenceStateKeysV2.REGISTRATION_VALID, false)
             .remove(GpsPresenceStateKeysV2.REGISTRATION_FINGERPRINT)
             .commit()
+
+    /** Service error: request re-registration at the next safe opening; retain GPS evidence. */
+    internal fun markRegistrationUnavailable(context: Context): Boolean =
+        invalidateStoredRegistration(context)
 
     private fun validateStoredRegistration(
         prefs: android.content.SharedPreferences,

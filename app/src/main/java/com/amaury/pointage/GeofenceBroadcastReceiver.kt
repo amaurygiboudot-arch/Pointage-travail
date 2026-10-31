@@ -22,6 +22,7 @@ import com.amaury.pointage.v2.engine.GpsTransitionV2
 import com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2
 import com.amaury.pointage.v2.model.SessionStatusV2
 import com.google.android.gms.location.Geofence
+import com.google.android.gms.location.GeofenceStatusCodes
 import com.google.android.gms.location.GeofencingEvent
 import org.json.JSONObject
 import java.util.UUID
@@ -42,6 +43,15 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         val event = GeofencingEvent.fromIntent(intent) ?: return
         if (event.hasError()) {
             DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.GEOFENCE_ERROR, observedAtMs)
+            // GMS cannot restore geofences after GEOFENCE_NOT_AVAILABLE. Invalidate only
+            // the registration receipt: never erase durable exit/return evidence here.
+            if (event.errorCode == GeofenceStatusCodes.GEOFENCE_NOT_AVAILABLE &&
+                GeofenceManager.markRegistrationUnavailable(context)
+            ) {
+                // Re-register in the existing asynchronous receiver path. This preserves
+                // the durable departure outbox and keeps the UI closed in the background.
+                finishAfterGpsReconciliation(context, configurationChanged = false)
+            }
             return
         }
 

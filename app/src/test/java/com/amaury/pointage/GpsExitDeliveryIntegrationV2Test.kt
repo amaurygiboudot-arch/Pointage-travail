@@ -143,6 +143,29 @@ class GpsExitDeliveryIntegrationV2Test {
         }
     }
 
+    @Test fun provenDepartureSurvivesOrdinaryResumeWithoutRewritingGpsPresence() {
+        stage()
+        val stored = readPersistedGpsZones(gps)
+        assertTrue(stored is GpsZonesReadResult.Valid)
+        val fingerprint = storedGpsAutomaticFingerprintV2(true, stored)
+        assertTrue(gps.edit()
+            .putBoolean(GpsPresenceStateKeysV2.REGISTRATION_VALID, true)
+            .putString(GpsPresenceStateKeysV2.REGISTRATION_FINGERPRINT, fingerprint)
+            .commit())
+
+        val before = gps.all.toMap()
+        assertTrue(shouldKeepGeofenceRegistrationOnResumeV2(
+            enabled = true,
+            hasPermissions = true,
+            locationEnabled = true,
+            registrationCurrent = GeofenceManager.isStoredRegistrationCurrent(context)
+        ))
+        assertEquals(before, gps.all)
+        assertEquals(exit, GpsWorkStateCoordinatorV2.eligibleDepartureAt(context, exit + 300_000))
+        assertTrue(V2RuntimeStore.userExit(context, exit + 300_000, ClosureOriginV2.MANUAL))
+        assertEquals(exit, V2RuntimeReader.current(context).snapshot.session?.realExitMs)
+    }
+
     @Test fun automaticRequiresOptInExpectedEndAndReturnWindow() {
         stage()
         assertTrue(V2RuntimeStore.setExpectedEnd(context, exit - 1))
