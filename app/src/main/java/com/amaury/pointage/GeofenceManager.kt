@@ -414,12 +414,21 @@ object GeofenceManager {
     fun resyncStoredZonesPreservingPresence(
         context: Context,
         onResult: (Boolean, String) -> Unit = { _, _ -> }
-    ) = enqueueStoredZonesReconciliation(
-        context,
-        clearBusinessState = false,
-        clearPresenceState = false,
-        onResult = onResult
-    )
+    ) {
+        // En cas d'interruption entre retrait et nouvel enregistrement,
+        // l'ouverture suivante doit retenter. Seul le reçu d'inscription
+        // est invalidé ; ni la présence ni les preuves GPS ne sont effacées.
+        if (!markRegistrationUnavailable(context)) {
+            onResult(false, "Impossible d'invalider l'inscription des zones GPS")
+            return
+        }
+        enqueueStoredZonesReconciliation(
+            context,
+            clearBusinessState = false,
+            clearPresenceState = false,
+            onResult = onResult
+        )
+    }
 
     private fun enqueueStoredZonesReconciliation(
         context: Context,

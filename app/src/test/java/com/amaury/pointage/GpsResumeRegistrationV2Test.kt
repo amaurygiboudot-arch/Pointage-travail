@@ -132,6 +132,10 @@ class GpsResumeRegistrationV2Test {
             .substringBefore("private fun enqueueStoredZonesReconciliation(")
         assertTrue(preserving.contains("clearBusinessState = false"))
         assertTrue(preserving.contains("clearPresenceState = false"))
+        assertTrue("Interrupted reinstall must invalidate the old GMS registration receipt",
+            preserving.contains("if (!markRegistrationUnavailable(context))"))
+        assertTrue("Failed receipt commit must not remove geofences or touch presence",
+            preserving.contains("onResult(false,"))
     }
 
     @Test fun unavailableGmsErrorMustInvalidateRegistrationWithoutClosingSession() {
