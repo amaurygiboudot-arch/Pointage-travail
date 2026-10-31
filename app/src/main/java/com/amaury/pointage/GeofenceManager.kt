@@ -405,6 +405,22 @@ object GeofenceManager {
         onResult = onResult
     )
 
+    /**
+     * Un identifiant de geofence inconnu ne démontre ni une sortie, ni un
+     * changement de lieu. Réinstaller les geofences Android sans supprimer
+     * les observations GPS existantes : elles restent qualifiées par les
+     * contrôles de contexte et de configuration au prochain événement.
+     */
+    fun resyncStoredZonesPreservingPresence(
+        context: Context,
+        onResult: (Boolean, String) -> Unit = { _, _ -> }
+    ) = enqueueStoredZonesReconciliation(
+        context,
+        clearBusinessState = false,
+        clearPresenceState = false,
+        onResult = onResult
+    )
+
     private fun enqueueStoredZonesReconciliation(
         context: Context,
         clearBusinessState: Boolean,
