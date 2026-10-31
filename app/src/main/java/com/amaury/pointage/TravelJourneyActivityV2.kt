@@ -148,7 +148,10 @@ class TravelJourneyActivityV2 : Activity() {
         val manager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return
         val best = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
             .mapNotNull { provider ->
-                runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
+                runCatching {
+                    if (manager.isProviderEnabled(provider)) manager.getLastKnownLocation(provider)
+                    else null
+                }.getOrNull()
             }
             .filter { it.hasAccuracy() && it.accuracy <= 150f &&
                 kotlin.math.abs(it.time - eventAtMs) <= 180_000L }
