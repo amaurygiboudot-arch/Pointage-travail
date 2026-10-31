@@ -27,7 +27,6 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowAlertDialog
-import org.robolectric.shadows.ShadowToast
 import java.util.UUID
 
 /** UI and URL simulations with Robolectric. No physical GPS or Google Maps session. */
@@ -93,9 +92,12 @@ class TravelJourneyActivityV2SmokeTest {
                 .getButton(AlertDialog.BUTTON_POSITIVE).performClick()
             // AlertDialog button listeners dispatch through the main Looper in Robolectric.
             Shadows.shadowOf(Looper.getMainLooper()).idle()
-            // This sandbox has no browser application: failure is handled visibly, without a crash.
-            assertNull(Shadows.shadowOf(activity).nextStartedActivity)
-            assertEquals("Aucune application de cartes disponible", ShadowToast.getTextOfLatestToast())
+            // Robolectric records the intent even without an installed browser.
+            val intent = requireNotNull(Shadows.shadowOf(activity).nextStartedActivity)
+            assertEquals(Intent.ACTION_VIEW, intent.action)
+            assertEquals("https", intent.data?.scheme)
+            assertEquals("www.google.com", intent.data?.host)
+            assertEquals("1", intent.data?.getQueryParameter("api"))
         } finally {
             controller.pause().stop().destroy()
         }
