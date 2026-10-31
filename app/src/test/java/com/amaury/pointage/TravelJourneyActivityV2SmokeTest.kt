@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.content.Intent
 import android.location.Location
 import android.net.Uri
+import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -85,10 +86,13 @@ class TravelJourneyActivityV2SmokeTest {
             val dialog = requireNotNull(ShadowAlertDialog.getLatestAlertDialog())
             assertNull(Shadows.shadowOf(activity).nextStartedActivity)
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
             assertNull(Shadows.shadowOf(activity).nextStartedActivity)
             open.performClick()
             requireNotNull(ShadowAlertDialog.getLatestAlertDialog())
                 .getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+            // AlertDialog button listeners dispatch through the main Looper in Robolectric.
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
             // This sandbox has no browser application: failure is handled visibly, without a crash.
             assertNull(Shadows.shadowOf(activity).nextStartedActivity)
             assertEquals("Aucune application de cartes disponible", ShadowToast.getTextOfLatestToast())
@@ -115,6 +119,8 @@ class TravelJourneyActivityV2SmokeTest {
             assertNull(Shadows.shadowOf(activity).nextStartedActivity)
             requireNotNull(ShadowAlertDialog.getLatestAlertDialog())
                 .getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+            // AlertDialog button listeners dispatch through the main Looper in Robolectric.
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
             val intent = requireNotNull(Shadows.shadowOf(activity).nextStartedActivity)
             assertEquals(Intent.ACTION_VIEW, intent.action)
             assertEquals("https", intent.data?.scheme)
