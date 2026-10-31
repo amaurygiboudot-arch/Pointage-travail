@@ -258,6 +258,20 @@ object GpsWorkStateCoordinatorV2 {
 
     internal fun canRouteWithRuntime(runtimeReliable: Boolean): Boolean = runtimeReliable
 
+    /** GPS arrival is acknowledged only after a persisted entry/return, or after
+     * verifying that the *same employer* already has a durable open session.
+     * No rejected callback can silently clear the entry recovery marker.
+     */
+    internal fun entryResolutionAcknowledged(
+        employerReady: Boolean,
+        gpsEnabled: Boolean,
+        action: Action?,
+        existingSessionVerified: Boolean = false
+    ): Boolean = employerReady && (!gpsEnabled ||
+        action == Action.ENTRY_STARTED ||
+        action == Action.RETURNED_TO_POSTE ||
+        (action == Action.NO_CHANGE && existingSessionVerified))
+
     internal fun shouldDiscardPending(
         pending: Pending?,
         current: WorkSessionV2?,

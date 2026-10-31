@@ -377,7 +377,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         zone: StoredGpsZone,
         now: Long,
         zonesById: Map<String, StoredGpsZone>
-    ) {
+    ): GpsWorkStateCoordinatorV2.Outcome {
         val previous = GpsWorkStateCoordinatorV2.pending(context)
             ?.takeIf { it.kind == GpsWorkStateCoordinatorV2.Pending.Kind.EXIT_WORKSITE }
         val overlappingReturn = previous?.let {
@@ -407,6 +407,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 showArrivalContactNotification(context, zone)
             }
         }
+        return outcome
     }
 
     private fun scheduleEntryResolution(
@@ -515,21 +516,59 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         val employerReady = choice != null &&
             (!v2GpsActive ||
                 applyZoneEmployer(context, choice.employerResolution))
-        val remainsPending = !employerReady
-        val stateSaved = persistZonePresenceState(
+        // L'enregistrement de la présence GPS ne constitue pas une entrée de
+        // travail. Le marqueur de reprise reste actif jusqu'à un reçu runtime.
+        val requiresEntryWrite = employerReady && v2GpsActive
+        if (!persistZonePresenceState(
+                prefs,
+                activeZoneIds,
+                entryResolutionPending = !employerReady || requiresEntryWrite,
+                pendingExitZoneIds = pendingExitZoneIds,
+                exitObservations = exitObservations,
+                observationContext = observationContext,
+                returnObservations = returnObservations,
+                returnQualification = returnQualification
+            )) return
+        if (!requiresEntryWrite) return
+
+        // Une entrée GPS résolue tardivement prend l'heure de résolution, jamais
+        // celle d'un franchissement dont l'heure exacte n'a pas été prouvée.
+        val selectedZone = checkNotNull(choice).zone
+        val outcome = dispatchEntry(context, selectedZone, resolutionAtMs, zonesById)
+        val readback = V2RuntimeReader.current(context, resolutionAtMs)
+        val session = readback.snapshot.session
+        val sameEmployerOpen = readback.reliable &&
+            outcome.action == GpsWorkStateCoordinatorV2.Action.NO_CHANGE &&
+            outcome.reason == "Session V2 déjà ouverte" &&
+            session?.status == SessionStatusV2.OPEN && session.realExitMs == null &&
+            session.realArrivalMs != null && session.realArrivalMs <= resolutionAtMs &&
+            !selectedZone.companyId.isNullOrBlank() &&
+            session.employerId == selectedZone.companyId
+
+        if (!GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(
+                employerReady = employerReady,
+                gpsEnabled = v2GpsActive,
+                action = outcome.action,
+                existingSessionVerified = sameEmployerOpen
+            )) {
+            DailyDiagnosticStoreV2.record(
+                context, DailyDiagnosticKindV2.GPS_REASON,
+                resolutionAtMs, "GPS_ENTRY_NOT_COMMITTED"
+            )
+            return // Ne jamais effacer le marqueur sur un échec d'écriture.
+        }
+        // La session est déjà sauvegardée : acquitter seulement la résolution
+        // GPS. Si ce commit échoue, une nouvelle lecture protège les doublons.
+        persistZonePresenceState(
             prefs,
             activeZoneIds,
-            remainsPending,
-            pendingExitZoneIds,
-            exitObservations,
+            entryResolutionPending = false,
+            pendingExitZoneIds = pendingExitZoneIds,
+            exitObservations = exitObservations,
             observationContext = observationContext,
             returnObservations = returnObservations,
             returnQualification = returnQualification
         )
-        if (stateSaved && employerReady && v2GpsActive) {
-            // Une résolution différée est horodatée maintenant, jamais au premier ENTER ambigu.
-            dispatchEntry(context, checkNotNull(choice).zone, resolutionAtMs, zonesById)
-        }
     }
 
     private fun persistZonePresenceState(
