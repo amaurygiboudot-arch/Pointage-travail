@@ -213,4 +213,55 @@ final class GpsSiteJourneyV2Tests: XCTestCase {
             XCTAssertEqual(defaults.data(forKey: key), original)
         }
     }
+    func testIndexedHomeExclusionPreservesBoundariesOverlapsAndJournalOrder() throws {
+        let otherHome = UUID()
+        let homeEvidence = [
+            home(entered: true, at: 20), home(entered: false, at: 40),
+            GpsHomeObservationV2(id: UUID(), account: account, fingerprint: fingerprint,
+                zoneId: otherHome, entered: true, observedAt: at(35)),
+            GpsHomeObservationV2(id: UUID(), account: account, fingerprint: fingerprint,
+                zoneId: otherHome, entered: false, observedAt: at(50)),
+            home(entered: true, at: 90), home(entered: false, at: 90),
+            GpsHomeObservationV2(id: UUID(), account: account, fingerprint: fingerprint,
+                zoneId: otherHome, entered: true, observedAt: at(160)),
+            GpsHomeObservationV2(id: UUID(), account: account, fingerprint: fingerprint,
+                zoneId: otherHome, entered: false, observedAt: at(145)),
+            home(entered: true, at: 70, owner: "uid:other"),
+            home(entered: true, at: 80, config: "other-config"),
+            home(entered: true, at: 210)
+        ]
+        for departure: TimeInterval in [25, 40, 60, 90, 100, 150, 170] {
+            for gap: TimeInterval in [5, 30, 100] {
+                let arrival = departure + gap
+                // Independent reference: retain the original journal-order semantics.
+                let relevant = homeEvidence.filter {
+                    $0.account == account && $0.fingerprint == fingerprint && $0.observedAt <= at(arrival)
+                }
+                let inside = Set(relevant.map(\.zoneId)).contains { zone in
+                    relevant.last(where: { $0.zoneId == zone && $0.observedAt <= at(departure) })?.entered == true
+                }
+                let expected = inside || relevant.contains { $0.entered && $0.observedAt >= at(departure) }
+                let source = session(zone: firstZone, label: "A", entry: at(0), exit: at(departure))
+                let target = session(zone: secondZone, label: "B", entry: at(arrival), exit: nil)
+                XCTAssertEqual(try XCTUnwrap(journeys([source, target], home: homeEvidence).first).excludedByHome,
+                    expected, "Legacy projection \(departure) → \(arrival)")
+                let raw = [
+                    GpsSiteObservationV2(id: UUID(), account: account, fingerprint: fingerprint,
+                        zoneId: firstZone, zoneLabel: "A", employerId: "company", entered: true,
+                        observedAt: at(0), continuityId: "test-continuity"),
+                    GpsSiteObservationV2(id: UUID(), account: account, fingerprint: fingerprint,
+                        zoneId: firstZone, zoneLabel: "A", employerId: "company", entered: false,
+                        observedAt: at(departure), continuityId: "test-continuity"),
+                    GpsSiteObservationV2(id: UUID(), account: account, fingerprint: fingerprint,
+                        zoneId: secondZone, zoneLabel: "B", employerId: "company", entered: true,
+                        observedAt: at(arrival), continuityId: "test-continuity")
+                ]
+                let result = try XCTUnwrap(GpsSiteJourneyProjectionV2.journeys(sessions: [], account: account,
+                    homeObservations: homeEvidence, siteObservations: raw).first)
+                XCTAssertEqual(result.excludedByHome, expected, "Raw projection \(departure) → \(arrival)")
+                XCTAssertEqual(result.observedDuration, gap)
+            }
+        }
+    }
+
 }

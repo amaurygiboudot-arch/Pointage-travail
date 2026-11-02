@@ -225,4 +225,32 @@ final class GpsSiteObservationV2Tests: XCTestCase {
         }
     }
 
+    private final class CountingDefaults: UserDefaults {
+        var writes = 0
+        override func set(_ value: Any?, forKey defaultName: String) {
+            writes += 1
+            super.set(value, forKey: defaultName)
+        }
+    }
+
+    func testExactArchiveReplayPerformsNoWriteAndStillRejectsChangedObservation() throws {
+        let suite = "gps-archive-write-count-\(UUID())"
+        let defaults = try XCTUnwrap(CountingDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let log = try append([], zoneA, entered: true, second: 0)
+        let legacy = GpsPendingEventV2(id: UUID(), kind: .departure, zoneIds: [zoneA.id], occurredAt: at(10))
+        let pending = state(observations: log, events: [legacy])
+        XCTAssertTrue(GpsObservationArchiveStoreV2.preserve(pending, account: account, defaults: defaults))
+        let writes = defaults.writes
+        XCTAssertGreaterThan(writes, 0)
+        XCTAssertTrue(GpsObservationArchiveStoreV2.preserve(pending, account: account, defaults: defaults))
+        XCTAssertEqual(defaults.writes, writes)
+        let conflict = GpsSiteObservationV2(id: log[0].id, account: account, fingerprint: fingerprint,
+            zoneId: zoneA.id, zoneLabel: "A", employerId: "company", entered: false, observedAt: at(20))
+        XCTAssertFalse(GpsObservationArchiveStoreV2.preserve(state(observations: [conflict]),
+            account: account, defaults: defaults))
+        XCTAssertEqual(defaults.writes, writes)
+        XCTAssertEqual(GpsObservationArchiveStoreV2.read(account: account, defaults: defaults)?.observations, log)
+    }
+
 }

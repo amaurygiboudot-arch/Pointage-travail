@@ -102,7 +102,10 @@ enum GpsAutomaticPointageV2 {
                       sessions[index].departureObservedAt == event.occurredAt else { return nil }
             } else {
                 // Do not overwrite already qualified segments or unresolved pause facts.
-                guard sessions[index].pauses.allSatisfy({ $0.paid != nil }),
+                guard sessions[index].pauses.allSatisfy({ pause in
+                    guard pause.paid != nil, let end = pause.end else { return false }
+                    return end <= event.occurredAt
+                }),
                       sessions[index].segments.map({ $0.allSatisfy {
                         $0.kind == .toConfirm && !$0.confirmed
                       } }) ?? true else { return nil }

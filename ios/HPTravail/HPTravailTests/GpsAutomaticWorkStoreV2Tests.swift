@@ -57,6 +57,137 @@ final class GpsAutomaticWorkStoreV2Tests: XCTestCase {
         return state
     }
 
+    private func historyState(_ zone: GpsZoneV2) -> GpsPersistedStateV2 {
+        var state = arrivalState(zone, includeDeparture: false)
+        state.pendingEvents = []
+        let nextZone = UUID()
+        let continuity = UUID().uuidString
+        state.observations = [(zone.id, true, 0.0), (zone.id, false, 600.0), (nextZone, true, 900.0)].map {
+            GpsSiteObservationV2(id: UUID(), account: account, fingerprint: state.fingerprint,
+                zoneId: $0.0, zoneLabel: $0.0 == zone.id ? zone.label : "Site suivant", employerId: employer,
+                entered: $0.1, observedAt: entryAt.addingTimeInterval($0.2),
+                homeExclusionConfigured: true, continuityId: continuity)
+        }
+        return state
+    }
+
+    func testHistorySnapshotRefreshesArrivalArchiveAndHomeWithoutMutatingPreviousSnapshot() throws {
+        try withFixture { defaults, diagnosticRoot, zone in
+            let complete = historyState(zone)
+            var departureOnly = complete
+            departureOnly.observations = Array(complete.observations!.prefix(2))
+            save(departureOnly, defaults)
+            let store = WorkStoreV2(defaults: defaults, diagnosticRoot: diagnosticRoot, accountProvider: { self.account })
+            let beforeArrival = store.gpsHistorySnapshot
+            XCTAssertEqual(beforeArrival.observations.count, 2)
+            XCTAssertTrue(beforeArrival.journeys.isEmpty)
+
+            save(complete, defaults)
+            let arrived = store.gpsHistorySnapshot
+            XCTAssertEqual(arrived.observations, complete.observations)
+            XCTAssertEqual(arrived.journeys.map(\.observedDuration), [300])
+            XCTAssertTrue(arrived.journeyHistoryReliable)
+
+            var archived = complete
+            archived.pendingEvents = [.init(id: UUID(), kind: .departure, zoneIds: [zone.id], occurredAt: entryAt)]
+            XCTAssertTrue(GpsObservationArchiveStoreV2.preserve(archived, account: account, defaults: defaults))
+            var cleared = complete
+            cleared.observations = []
+            save(cleared, defaults)
+            let afterArchive = store.gpsHistorySnapshot
+            XCTAssertEqual(afterArchive.observations, arrived.observations)
+            XCTAssertEqual(afterArchive.journeys, arrived.journeys)
+            XCTAssertEqual(afterArchive.historicalObservations.map(\.event), archived.pendingEvents)
+
+            XCTAssertTrue(GpsHomeObservationStoreV2.append(account: account, fingerprint: complete.fingerprint,
+                zoneId: UUID(), entered: true, at: entryAt.addingTimeInterval(700), defaults: defaults))
+            let afterHome = store.gpsHistorySnapshot
+            XCTAssertTrue(afterHome.journeys.isEmpty)
+            XCTAssertTrue(afterHome.journeyHistoryReliable)
+            XCTAssertEqual(afterHome.observations, arrived.observations)
+            XCTAssertEqual(beforeArrival.observations.count, 2)
+            XCTAssertEqual(arrived.journeys.count, 1)
+            XCTAssertTrue(arrived.historicalObservations.isEmpty)
+        }
+    }
+
+    func testHistorySnapshotDistinguishesMissingMalformedAndWrongTypeForEachJournal() throws {
+        try withFixture { defaults, diagnosticRoot, _ in
+            let store = WorkStoreV2(defaults: defaults, diagnosticRoot: diagnosticRoot, accountProvider: { self.account })
+            let keys = [GpsStateStoreV2.scopedKey(account: account),
+                        GpsObservationArchiveStoreV2.key(account: account),
+                        GpsHomeObservationStoreV2.key(account: account)]
+            XCTAssertTrue(store.gpsHistorySnapshot.journeyHistoryReliable)
+            for key in keys {
+                for unreadable: Any in ["wrong-storage-type", Data("malformed-json".utf8)] {
+                    defaults.set(unreadable, forKey: key)
+                    let snapshot = store.gpsHistorySnapshot
+                    XCTAssertFalse(snapshot.journeyHistoryReliable, key)
+                    XCTAssertEqual(snapshot.observationHistoryReliable,
+                                   key == GpsHomeObservationStoreV2.key(account: account), key)
+                    XCTAssertTrue(snapshot.journeys.isEmpty)
+                    XCTAssertNotNil(defaults.object(forKey: key))
+                    defaults.removeObject(forKey: key)
+                    XCTAssertTrue(store.gpsHistorySnapshot.journeyHistoryReliable, key)
+                }
+            }
+        }
+    }
+
+    func testHistorySnapshotRejectsNewCorruptionAndRestoresOnlyAfterReadableSourcesReturn() throws {
+        try withFixture { defaults, diagnosticRoot, zone in
+            save(historyState(zone), defaults)
+            let store = WorkStoreV2(defaults: defaults, diagnosticRoot: diagnosticRoot, accountProvider: { self.account })
+            XCTAssertEqual(store.gpsHistorySnapshot.journeys.count, 1)
+            let key = GpsStateStoreV2.scopedKey(account: account)
+            let original = try XCTUnwrap(defaults.data(forKey: key))
+            defaults.set(Data("broken".utf8), forKey: key)
+            XCTAssertFalse(store.gpsHistorySnapshot.observationHistoryReliable)
+            XCTAssertTrue(store.gpsHistorySnapshot.observations.isEmpty)
+            XCTAssertTrue(store.gpsHistorySnapshot.journeys.isEmpty)
+            defaults.set(original, forKey: key)
+            XCTAssertEqual(store.gpsHistorySnapshot.journeys.count, 1)
+
+            let sessionsKey = try XCTUnwrap(WorkSessionAccountStorageV2.key(account: account))
+            defaults.set(Data("broken-work-journal".utf8), forKey: sessionsKey)
+            store.reloadAccount()
+            XCTAssertFalse(store.gpsHistorySnapshot.storageReliable)
+            XCTAssertTrue(store.gpsHistorySnapshot.journeys.isEmpty)
+            XCTAssertTrue(store.gpsHistorySnapshot.observationHistoryReliable)
+            defaults.removeObject(forKey: sessionsKey)
+            store.reloadAccount()
+            XCTAssertTrue(store.gpsHistorySnapshot.storageReliable)
+            XCTAssertEqual(store.gpsHistorySnapshot.journeys.count, 1)
+        }
+    }
+
+    func testHistorySnapshotCannotExposeOrCopyPreviousAccountWhileAuthenticationChanges() throws {
+        try withFixture { defaults, diagnosticRoot, zone in
+            save(historyState(zone), defaults)
+            var activeAccount: String? = account
+            let store = WorkStoreV2(defaults: defaults, diagnosticRoot: diagnosticRoot, accountProvider: { activeAccount })
+            XCTAssertEqual(store.gpsHistorySnapshot.journeys.count, 1)
+            let original = defaults.data(forKey: GpsStateStoreV2.scopedKey(account: account))
+            let other = "uid:gps-history-other"
+            activeAccount = other
+            XCTAssertFalse(store.gpsHistorySnapshot.storageReliable)
+            XCTAssertTrue(store.gpsHistorySnapshot.observations.isEmpty)
+            store.reloadAccount()
+            XCTAssertTrue(store.gpsHistorySnapshot.journeyHistoryReliable)
+            XCTAssertTrue(store.gpsHistorySnapshot.observations.isEmpty)
+            XCTAssertTrue(store.gpsHistorySnapshot.historicalObservations.isEmpty)
+            XCTAssertNil(defaults.object(forKey: GpsStateStoreV2.scopedKey(account: other)))
+            XCTAssertNil(defaults.object(forKey: GpsObservationArchiveStoreV2.key(account: other)))
+            XCTAssertNil(defaults.object(forKey: GpsHomeObservationStoreV2.key(account: other)))
+            activeAccount = nil
+            XCTAssertFalse(store.gpsHistorySnapshot.journeyHistoryReliable)
+            activeAccount = account
+            store.reloadAccount()
+            XCTAssertEqual(store.gpsHistorySnapshot.journeys.count, 1)
+            XCTAssertEqual(defaults.data(forKey: GpsStateStoreV2.scopedKey(account: account)), original)
+        }
+    }
+
     func testDrainsPersistedArrivalAndDepartureThenReloadsWithoutDuplicating() throws {
         try withFixture { defaults, diagnosticRoot, zone in
             let original = arrivalState(zone, includeDeparture: true)

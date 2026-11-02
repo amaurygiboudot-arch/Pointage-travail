@@ -102,6 +102,49 @@ final class GpsAutomaticPointageV2Tests: XCTestCase {
         XCTAssertNil(plan(replayed.state, sessions: replayed.sessions))
     }
 
+    func testOpenPauseKeepsDeparturePendingWithoutInventingPauseEnd() throws {
+        for paid in [true, false, nil] as [Bool?] {
+            let arrival = try XCTUnwrap(plan(callback(emptyState, .enter, at: start)))
+            var sessions = arrival.sessions
+            sessions[0].pauses = [.init(id: UUID(), start: start.addingTimeInterval(900),
+                end: nil, paid: paid)]
+            let leftAt = start.addingTimeInterval(3_600)
+            let outside = callback(arrival.state, .exit, at: leftAt, sessions: sessions)
+            let preservedSessions = sessions
+            let preservedEvents = outside.pendingEvents
+
+            XCTAssertTrue(WorkSessionPersistenceV2.isStructurallyValid(sessions))
+            XCTAssertNil(plan(outside, sessions: sessions))
+            XCTAssertEqual(sessions, preservedSessions)
+            XCTAssertNil(sessions[0].exit)
+            XCTAssertNil(sessions[0].pauses[0].end)
+            XCTAssertEqual(sessions[0].pauses[0].paid, paid)
+            XCTAssertEqual(outside.pendingEvents, preservedEvents)
+            XCTAssertEqual(outside.pendingEvents.count, 1)
+            XCTAssertEqual(outside.pendingEvents[0].kind, .departure)
+            XCTAssertEqual(outside.pendingEvents[0].occurredAt, leftAt)
+        }
+    }
+
+    func testClosedQualifiedPauseAllowsDepartureWithoutChangingPauseFacts() throws {
+        for paid in [true, false] {
+            let arrival = try XCTUnwrap(plan(callback(emptyState, .enter, at: start)))
+            var sessions = arrival.sessions
+            sessions[0].pauses = [.init(id: UUID(), start: start.addingTimeInterval(900),
+                end: start.addingTimeInterval(1_800), paid: paid)]
+            let leftAt = start.addingTimeInterval(3_600)
+            let outside = callback(arrival.state, .exit, at: leftAt, sessions: sessions)
+            let committed = try XCTUnwrap(plan(outside, sessions: sessions))
+
+            XCTAssertEqual(committed.sessions[0].pauses, sessions[0].pauses)
+            XCTAssertEqual(committed.sessions[0].entry, start)
+            XCTAssertEqual(committed.sessions[0].exit, leftAt)
+            XCTAssertEqual(committed.sessions[0].segments,
+                [.init(start: start, end: leftAt, kind: .toConfirm, confirmed: false)])
+            XCTAssertTrue(committed.state.pendingEvents.isEmpty)
+        }
+    }
+
     func testOldEventsCannotGainAutomaticAuthorityAfterUpgrade() {
         var legacy = callback(emptyState, .enter, at: start)
         legacy.pendingEvents[0].siteFactVersion = nil

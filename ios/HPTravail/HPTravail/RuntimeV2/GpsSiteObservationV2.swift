@@ -91,20 +91,32 @@ enum GpsObservationArchiveStoreV2 {
     static func preserve(_ state: GpsPersistedStateV2, account: String, defaults: UserDefaults) -> Bool {
         guard state.accountScope == account, !state.fingerprint.isEmpty,
               var archive = read(account: account, defaults: defaults) else { return false }
+        var observationsById = Dictionary(uniqueKeysWithValues: archive.observations.map { ($0.id, $0) })
+        var legacyById = Dictionary(uniqueKeysWithValues: archive.legacy.map { ($0.id, $0) })
+        var changed = false
         for observation in state.observations ?? [] {
             guard observation.account == account, observation.fingerprint == state.fingerprint,
                   observation.observedAt.timeIntervalSinceReferenceDate.isFinite else { return false }
-            if let existing = archive.observations.first(where: { $0.id == observation.id }) {
+            if let existing = observationsById[observation.id] {
                 guard existing == observation else { return false }
-            } else { archive.observations.append(observation) }
+            } else {
+                archive.observations.append(observation)
+                observationsById[observation.id] = observation
+                changed = true
+            }
         }
         for event in state.pendingEvents where event.siteFactVersion == nil {
             guard event.occurredAt.timeIntervalSinceReferenceDate.isFinite else { return false }
             let item = GpsLegacyObservationV2(account: account, fingerprint: state.fingerprint, event: event)
-            if let existing = archive.legacy.first(where: { $0.id == item.id }) {
+            if let existing = legacyById[item.id] {
                 guard existing == item else { return false }
-            } else { archive.legacy.append(item) }
+            } else {
+                archive.legacy.append(item)
+                legacyById[item.id] = item
+                changed = true
+            }
         }
+        guard changed else { return true }
         guard let bytes = try? JSONEncoder().encode(archive) else { return false }
         defaults.set(bytes, forKey: key(account: account))
         return read(account: account, defaults: defaults) == archive

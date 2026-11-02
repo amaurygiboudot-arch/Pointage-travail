@@ -1,6 +1,39 @@
 import Foundation
 import Combine
 
+/// One read-only view of the GPS journals, shared by all history sections.
+struct GpsHistorySnapshotV2 {
+    let storageReliable: Bool
+    let observationHistoryReliable: Bool
+    let journeyHistoryReliable: Bool
+    let observations: [GpsSiteObservationV2]
+    let historicalObservations: [GpsLegacyObservationV2]
+    let journeys: [GpsSiteJourneyV2]
+
+    static let unavailable = GpsHistorySnapshotV2(storageReliable: false,
+        observationHistoryReliable: false, journeyHistoryReliable: false,
+        observations: [], historicalObservations: [], journeys: [])
+}
+
+private enum GpsHistoryJournalSourceV2: Equatable {
+    case missing
+    case data(Data)
+    case unreadable
+
+    init(_ object: Any?) {
+        if let data = object as? Data { self = .data(data) }
+        else { self = object == nil ? .missing : .unreadable }
+    }
+}
+
+private struct GpsHistorySourcesV2: Equatable {
+    let account: String
+    let storageReliable: Bool
+    let archive: GpsHistoryJournalSourceV2
+    let state: GpsHistoryJournalSourceV2
+    let home: GpsHistoryJournalSourceV2
+}
+
 @MainActor
 final class WorkStoreV2: ObservableObject {
     @Published private var loadedSessions: [WorkSession] = []
@@ -8,6 +41,7 @@ final class WorkStoreV2: ObservableObject {
     private var loadedDiagnosticIssue: DailyDiagnosticV2.SourceIssue = .accountUnavailable
     private var loadedAccount: String?
     private let accountProvider: () -> String?
+    private var cachedGpsHistory: (sources: GpsHistorySourcesV2, snapshot: GpsHistorySnapshotV2)?
 
     // Never expose the previous account while the authentication notification is pending.
     var sessions: [WorkSession] { accountMatches ? loadedSessions : [] }
@@ -318,48 +352,78 @@ final class WorkStoreV2: ObservableObject {
         )
     }
 
-    var observedSiteJourneys: [GpsSiteJourneyV2] {
-        guard storageReliable, gpsJourneyHistoryReliable, let account = diagnosticAccount else { return [] }
-        return GpsSiteJourneyProjectionV2.journeys(sessions: sessions, account: account,
-            homeObservations: GpsHomeObservationStoreV2.read(account: account, defaults: defaults),
-            siteObservations: observedSiteBoundaries)
-            .filter { !$0.excludedByHome }
-    }
+    var gpsHistorySnapshot: GpsHistorySnapshotV2 {
+        guard let account = diagnosticAccount else {
+            cachedGpsHistory = nil
+            return .unavailable
+        }
+        let sources = gpsHistorySources(account: account)
+        if let cachedGpsHistory, cachedGpsHistory.sources == sources,
+           diagnosticAccount == account { return cachedGpsHistory.snapshot }
 
-    var observedSiteBoundaries: [GpsSiteObservationV2] {
-        guard gpsObservationHistoryReliable, let account = diagnosticAccount else { return [] }
-        let archived = GpsObservationArchiveStoreV2.read(account: account, defaults: defaults)?.observations ?? []
+        // Each journal is decoded at most once after its exact bytes change. Missing
+        // and unreadable values are distinct, including a non-Data GPS state value.
+        let archive = GpsObservationArchiveStoreV2.read(account: account, defaults: defaults)
+        let home = GpsHomeObservationStoreV2.read(account: account, defaults: defaults)
+        let stateRead: GpsStateReadV2
+        switch sources.state {
+        case .missing: stateRead = .missing
+        case .unreadable: stateRead = .corrupt
+        case .data(let data): stateRead = GpsStateStoreV2.read(data)
+        }
         let current: [GpsSiteObservationV2]
-        if case .valid(let state) = GpsStateStoreV2.read(defaults.data(forKey: GpsStateStoreV2.scopedKey(account: account))),
-           state.accountScope == account { current = state.observations ?? [] } else { current = [] }
-        var unique = [UUID: GpsSiteObservationV2]()
-        for value in archived + current where value.account == account { unique[value.id] = value }
-        return unique.values.sorted { $0.observedAt < $1.observedAt }
-    }
-
-    var historicalGpsObservations: [GpsLegacyObservationV2] {
-        guard let account = diagnosticAccount else { return [] }
-        return GpsObservationArchiveStoreV2.read(account: account, defaults: defaults)?.legacy ?? []
-    }
-
-    var gpsObservationHistoryReliable: Bool {
-        guard let account = diagnosticAccount,
-              GpsObservationArchiveStoreV2.read(account: account, defaults: defaults) != nil else { return false }
-        switch GpsStateStoreV2.read(defaults.data(forKey: GpsStateStoreV2.scopedKey(account: account))) {
-        case .missing: return true
-        case .corrupt: return false
+        let stateReliable: Bool
+        switch stateRead {
+        case .missing:
+            current = []
+            stateReliable = true
+        case .corrupt:
+            current = []
+            stateReliable = false
         case .valid(let state):
-            let values = state.observations ?? []
-            return state.accountScope == account && Set(values.map(\.id)).count == values.count &&
-                values.allSatisfy { $0.account == account && $0.fingerprint == state.fingerprint &&
+            current = state.observations ?? []
+            stateReliable = state.accountScope == account && Set(current.map(\.id)).count == current.count &&
+                current.allSatisfy { $0.account == account && $0.fingerprint == state.fingerprint &&
                     $0.observedAt.timeIntervalSinceReferenceDate.isFinite }
         }
+        let observationsReliable = archive != nil && stateReliable
+        let journeysReliable = observationsReliable && home != nil
+        var unique = [UUID: GpsSiteObservationV2]()
+        if observationsReliable {
+            for value in (archive?.observations ?? []) + current where value.account == account {
+                unique[value.id] = value
+            }
+        }
+        let observations = unique.values.sorted { $0.observedAt < $1.observedAt }
+        // Explicit raw observations select the projection without the session fallback.
+        let journeys = sources.storageReliable && journeysReliable
+            ? GpsSiteJourneyProjectionV2.journeys(sessions: [], account: account,
+                homeObservations: home, siteObservations: observations).filter { !$0.excludedByHome }
+            : []
+        let snapshot = GpsHistorySnapshotV2(storageReliable: sources.storageReliable,
+            observationHistoryReliable: observationsReliable, journeyHistoryReliable: journeysReliable,
+            observations: observations, historicalObservations: archive?.legacy ?? [], journeys: journeys)
+        // A concurrent external defaults write must not cache a mixture of revisions.
+        guard diagnosticAccount == account, gpsHistorySources(account: account) == sources else {
+            cachedGpsHistory = nil
+            return .unavailable
+        }
+        cachedGpsHistory = (sources, snapshot)
+        return snapshot
     }
 
-    var gpsJourneyHistoryReliable: Bool {
-        guard gpsObservationHistoryReliable, let account = diagnosticAccount else { return false }
-        return GpsHomeObservationStoreV2.read(account: account, defaults: defaults) != nil
+    private func gpsHistorySources(account: String) -> GpsHistorySourcesV2 {
+        .init(account: account, storageReliable: storageReliable,
+            archive: .init(defaults.object(forKey: GpsObservationArchiveStoreV2.key(account: account))),
+            state: .init(defaults.object(forKey: GpsStateStoreV2.scopedKey(account: account))),
+            home: .init(defaults.object(forKey: GpsHomeObservationStoreV2.key(account: account))))
     }
+
+    var observedSiteJourneys: [GpsSiteJourneyV2] { gpsHistorySnapshot.journeys }
+    var observedSiteBoundaries: [GpsSiteObservationV2] { gpsHistorySnapshot.observations }
+    var historicalGpsObservations: [GpsLegacyObservationV2] { gpsHistorySnapshot.historicalObservations }
+    var gpsObservationHistoryReliable: Bool { gpsHistorySnapshot.observationHistoryReliable }
+    var gpsJourneyHistoryReliable: Bool { gpsHistorySnapshot.journeyHistoryReliable }
 
     /// Runs without a view. The durable GPS queue is the outbox; the session journal owns
     /// pointage. A failed acknowledgement leaves the already committed session intact.
@@ -470,10 +534,12 @@ final class WorkStoreV2: ObservableObject {
     }
 
     func reloadAccount() {
+        let nextAccount = WorkSessionAccountStorageV2.scope(accountProvider())
+        if nextAccount != loadedAccount { cachedGpsHistory = nil }
         loadedSessions = []
         loadedStorageReliable = false
         loadedDiagnosticIssue = .accountUnavailable
-        loadedAccount = WorkSessionAccountStorageV2.scope(accountProvider())
+        loadedAccount = nextAccount
         guard let loadedAccount else { return }
         diagnostic(.journalLoadRequested)
         switch WorkSessionAccountStorageV2.read(account: loadedAccount, defaults: defaults) {

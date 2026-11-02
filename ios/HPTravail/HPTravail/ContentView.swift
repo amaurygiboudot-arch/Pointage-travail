@@ -393,17 +393,21 @@ struct ContentView: View {
     }
 
     private var historyView: some View {
-        NavigationStack {
+        let gpsHistory = store.gpsHistorySnapshot
+        let journeys = gpsHistory.journeys
+        let observations = gpsHistory.observations
+        let historicalObservations = gpsHistory.historicalObservations
+        return NavigationStack {
             Group {
-                if store.storageReliable {
+                if gpsHistory.storageReliable {
                     List {
-                        if !store.gpsObservationHistoryReliable || !store.gpsJourneyHistoryReliable {
+                        if !gpsHistory.observationHistoryReliable || !gpsHistory.journeyHistoryReliable {
                             Label("Observations GPS incomplètes ou illisibles — trajets à vérifier", systemImage: "exclamationmark.triangle")
                                 .foregroundStyle(.orange)
                         }
-                        if !store.observedSiteJourneys.isEmpty {
+                        if !journeys.isEmpty {
                             Section("Entre les sites") {
-                                ForEach(store.observedSiteJourneys.reversed()) { journey in
+                                ForEach(journeys.reversed()) { journey in
                                     VStack(alignment: .leading, spacing: 6) {
                                         Text("\(journey.fromLabel) → \(journey.toLabel)").font(.headline)
                                         Text("\(journey.departure.formatted(date: .abbreviated, time: .shortened)) → \(journey.arrival.formatted(date: .abbreviated, time: .shortened))")
@@ -454,9 +458,9 @@ struct ContentView: View {
                                 .padding(.vertical, 4)
                             }
                         }
-                        if !store.observedSiteBoundaries.isEmpty {
+                        if !observations.isEmpty {
                             Section("Passages GPS observés") {
-                                ForEach(store.observedSiteBoundaries.reversed()) { observation in
+                                ForEach(observations.reversed()) { observation in
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text("\(observation.entered ? "Arrivée" : "Départ") — \(observation.zoneLabel)")
                                         Text(observation.observedAt.formatted(date: .abbreviated, time: .standard))
@@ -465,11 +469,11 @@ struct ContentView: View {
                                 }
                             }
                         }
-                        if !store.historicalGpsObservations.isEmpty {
+                        if !historicalObservations.isEmpty {
                             Section("Observations anciennes à vérifier") {
                                 Text("Ces anciennes observations ont été conservées sans modifier les pointages. Vérifie l’historique avant toute saisie manuelle.")
                                     .font(.footnote)
-                                ForEach(store.historicalGpsObservations) { observation in
+                                ForEach(historicalObservations) { observation in
                                     Text("\(observation.event.kind == .arrival ? "Arrivée" : "Départ") — \(observation.event.occurredAt.formatted(date: .abbreviated, time: .standard))")
                                 }
                             }

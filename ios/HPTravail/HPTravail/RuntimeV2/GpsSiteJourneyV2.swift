@@ -56,6 +56,72 @@ struct GpsSiteJourneyV2: Equatable, Identifiable {
     var observedDuration: TimeInterval { arrival.timeIntervalSince(departure) }
 }
 
+/// Index HOME evidence once for all journeys. Occupancy uses the last observation in
+/// original journal order at/before departure; any ENTER in the inclusive interval also
+/// excludes the journey, even when an EXIT shares that timestamp.
+private struct GpsHomeExclusionIndexV2 {
+    private struct Context {
+        var dates: [Date] = []
+        var occupied: [Bool] = []
+        var entries: [Date] = []
+    }
+    private var contexts: [String: Context] = [:]
+
+    init(_ observations: [GpsHomeObservationV2]?, account: String) {
+        var grouped: [String: [(offset: Int, value: GpsHomeObservationV2)]] = [:]
+        for (offset, value) in (observations ?? []).enumerated() where value.account == account &&
+            !value.observedAt.timeIntervalSinceReferenceDate.isNaN {
+            grouped[value.fingerprint, default: []].append((offset, value))
+        }
+        for (fingerprint, values) in grouped {
+            let ordered = values.sorted {
+                $0.value.observedAt == $1.value.observedAt
+                    ? $0.offset < $1.offset : $0.value.observedAt < $1.value.observedAt
+            }
+            var context = Context()
+            var latest: [UUID: (offset: Int, entered: Bool)] = [:]
+            var activeCount = 0
+            var index = 0
+            while index < ordered.count {
+                let date = ordered[index].value.observedAt
+                repeat {
+                    let item = ordered[index]
+                    let previous = latest[item.value.zoneId]
+                    if previous == nil || previous!.offset < item.offset {
+                        if previous?.entered == true { activeCount -= 1 }
+                        if item.value.entered { activeCount += 1 }
+                        latest[item.value.zoneId] = (item.offset, item.value.entered)
+                    }
+                    if item.value.entered { context.entries.append(date) }
+                    index += 1
+                } while index < ordered.count && ordered[index].value.observedAt == date
+                context.dates.append(date)
+                context.occupied.append(activeCount > 0)
+            }
+            contexts[fingerprint] = context
+        }
+    }
+
+    func excludes(fingerprint: String, departure: Date, arrival: Date) -> Bool {
+        guard let context = contexts[fingerprint] else { return false }
+        let afterDeparture = bound(context.dates, date: departure, afterEqual: true)
+        if afterDeparture > 0 && context.occupied[afterDeparture - 1] { return true }
+        let firstEntry = bound(context.entries, date: departure, afterEqual: false)
+        return firstEntry < context.entries.count && context.entries[firstEntry] <= arrival
+    }
+
+    private func bound(_ dates: [Date], date: Date, afterEqual: Bool) -> Int {
+        var low = 0
+        var high = dates.count
+        while low < high {
+            let middle = low + (high - low) / 2
+            if dates[middle] < date || (afterEqual && dates[middle] == date) { low = middle + 1 }
+            else { high = middle }
+        }
+        return low
+    }
+}
+
 enum GpsSiteJourneyProjectionV2 {
     static func journeys(sessions: [WorkSession], account: String,
                          homeObservations: [GpsHomeObservationV2]?,
@@ -64,6 +130,7 @@ enum GpsSiteJourneyProjectionV2 {
             return observedJourneys(siteObservations, account: account, homeObservations: homeObservations)
         }
         guard WorkSessionPersistenceV2.isStructurallyValid(sessions) else { return [] }
+        let homeIndex = GpsHomeExclusionIndexV2(homeObservations, account: account)
         let ordered = sessions.sorted { $0.entry < $1.entry }
         return zip(ordered, ordered.dropFirst()).compactMap { source, target in
             guard let exitId = source.gpsExitEventId, let entryId = target.gpsEntryEventId,
@@ -72,16 +139,10 @@ enum GpsSiteJourneyProjectionV2 {
                   fingerprint == target.gpsConfigurationFingerprint,
                   let sourceZone = source.gpsZoneId, let targetZone = target.gpsZoneId,
                   sourceZone != targetZone, let exit = source.exit, target.entry > exit else { return nil }
-            let relevant = (homeObservations ?? []).filter {
-                $0.account == account && $0.fingerprint == fingerprint && $0.observedAt <= target.entry
-            }
-            let insideAtDeparture = Set(relevant.map(\.zoneId)).contains { zone in
-                relevant.last(where: { $0.zoneId == zone && $0.observedAt <= exit })?.entered == true
-            }
-            let entersHome = relevant.contains { $0.entered && $0.observedAt >= exit }
             return GpsSiteJourneyV2(id: exitId.uuidString + "." + entryId.uuidString,
                 fromLabel: source.placeLabel ?? "Site de départ", toLabel: target.placeLabel ?? "Site d’arrivée",
-                departure: exit, arrival: target.entry, excludedByHome: insideAtDeparture || entersHome,
+                departure: exit, arrival: target.entry,
+                excludedByHome: homeIndex.excludes(fingerprint: fingerprint, departure: exit, arrival: target.entry),
                 homeExclusionConfigured: source.gpsHomeExclusionConfigured == true && target.gpsHomeExclusionConfigured == true,
                 homeEvidenceReadable: homeObservations != nil)
         }
@@ -93,6 +154,7 @@ enum GpsSiteJourneyProjectionV2 {
                 $0.observedAt.timeIntervalSinceReferenceDate.isFinite }),
               Set(values.map(\.id)).count == values.count else { return [] }
         let ordered = values.sorted { $0.observedAt < $1.observedAt }
+        let homeIndex = GpsHomeExclusionIndexV2(homeObservations, account: account)
         var activeWork = Set<UUID>()
         var pendingDeparture: GpsSiteObservationV2?
         var context: String?
@@ -116,18 +178,11 @@ enum GpsSiteJourneyProjectionV2 {
                 if observation.entered {
                     if batch.count == 1, activeWork.isEmpty, let source = pendingDeparture,
                        source.zoneId != observation.zoneId, observation.observedAt > source.observedAt {
-                        let relevant = (homeObservations ?? []).filter {
-                            $0.account == account && $0.fingerprint == source.fingerprint &&
-                                $0.observedAt <= observation.observedAt
-                        }
-                        let inside = Set(relevant.map(\.zoneId)).contains { zone in
-                            relevant.last(where: { $0.zoneId == zone && $0.observedAt <= source.observedAt })?.entered == true
-                        }
-                        let enters = relevant.contains { $0.entered && $0.observedAt >= source.observedAt }
                         result.append(.init(id: source.id.uuidString + "." + observation.id.uuidString,
                             fromLabel: source.zoneLabel, toLabel: observation.zoneLabel,
                             departure: source.observedAt, arrival: observation.observedAt,
-                            excludedByHome: inside || enters,
+                            excludedByHome: homeIndex.excludes(fingerprint: source.fingerprint,
+                                departure: source.observedAt, arrival: observation.observedAt),
                             homeExclusionConfigured: source.homeExclusionConfigured && observation.homeExclusionConfigured,
                             homeEvidenceReadable: homeObservations != nil))
                     }
