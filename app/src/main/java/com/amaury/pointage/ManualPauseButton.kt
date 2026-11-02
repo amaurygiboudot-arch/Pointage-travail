@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.DatePickerDialog
@@ -47,7 +49,7 @@ class ManualPauseButton @JvmOverloads constructor(
         val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
         val schedule = PauseScheduleManager.load(context)
         val theme = AppThemeCatalog.current(context)
-        val appearance = context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+        val appearance = RestoreGuardedPreferences.open(context, "appearance_settings", Context.MODE_PRIVATE)
         val mode = appearance.getString("mode", "auto") ?: "auto"
         val systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         val dark = mode == "dark" || (mode == "auto" && systemDark)

@@ -72,7 +72,8 @@ enum SalaryConventionRuleStoreV2 {
     private static let lock = NSLock()
     private static let maxExactJSONInteger = 9_007_199_254_740_991.0
 
-    static func readConfirmed(defaults: UserDefaults = .standard) -> SalaryConventionRuleReadResultV2 {
+    static func readConfirmed(defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults) -> SalaryConventionRuleReadResultV2 {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let primaryObject = defaults.object(forKey: primaryKey)
         let backupObject = defaults.object(forKey: backupKey)
 
@@ -139,8 +140,9 @@ enum SalaryConventionRuleStoreV2 {
     @discardableResult
     static func saveConfirmed(
         _ snapshot: SalaryConventionRuleSnapshotV2,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard validSnapshotPayload(snapshot) else { return false }
         let candidate = normalizedSnapshot(snapshot)
 
@@ -472,6 +474,7 @@ enum SalaryConventionRuleStoreV2 {
     }
 
     private static func writeVerified(_ value: String, forKey key: String, defaults: UserDefaults) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         defaults.set(value, forKey: key)
         return defaults.string(forKey: key) == value
     }

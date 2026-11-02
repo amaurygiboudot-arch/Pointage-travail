@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.content.Context
 import com.amaury.pointage.v2.V2RuntimeAccountScope
 import com.amaury.pointage.v2.engine.GpsTransitionV2
@@ -222,7 +224,7 @@ internal object GpsSiteJourneyStoreV2 {
         V2RuntimeAccountScope.withScope {
             val owner = V2RuntimeAccountScope.operationScope() ?: return@withScope false
             if (!V2RuntimeAccountScope.available() || zoneIds.isEmpty() || observedAtMs <= 0 || observedAtMs > System.currentTimeMillis()) return@withScope false
-            val gps = context.applicationContext.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+            val gps = RestoreGuardedPreferences.open(context.applicationContext, "gps_settings", Context.MODE_PRIVATE)
             val stored = readPersistedGpsZones(gps) as? GpsZonesReadResult.Valid ?: return@withScope false
             if (!gps.getBoolean("enabled", false) || !GeofenceManager.isStoredRegistrationCurrent(context)) return@withScope false
             val selected = zoneIds.distinct().sorted().map { zoneId ->

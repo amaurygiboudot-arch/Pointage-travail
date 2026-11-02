@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.content.Context
 import android.content.SharedPreferences
 import java.io.File
@@ -43,7 +45,7 @@ object CustomBackgroundStore {
     }
 
     fun isEnabled(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("custom_image_bg", false)
+        RestoreGuardedPreferences.open(context, PREFS, Context.MODE_PRIVATE).getBoolean("custom_image_bg", false)
 
     /**
      * Protège le fond contre une désactivation accidentelle, sans annuler une vraie
@@ -55,7 +57,7 @@ object CustomBackgroundStore {
     fun protectPreference(context: Context) {
         if (listener != null) return
         val app = context.applicationContext
-        val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(app, PREFS, Context.MODE_PRIVATE)
         listener = SharedPreferences.OnSharedPreferenceChangeListener { shared, key ->
             if (key != "custom_image_bg") return@OnSharedPreferenceChangeListener
 
@@ -79,7 +81,7 @@ object CustomBackgroundStore {
     fun clear(context: Context) {
         primary(context).delete()
         backup(context).delete()
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        RestoreGuardedPreferences.open(context, PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean("custom_image_bg", false)
             .apply()
     }

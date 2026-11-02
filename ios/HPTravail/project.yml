@@ -61,6 +61,9 @@ targets:
       # Compile the canonical runtime alongside the real Combine WorkStore here.
       - path: HPTravail/RuntimeV2
       - path: HPTravail/WorkStore.swift
+      # Test the exact Combine salary facade and UIKit exporter in this unhosted bundle.
+      - path: HPTravail/SalaryV2Store.swift
+      - path: HPTravail/SalaryV2PdfExporter.swift
       # Même module canonique complet que la cible Swift Package SalaryV2Contract.
       - path: HPTravail/SalaryV2
     settings:

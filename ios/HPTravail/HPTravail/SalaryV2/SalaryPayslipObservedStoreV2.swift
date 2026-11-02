@@ -28,22 +28,28 @@ enum SalaryPayslipObservedStoreV2 {
             record.excerpts.allSatisfy { record.amounts[$0.key] != nil && !$0.value.isEmpty && $0.value.count <= 300 } &&
             record.confirmedAt.timeIntervalSince1970.isFinite && record.confirmedAt.timeIntervalSince1970 > 0
     }
-    static func read(companyId: String, period: YearMonthV2, defaults: UserDefaults = .standard) -> Result {
-        guard validScope(companyId: companyId, period: period) else { return Result(record: nil, reliable: false) }
-        guard let raw = defaults.object(forKey: key(companyId, period)) else { return Result(record: nil, reliable: true) }
-        guard let data = raw as? Data, data.count <= 16_384,
-              let record = try? JSONDecoder().decode(Record.self, from: data), valid(record),
-              record.companyId == companyId, record.period == period else { return Result(record: nil, reliable: false) }
-        return Result(record: record, reliable: true)
+    static func read(companyId: String, period: YearMonthV2, defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults) -> Result {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return SalaryAccountStorageV2.readConsistently(defaults, unavailable: Result(record: nil, reliable: false)) {
+            guard SalaryAccountStorageV2.available(defaults) else { return Result(record: nil, reliable: false) }
+            guard validScope(companyId: companyId, period: period) else { return Result(record: nil, reliable: false) }
+            guard let raw = defaults.object(forKey: key(companyId, period)) else { return Result(record: nil, reliable: true) }
+            guard let data = raw as? Data, data.count <= 16_384,
+                  let record = try? JSONDecoder().decode(Record.self, from: data), valid(record),
+                  record.companyId == companyId, record.period == period else { return Result(record: nil, reliable: false) }
+            return Result(record: record, reliable: true)
+        }
     }
-    static func save(_ record: Record, confirmed: Bool, defaults: UserDefaults = .standard) -> Bool {
+    static func save(_ record: Record, confirmed: Bool, defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard confirmed, valid(record), read(companyId: record.companyId, period: record.period, defaults: defaults).reliable,
               let data = try? JSONEncoder().encode(record), data.count <= 16_384 else { return false }
         defaults.set(data, forKey: key(record.companyId, record.period))
         return read(companyId: record.companyId, period: record.period, defaults: defaults).record == record
     }
     /// Explicit removal also permits recovery from a corrupt scoped record.
-    static func remove(companyId: String, period: YearMonthV2, defaults: UserDefaults = .standard) -> Bool {
+    static func remove(companyId: String, period: YearMonthV2, defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard validScope(companyId: companyId, period: period) else { return false }
         defaults.removeObject(forKey: key(companyId, period))
         return defaults.object(forKey: key(companyId, period)) == nil

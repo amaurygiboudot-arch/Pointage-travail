@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import android.content.Context
+import com.amaury.pointage.v2.SalaryAccountScope
 import com.amaury.pointage.v2.CompanyPremiumStoreV2
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.LegalPayrollSourceStoreV2
@@ -14,8 +15,6 @@ import com.amaury.pointage.v2.V2ConventionSeniorityPremiumBridge
 import com.amaury.pointage.v2.V2EmploymentContractPayrollBridge
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RightsStore
-import com.amaury.pointage.v2.V2RuntimeStore
-import com.amaury.pointage.v2.V2RuntimeHistoryGuardV2
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.CollectivePremiumLegalArbitrationBridgeV2
@@ -78,112 +77,129 @@ object V2SalaryAdapter {
  }
 
  fun calculateForCompany(context:Context,company:SalaryCompanyStore.Company,year:Int,month:Int,convention:ConventionCatalog.Convention,ruleHistory:ConventionRuleHistoryV2?=null):Result {
-  require(HoraTrackV2.ENABLED)
-  val period=PayrollPeriodV2.month(year,month)
-  val contractSource=V2EmploymentContractPayrollBridge.resolve(context,company.id,year,month)
-  val contract=contractSource.resolution.contract
-  val type=contract?.type
-  val rate=contract?.grossHourlyRate
-  val missing=if(contract==null) listOf("contrat daté confirmé couvrant toute la période") else emptyList()
-  val acceptedIds=SalaryCompanyStore.acceptedEmployerIds(context,company.id)
-  val runtimeSource=V2RuntimeReader.allSessions(context)
-  val runtimeSessions=runtimeSource.sessions
-  val runtimeWarnings=if(runtimeSource.reliable)emptyList()else runtimeSource.warnings.ifEmpty{listOf(V2RuntimeReader.UNRELIABLE_MESSAGE)}
-  val absenceImpact=AbsencePayrollImpactV2.forMonth(V2RightsStore.absences(context),period.referenceDate,acceptedIds,workSessions=runtimeSessions)
-  val companyAgreement=CompanyAgreementPayrollBridgeV2.load(context,company.id,period.referenceDate,period)
-  val overtimeArbitration=OvertimeLegalArbitrationBridgeV2.load(context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,period=period)
-  val collectivePremiumArbitration=CollectivePremiumLegalArbitrationBridgeV2.load(context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,period=period)
-  val holidayScope=FrenchPublicHolidayCalendarV2.scopeForAddress(company.address)
-  val conventionHistory=salaryConventionHistoryStateV2(
-   provided=ruleHistory,
-   stored=if(ruleHistory==null)V2ConventionRuleStore.readConfirmed(context)else null
-  )
-  val calculationConvention=conventionHistory.conventionForCalculation(convention,type)
-  val baseCalculated=applyMayFirstLegalAdjustment(
-   context=context,
-   base=calculateCore(
-    contract,missing,runtimeSessions,year,month,rate?:0.0,calculationConvention,
-    conventionHistory.history,acceptedIds,companyAgreement,absenceImpact,overtimeArbitration,collectivePremiumArbitration,holidayScope,
-    runtimeReliable=runtimeSource.reliable
-   ),
-   contract=contract,
-   sessions=runtimeSessions,
-   year=year,
-   month=month,
-   fallbackRate=rate,
-   acceptedEmployerIds=acceptedIds,
-   premiumSnapshot=collectivePremiumArbitration,
-   referenceDate=period.referenceDate
-  ).let{result->
-   result.copy(
-    monthlyGrossReliable=salaryConventionHistoryGrossReliableV2(result.monthlyGrossReliable,conventionHistory,type,result.overtimeGross),
-    warnings=salaryConventionHistoryWarningsV2(result.warnings,conventionHistory,type)
-   )
-  }
-  val conventionMinimum=V2ConventionMinimumSalaryBridge.load(context,company.id,convention.idcc,period.referenceDate)
-  val seniorityBase=baseCalculated.regularGross.takeIf{type in setOf(ContractTypeV2.FULL_TIME,ContractTypeV2.PART_TIME)&&baseCalculated.monthlyGrossReliable}
-  val seniority=V2ConventionSeniorityPremiumBridge.load(
-   context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,
-   actualMonthlyBaseGross=seniorityBase,conventionalMinimumMonthlyGross=conventionMinimum.selectedMonthlyGross
-  ).result
-  val seniorityAmount=seniority.monthlyAmount?.takeIf{seniority.reliable}?:0.0
-  val companyPremiums=CompanyPremiumStoreV2.resolve(context,company.id,YearMonth.of(year,month+1))
-  val calculated=baseCalculated.copy(
-   premiumsGross=baseCalculated.premiumsGross+seniorityAmount+companyPremiums.totalGross,
-   monthlyEstimatedGross=baseCalculated.monthlyEstimatedGross+seniorityAmount+companyPremiums.totalGross,
-   monthlyGrossReliable=baseCalculated.monthlyGrossReliable&&seniority.reliable&&companyPremiums.reliable,
-   warnings=(baseCalculated.warnings+conventionMinimum.resolution.warnings+seniority.warnings+companyPremiums.warnings).distinct(),
-   conventionMinimumMonthlyGross=conventionMinimum.selectedMonthlyGross,
-   conventionClassificationLabel=conventionMinimum.classification.takeIf{!it.isEmpty()}?.label(),
-   seniorityPremiumGross=seniority.monthlyAmount?.takeIf{seniority.reliable}
-  )
-  val meals=MealBasketSalaryBridgeV2.calculate(
-   context=context,
-   companyId=company.id,
-   expectedIdcc=convention.idcc,
-   companyAddress=company.address,
-   sessions=runtimeSessions,
-   year=year,
-   monthZeroBased=month,
-   acceptedEmployerIds=acceptedIds
-  )
-  val legalAtMs=period.referenceDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-  val legalSnapshot=LegalPayrollSourceStoreV2.snapshot(context,legalAtMs)
-  val legalWarnings=legalPayrollSourceWarnings(legalSnapshot)
-  return calculated.copy(
-   mealBasketCount=if(calculated.paidTimeReliable)meals.count else 0,
-   mealBasketAmount=meals.unitAmount.takeIf{calculated.paidTimeReliable},
-   mealBasketTotal=meals.totalAmount.takeIf{calculated.paidTimeReliable},
-   warnings=(calculated.warnings+contractSource.warnings+meals.warnings+legalWarnings+runtimeWarnings).distinct()
-  )
- }
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): Result = empty(listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        V2ProfileStore.bind(context)
+        val company = SalaryCompanyStore.confirmedCompany(SalaryCompanyStore.readConfirmed(context), company.id) ?: return unavailable()
+        fun calculateInScope(): Result {
+            require(HoraTrackV2.ENABLED)
+            val period=PayrollPeriodV2.month(year,month)
+            val contractSource=V2EmploymentContractPayrollBridge.resolve(context,company.id,year,month)
+            val contract=contractSource.resolution.contract
+            val type=contract?.type
+            val rate=contract?.grossHourlyRate
+            val missing=if(contract==null) listOf("contrat daté confirmé couvrant toute la période") else emptyList()
+            val acceptedIds=SalaryCompanyStore.acceptedEmployerIds(context,company.id)
+            val runtimeSource=V2RuntimeReader.allSessions(context)
+            val runtimeSessions=runtimeSource.sessions
+            val runtimeWarnings=if(runtimeSource.reliable)emptyList()else runtimeSource.warnings.ifEmpty{listOf(V2RuntimeReader.UNRELIABLE_MESSAGE)}
+            val absenceImpact=AbsencePayrollImpactV2.forMonth(V2RightsStore.absences(context),period.referenceDate,acceptedIds,workSessions=runtimeSessions)
+            val companyAgreement=CompanyAgreementPayrollBridgeV2.load(context,company.id,period.referenceDate,period)
+            val overtimeArbitration=OvertimeLegalArbitrationBridgeV2.load(context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,period=period)
+            val collectivePremiumArbitration=CollectivePremiumLegalArbitrationBridgeV2.load(context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,period=period)
+            val holidayScope=FrenchPublicHolidayCalendarV2.scopeForAddress(company.address)
+            val conventionHistory=salaryConventionHistoryStateV2(
+             provided=ruleHistory,
+             stored=if(ruleHistory==null)V2ConventionRuleStore.readConfirmed(context)else null
+            )
+            val calculationConvention=conventionHistory.conventionForCalculation(convention,type)
+            val baseCalculated=applyMayFirstLegalAdjustment(
+             context=context,
+             base=calculateCore(
+              contract,missing,runtimeSessions,year,month,rate?:0.0,calculationConvention,
+              conventionHistory.history,acceptedIds,companyAgreement,absenceImpact,overtimeArbitration,collectivePremiumArbitration,holidayScope,
+              runtimeReliable=runtimeSource.reliable
+             ),
+             contract=contract,
+             sessions=runtimeSessions,
+             year=year,
+             month=month,
+             fallbackRate=rate,
+             acceptedEmployerIds=acceptedIds,
+             premiumSnapshot=collectivePremiumArbitration,
+             referenceDate=period.referenceDate
+            ).let{result->
+             result.copy(
+              monthlyGrossReliable=salaryConventionHistoryGrossReliableV2(result.monthlyGrossReliable,conventionHistory,type,result.overtimeGross),
+              warnings=salaryConventionHistoryWarningsV2(result.warnings,conventionHistory,type)
+             )
+            }
+            val conventionMinimum=V2ConventionMinimumSalaryBridge.load(context,company.id,convention.idcc,period.referenceDate)
+            val seniorityBase=baseCalculated.regularGross.takeIf{type in setOf(ContractTypeV2.FULL_TIME,ContractTypeV2.PART_TIME)&&baseCalculated.monthlyGrossReliable}
+            val seniority=V2ConventionSeniorityPremiumBridge.load(
+             context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,
+             actualMonthlyBaseGross=seniorityBase,conventionalMinimumMonthlyGross=conventionMinimum.selectedMonthlyGross
+            ).result
+            val seniorityAmount=seniority.monthlyAmount?.takeIf{seniority.reliable}?:0.0
+            val companyPremiums=CompanyPremiumStoreV2.resolve(context,company.id,YearMonth.of(year,month+1))
+            val calculated=baseCalculated.copy(
+             premiumsGross=baseCalculated.premiumsGross+seniorityAmount+companyPremiums.totalGross,
+             monthlyEstimatedGross=baseCalculated.monthlyEstimatedGross+seniorityAmount+companyPremiums.totalGross,
+             monthlyGrossReliable=baseCalculated.monthlyGrossReliable&&seniority.reliable&&companyPremiums.reliable,
+             warnings=(baseCalculated.warnings+conventionMinimum.resolution.warnings+seniority.warnings+companyPremiums.warnings).distinct(),
+             conventionMinimumMonthlyGross=conventionMinimum.selectedMonthlyGross,
+             conventionClassificationLabel=conventionMinimum.classification.takeIf{!it.isEmpty()}?.label(),
+             seniorityPremiumGross=seniority.monthlyAmount?.takeIf{seniority.reliable}
+            )
+            val meals=MealBasketSalaryBridgeV2.calculate(
+             context=context,
+             companyId=company.id,
+             expectedIdcc=convention.idcc,
+             companyAddress=company.address,
+             sessions=runtimeSessions,
+             year=year,
+             monthZeroBased=month,
+             acceptedEmployerIds=acceptedIds
+            )
+            val legalAtMs=period.referenceDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val legalSnapshot=LegalPayrollSourceStoreV2.snapshot(context,legalAtMs)
+            val legalWarnings=legalPayrollSourceWarnings(legalSnapshot)
+            return calculated.copy(
+             mealBasketCount=if(calculated.paidTimeReliable)meals.count else 0,
+             mealBasketAmount=meals.unitAmount.takeIf{calculated.paidTimeReliable},
+             mealBasketTotal=meals.totalAmount.takeIf{calculated.paidTimeReliable},
+             warnings=(calculated.warnings+contractSource.warnings+meals.warnings+legalWarnings+runtimeWarnings).distinct()
+            )
+        }
+        val result = SalaryAccountScope.withLease(SalaryAccountScope.lease(context)) { calculateInScope() }
+        return if (SalaryAccountScope.available(context)) result else unavailable()
+    }
 
  fun calculate(context:Context,year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention,companySlot:Int=1,ruleHistory:ConventionRuleHistoryV2?=null):Result {
-  val p=V2ProfileStore.load(context,companySlot.coerceIn(1,2))
-  val ids=p.contract?.let{setOf(it.employerId)}.orEmpty()
-  val referenceDate=LocalDate.of(year,month+1,1).let{it.withDayOfMonth(it.lengthOfMonth())}
-  val runtimeSource=V2RuntimeReader.allSessions(context)
-  val runtimeSessions=runtimeSource.sessions
-  val runtimeWarnings=if(runtimeSource.reliable)emptyList()else runtimeSource.warnings.ifEmpty{listOf(V2RuntimeReader.UNRELIABLE_MESSAGE)}
-  val absenceImpact=AbsencePayrollImpactV2.forMonth(V2RightsStore.absences(context),referenceDate,ids,workSessions=runtimeSessions)
-  val companyId=p.contract?.employerId
-  val holidayContext=LegacySalaryHolidayScopeResolverV2.resolve(SalaryCompanyStore.readConfirmed(context),companyId)
-  val collectivePremiumArbitration=companyId?.let{CollectivePremiumLegalArbitrationBridgeV2.load(context,it,convention.idcc,referenceDate)}
-  val holidayScope=holidayContext.scope
-  val contractType=p.contract?.type
-  val conventionHistory=salaryConventionHistoryStateV2(
-   provided=ruleHistory,
-   stored=if(ruleHistory==null)V2ConventionRuleStore.readConfirmed(context)else null
-  )
-  val calculationConvention=conventionHistory.conventionForCalculation(convention,contractType)
-  val calculated=calculateCore(p.contract,p.missing,runtimeSessions,year,month,hourlyRate,calculationConvention,conventionHistory.history,ids,null,absenceImpact,null,collectivePremiumArbitration,holidayScope,runtimeReliable=runtimeSource.reliable)
-  return applyMayFirstLegalAdjustment(context,calculated,p.contract,runtimeSessions,year,month,hourlyRate,ids,collectivePremiumArbitration,referenceDate).let{result->
-   result.copy(
-    monthlyGrossReliable=salaryConventionHistoryGrossReliableV2(result.monthlyGrossReliable,conventionHistory,contractType,result.overtimeGross)&&holidayContext.companyStoreReliable,
-    warnings=(salaryConventionHistoryWarningsV2(result.warnings,conventionHistory,contractType)+holidayContext.warnings+runtimeWarnings).distinct()
-   )
-  }
- }
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): Result = empty(listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        V2ProfileStore.bind(context)
+        fun calculateInScope(): Result {
+            val p=V2ProfileStore.load(context,companySlot.coerceIn(1,2))
+            val ids=p.contract?.let{setOf(it.employerId)}.orEmpty()
+            val referenceDate=LocalDate.of(year,month+1,1).let{it.withDayOfMonth(it.lengthOfMonth())}
+            val runtimeSource=V2RuntimeReader.allSessions(context)
+            val runtimeSessions=runtimeSource.sessions
+            val runtimeWarnings=if(runtimeSource.reliable)emptyList()else runtimeSource.warnings.ifEmpty{listOf(V2RuntimeReader.UNRELIABLE_MESSAGE)}
+            val absenceImpact=AbsencePayrollImpactV2.forMonth(V2RightsStore.absences(context),referenceDate,ids,workSessions=runtimeSessions)
+            val companyId=p.contract?.employerId
+            val holidayContext=LegacySalaryHolidayScopeResolverV2.resolve(SalaryCompanyStore.readConfirmed(context),companyId)
+            val collectivePremiumArbitration=companyId?.let{CollectivePremiumLegalArbitrationBridgeV2.load(context,it,convention.idcc,referenceDate)}
+            val holidayScope=holidayContext.scope
+            val contractType=p.contract?.type
+            val conventionHistory=salaryConventionHistoryStateV2(
+             provided=ruleHistory,
+             stored=if(ruleHistory==null)V2ConventionRuleStore.readConfirmed(context)else null
+            )
+            val calculationConvention=conventionHistory.conventionForCalculation(convention,contractType)
+            val calculated=calculateCore(p.contract,p.missing,runtimeSessions,year,month,hourlyRate,calculationConvention,conventionHistory.history,ids,null,absenceImpact,null,collectivePremiumArbitration,holidayScope,runtimeReliable=runtimeSource.reliable)
+            return applyMayFirstLegalAdjustment(context,calculated,p.contract,runtimeSessions,year,month,hourlyRate,ids,collectivePremiumArbitration,referenceDate).let{result->
+             result.copy(
+              monthlyGrossReliable=salaryConventionHistoryGrossReliableV2(result.monthlyGrossReliable,conventionHistory,contractType,result.overtimeGross)&&holidayContext.companyStoreReliable,
+              warnings=(salaryConventionHistoryWarningsV2(result.warnings,conventionHistory,contractType)+holidayContext.warnings+runtimeWarnings).distinct()
+             )
+            }
+        }
+        val result = SalaryAccountScope.withLease(SalaryAccountScope.lease(context)) { calculateInScope() }
+        return if (SalaryAccountScope.available(context)) result else unavailable()
+    }
  fun calculateBound(
   year:Int,
   month:Int,
@@ -192,28 +208,33 @@ object V2SalaryAdapter {
   companySlot:Int=1,
   ruleHistory:ConventionRuleHistoryV2?=null
  ):Result {
-  val p=V2ProfileStore.loadBound(companySlot.coerceIn(1,2))
-  val runtimeSessions=V2RuntimeStore.allSessionsBound()
-  val runtimeSource=V2RuntimeHistoryGuardV2.sourceState()
-  val calculated=calculateCore(
-   p?.contract,
-   p?.missing.orEmpty(),
-   runtimeSessions,
-   year,
-   month,
-   hourlyRate,
-   convention,
-   ruleHistory,
-   p?.contract?.let{setOf(it.employerId)}.orEmpty(),
-   null,
-   null,
-   null,
-   null,
-   null,
-   runtimeReliable=runtimeSource.reliable
-  )
-  val runtimeWarnings=if(runtimeSource.reliable)emptyList()else runtimeSource.warnings.ifEmpty{listOf(V2RuntimeReader.UNRELIABLE_MESSAGE)}
-  return calculated.copy(warnings=(calculated.warnings+runtimeWarnings).distinct())
+  val context=V2ProfileStore.boundForOperation() ?: return empty(listOf(SalaryAccountScope.AUTH_WARNING))
+  fun calculateInScope():Result {
+   val p=V2ProfileStore.load(context,companySlot.coerceIn(1,2))
+   val runtimeSource=V2RuntimeReader.allSessions(context)
+   val runtimeSessions=runtimeSource.sessions
+   val calculated=calculateCore(
+    p.contract,
+    p.missing,
+    runtimeSessions,
+    year,
+    month,
+    hourlyRate,
+    convention,
+    ruleHistory,
+    p.contract?.let{setOf(it.employerId)}.orEmpty(),
+    null,
+    null,
+    null,
+    null,
+    null,
+    runtimeReliable=runtimeSource.reliable
+   )
+   val runtimeWarnings=if(runtimeSource.reliable)emptyList()else runtimeSource.warnings.ifEmpty{listOf(V2RuntimeReader.UNRELIABLE_MESSAGE)}
+   return calculated.copy(warnings=(calculated.warnings+runtimeWarnings).distinct())
+  }
+  val result=SalaryAccountScope.withLease(SalaryAccountScope.lease(context)){calculateInScope()}
+  return if(SalaryAccountScope.available(context))result else empty(listOf(SalaryAccountScope.AUTH_WARNING))
  }
 
  private fun calculateCore(contract:ContractV2?,missing:List<String>,sessions:List<WorkSessionV2>,year:Int,month:Int,fallbackRate:Double,convention:ConventionCatalog.Convention,ruleHistory:ConventionRuleHistoryV2?,acceptedEmployerIds:Set<String>,companyAgreementSnapshot:CompanyAgreementPayrollBridgeV2.Snapshot?=null,absenceImpact:AbsencePayrollImpactV2.Snapshot?=null,overtimeArbitrationSnapshot:OvertimeLegalArbitrationBridgeV2.Snapshot?=null,collectivePremiumSnapshot:CollectivePremiumLegalArbitrationBridgeV2.Snapshot?=null,publicHolidayScope:FrenchPublicHolidayCalendarV2.Scope?=null,runtimeReliable:Boolean=true,nowMs:Long=System.currentTimeMillis()):Result {
@@ -504,6 +525,7 @@ object V2SalaryAdapter {
   )
  }
 
+ internal fun unavailableResult()=empty(listOf(SalaryAccountScope.AUTH_WARNING))
  private fun empty(w:List<String> = emptyList())=Result(0,emptyList(),0,0.0,0.0,0.0,0.0,false,0,0,0,0,0,w)
  private fun dayPaidOverlap(session:WorkSessionV2,rangeStart:Long,rangeEnd:Long,dayOfWeek:Int):Long{if(rangeEnd<=rangeStart)return 0L;var total=0L;val day=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeStart;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};val last=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeEnd;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};while(day.timeInMillis<=last.timeInMillis){if(day.get(Calendar.DAY_OF_WEEK)==dayOfWeek){val next=(day.clone() as Calendar).apply{add(Calendar.DAY_OF_YEAR,1)};val from=maxOf(rangeStart,day.timeInMillis);val to=minOf(rangeEnd,next.timeInMillis);if(to>from)total+=PaidWorkAllocationV2.paidOverlap(session,from,to)};day.add(Calendar.DAY_OF_YEAR,1)};return total}
  internal fun dayOverlap(entry:Long,exit:Long,dayOfWeek:Int):Long{if(exit<=entry)return 0;var total=0L;val day=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=entry;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};val last=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=exit;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};while(day.timeInMillis<=last.timeInMillis){if(day.get(Calendar.DAY_OF_WEEK)==dayOfWeek){val next=(day.clone() as Calendar).apply{add(Calendar.DAY_OF_YEAR,1)};total+=(minOf(exit,next.timeInMillis)-maxOf(entry,day.timeInMillis)).coerceAtLeast(0L)};day.add(Calendar.DAY_OF_YEAR,1)};return total}

@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.app.Activity
 import android.content.Context
 
@@ -14,7 +16,7 @@ object WorkplaceProposalLimiter {
 
     fun showIfAllowed(activity: Activity) {
         if (activity.isFinishing || activity.isDestroyed) return
-        val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(activity, PREFS, Context.MODE_PRIVATE)
         val zoneId = prefs.getString("pending_workplace_zone", "").orEmpty()
         if (zoneId.isBlank()) return
 

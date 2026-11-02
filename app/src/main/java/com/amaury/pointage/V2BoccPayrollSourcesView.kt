@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.content.Context
 import android.graphics.Typeface
 import android.view.ViewGroup
@@ -18,9 +20,9 @@ import java.util.Locale
 
 /** Vue BOCC : piste de publication conventionnelle par entreprise/IDCC, sans extraction automatique de taux. */
 class V2BoccPayrollSourcesView(
-    context: Context,
+    hostContext: Context,
     private val company: SalaryCompanyStore.Company
-) : LinearLayout(context) {
+) : SalaryAccountLayout(hostContext) {
     private val status = TextView(context)
     private val verifyButton = Button(context)
 
@@ -123,7 +125,7 @@ class V2BoccPayrollSourcesView(
     private data class Reference(val atMs: Long, val label: String)
 
     private fun referenceDate(): Reference {
-        val prefs = context.getSharedPreferences("navigation_state", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, "navigation_state", Context.MODE_PRIVATE)
         val selectedMs = prefs.getLong("report_month_ms", -1L)
         val calendar = Calendar.getInstance(Locale.FRANCE)
         if (selectedMs > 0L) calendar.timeInMillis = selectedMs

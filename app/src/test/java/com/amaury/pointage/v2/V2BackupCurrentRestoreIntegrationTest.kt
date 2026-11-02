@@ -59,10 +59,10 @@ class V2BackupCurrentRestoreIntegrationTest {
         assertEquals("remote-proof", JSONArray(prefs.getString("restored_legacy_provenance", null)).getString(0))
         val before = prefs.all
         assertTrue(V2BackupManager.restoreFromJson(context, backup()).isSuccess)
-        assertEquals(before, prefs.all)
-        prefs.edit().putString("legacy_recovery_receipt", "local-proof").commit()
+        assertEquals(before, V2RuntimeAccountScope.preferences(context, runtime).all)
+        V2RuntimeAccountScope.preferences(context, runtime).edit().putString("legacy_recovery_receipt", "local-proof").commit()
         assertTrue(V2BackupManager.restoreFromJson(context, backup()).isSuccess)
-        assertEquals("local-proof", prefs.getString("legacy_recovery_receipt", null))
+        assertEquals("local-proof", V2RuntimeAccountScope.preferences(context, runtime).getString("legacy_recovery_receipt", null))
     }
     @Test fun restoreConflictingCurrentLeavesEveryLocalFieldUnchanged() {
         assertTrue(V2BackupManager.restoreFromJson(context, backup()).isSuccess)

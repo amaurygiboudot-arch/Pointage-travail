@@ -68,7 +68,7 @@ object CompanyMobilityContributionDialogV2 {
             }
         }, rowParams(context))
 
-        listDialog = AlertDialog.Builder(context)
+        listDialog = SalaryAccountUi.dialog(context)
             .setTitle("Versement mobilité employeur")
             .setView(box)
             .setNegativeButton("FERMER", null)
@@ -124,7 +124,7 @@ object CompanyMobilityContributionDialogV2 {
         }
         updateFields()
 
-        val builder = AlertDialog.Builder(context)
+        val builder = SalaryAccountUi.dialog(context)
             .setTitle(if (existing == null) "Ajouter une règle VM" else "Modifier la règle VM")
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)

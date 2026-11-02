@@ -33,73 +33,82 @@ object V2SegmentedSalaryCanonicalBridge {
         monthZeroBased: Int,
         timeZoneId: String
     ): V2SegmentedSalaryCanonicalBridgeResultV2 {
-        if (company.id.isBlank() || company.idcc.isBlank()) {
-            return blocked(COMPANY_WARNING)
-        }
-        val period = runCatching {
-            YearMonth.of(year, monthZeroBased + 1)
-        }.getOrNull() ?: return blocked(PERIOD_WARNING)
-        if (runCatching { ZoneId.of(timeZoneId) }.isFailure) {
-            return blocked(TIME_ZONE_WARNING)
-        }
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): V2SegmentedSalaryCanonicalBridgeResultV2 = blocked(SalaryAccountScope.AUTH_WARNING)
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        V2ProfileStore.bind(context)
+        val company = SalaryCompanyStore.confirmedCompany(SalaryCompanyStore.readConfirmed(context), company.id) ?: return unavailable()
+        fun calculateInScope(): V2SegmentedSalaryCanonicalBridgeResultV2 {
+            if (company.id.isBlank() || company.idcc.isBlank()) {
+                return blocked(COMPANY_WARNING)
+            }
+            val period = runCatching {
+                YearMonth.of(year, monthZeroBased + 1)
+            }.getOrNull() ?: return blocked(PERIOD_WARNING)
+            if (runCatching { ZoneId.of(timeZoneId) }.isFailure) {
+                return blocked(TIME_ZONE_WARNING)
+            }
 
-        val contracts = V2EmploymentContractPayrollBridge.resolve(
-            context = context,
-            companyId = company.id,
-            year = year,
-            monthZeroBased = monthZeroBased
-        )
-        val rules = V2ConventionRulePayrollBridge.resolve(
-            context = context,
-            idcc = company.idcc,
-            year = year,
-            monthZeroBased = monthZeroBased
-        )
-        val upstreamWarnings = (contracts.warnings + rules.warnings).distinct()
-        if (!contracts.resolution.readyForSegmentedCalculation ||
-            !rules.resolution.readyForCalculation
-        ) {
-            return blocked(upstreamWarnings + TIMELINE_WARNING)
+            val contracts = V2EmploymentContractPayrollBridge.resolve(
+                context = context,
+                companyId = company.id,
+                year = year,
+                monthZeroBased = monthZeroBased
+            )
+            val rules = V2ConventionRulePayrollBridge.resolve(
+                context = context,
+                idcc = company.idcc,
+                year = year,
+                monthZeroBased = monthZeroBased
+            )
+            val upstreamWarnings = (contracts.warnings + rules.warnings).distinct()
+            if (!contracts.resolution.readyForSegmentedCalculation ||
+                !rules.resolution.readyForCalculation
+            ) {
+                return blocked(upstreamWarnings + TIMELINE_WARNING)
+            }
+
+            val workedBridge = V2SegmentedWorkedGrossProductionBridge.calculateDetailedFromStores(
+                context = context,
+                companyId = company.id,
+                companyAddress = company.address,
+                year = year,
+                monthZeroBased = monthZeroBased,
+                timeZoneId = timeZoneId,
+                contracts = contracts.resolution,
+                rules = rules.resolution
+            )
+            val worked = workedBridge.worked
+                ?: return blocked(upstreamWarnings + workedBridge.warnings)
+
+            val fixed = ConfirmedCashGrossComponentsBridgeV2.load(
+                context = context,
+                companyId = company.id,
+                idcc = company.idcc,
+                referenceDate = period.atEndOfMonth(),
+                period = period,
+                actualMonthlyBaseGross = worked.base.baseGross
+            )
+            val companyPayroll = CompanyPayrollOverridesV2.load(
+                context = context,
+                companyId = company.id,
+                referenceDate = period.atEndOfMonth()
+            )
+            return finalize(
+                worked = worked,
+                fixed = fixed,
+                year = year,
+                companyPayroll = companyPayroll,
+                upstreamWarnings = (
+                    upstreamWarnings +
+                        workedBridge.warnings +
+                        fixed.warnings +
+                        companyPayroll.warnings
+                    ).distinct()
+            )
         }
-
-        val workedBridge = V2SegmentedWorkedGrossProductionBridge.calculateDetailedFromStores(
-            context = context,
-            companyId = company.id,
-            companyAddress = company.address,
-            year = year,
-            monthZeroBased = monthZeroBased,
-            timeZoneId = timeZoneId,
-            contracts = contracts.resolution,
-            rules = rules.resolution
-        )
-        val worked = workedBridge.worked
-            ?: return blocked(upstreamWarnings + workedBridge.warnings)
-
-        val fixed = ConfirmedCashGrossComponentsBridgeV2.load(
-            context = context,
-            companyId = company.id,
-            idcc = company.idcc,
-            referenceDate = period.atEndOfMonth(),
-            period = period,
-            actualMonthlyBaseGross = worked.base.baseGross
-        )
-        val companyPayroll = CompanyPayrollOverridesV2.load(
-            context = context,
-            companyId = company.id,
-            referenceDate = period.atEndOfMonth()
-        )
-        return finalize(
-            worked = worked,
-            fixed = fixed,
-            year = year,
-            companyPayroll = companyPayroll,
-            upstreamWarnings = (
-                upstreamWarnings +
-                    workedBridge.warnings +
-                    fixed.warnings +
-                    companyPayroll.warnings
-                ).distinct()
-        )
+        val result = SalaryAccountScope.withLease(SalaryAccountScope.lease(context)) { calculateInScope() }
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     internal fun finalize(

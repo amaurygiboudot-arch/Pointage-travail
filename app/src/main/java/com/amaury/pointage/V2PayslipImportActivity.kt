@@ -30,7 +30,7 @@ import java.util.Calendar
 import java.util.Locale
 import java.util.concurrent.Executors
 
-class V2PayslipImportActivity : Activity() {
+class V2PayslipImportActivity : SalaryAccountActivity() {
     companion object {
         private const val REQUEST_FILE = 9601
         const val EXTRA_COMPANY_ID = "company_id"
@@ -47,6 +47,7 @@ class V2PayslipImportActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!accountReady()) return
         val existing = intent.getStringExtra(EXTRA_SOURCE_URI)?.takeIf { it.isNotBlank() }?.let(Uri::parse)
         if (existing != null) {
             inspectDocument(existing, intent.getStringExtra(EXTRA_SOURCE_MIME) ?: contentResolver.getType(existing))
@@ -61,6 +62,7 @@ class V2PayslipImportActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (!accountReady()) return
         if (requestCode != REQUEST_FILE) return
         if (resultCode != RESULT_OK) { finish(); return }
         val uri = data?.data ?: run { finish(); return }
@@ -92,14 +94,15 @@ class V2PayslipImportActivity : Activity() {
         status = label
         setContentView(label)
         executor.execute {
+            if (!accountReady()) return@execute
             var temporary: java.io.File? = null
             try {
                 val document = CompanyAgreementDocumentReaderV2.read(this, uri) { message ->
-                    runOnUiThread { if (!isFinishing && !isDestroyed) status?.text = message }
+                    runOnUiThread { if (accountReady()) status?.text = message }
                 }
                 temporary = document.temporaryFile
-                detectedPeriod = if (document.truncated) null else PayslipPeriodParserV2.parse(document.extractedText)
-                profileDraft = if (document.truncated) null else PayslipProfileDraftParserV2.parse(document.extractedText)
+                val periodDraft = if (document.truncated) null else PayslipPeriodParserV2.parse(document.extractedText)
+                val salaryDraft = if (document.truncated) null else PayslipProfileDraftParserV2.parse(document.extractedText)
                 // An incomplete document cannot establish complete monthly totals.
                 val payslipParsed = if (document.truncated) null else PayslipDocumentParserV2.parse(document.extractedText)
                 val providentParsed = if (shouldInspectForProvident()) {
@@ -110,7 +113,9 @@ class V2PayslipImportActivity : Activity() {
                         (parsed.socialSecurityGross.highConfidence || parsed.observedProvidentGross.highConfidence)
                 } == true
                 runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (!accountReady()) return@runOnUiThread
+                    detectedPeriod = periodDraft
+                    profileDraft = salaryDraft
                     if (looksLikeProvident && companyId.isNotBlank() && providentParsed != null) {
                         offerProvidentLink(uri, document.mimeType, document.displayName, providentParsed, payslipParsed)
                     } else {
@@ -120,7 +125,7 @@ class V2PayslipImportActivity : Activity() {
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
             } catch (_: Throwable) {
-                runOnUiThread { if (!isFinishing && !isDestroyed) askConfirmedValues(uri, mime, null) }
+                runOnUiThread { if (accountReady()) askConfirmedValues(uri, mime, null) }
             } finally {
                 temporary?.delete()
             }
@@ -158,7 +163,7 @@ class V2PayslipImportActivity : Activity() {
             val end = Instant.ofEpochMilli(absence.endMs - 1L).atZone(zone).toLocalDate()
             "Arrêt du ${start.format(format)} au ${end.format(format)}"
         }
-        AlertDialog.Builder(this)
+        SalaryAccountUi.dialog(this)
             .setTitle("Rattacher le décompte à quel arrêt ?")
             .setItems(labels.toTypedArray()) { _, which ->
                 showProvidentConfirmation(uri, mime, displayName, parsed, eligible[which])
@@ -202,7 +207,7 @@ class V2PayslipImportActivity : Activity() {
             addView(socialSecurity, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) })
             addView(observed, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) })
         }
-        val dialog = AlertDialog.Builder(this)
+        val dialog = SalaryAccountUi.dialog(this)
             .setTitle("Confirmer le décompte prévoyance")
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)
@@ -211,6 +216,7 @@ class V2PayslipImportActivity : Activity() {
             .create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                if (!accountReady()) return@setOnClickListener
                 val values = listOf(target, socialSecurity, observed).map { parseAmount(it.text.toString()) }
                 if (values.any { it == null || it < 0.0 }) {
                     Toast.makeText(this, "Vérifie les trois montants bruts du même décompte", Toast.LENGTH_LONG).show()
@@ -301,9 +307,10 @@ class V2PayslipImportActivity : Activity() {
                     text = "Vérifier le taux horaire dans ma fiche salaire"
                     isAllCaps = false
                     setOnClickListener {
+                if (!accountReady()) return@setOnClickListener
                         val form = SalaryInformationSheetView(this@V2PayslipImportActivity)
                             .bindCompany(companyId).prefillPayslipDraft(draft)
-                        AlertDialog.Builder(this@V2PayslipImportActivity)
+                        SalaryAccountUi.dialog(this@V2PayslipImportActivity)
                             .setTitle("Fiche salaire — données à confirmer")
                             .setView(ScrollView(this@V2PayslipImportActivity).apply { addView(form) })
                             .setNegativeButton("FERMER", null).show()
@@ -327,9 +334,10 @@ class V2PayslipImportActivity : Activity() {
         }
         val scroll = ScrollView(this).apply { addView(box) }
         monthButton.setOnClickListener {
+                if (!accountReady()) return@setOnClickListener
             val detected = detectedPeriod
             if (!periodConfirmed && detected != null) {
-                AlertDialog.Builder(this).setTitle("Confirmer la période lue")
+                SalaryAccountUi.dialog(this).setTitle("Confirmer la période lue")
                     .setMessage(detected.sourceLine)
                     .setPositiveButton("CONFIRMER") { _, _ ->
                         periodConfirmed = true
@@ -340,7 +348,7 @@ class V2PayslipImportActivity : Activity() {
             } else chooseMonth(month, monthButton) { periodConfirmed = true }
         }
         val title = if (companyName.isBlank()) "Contrôle du bulletin" else "Bulletin — $companyName"
-        val dialog = AlertDialog.Builder(this)
+        val dialog = SalaryAccountUi.dialog(this)
             .setTitle(title)
             .setView(scroll)
             .setPositiveButton("ENREGISTRER", null)
@@ -349,6 +357,7 @@ class V2PayslipImportActivity : Activity() {
             .create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                if (!accountReady()) return@setOnClickListener
                 if (!periodConfirmed) {
                     Toast.makeText(this, "Choisis explicitement la période inscrite sur le bulletin", Toast.LENGTH_LONG).show()
                     return@setOnClickListener
@@ -423,11 +432,19 @@ class V2PayslipImportActivity : Activity() {
         val labels = ArrayList<String>(); val months = ArrayList<Calendar>(); val format = SimpleDateFormat("MMMM yyyy", Locale.FRANCE)
         val cursor = Calendar.getInstance(Locale.FRANCE).apply { set(Calendar.DAY_OF_MONTH, 1) }
         repeat(36) { months += cursor.clone() as Calendar; labels += format.format(cursor.time).replaceFirstChar { it.uppercase() }; cursor.add(Calendar.MONTH, -1) }
-        AlertDialog.Builder(this).setTitle("Période du bulletin").setItems(labels.toTypedArray()) { _, which -> selected.timeInMillis = months[which].timeInMillis; button.text = labels[which]; onConfirmed() }.setNegativeButton("Annuler", null).show()
+        SalaryAccountUi.dialog(this).setTitle("Période du bulletin").setItems(labels.toTypedArray()) { _, which -> selected.timeInMillis = months[which].timeInMillis; button.text = labels[which]; onConfirmed() }.setNegativeButton("Annuler", null).show()
     }
 
     private fun parseAmount(raw: String): Double? = PayslipImportConfirmationPolicyV2.parseAmount(raw)
     private fun dp(v:Int)=(v*resources.displayMetrics.density).toInt()
+
+    override fun onSalaryAccountInvalidated() {
+        executor.shutdownNow()
+        profileDraft = null
+        detectedPeriod = null
+        status = null
+        super.onSalaryAccountInvalidated()
+    }
 
     override fun onDestroy() {
         executor.shutdownNow()

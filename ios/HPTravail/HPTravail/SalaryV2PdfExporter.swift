@@ -6,10 +6,18 @@ import UIKit
 /// Le PDF ne calcule aucun montant : il rend uniquement le snapshot canonique déjà exposé
 /// par SalaryV2Store. Une valeur absente reste affichée « À confirmer ».
 enum SalaryV2PdfExporter {
+    private static var directory: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("AGKGMG-salary-exports", isDirectory: true)
+    }
+    static func clearTemporaryExports() {
+        try? FileManager.default.removeItem(at: directory)
+    }
     static func export(
         snapshot: SalaryWorkspaceSnapshotV2,
-        company: SalaryCompanyV2?
+        company: SalaryCompanyV2?,
+        lease: SalaryAccountSessionV2.Lease
     ) throws -> URL {
+        guard lease.isCurrent else { throw SalaryAccountStorageV2.RecoveryError.unavailable }
         let data = render(snapshot: snapshot, company: company)
         let companyToken = company?.id
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -21,8 +29,14 @@ enum SalaryV2PdfExporter {
             .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
         let suffix = (companyToken?.isEmpty == false ? companyToken! : "entreprise")
         let name = "AGKGMG_Salaire_\(snapshot.period.description)_\(suffix).pdf"
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
-        try data.write(to: url, options: .atomic)
+        guard lease.isCurrent else { throw SalaryAccountStorageV2.RecoveryError.unavailable }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(UUID().uuidString + "_" + name)
+        try data.write(to: url, options: [.atomic, .completeFileProtection])
+        guard lease.isCurrent else {
+            try? FileManager.default.removeItem(at: url)
+            throw SalaryAccountStorageV2.RecoveryError.unavailable
+        }
         return url
     }
 

@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.content.Context
 import android.content.SharedPreferences
 import com.amaury.pointage.v2.HoraTrackV2
@@ -29,7 +31,7 @@ internal object GpsExitDeliveryV2 {
         val session = runtime.snapshot.session ?: return null
         val arrival = session.realArrivalMs ?: return null
         if (!runtime.reliable || session.status != SessionStatusV2.OPEN || session.realExitMs != null) return null
-        val gps = context.applicationContext.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val gps = RestoreGuardedPreferences.open(context.applicationContext, "gps_settings", Context.MODE_PRIVATE)
         val stored = readPersistedGpsZones(gps) as? GpsZonesReadResult.Valid ?: return null
         if (!gps.getBoolean("enabled", false)) return null
         return GpsExitDeliveryRecordV2.encodeObservationContext(session.id, arrival, scope,
@@ -46,7 +48,7 @@ internal object GpsExitDeliveryV2 {
         val arrival = session.realArrivalMs ?: return null
         if (!runtime.reliable || session.status != SessionStatusV2.OPEN ||
             session.realExitMs != null || event.atMs < arrival) return null
-        val gps = context.applicationContext.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val gps = RestoreGuardedPreferences.open(context.applicationContext, "gps_settings", Context.MODE_PRIVATE)
         val stored = readPersistedGpsZones(gps) as? GpsZonesReadResult.Valid ?: return null
         if (!gps.getBoolean("enabled", false) || stored.zones.none { it.id == event.placeId }) return null
         return GpsExitDeliveryRecordV2(event, session.id, arrival, scope,
@@ -56,7 +58,7 @@ internal object GpsExitDeliveryV2 {
     internal fun matchesContext(context: Context, delivery: GpsExitDeliveryRecordV2): Boolean? {
         val scope = accountScope() ?: return null
         val epoch = V2RuntimeAccountScope.monitoringEpoch(context) ?: return null
-        val gps = context.applicationContext.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val gps = RestoreGuardedPreferences.open(context.applicationContext, "gps_settings", Context.MODE_PRIVATE)
         val stored = readPersistedGpsZones(gps)
         if (stored !is GpsZonesReadResult.Valid) return null
         return scope == delivery.accountScope &&
@@ -64,7 +66,7 @@ internal object GpsExitDeliveryV2 {
     }
 
     internal fun hasProvenReturn(context: Context, delivery: GpsExitDeliveryRecordV2): Boolean {
-        val gps = context.applicationContext.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val gps = RestoreGuardedPreferences.open(context.applicationContext, "gps_settings", Context.MODE_PRIVATE)
         val qualification = GpsReturnObservationV2.Qualification.decode(runCatching {
             gps.getString(GpsReturnObservationV2.QUALIFICATION_KEY, null)
         }.getOrNull()) ?: return false
@@ -75,7 +77,7 @@ internal object GpsExitDeliveryV2 {
 
     /** An observed return cannot yet cancel the departure, but also forbids confirming it. */
     internal fun hasUnresolvedReturn(context: Context, delivery: GpsExitDeliveryRecordV2): Boolean {
-        val gps = context.applicationContext.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val gps = RestoreGuardedPreferences.open(context.applicationContext, "gps_settings", Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
         val qualification = GpsReturnObservationV2.Qualification.decode(runCatching {
             gps.getString(GpsReturnObservationV2.QUALIFICATION_KEY, null)
@@ -89,7 +91,7 @@ internal object GpsExitDeliveryV2 {
 
     private fun observedReturnMatches(context: Context, delivery: GpsExitDeliveryRecordV2,
         now: Long, selectedZoneId: String? = null): Boolean {
-        val gps = context.applicationContext.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val gps = RestoreGuardedPreferences.open(context.applicationContext, "gps_settings", Context.MODE_PRIVATE)
         val raw = runCatching { gps.getStringSet(GpsReturnObservationV2.KEY, emptySet()) }.getOrNull()
             ?: return false
         val zones = (readPersistedGpsZones(gps) as? GpsZonesReadResult.Valid)?.zones?.associateBy { it.id }
@@ -135,7 +137,7 @@ internal object GpsExitDeliveryV2 {
     fun replay(context: Context, allowReturnAcknowledgement: Boolean = true) {
         if (!HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)) return
         val app = context.applicationContext
-        val gps = app.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val gps = RestoreGuardedPreferences.open(app, "gps_settings", Context.MODE_PRIVATE)
         val raw = readRaw(gps) ?: return
         if (raw.isEmpty()) return
         val scope = accountScope() ?: return // Auth unavailable is unknown, not a guest account.

@@ -34,8 +34,8 @@ object V2MigrationManager {
     fun ensureMigrated(context: Context): Result {
         return V2RuntimeStore.withTransaction {
             if (!HoraTrackV2.ENABLED) return Result(0, 0, 0, 0)
-            val app = context.applicationContext
-            if (!V2RuntimeAccountScope.available()) {
+            val app = SalaryAccountScope.bindContext(context).applicationContext
+            if (!V2RuntimeAccountScope.available(app)) {
                 val warning = V2RuntimeAccountScope.AUTH_WARNING
                 V2RuntimeHistoryGuardV2.publishSourceState(false, listOf(warning))
                 return Result(0, 0, 0, 0, false, listOf(warning))
@@ -68,7 +68,8 @@ object V2MigrationManager {
 
     /** Diagnostic preflight only: never initialise, repair or persist migration metadata. */
     internal fun completedForDiagnostic(context: Context): Boolean {
-        if (!V2RuntimeAccountScope.available()) return false
+        val context = SalaryAccountScope.bindContext(context)
+        if (!V2RuntimeAccountScope.available(context)) return false
         val version = runCatching {
             val meta = V2RuntimeAccountScope.preferences(context.applicationContext, META_PREFS)
             // ensureMigrated's completed branch also reads this metadata field.
@@ -82,8 +83,8 @@ object V2MigrationManager {
     fun importLegacyArray(context: Context, legacy: JSONArray): Result {
         return V2RuntimeStore.withTransaction {
             if (!HoraTrackV2.ENABLED) return Result(0, 0, legacy.length(), 0)
-            val app = context.applicationContext
-            if (!V2RuntimeAccountScope.available()) {
+            val app = SalaryAccountScope.bindContext(context).applicationContext
+            if (!V2RuntimeAccountScope.available(app)) {
                 val warning = V2RuntimeAccountScope.AUTH_WARNING
                 V2RuntimeHistoryGuardV2.publishSourceState(false, listOf(warning))
                 return Result(0, 0, 0, 0, false, listOf(warning))

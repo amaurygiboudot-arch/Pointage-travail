@@ -45,7 +45,7 @@ object CompanyMealFactsDialogV2 {
         if (companyId.isBlank()) return
         val loaded = V2MealBasketFactStore.load(context)
         if (loaded.malformedCount > 0) {
-            AlertDialog.Builder(context)
+            SalaryAccountUi.dialog(context)
                 .setTitle("Faits repas / organisation")
                 .setMessage(
                     "Le journal local contient ${loaded.malformedCount} fait(s) illisible(s). " +
@@ -117,7 +117,7 @@ object CompanyMealFactsDialogV2 {
             isFillViewport = true
             addView(box)
         }
-        dialog = AlertDialog.Builder(context)
+        dialog = SalaryAccountUi.dialog(context)
             .setTitle("Faits repas / organisation")
             .setView(scroll)
             .setNegativeButton("FERMER", null)
@@ -224,7 +224,7 @@ object CompanyMealFactsDialogV2 {
             isFillViewport = true
             addView(box)
         }
-        val builder = AlertDialog.Builder(context)
+        val builder = SalaryAccountUi.dialog(context)
             .setTitle(if (existing.isEmpty()) "Nouvelle période factuelle" else "Modifier la période factuelle")
             .setView(scroll)
             .setPositiveButton("ENREGISTRER", null)

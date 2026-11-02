@@ -20,11 +20,12 @@ class V2InitProvider : ContentProvider() {
     private var runtimePrefs: SharedPreferences? = null
     private var iconStateListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
     private var accountListener: com.google.firebase.auth.FirebaseAuth.AuthStateListener? = null
-    private var observedScope: String? = null
+    private var observedLease: SalaryAccountScope.Lease? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onCreate(): Boolean {
         val app = context?.applicationContext as? Application ?: return true
+        V2RestoreTransaction.recover(app)
         if (HoraTrackV2.ENABLED) {
             V2RuntimeStore.bind(app)
             V2TestDataPolicy.ensurePreservation(app)
@@ -41,6 +42,10 @@ class V2InitProvider : ContentProvider() {
 
     private fun installIconStateSync(app: Application) {
         observeCurrentAccount(app)
+        SalaryAccountScope.addListener {
+            observeCurrentAccount(app)
+            syncIconNowAndAfterStateCommit(app)
+        }
 
         app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             override fun onActivityPaused(activity: Activity) = syncIconNowAndAfterStateCommit(app)
@@ -75,10 +80,11 @@ class V2InitProvider : ContentProvider() {
             }
         }
         V2RuntimeAccountScope.monitoringEpoch(app)
-        val scope = V2RuntimeAccountScope.currentScope()
-        if (scope == observedScope && runtimePrefs != null) return
+        val lease = SalaryAccountScope.capture()
+        if (lease == observedLease && runtimePrefs != null) return
         iconStateListener?.let { runtimePrefs?.unregisterOnSharedPreferenceChangeListener(it) }
-        observedScope = scope
+        observedLease = lease
+        com.amaury.pointage.CompanyPauseAlarmManager.scheduleAll(SalaryAccountScope.bindContext(app))
         val prefs = V2RuntimeAccountScope.preferences(app, "horatrack_v2_test_runtime")
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
             syncIconNowAndAfterStateCommit(app)

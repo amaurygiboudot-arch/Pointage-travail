@@ -1,5 +1,9 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
+import com.amaury.pointage.v2.SalaryAccountScope
+
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
@@ -26,7 +30,8 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
     }
 
     private fun showAddressDialog() {
-        val gpsPrefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val context = SalaryAccountScope.bindContext(this.context)
+        val gpsPrefs = RestoreGuardedPreferences.open(context, "gps_settings", Context.MODE_PRIVATE)
         fun notice(message: String) = Toast.makeText(context, message, Toast.LENGTH_LONG).show()
         val initial = GpsZoneEditorStoreV2.read(gpsPrefs)
         if (initial == null) { notice("Configuration GPS à vérifier : aucun lieu ne sera ajouté"); return }
@@ -69,7 +74,7 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                 companyDisplayByButtonId[button.id] = company.name.ifBlank { "Entreprise" }
             }
         } else {
-            val salaryPrefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
+            val salaryPrefs = SalaryAccountScope.preferences(context, "salary_settings")
             val company1Name = salaryPrefs.getString("company_name", "").orEmpty().ifBlank { "Entreprise 1" }
             val company2Name = salaryPrefs.getString("company2_name", "").orEmpty().ifBlank { "Entreprise 2" }
             listOf(1 to company1Name, 2 to company2Name).forEach { (slot, name) ->
@@ -119,7 +124,7 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
             label("Chaque lieu peut ensuite contenir plusieurs zones. Une pause GPS ne décide pas de sa rémunération."),
             radius, label("Centre GPS : carte, coordonnées ou recherche de l'adresse"), latitude, longitude, mapButton)
             .forEach(container::addView)
-        val dialog = AlertDialog.Builder(context).setTitle("Ajouter un lieu et sa première zone")
+        val dialog = SalaryAccountUi.dialog(context).setTitle("Ajouter un lieu et sa première zone")
             .setView(ScrollView(context).apply { addView(container) })
             .setNegativeButton("Annuler", null).setPositiveButton("Ajouter", null).create()
         val generatedId = UUID.randomUUID().toString()
@@ -135,6 +140,11 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
         }
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                if (!SalaryAccountScope.available(context)) {
+                    notice("Compte modifié : rouvre ce formulaire avant d'ajouter le lieu.")
+                    dialog.dismiss()
+                    return@setOnClickListener
+                }
                 val selected = companyGroup.checkedRadioButtonId
                 if (selected == -1 || (useV2EmployerBinding && !companyByButtonId.containsKey(selected)) ||
                     (!useV2EmployerBinding && !legacySlotByButtonId.containsKey(selected))) {
@@ -176,6 +186,7 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                 }
                 fun finish(lat: Double?, lon: Double?, source: String) {
                     if (!dialog.isShowing || !isAttachedToWindow) return
+                    if (!SalaryAccountScope.available(context)) { dialog.dismiss(); return }
                     busy(false)
                     if (lat == null || lon == null || !lat.isFinite() || lat !in -90.0..90.0 || !lon.isFinite() || lon !in -180.0..180.0) {
                         notice("Adresse introuvable automatiquement. Choisis un point sur la carte ou saisis ses coordonnées ; ton formulaire et l'entreprise choisie sont conservés.")
@@ -206,7 +217,7 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                     }
                     if (draft.notifyOnArrival && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                         context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                        (context as? Activity)?.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1102)
+                        SalaryAccountUi.activity(context)?.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1102)
                     }
                     dialog.dismiss()
                     if (source == "geocoder") post {

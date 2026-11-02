@@ -67,7 +67,7 @@ object CompanyEmployerGeneralReductionContextDialogV2 {
             }
         }, rowParams(context))
 
-        listDialog = AlertDialog.Builder(context)
+        listDialog = SalaryAccountUi.dialog(context)
             .setTitle("Contexte RGDU automatique")
             .setView(box)
             .setNegativeButton("FERMER", null)
@@ -103,7 +103,7 @@ object CompanyEmployerGeneralReductionContextDialogV2 {
             source.setText(record.source)
         }
 
-        val builder = AlertDialog.Builder(context)
+        val builder = SalaryAccountUi.dialog(context)
             .setTitle(if (existing == null) "Confirmer le contexte RGDU" else "Modifier le contexte RGDU")
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)

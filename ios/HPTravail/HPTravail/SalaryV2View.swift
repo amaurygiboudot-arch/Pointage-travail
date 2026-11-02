@@ -5,6 +5,13 @@ struct SalaryV2View: View {
     @EnvironmentObject private var salaryStore: SalaryV2Store
     @EnvironmentObject private var workStore: WorkStoreV2
     @EnvironmentObject private var authManager: AuthManager
+    @State private var viewLease = SalaryAccountSessionV2.capture()
+    private var accountIsCurrent: Bool {
+        viewLease.isCurrent && salaryStore.accountLease == viewLease && salaryStore.accountIsCurrent
+    }
+    @State private var recoveryPreview: SalaryAccountStorageV2.RecoveryPreview?
+    @State private var showSalaryRecoveryConfirmation = false
+    @State private var salaryRecoveryFeedback: String?
     @State private var payrollCoverageAgreed = false
     @State private var payrollCoverageFeedback: String?
     @State private var salaryPdfURL: URL?
@@ -43,6 +50,8 @@ struct SalaryV2View: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 18) {
+                    if accountIsCurrent {
+                    salaryRecoveryCard
                     periodSelector
                     companySelectorCard
                     contractCard
@@ -59,6 +68,9 @@ struct SalaryV2View: View {
                     referenceCard
                     incomeTaxCard
                     warningsCard
+                    } else {
+                        Text(SalaryAccountStorageV2.warning)
+                    }
                 }
                 .padding()
             }
@@ -71,6 +83,18 @@ struct SalaryV2View: View {
             }
             .onAppear {
                 salaryStore.refresh()
+            }
+            .onDisappear {
+                clearImportDraft()
+                clearSalaryPdf()
+                recoveryPreview = nil
+                showSalaryRecoveryConfirmation = false
+            }
+            .alert("Attribuer l’ancien historique salarial", isPresented: $showSalaryRecoveryConfirmation) {
+                Button("Annuler", role: .cancel) { recoveryPreview = nil }
+                Button("Toutes ces données m’appartiennent") { recoverSalaryHistory() }
+            } message: {
+                Text("Compte : \(authManager.user?.email ?? authManager.user?.uid ?? "indisponible"). Confirmez uniquement si toutes les données salariales de l’ancienne version sur cet appareil vous appartiennent. En cas de partage de l’appareil ou de doute, annulez. Cette déclaration vient de vous ; Firebase ne vérifie pas la propriété de cet historique. Les originaux restent conservés.")
             }
             .onChange(of: workStore.sessions) { _ in
                 salaryStore.refresh()
@@ -999,10 +1023,13 @@ struct SalaryV2View: View {
                     Text("PDF paie")
                     Spacer()
                     Button("Préparer le PDF") {
+                        guard accountIsCurrent else { return }
+                        clearSalaryPdf()
                         do {
                             salaryPdfURL = try SalaryV2PdfExporter.export(
                                 snapshot: salaryStore.snapshot,
-                                company: salaryStore.selectedCompany
+                                company: salaryStore.selectedCompany,
+                                lease: salaryStore.accountLease
                             )
                             salaryPdfFeedback = "PDF généré depuis le snapshot canonique affiché."
                         } catch {
@@ -1013,7 +1040,7 @@ struct SalaryV2View: View {
                     .buttonStyle(.bordered)
                 }
 
-                if let salaryPdfURL {
+                if accountIsCurrent, let salaryPdfURL {
                     ShareLink(
                         item: salaryPdfURL,
                         subject: Text("AGKGMG — estimation de salaire"),
@@ -1127,7 +1154,55 @@ struct SalaryV2View: View {
         return formatter.string(from: date)
     }
 
+    private var salaryRecoveryCard: some View {
+        Group {
+            if !SalaryAccountStorageV2.available(SalaryAccountStorageV2.currentDefaults) {
+                GroupBox("Historique salarial à vérifier") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Les anciennes données de cet appareil restent conservées. Elles ne sont pas utilisées tant que leur propriétaire n’est pas confirmé.")
+                        Button("Vérifier l’historique à récupérer") {
+                            guard accountIsCurrent else { return }
+                            do {
+                                recoveryPreview = try SalaryAccountStorageV2.recoveryPreview()
+                                salaryRecoveryFeedback = recoveryPreview == nil ? "Aucun historique non attribué à récupérer." : nil
+                            } catch { salaryRecoveryFeedback = error.localizedDescription }
+                        }.disabled(!salaryStore.accountLease.authenticated)
+                        if !salaryStore.accountLease.authenticated {
+                            Text("Connectez-vous dans Compte & sécurité pour vérifier la propriété de cet historique.").font(.footnote)
+                        }
+                        if let recoveryPreview {
+                            Text("\(recoveryPreview.entryCount) entrée(s) locales, copies de secours incluses. Aucun montant n’est affiché avant attribution.").font(.footnote)
+                            Button("Déclarer que cet historique m’appartient") { showSalaryRecoveryConfirmation = true }
+                            Button("Ces données ne m’appartiennent pas — utiliser un espace vide") {
+                                guard accountIsCurrent else { return }
+                                do {
+                                    try SalaryAccountStorageV2.startWithoutLegacy(recoveryPreview)
+                                    self.recoveryPreview = nil
+                                    salaryStore.refresh()
+                                } catch { salaryRecoveryFeedback = error.localizedDescription }
+                            }
+                        }
+                        if let salaryRecoveryFeedback { Text(salaryRecoveryFeedback).font(.footnote) }
+                    }
+                }
+            }
+        }
+    }
+
+    private func recoverSalaryHistory() {
+        guard accountIsCurrent, let preview = recoveryPreview else { return }
+        do {
+            try SalaryAccountStorageV2.recover(preview, ownershipConfirmed: true)
+            salaryRecoveryFeedback = "Historique attribué à ce compte. Les originaux sont conservés."
+            salaryStore.refresh()
+        } catch { salaryRecoveryFeedback = error.localizedDescription }
+        recoveryPreview = nil
+    }
+
     private func confirmedObservedCompanyId() -> String? {
+        guard accountIsCurrent else { return nil }
+        let operation = SalaryAccountSessionV2.pin(salaryStore.accountLease)
+        defer { operation.close() }
         guard let id = salaryStore.selectedCompanyId,
               SalaryCompanyStoreV2.confirmedCompany(SalaryCompanyStoreV2.readConfirmed(), companyId: id) != nil else {
             payslipComparisonFeedback = "Entreprise absente ou stockage à vérifier ; opération bloquée."
@@ -1137,6 +1212,9 @@ struct SalaryV2View: View {
     }
 
     private func saveObservedPayslip() {
+        guard accountIsCurrent else { return  }
+        let operation = SalaryAccountSessionV2.pin(salaryStore.accountLease)
+        defer { operation.close() }
         guard observationsConfirmed, let id = confirmedObservedCompanyId() else { return }
         let parsed = [payslipGrossText, payslipNetBeforeTaxText, payslipNetTaxableText,
                       payslipIncomeTaxText, payslipNetAfterTaxText].map(parseObservedAmount)
@@ -1155,6 +1233,9 @@ struct SalaryV2View: View {
     }
 
     private func restoreObservedPayslip() {
+        guard accountIsCurrent else { return  }
+        let operation = SalaryAccountSessionV2.pin(salaryStore.accountLease)
+        defer { operation.close() }
         guard let id = confirmedObservedCompanyId() else { return }
         let result = SalaryPayslipObservedStoreV2.read(companyId: id, period: salaryStore.selectedPeriod)
         guard result.reliable, let record = result.record else {
@@ -1174,6 +1255,9 @@ struct SalaryV2View: View {
     }
 
     private func removeObservedPayslip() {
+        guard accountIsCurrent else { return  }
+        let operation = SalaryAccountSessionV2.pin(salaryStore.accountLease)
+        defer { operation.close() }
         guard let id = confirmedObservedCompanyId() else { return }
         let removed = SalaryPayslipObservedStoreV2.remove(companyId: id, period: salaryStore.selectedPeriod)
         if removed { resetPayslipComparison() }
@@ -1181,6 +1265,9 @@ struct SalaryV2View: View {
     }
 
     private func comparePayslip() {
+        guard accountIsCurrent else { return  }
+        let operation = SalaryAccountSessionV2.pin(salaryStore.accountLease)
+        defer { operation.close() }
         let parsed = [
             parseObservedAmount(payslipGrossText),
             parseObservedAmount(payslipNetBeforeTaxText),
@@ -1228,6 +1315,7 @@ struct SalaryV2View: View {
     }
 
     private func clearSalaryPdf() {
+        if let salaryPdfURL { try? FileManager.default.removeItem(at: salaryPdfURL) }
         salaryPdfURL = nil
         salaryPdfFeedback = nil
     }
@@ -1260,7 +1348,9 @@ struct SalaryV2View: View {
                     .disabled(salaryStore.confirmedSicknessCash?.record == nil && salaryStore.confirmedSicknessCash?.reliable != false)
                     .confirmationDialog("Supprimer les IJSS confirmées de cette entreprise et de ce mois ?", isPresented: $sicknessDeleteConfirmation) {
                         Button("Supprimer", role: .destructive) {
-                            if let id = salaryStore.selectedCompanyId {
+                            if accountIsCurrent, let id = salaryStore.selectedCompanyId {
+                                let operation = SalaryAccountSessionV2.pin(salaryStore.accountLease)
+                                defer { operation.close() }
                                 SalaryConfirmedSicknessCashV2.remove(companyId: id, period: salaryStore.selectedPeriod)
                                 resetSicknessCashDraft(); salaryStore.refresh()
                             }
@@ -1278,6 +1368,9 @@ struct SalaryV2View: View {
         sicknessConfirmed = false; sicknessFeedback = nil; sicknessDeleteConfirmation = false
     }
     private func saveSicknessCash() {
+        guard accountIsCurrent else { return  }
+        let operation = SalaryAccountSessionV2.pin(salaryStore.accountLease)
+        defer { operation.close() }
         guard sicknessConfirmed, let id = salaryStore.selectedCompanyId else { return }
         guard SalaryCompanyStoreV2.confirmedCompany(SalaryCompanyStoreV2.readConfirmed(), companyId: id) != nil else {
             sicknessConfirmed = false
@@ -1317,15 +1410,19 @@ struct SalaryV2View: View {
     }
 
     private func readPayslip(_ url: URL) {
+        guard accountIsCurrent else { return  }
+        let operation = SalaryAccountSessionV2.pin(salaryStore.accountLease)
+        defer { operation.close() }
         guard !importBusy else { return }
         clearImportDraft()
         importBusy = true
         let token = importToken
+        let lease = salaryStore.accountLease
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result { try SalaryPayslipLocalImporterV2.read(url: url) }
             DispatchQueue.main.async {
                 importBusy = false
-                guard importToken == token else { return }
+                guard lease.isCurrent, accountIsCurrent, importToken == token else { return }
                 switch result {
                 case .success(let draft):
                     importProposals = draft.observedAmounts
@@ -1344,6 +1441,9 @@ struct SalaryV2View: View {
     }
 
     private func applyImportedHourlyRate() {
+        guard accountIsCurrent else { return  }
+        let operation = SalaryAccountSessionV2.pin(salaryStore.accountLease)
+        defer { operation.close() }
         guard hourlyRateImportConfirmed, hourlyContractSelected, importedPeriodMatchesSelection,
               salaryStore.selectedCompanyId != nil, let draft = importedHourlyRateDraft else { return }
         salaryStore.contractHourlyRateText = NSDecimalNumber(decimal: draft.grossHourlyRate).stringValue
@@ -1356,6 +1456,9 @@ struct SalaryV2View: View {
     }
 
     private func applyImportedPayslip() {
+        guard accountIsCurrent else { return  }
+        let operation = SalaryAccountSessionV2.pin(salaryStore.accountLease)
+        defer { operation.close() }
         guard importConfirmed, importedPeriodMatchesSelection, salaryStore.selectedCompanyId != nil else { return }
         // Replace the comparison draft, never mix it with another bulletin.
         payslipGrossText = ""

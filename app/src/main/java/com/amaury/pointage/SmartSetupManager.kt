@@ -1,5 +1,9 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
+import com.amaury.pointage.v2.SalaryAccountScope
+
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
@@ -112,6 +116,20 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
     @Volatile private var listening = false
     @Volatile private var busyCompany = false
     @Volatile private var busyPause = false
+    private var watchedCompanies: SharedPreferences? = null
+    private val accountListener: () -> Unit = {
+        appContext?.let { app ->
+            observeCompanies(app)
+            syncKnownCompaniesAsync(app)
+        }
+    }
+
+    private fun observeCompanies(context: Context) {
+        watchedCompanies?.unregisterOnSharedPreferenceChangeListener(this)
+        watchedCompanies = SalaryAccountScope.preferences(context,
+            if (HoraTrackV2.ENABLED) "salary_companies_v2" else "salary_settings")
+        watchedCompanies?.registerOnSharedPreferenceChangeListener(this)
+    }
 
     internal fun legacyPauseLearningAllowed(): Boolean =
         !HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.TIME)
@@ -119,7 +137,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
     fun init(context: Context) {
         val app = context.applicationContext
         appContext = app
-        val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(app, PREFS, Context.MODE_PRIVATE)
         if (!prefs.getBoolean(KEY_INITIALIZED, false)) {
             prefs.edit()
                 .putBoolean(KEY_INITIALIZED, true)
@@ -129,13 +147,8 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
                 .apply()
         }
         if (!listening) {
-            if (HoraTrackV2.ENABLED) {
-                app.getSharedPreferences("salary_companies_v2", Context.MODE_PRIVATE)
-                    .registerOnSharedPreferenceChangeListener(this)
-            } else {
-                app.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
-                    .registerOnSharedPreferenceChangeListener(this)
-            }
+            observeCompanies(app)
+            SalaryAccountScope.addListener(accountListener)
             if (legacyPauseLearningAllowed()) {
                 app.getSharedPreferences("pointage", Context.MODE_PRIVATE)
                     .registerOnSharedPreferenceChangeListener(this)
@@ -147,7 +160,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
     }
 
     fun enabled(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, true)
+        RestoreGuardedPreferences.open(context, PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, true)
 
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
         val context = appContext ?: return
@@ -160,8 +173,10 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         }
     }
 
-    private fun syncKnownCompaniesAsync(context: Context) {
-        if (!enabled(context) || !context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_WORKPLACE, true)) return
+    private fun syncKnownCompaniesAsync(sourceContext: Context) {
+        val context = SalaryAccountScope.bindContext(sourceContext)
+        if (!SalaryAccountScope.available(context)) return
+        if (!enabled(context) || !RestoreGuardedPreferences.open(context, PREFS, Context.MODE_PRIVATE).getBoolean(KEY_WORKPLACE, true)) return
         if (busyCompany) return
         busyCompany = true
         Thread {
@@ -179,7 +194,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
                         )
                     }
                 } else {
-                    val salary = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
+                    val salary = SalaryAccountScope.preferences(context, "salary_settings")
                     for (slot in 1..2) {
                         val prefix = if (slot == 2) "company2_" else "company_"
                         val siret = salary.getString(prefix + "siret", "").orEmpty()
@@ -196,6 +211,9 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
                 }
             } finally {
                 busyCompany = false
+                if (!SalaryAccountScope.isCurrent(SalaryAccountScope.lease(context))) {
+                    appContext?.let(::syncKnownCompaniesAsync)
+                }
             }
         }.start()
     }
@@ -206,7 +224,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         legacyCompanySlot: Int?,
         address: String
     ) {
-        val gps = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val gps = RestoreGuardedPreferences.open(context, "gps_settings", Context.MODE_PRIVATE)
         val zones = readPersistedGpsZones(gps).toMutableJsonArrayOrNull() ?: return
 
         if (smartSetupTargetAlreadyRepresentedV2(
@@ -223,6 +241,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         val geocoded = runCatching {
             Geocoder(context, Locale.FRANCE).getFromLocationName(address, 1)?.firstOrNull()
         }.getOrNull() ?: return
+        if (!SalaryAccountScope.available(context)) return
 
         val radius = gps.getInt("radius", 150).coerceIn(50, 1000)
         val id = "smart_candidate_${UUID.randomUUID()}"
@@ -238,6 +257,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
             )
         )
 
+        if (!SalaryAccountScope.available(context)) return
         gps.edit()
             .putString("zones", zones.toString())
             .putBoolean("smart_setup_candidate_created", true)
@@ -253,7 +273,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
 
     fun onCandidateEnter(context: Context, zoneId: String) {
         if (!isCandidateZone(context, zoneId)) return
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, PREFS, Context.MODE_PRIVATE)
         val key = "candidate_enter_$zoneId"
         if (prefs.getLong(key, 0L) <= 0L) prefs.edit().putLong(key, System.currentTimeMillis()).apply()
     }
@@ -262,7 +282,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         val zone = findZone(context, zoneId) ?: return
         if (!zone.optBoolean("smartCandidate", false)) return
 
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, PREFS, Context.MODE_PRIVATE)
         val enterKey = "candidate_enter_$zoneId"
         val enteredAt = prefs.getLong(enterKey, 0L)
         prefs.edit().remove(enterKey).apply()
@@ -302,7 +322,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
 
     fun showPendingWorkplaceProposal(activity: Activity) {
         if (activity.isFinishing || activity.isDestroyed) return
-        val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(activity, PREFS, Context.MODE_PRIVATE)
         val zoneId = prefs.getString("pending_workplace_zone", "").orEmpty()
         if (zoneId.isBlank()) return
         if (prefs.getBoolean("proposal_dialog_visible", false)) return
@@ -351,7 +371,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
     }
 
     private fun confirmCandidate(context: Context, zoneId: String) {
-        val gps = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val gps = RestoreGuardedPreferences.open(context, "gps_settings", Context.MODE_PRIVATE)
         val zones = readPersistedGpsZones(gps).toMutableJsonArrayOrNull() ?: return
         var confirmedAddress = ""
         var stableCompanyId: String? = null
@@ -418,7 +438,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
     }
 
     private fun rejectCandidate(context: Context, zoneId: String) {
-        val gps = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val gps = RestoreGuardedPreferences.open(context, "gps_settings", Context.MODE_PRIVATE)
         val old = readPersistedGpsZones(gps).toMutableJsonArrayOrNull() ?: return
         val kept = JSONArray()
         for (i in 0 until old.length()) {
@@ -428,7 +448,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         // Un candidat n'alimente jamais active_zones : son retrait ne doit donc
         // pas effacer une présence Travail ou une sortie déjà en attente.
         gps.edit().putString("zones", kept.toString()).apply()
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        RestoreGuardedPreferences.open(context, PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean("candidate_rejected_$zoneId", true)
             .remove("candidate_days_$zoneId")
             .remove("candidate_enter_$zoneId")
@@ -473,7 +493,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
     }
 
     private fun findZone(context: Context, zoneId: String): JSONObject? {
-        val gps = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val gps = RestoreGuardedPreferences.open(context, "gps_settings", Context.MODE_PRIVATE)
         val zones = readPersistedGpsZones(gps).toMutableJsonArrayOrNull() ?: return null
         for (i in 0 until zones.length()) {
             val zone = zones.optJSONObject(i) ?: continue
@@ -498,7 +518,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         // canonique : son statut payé/non payé n'est pas démontrable. On garde ce moteur uniquement
         // pour le rollback V1 au lieu de relire et réécrire silencieusement des données legacy.
         if (!legacyPauseLearningAllowed()) return
-        if (!enabled(context) || !context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_PAUSES, true)) return
+        if (!enabled(context) || !RestoreGuardedPreferences.open(context, PREFS, Context.MODE_PRIVATE).getBoolean(KEY_PAUSES, true)) return
         if (busyPause) return
         busyPause = true
         Thread {
@@ -566,7 +586,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
             val start = candidate.second.coerceIn(0, 1439)
             val end = (start + candidate.third) % 1440
             CompanyBasePauseSettings.savePause(context, companySlot, pauseIndex, start, end)
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            RestoreGuardedPreferences.open(context, PREFS, Context.MODE_PRIVATE).edit()
                 .putBoolean("company${companySlot}_pause${pauseIndex}_learned", true)
                 .apply()
         }

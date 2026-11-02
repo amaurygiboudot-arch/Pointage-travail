@@ -109,7 +109,8 @@ class V2BackupManagerTest {
         assertTrue(V2BackupManager.isSupportedFormatVersion(4))
         assertFalse(V2BackupManager.isSupportedFormatVersion(0))
         assertTrue(V2BackupManager.isSupportedFormatVersion(5))
-        assertFalse(V2BackupManager.isSupportedFormatVersion(6))
+        assertTrue(V2BackupManager.isSupportedFormatVersion(6))
+        assertFalse(V2BackupManager.isSupportedFormatVersion(7))
     }
 
     @Test

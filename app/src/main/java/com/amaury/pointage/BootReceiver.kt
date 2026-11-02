@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -23,7 +25,7 @@ class BootReceiver : BroadcastReceiver() {
 
         if (DriveBackupManager.isConfigured(context)) DriveBackupScheduler.schedule(context)
 
-        val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, "gps_settings", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("enabled", false)) {
             val saved = prefs.edit()
                 .putBoolean(KEY_RESTORE_NEEDS_PERMISSION, false)

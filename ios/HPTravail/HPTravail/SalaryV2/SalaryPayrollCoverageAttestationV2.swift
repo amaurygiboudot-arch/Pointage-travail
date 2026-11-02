@@ -220,8 +220,9 @@ enum SalaryPayrollCoverageStoreV2 {
         checkedAt: Date,
         timeZoneId: String,
         now: Date = Date(),
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> SalaryPayrollCoverageAttestationV2? {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let employer = normalized(employerId)
         let zone = normalized(timeZoneId)
         guard work.reliable,
@@ -264,11 +265,15 @@ enum SalaryPayrollCoverageStoreV2 {
         return verified.reliable && verified.attestations.contains(item) ? item : nil
     }
 
-    static func read(defaults: UserDefaults = .standard) -> ReadResult {
-        guard let data = defaults.data(forKey: storageKey) else {
-            return .init(attestations: [], reliable: true, warnings: [])
+    static func read(defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults) -> ReadResult {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return SalaryAccountStorageV2.readConsistently(defaults, unavailable: ReadResult(attestations: [], reliable: false, warnings: [SalaryAccountStorageV2.warning])) {
+            guard SalaryAccountStorageV2.available(defaults) else { return .init(attestations: [], reliable: false, warnings: [SalaryAccountStorageV2.warning]) }
+            guard let data = defaults.data(forKey: storageKey) else {
+                return .init(attestations: [], reliable: true, warnings: [])
+            }
+            return decode(data)
         }
-        return decode(data)
     }
 
     static func resolve(
@@ -367,8 +372,9 @@ enum SalaryPayrollCoverageStoreV2 {
         requestedEndEpochDay: Int64,
         timeZoneId: String,
         now: Date,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> SalaryPayrollCoverageResolutionV2 {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let stored = read(defaults: defaults)
         guard stored.reliable else {
             return corruptResolution(
@@ -396,8 +402,9 @@ enum SalaryPayrollCoverageStoreV2 {
         coveredEndEpochDay: Int64,
         timeZoneId: String,
         now: Date,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> SalarySegmentedPayrollSessionSourceV2 {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let coverage = resolve(
             work: work,
             employerId: employerId,
@@ -444,7 +451,8 @@ enum SalaryPayrollCoverageStoreV2 {
         )
     }
 
-    static func clear(defaults: UserDefaults = .standard) {
+    static func clear(defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults) {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         defaults.removeObject(forKey: storageKey)
     }
 

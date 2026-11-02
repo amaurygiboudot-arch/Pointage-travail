@@ -1,6 +1,8 @@
 package com.amaury.pointage
 
 import android.content.Context
+import com.amaury.pointage.v2.SalaryAccountScope
+import com.amaury.pointage.v2.SalaryLegacyRecovery
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -69,72 +71,81 @@ object SalaryCompanyStore {
      * Une ancienne valeur corrompue n'est supprimée qu'après confirmation d'une autre copie saine.
      */
     fun readConfirmed(context: Context): ReadResult {
-        val store = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(companies = emptyList(), reliable = false, repairedFromBackup = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        if (SalaryLegacyRecovery.hasUnresolved(context)) return ReadResult(emptyList(), false, warnings = listOf(SalaryAccountScope.LEGACY_WARNING))
+        fun readInScope(): ReadResult {
+            val store = SalaryAccountScope.preferences(context, PREFS)
 
-        if (!store.contains(KEY)) {
-            val backupPresent = store.contains(KEY_LAST_KNOWN_GOOD)
+            if (!store.contains(KEY)) {
+                val backupPresent = store.contains(KEY_LAST_KNOWN_GOOD)
+                val backupRaw = runCatching { store.getString(KEY_LAST_KNOWN_GOOD, null) }.getOrNull()
+                val backup = backupRaw?.let(::decodeCompanies)
+                if (backup?.reliable == true) {
+                    val restored = runCatching {
+                        store.edit().putString(KEY, backupRaw).commit()
+                    }.getOrDefault(false)
+                    return if (restored) {
+                        discardCorruptBackup(store)
+                        backup.copy(repairedFromBackup = true, warnings = listOf(REPAIRED_WARNING))
+                    } else {
+                        ReadResult(
+                            companies = backup.companies,
+                            reliable = false,
+                            warnings = listOf(STORAGE_WARNING, "La copie valide a été trouvée mais sa restauration a échoué.")
+                        )
+                    }
+                }
+                missingPrimaryBackupFailure(backupPresent, backup)?.let { return it }
+                val migration = migrateLegacy(context)
+                legacyMigrationReadFailure(migration)?.let { return it }
+            }
+
+            if (!store.contains(KEY)) return ReadResult(emptyList(), true)
+
+            val primaryValue = runCatching { store.all[KEY] }.getOrNull()
+            val primaryRaw = primaryValue as? String
             val backupRaw = runCatching { store.getString(KEY_LAST_KNOWN_GOOD, null) }.getOrNull()
-            val backup = backupRaw?.let(::decodeCompanies)
-            if (backup?.reliable == true) {
-                val restored = runCatching {
-                    store.edit().putString(KEY, backupRaw).commit()
-                }.getOrDefault(false)
-                return if (restored) {
-                    discardCorruptBackup(store)
-                    backup.copy(repairedFromBackup = true, warnings = listOf(REPAIRED_WARNING))
-                } else {
-                    ReadResult(
-                        companies = backup.companies,
+            val resolution = resolveStoredCompanies(primaryRaw, backupRaw)
+
+            return when (resolution.source) {
+                StorageSource.PRIMARY -> {
+                    // La trace corrompue n'est jetée que si une sauvegarde saine existe déjà ou si sa
+                    // reconstruction depuis le principal sain vient d'être confirmée par commit().
+                    val backupHealthy = when {
+                        primaryRaw == null -> false
+                        backupRaw == primaryRaw -> true
+                        else -> runCatching {
+                            store.edit().putString(KEY_LAST_KNOWN_GOOD, primaryRaw).commit()
+                        }.getOrDefault(false)
+                    }
+                    if (backupHealthy) discardCorruptBackup(store)
+                    resolution.result
+                }
+                StorageSource.LAST_KNOWN_GOOD -> {
+                    val repairedRaw = backupRaw ?: return resolution.result.copy(reliable = false)
+                    val restored = runCatching {
+                        store.edit().putString(KEY, repairedRaw).commit()
+                    }.getOrDefault(false)
+                    if (restored) {
+                        discardCorruptBackup(store)
+                        resolution.result
+                    } else ReadResult(
+                        companies = resolution.result.companies,
                         reliable = false,
                         warnings = listOf(STORAGE_WARNING, "La copie valide a été trouvée mais sa restauration a échoué.")
                     )
                 }
+                StorageSource.NONE -> resolution.result
             }
-            missingPrimaryBackupFailure(backupPresent, backup)?.let { return it }
-            val migration = migrateLegacy(context)
-            legacyMigrationReadFailure(migration)?.let { return it }
         }
-
-        if (!store.contains(KEY)) return ReadResult(emptyList(), true)
-
-        val primaryValue = runCatching { store.all[KEY] }.getOrNull()
-        val primaryRaw = primaryValue as? String
-        val backupRaw = runCatching { store.getString(KEY_LAST_KNOWN_GOOD, null) }.getOrNull()
-        val resolution = resolveStoredCompanies(primaryRaw, backupRaw)
-
-        return when (resolution.source) {
-            StorageSource.PRIMARY -> {
-                // La trace corrompue n'est jetée que si une sauvegarde saine existe déjà ou si sa
-                // reconstruction depuis le principal sain vient d'être confirmée par commit().
-                val backupHealthy = when {
-                    primaryRaw == null -> false
-                    backupRaw == primaryRaw -> true
-                    else -> runCatching {
-                        store.edit().putString(KEY_LAST_KNOWN_GOOD, primaryRaw).commit()
-                    }.getOrDefault(false)
-                }
-                if (backupHealthy) discardCorruptBackup(store)
-                resolution.result
-            }
-            StorageSource.LAST_KNOWN_GOOD -> {
-                val repairedRaw = backupRaw ?: return resolution.result.copy(reliable = false)
-                val restored = runCatching {
-                    store.edit().putString(KEY, repairedRaw).commit()
-                }.getOrDefault(false)
-                if (restored) {
-                    discardCorruptBackup(store)
-                    resolution.result
-                } else ReadResult(
-                    companies = resolution.result.companies,
-                    reliable = false,
-                    warnings = listOf(STORAGE_WARNING, "La copie valide a été trouvée mais sa restauration a échoué.")
-                )
-            }
-            StorageSource.NONE -> resolution.result
-        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     fun list(context: Context): List<Company> {
+        val context = SalaryAccountScope.bindContext(context)
         val stored = readConfirmed(context)
         check(stored.reliable) { stored.warnings.firstOrNull() ?: STORAGE_WARNING }
         return stored.companies
@@ -156,8 +167,10 @@ object SalaryCompanyStore {
         companyId: String,
         block: (Company) -> T
     ): T? {
+        val context = SalaryAccountScope.bindContext(context)
         val company = confirmedCompany(readConfirmed(context), companyId) ?: return null
-        return block(company)
+        val result = SalaryAccountScope.withLease(SalaryAccountScope.lease(context)) { block(company) }
+        return result.takeIf { SalaryAccountScope.available(context) }
     }
 
     internal fun companiesAfterMutation(
@@ -205,6 +218,7 @@ object SalaryCompanyStore {
         company: Company,
         allowInsert: Boolean
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val all = companiesAfterMutation(readConfirmed(context), company, allowInsert) ?: return false
         if (!save(context, all)) return false
         return confirmedCompany(readConfirmed(context), company.id) != null
@@ -212,6 +226,7 @@ object SalaryCompanyStore {
 
     @Synchronized
     fun remove(context: Context, id: String): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val companyId = id.trim()
         if (companyId.isBlank()) return false
         val stored = readConfirmed(context)
@@ -222,8 +237,8 @@ object SalaryCompanyStore {
         return reloaded.reliable && reloaded.companies.none { it.id == companyId }
     }
 
-    fun prefs(context: Context, companyId: String) = context.getSharedPreferences(
-        "salary_company_${companyId.replace(Regex("[^A-Za-z0-9_-]"), "_")}", Context.MODE_PRIVATE
+    fun prefs(context: Context, companyId: String) = SalaryAccountScope.preferences(
+        context, "salary_company_${companyId.replace(Regex("[^A-Za-z0-9_-]"), "_")}"
     )
 
     /** Une liste partiellement récupérée n'est jamais utilisable pour résoudre des alias employeur. */
@@ -239,6 +254,7 @@ object SalaryCompanyStore {
      * Un alias historique n'est accepté que s'il désigne une seule entreprise actuelle.
      */
     fun acceptedEmployerIds(context: Context, companyId: String): Set<String> {
+        val context = SalaryAccountScope.bindContext(context)
         val requestedId = companyId.trim()
         if (requestedId.isBlank()) return emptySet()
         val companies = companiesForAliasResolution(readConfirmed(context)) ?: return setOf(requestedId)
@@ -279,8 +295,9 @@ object SalaryCompanyStore {
     }
 
     private fun acceptedEmployerIdsForCompany(context: Context, company: Company): Set<String> {
+        val context = SalaryAccountScope.bindContext(context)
         val ids = linkedSetOf(company.id)
-        val old = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
+        val old = SalaryAccountScope.preferences(context, "salary_settings")
 
         fun value(key: String): String = when (val v = old.all[key]) {
             null -> ""
@@ -314,6 +331,7 @@ object SalaryCompanyStore {
      * Un store entreprises non fiable ne permet aucune résolution canonique.
      */
     fun canonicalCompanyIdForEmployerId(context: Context, employerId: String?): String? {
+        val context = SalaryAccountScope.bindContext(context)
         val raw = employerId?.trim().orEmpty()
         if (raw.isBlank()) return null
         val companies = companiesForAliasResolution(readConfirmed(context)) ?: return null
@@ -430,11 +448,12 @@ object SalaryCompanyStore {
     }.getOrNull()
 
     private fun save(context: Context, companies: List<Company>): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (companies.any { it.id.isBlank() } || companies.map { it.id }.distinct().size != companies.size) return false
         val raw = encodeCompanies(companies)
         val verification = decodeCompanies(raw)
         if (!verification.reliable || verification.companies.size != companies.size) return false
-        val store = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val store = SalaryAccountScope.preferences(context, PREFS)
         val persisted = store.edit()
             .putString(KEY, raw)
             .putString(KEY_LAST_KNOWN_GOOD, raw)
@@ -464,9 +483,10 @@ object SalaryCompanyStore {
     }
 
     private fun migrateLegacy(context: Context): LegacyMigrationResult {
-        val store = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val context = SalaryAccountScope.bindContext(context)
+        val store = SalaryAccountScope.preferences(context, PREFS)
         if (store.contains(KEY)) return LegacyMigrationResult(LegacyMigrationStatus.NO_DATA)
-        val old = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
+        val old = SalaryAccountScope.preferences(context, "salary_settings")
         val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
 
         fun value(key: String): String = when (val v = old.all[key]) {

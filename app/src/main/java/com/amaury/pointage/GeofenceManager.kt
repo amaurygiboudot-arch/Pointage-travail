@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.Manifest
 import android.app.PendingIntent
 import android.content.Context
@@ -138,12 +140,12 @@ object GeofenceManager {
 
     private fun isAutomaticGpsEnabled(context: Context): Boolean =
         shouldRegisterAutomaticGps(
-            context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
+            RestoreGuardedPreferences.open(context, GPS_PREFS, Context.MODE_PRIVATE)
                 .getBoolean("enabled", false)
         )
 
     internal fun isStoredRegistrationCurrent(context: Context): Boolean {
-        val prefs = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, GPS_PREFS, Context.MODE_PRIVATE)
         return isCurrentStoredGeofenceRegistrationV2(
             registrationValid = prefs.getBoolean(
                 GpsPresenceStateKeysV2.REGISTRATION_VALID,
@@ -175,7 +177,7 @@ object GeofenceManager {
 
     private fun invalidateStoredRegistration(context: Context): Boolean {
         recordJourneyMonitoringInterruption(context)
-        return context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
+        return RestoreGuardedPreferences.open(context, GPS_PREFS, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(GpsPresenceStateKeysV2.REGISTRATION_VALID, false)
             .remove(GpsPresenceStateKeysV2.REGISTRATION_FINGERPRINT)
@@ -322,7 +324,7 @@ object GeofenceManager {
                                 onResult(false, "GPS automatique désactivé")
                                 return@addOnSuccessListener
                             }
-                            val prefs = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
+                            val prefs = RestoreGuardedPreferences.open(context, GPS_PREFS, Context.MODE_PRIVATE)
                             val fingerprint = storedGpsConfigurationFingerprint(prefs)
                             if (!validateStoredRegistration(prefs, fingerprint, zones)) {
                                 removeRegisteredGeofences(context)
@@ -385,7 +387,7 @@ object GeofenceManager {
         onResult: (Boolean, String) -> Unit
     ) {
         observeMonitoringAvailability(context)
-        val prefs = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, GPS_PREFS, Context.MODE_PRIVATE)
         val fingerprint = storedGpsConfigurationFingerprint(prefs)
         if (isCurrentStoredGeofenceRegistrationV2(
                 registrationValid = prefs.getBoolean(
@@ -483,7 +485,7 @@ object GeofenceManager {
         // The serialized path actually removes/reinstalls platform monitoring. It is
         // not used by an ordinary resume with a valid registration.
         recordJourneyMonitoringInterruption(app)
-        val prefs = app.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(app, GPS_PREFS, Context.MODE_PRIVATE)
         val presenceCleared = if (clearPresenceState) {
             val corruptEntryObservation = GpsEntryRecoveryV2.read(prefs) == null
             val presenceEditor = prefs.edit()
@@ -639,7 +641,7 @@ object GeofenceManager {
 
     private fun rememberLastGoodZones(context: Context) {
         if (!isAutomaticGpsEnabled(context)) return
-        val prefs = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, GPS_PREFS, Context.MODE_PRIVATE)
         val parsed = readPersistedGpsZones(prefs)
         if (parsed !is GpsZonesReadResult.Valid || parsed.zones.isEmpty()) return
         val raw = runCatching { prefs.getString("zones", null) }.getOrNull() ?: return
@@ -654,7 +656,7 @@ object GeofenceManager {
      * absente ou corrompue n'est jamais assimilée à une liste vide.
      */
     private fun recoverRadiusOnlyUpdate(context: Context): List<WorkZone> {
-        val prefs = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, GPS_PREFS, Context.MODE_PRIVATE)
         val current = readPersistedGpsZones(prefs)
         if (current !is GpsZonesReadResult.Valid) return emptyList()
 

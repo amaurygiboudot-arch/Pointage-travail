@@ -26,21 +26,27 @@ enum SalaryConfirmedSicknessCashV2 {
         (record.directEmployeeNetBeforeTax != nil || record.subrogatedEmployerNetBeforeTax != nil) &&
         [record.directEmployeeNetBeforeTax, record.subrogatedEmployerNetBeforeTax].compactMap { $0 }.allSatisfy { !$0.isNaN && $0 >= 0 }
     }
-    static func read(companyId: String, period: YearMonthV2, defaults: UserDefaults = .standard) -> Result {
-        guard let object = defaults.object(forKey: key(companyId, period)) else { return .init(record: nil, reliable: true, warnings: []) }
-        guard let data = object as? Data, let record = try? JSONDecoder().decode(Record.self, from: data),
-              valid(record), record.companyId == companyId, record.period == period else {
-            return .init(record: nil, reliable: false, warnings: ["IJSS mensuelles : source locale à vérifier ; aucun montant confirmé utilisable."])
+    static func read(companyId: String, period: YearMonthV2, defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults) -> Result {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return SalaryAccountStorageV2.readConsistently(defaults, unavailable: Result(record: nil, reliable: false, warnings: [SalaryAccountStorageV2.warning])) {
+            guard SalaryAccountStorageV2.available(defaults) else { return .init(record: nil, reliable: false, warnings: [SalaryAccountStorageV2.warning]) }
+            guard let object = defaults.object(forKey: key(companyId, period)) else { return .init(record: nil, reliable: true, warnings: []) }
+            guard let data = object as? Data, let record = try? JSONDecoder().decode(Record.self, from: data),
+                  valid(record), record.companyId == companyId, record.period == period else {
+                return .init(record: nil, reliable: false, warnings: ["IJSS mensuelles : source locale à vérifier ; aucun montant confirmé utilisable."])
+            }
+            return .init(record: record, reliable: true, warnings: [])
         }
-        return .init(record: record, reliable: true, warnings: [])
     }
-    static func save(_ record: Record, confirmed: Bool, defaults: UserDefaults = .standard) -> Bool {
+    static func save(_ record: Record, confirmed: Bool, defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard confirmed, valid(record), read(companyId: record.companyId, period: record.period, defaults: defaults).reliable,
               let data = try? JSONEncoder().encode(record) else { return false }
         defaults.set(data, forKey: key(record.companyId, record.period))
         return read(companyId: record.companyId, period: record.period, defaults: defaults).record == record
     }
-    static func remove(companyId: String, period: YearMonthV2, defaults: UserDefaults = .standard) {
+    static func remove(companyId: String, period: YearMonthV2, defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults) {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         defaults.removeObject(forKey: key(companyId, period))
     }
 }

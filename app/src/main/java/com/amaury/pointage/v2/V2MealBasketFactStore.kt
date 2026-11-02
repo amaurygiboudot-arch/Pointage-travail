@@ -31,6 +31,7 @@ object V2MealBasketFactStore {
         day: LocalDate,
         sessionId: String
     ): MealBasketFactJournalV2.Resolution {
+        val context = SalaryAccountScope.bindContext(context)
         val loaded = load(context)
         val entries = entriesForCanonicalCompany(context, companyId, loaded.entries)
         val resolved = MealBasketFactJournalV2.resolve(
@@ -70,6 +71,7 @@ object V2MealBasketFactStore {
         removeEntryIds: Set<String>,
         replacements: List<MealBasketFactJournalV2.Entry>
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (removeEntryIds.any { it.isBlank() }) return false
         if (replacements.any { !it.structurallyValid() }) return false
         if (replacements.map { it.id }.toSet().size != replacements.size) return false
@@ -113,6 +115,7 @@ object V2MealBasketFactStore {
         replacements: List<MealBasketFactJournalV2.Entry>,
         expectedCompanyId: String?
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val loaded = load(context)
         if (loaded.malformedCount > 0) return false
         val companyIds = companyIdsForMutation(loaded.entries, removeEntryIds, replacements)
@@ -125,17 +128,24 @@ object V2MealBasketFactStore {
         val idsToReplace = removeEntryIds + replacements.map { it.id }
         val next = loaded.entries.filterNot { it.id in idsToReplace } + replacements
         if (next.size > MAX_ENTRIES) return false
-        return context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return SalaryAccountScope.preferences(context, PREFS)
             .edit()
             .putString(KEY_ENTRIES, encode(next).toString())
             .commit()
     }
 
     fun load(context: Context): LoadResult {
-        val raw = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_ENTRIES, null)
-            ?: return LoadResult(emptyList(), 0)
-        return decode(raw)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): LoadResult = LoadResult(entries = emptyList(), malformedCount = 1)
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): LoadResult {
+            val raw = SalaryAccountScope.preferences(context, PREFS)
+                .getString(KEY_ENTRIES, null)
+                ?: return LoadResult(emptyList(), 0)
+            return decode(raw)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     /**
@@ -147,6 +157,7 @@ object V2MealBasketFactStore {
         companyId: String,
         entries: List<MealBasketFactJournalV2.Entry>
     ): List<MealBasketFactJournalV2.Entry> {
+        val context = SalaryAccountScope.bindContext(context)
         val accepted = SalaryCompanyStore.acceptedEmployerIds(context, companyId)
         val safeIds = accepted.filterTo(linkedSetOf()) { employerId ->
             employerId == companyId ||

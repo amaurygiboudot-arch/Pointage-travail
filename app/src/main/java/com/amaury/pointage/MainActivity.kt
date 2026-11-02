@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import com.amaury.pointage.billing.BillingPdfGate
 import com.amaury.pointage.billing.BillingOffers
 
@@ -140,11 +142,11 @@ class MainActivity : Activity() {
     private val fullDateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE)
     private val reportMonthFormat = SimpleDateFormat("MMMM yyyy", Locale.FRANCE)
 
-    private val gpsPrefs by lazy { getSharedPreferences("gps_settings", Context.MODE_PRIVATE) }
+    private val gpsPrefs by lazy { RestoreGuardedPreferences.open(this, "gps_settings", Context.MODE_PRIVATE) }
     private val celestialPrefs by lazy {
         getSharedPreferences(CelestialGlobeModeV2.PREFS, Context.MODE_PRIVATE)
     }
-    private val navigationPrefs by lazy { getSharedPreferences(NAVIGATION_PREFS, Context.MODE_PRIVATE) }
+    private val navigationPrefs by lazy { RestoreGuardedPreferences.open(this, NAVIGATION_PREFS, Context.MODE_PRIVATE) }
 
     private inline fun <reified T : View> requiredView(id: Int, name: String): T =
         requireNotNull(findViewById<T>(id)) { "MainActivity : vue obligatoire absente : $name" }
@@ -370,10 +372,10 @@ class MainActivity : Activity() {
         if (HoraTrackV2.ENABLED) {
             // A result from the former destination-first flow cannot bypass V2 preparation.
             runCatching { android.provider.DocumentsContract.deleteDocument(contentResolver, uri) }
-            startActivity(Intent(this, V2MonthlyPdfActivity::class.java).apply {
+            startActivity(SalaryAccountUi.attach(Intent(this, V2MonthlyPdfActivity::class.java).apply {
                 putExtra("report_year", pendingPdfYear)
                 putExtra("report_month", pendingPdfMonth)
-            })
+            }, com.amaury.pointage.v2.SalaryAccountScope.lease(this)))
             return
         }
         try {
@@ -575,11 +577,11 @@ class MainActivity : Activity() {
 
     private fun requestMonthlyPdfPreview() {
         if (HoraTrackV2.ENABLED) {
-            startActivity(Intent(this, V2MonthlyPdfActivity::class.java).apply {
+            startActivity(SalaryAccountUi.attach(Intent(this, V2MonthlyPdfActivity::class.java).apply {
                 putExtra("report_year", selectedReportMonth.get(Calendar.YEAR))
                 putExtra("report_month", selectedReportMonth.get(Calendar.MONTH))
                 putExtra("report_preview", true)
-            })
+            }, com.amaury.pointage.v2.SalaryAccountScope.lease(this)))
         } else {
             findViewById<PreviewPdfButton>(R.id.generateMonthlyPdfButton)?.openPreview(
                 selectedReportMonth.get(Calendar.YEAR), selectedReportMonth.get(Calendar.MONTH))
