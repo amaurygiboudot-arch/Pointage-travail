@@ -1,8 +1,10 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SalaryV2View: View {
     @EnvironmentObject private var salaryStore: SalaryV2Store
     @EnvironmentObject private var workStore: WorkStoreV2
+    @EnvironmentObject private var authManager: AuthManager
     @State private var payrollCoverageAgreed = false
     @State private var payrollCoverageFeedback: String?
     @State private var salaryPdfURL: URL?
@@ -14,6 +16,28 @@ struct SalaryV2View: View {
     @State private var payslipNetAfterTaxText = ""
     @State private var payslipComparisonResult: SalaryPayslipComparisonResultV2?
     @State private var payslipComparisonFeedback: String?
+
+    @State private var importPicker = false
+    @State private var importBusy = false
+    @State private var importToken = UUID()
+    @State private var importProposals: [SalaryPayslipImportProposalV2] = []
+    @State private var importConfirmed = false
+    @State private var importedPayslipPeriod: SalaryPayslipPeriodDraftV2?
+    @State private var importedHourlyRateDraft: SalaryPayslipHourlyRateDraftV2?
+    @State private var hourlyRateImportConfirmed = false
+    @State private var importFeedback: String?
+    @State private var importSources: [String] = []
+    @State private var importedAmountFingerprint: [String]?
+    @State private var observedExcerpts: [String: String] = [:]
+    @State private var observationsConfirmed = false
+    @State private var observationsDeleteConfirmation = false
+
+    @State private var sicknessDirectText = ""
+    @State private var sicknessSubrogatedText = ""
+    @State private var sicknessSourceText = ""
+    @State private var sicknessConfirmed = false
+    @State private var sicknessFeedback: String?
+    @State private var sicknessDeleteConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -31,6 +55,7 @@ struct SalaryV2View: View {
                     reliabilityCard
                     paidWorkCard
                     absenceCard
+                    confirmedSicknessCashCard
                     referenceCard
                     incomeTaxCard
                     warningsCard
@@ -38,6 +63,12 @@ struct SalaryV2View: View {
                 .padding()
             }
             .navigationTitle("Salaire")
+            .fileImporter(isPresented: $importPicker, allowedContentTypes: [.pdf, .image]) { result in
+                switch result {
+                case .success(let url): readPayslip(url)
+                case .failure: clearImportDraft()
+                }
+            }
             .onAppear {
                 salaryStore.refresh()
             }
@@ -46,17 +77,19 @@ struct SalaryV2View: View {
                 resetPayrollCoverageConfirmation()
                 clearPayslipComparisonResult()
             }
-            .onChange(of: workStore.storageReliable) { _ in
+            .onChange(of: workStore.payrollHistoryReliable) { _ in
                 salaryStore.refresh()
                 resetPayrollCoverageConfirmation()
                 clearPayslipComparisonResult()
             }
             .onChange(of: salaryStore.selectedPeriod) { _ in
+                resetSicknessCashDraft()
                 resetPayslipComparison()
                 resetPayrollCoverageConfirmation()
                 clearSalaryPdf()
             }
             .onChange(of: salaryStore.selectedCompany) { _ in
+                resetSicknessCashDraft()
                 resetPayslipComparison()
                 resetPayrollCoverageConfirmation()
                 clearSalaryPdf()
@@ -66,7 +99,13 @@ struct SalaryV2View: View {
                 clearSalaryPdf()
             }
             .onChange(of: [payslipGrossText, payslipNetBeforeTaxText, payslipNetTaxableText,
-                           payslipIncomeTaxText, payslipNetAfterTaxText]) { _ in
+                           payslipIncomeTaxText, payslipNetAfterTaxText]) { values in
+                if let importedAmountFingerprint, values != importedAmountFingerprint {
+                    importSources = []
+                    observedExcerpts = [:]
+                    self.importedAmountFingerprint = nil
+                }
+                observationsConfirmed = false
                 clearPayslipComparisonResult()
             }
         }
@@ -155,8 +194,22 @@ struct SalaryV2View: View {
                 }
                 .buttonStyle(.bordered)
 
-                Text("Avec plusieurs employeurs, HoraTrack n'en choisit jamais un à votre place.")
+                Text("Avec plusieurs employeurs, AGKGMG n'en choisit jamais un à votre place.")
                     .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let company = salaryStore.selectedCompany {
+                NavigationLink {
+                    SalaryDatedWorkRulesEditorV2(companyId: company.id)
+                        .id(authManager.user?.uid ?? "non-connecte")
+                } label: {
+                    Label("MES RÈGLES DE TRAVAIL DATÉES", systemImage: "calendar.badge.clock")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+                Text("Les règles sont personnelles au compte connecté et à la version de contrat.")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
@@ -171,7 +224,7 @@ struct SalaryV2View: View {
                 .font(.caption.bold())
                 .foregroundStyle(.secondary)
 
-            Text("La date d’entrée et la date d’effet sont distinctes. HoraTrack ne déduit aucune date du mois affiché ni de la date du jour.")
+            Text("La date d’entrée et la date d’effet sont distinctes. AGKGMG ne déduit aucune date du mois affiché ni de la date du jour.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
@@ -306,7 +359,7 @@ struct SalaryV2View: View {
                     .font(.caption.bold())
                     .foregroundStyle(.secondary)
 
-                Text("Un changement réel de contrat en cours de mois exige une base planifiée confirmée. HoraTrack n’invente ni répartition calendaire ni planning.")
+                Text("Un changement réel de contrat en cours de mois exige une base planifiée confirmée. AGKGMG n’invente ni répartition calendaire ni planning.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
@@ -453,7 +506,7 @@ struct SalaryV2View: View {
                     )
                     .font(.footnote)
 
-                    Text("HoraTrack ne découpe pas artificiellement une semaine pour inventer des heures supplémentaires, complémentaires ou majorations.")
+                    Text("AGKGMG ne découpe pas artificiellement une semaine pour inventer des heures supplémentaires, complémentaires ou majorations.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -474,7 +527,7 @@ struct SalaryV2View: View {
                 .font(.caption.bold())
                 .foregroundStyle(.secondary)
 
-            Text("Le statut professionnel et le régime local peuvent modifier les cotisations. HoraTrack ne les déduit jamais du métier, de l’adresse ou de la convention.")
+            Text("Le statut professionnel et le régime local peuvent modifier les cotisations. AGKGMG ne les déduit jamais du métier, de l’adresse ou de la convention.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
@@ -617,7 +670,7 @@ struct SalaryV2View: View {
                         .font(.title3.bold())
                     Text("IDCC \(coverage.idcc ?? "à confirmer") — \(coverage.segments.count) versions confirmées")
                         .font(.footnote)
-                    Text("HoraTrack conserve chaque période séparément et n'applique aucune version unique à tout le mois.")
+                    Text("AGKGMG conserve chaque période séparément et n'applique aucune version unique à tout le mois.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 } else if coverage.sourceReliable {
@@ -656,7 +709,7 @@ struct SalaryV2View: View {
                 .foregroundStyle(.secondary)
             Text(salaryStore.snapshot.sourceReady ? "Sources amont détectées" : "Sources amont à raccorder")
                 .font(.title3.bold())
-            Text("HoraTrack n'affiche aucun montant de remplacement lorsque les données nécessaires ne sont pas certifiables.")
+            Text("AGKGMG n'affiche aucun montant de remplacement lorsque les données nécessaires ne sont pas certifiables.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -820,10 +873,61 @@ struct SalaryV2View: View {
                 Text("Comparaison bulletin")
                     .fontWeight(.semibold)
 
-                Text("Renseignez uniquement les montants réellement lus sur le bulletin. Un champ vide est ignoré ; HoraTrack compare seulement les valeurs que la référence canonique sait aussi produire.")
+                Text("Renseignez uniquement les montants réellement lus sur le bulletin. Un champ vide est ignoré ; AGKGMG compare seulement les valeurs que la référence canonique sait aussi produire.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
+                Button(importBusy ? "Lecture locale en cours…" : "Importer un bulletin PDF ou photo") {
+                    clearImportDraft()
+                    importPicker = true
+                }
+                .disabled(importBusy || salaryStore.selectedCompanyId == nil)
+                if importBusy {
+                    Button("Annuler la lecture") { clearImportDraft() }
+                }
+                Text("Lecture sur cet appareil. Vérifiez chaque montant ; les lignes ambiguës restent à saisir. Cet import propose des montants pour la comparaison et, si lisible, un taux horaire brut pour le formulaire de contrat. Rien n’est enregistré automatiquement.")
+                    .font(.footnote)
+                if let importFeedback { Text(importFeedback).font(.footnote) }
+                if let importedPayslipPeriod {
+                    Text("Mois proposé par le bulletin : \(importedPayslipPeriod.description)")
+                    Text(importedPayslipPeriod.source).font(.caption).foregroundStyle(.secondary)
+                    if !importedPeriodMatchesSelection {
+                        Text("Ce bulletin concerne un autre mois. Sélectionnez son mois, puis réimportez-le avant de confirmer.")
+                            .font(.footnote).foregroundStyle(.orange)
+                    }
+                } else if !importProposals.isEmpty || importedHourlyRateDraft != nil {
+                    Text("Période non identifiée avec certitude. Vérifiez vous-même que ce bulletin correspond au mois sélectionné avant de confirmer.")
+                        .font(.footnote)
+                }
+                if let hourlyDraft = importedHourlyRateDraft {
+                    Text("Taux horaire brut proposé : \(NSDecimalNumber(decimal: hourlyDraft.grossHourlyRate).stringValue) €/h")
+                    Text(hourlyDraft.source).font(.caption).foregroundStyle(.secondary)
+                    Text("La date d’effet reste à confirmer. Vérifiez le formulaire de contrat puis enregistrez sa version pour utiliser ce taux dans l’estimation.")
+                        .font(.footnote)
+                    Toggle("Je confirme ce taux pour l’entreprise \(salaryStore.selectedCompany?.name ?? "") et le bulletin du mois \(salaryStore.selectedPeriod.description)", isOn: $hourlyRateImportConfirmed)
+                    Button("Préremplir le taux du contrat, sans enregistrer") { applyImportedHourlyRate() }
+                        .disabled(!hourlyRateImportConfirmed || !hourlyContractSelected || !importedPeriodMatchesSelection)
+                    if !hourlyContractSelected {
+                        Text("Le taux horaire concerne uniquement un contrat horaire. Aucun salaire mensuel n’est déduit.").font(.footnote)
+                    }
+                }
+                if !importProposals.isEmpty {
+                    ForEach(importProposals) { proposal in
+                        VStack(alignment: .leading) {
+                            Text("\(proposal.field.label) : \(NSDecimalNumber(decimal: proposal.amount).stringValue) €")
+                            Text(proposal.source).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    Toggle("Je confirme les montants, l’entreprise \(salaryStore.selectedCompany?.name ?? "") et le mois \(salaryStore.selectedPeriod.description) du bulletin", isOn: $importConfirmed)
+                    Button("Utiliser ces montants vérifiés") { applyImportedPayslip() }
+                        .disabled(!importConfirmed || !importedPeriodMatchesSelection)
+                }
+                if !importProposals.isEmpty || importedHourlyRateDraft != nil {
+                    Button("Annuler l’import") { clearImportDraft() }
+                }
+                ForEach(importSources, id: \.self) { source in
+                    Text(source).font(.caption).foregroundStyle(.secondary)
+                }
                 TextField("Brut social observé", text: $payslipGrossText)
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
@@ -840,7 +944,21 @@ struct SalaryV2View: View {
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
 
-                Button("Comparer avec HoraTrack") {
+                Toggle("Je confirme les valeurs observées pour cette entreprise et ce mois", isOn: $observationsConfirmed)
+                Button("Enregistrer les valeurs confirmées du bulletin") { saveObservedPayslip() }
+                    .disabled(!observationsConfirmed || salaryStore.selectedCompanyId == nil)
+                Button("Restaurer les valeurs confirmées de ce mois") { restoreObservedPayslip() }
+                    .disabled(salaryStore.selectedCompanyId == nil)
+                Button("Supprimer les valeurs confirmées de ce mois", role: .destructive) { observationsDeleteConfirmation = true }
+                    .disabled(salaryStore.selectedCompanyId == nil)
+                    .confirmationDialog("Supprimer les valeurs confirmées du bulletin ?", isPresented: $observationsDeleteConfirmation) {
+                        Button("Supprimer", role: .destructive) { removeObservedPayslip() }
+                        Button("Annuler", role: .cancel) { }
+                    } message: {
+                        Text("Entreprise : \(salaryStore.selectedCompany?.name ?? "À choisir") — mois : \(salaryStore.selectedPeriod.description). Les montants et leurs extraits seront supprimés.")
+                    }
+
+                Button("Comparer avec AGKGMG") {
                     comparePayslip()
                 }
                 .buttonStyle(.bordered)
@@ -859,7 +977,7 @@ struct SalaryV2View: View {
                                 Text(discrepancy.field.label)
                                     .font(.footnote.bold())
                                 Text(
-                                    "HoraTrack : \(euros(discrepancy.expected)) — Bulletin : \(euros(discrepancy.observed))"
+                                    "AGKGMG : \(euros(discrepancy.expected)) — Bulletin : \(euros(discrepancy.observed))"
                                 )
                                 .font(.footnote)
                                 Text(discrepancy.explanation)
@@ -898,8 +1016,8 @@ struct SalaryV2View: View {
                 if let salaryPdfURL {
                     ShareLink(
                         item: salaryPdfURL,
-                        subject: Text("HoraTrack — estimation de salaire"),
-                        message: Text("Export Salaire V2 HoraTrack")
+                        subject: Text("AGKGMG — estimation de salaire"),
+                        message: Text("Export Salaire V2 AGKGMG")
                     ) {
                         Label("Partager le PDF", systemImage: "square.and.arrow.up")
                     }
@@ -1009,6 +1127,59 @@ struct SalaryV2View: View {
         return formatter.string(from: date)
     }
 
+    private func confirmedObservedCompanyId() -> String? {
+        guard let id = salaryStore.selectedCompanyId,
+              SalaryCompanyStoreV2.confirmedCompany(SalaryCompanyStoreV2.readConfirmed(), companyId: id) != nil else {
+            payslipComparisonFeedback = "Entreprise absente ou stockage à vérifier ; opération bloquée."
+            return nil
+        }
+        return id
+    }
+
+    private func saveObservedPayslip() {
+        guard observationsConfirmed, let id = confirmedObservedCompanyId() else { return }
+        let parsed = [payslipGrossText, payslipNetBeforeTaxText, payslipNetTaxableText,
+                      payslipIncomeTaxText, payslipNetAfterTaxText].map(parseObservedAmount)
+        guard parsed.allSatisfy(\.valid) else {
+            payslipComparisonFeedback = "Montants invalides ; aucune valeur enregistrée."
+            return
+        }
+        let keys = SalaryPayslipFieldV2.allCases.map(\.rawValue)
+        var amounts: [String: Double] = [:]
+        for (index, value) in parsed.enumerated() { if let amount = value.value { amounts[keys[index]] = amount } }
+        let record = SalaryPayslipObservedStoreV2.Record(companyId: id, period: salaryStore.selectedPeriod,
+            amounts: amounts, excerpts: observedExcerpts.filter { amounts[$0.key] != nil }, confirmedAt: Date())
+        let saved = SalaryPayslipObservedStoreV2.save(record, confirmed: true)
+        payslipComparisonFeedback = saved ? "Valeurs confirmées enregistrées pour cette entreprise et ce mois." : "Enregistrement impossible : données invalides ou stockage à vérifier."
+        if saved { observationsConfirmed = false }
+    }
+
+    private func restoreObservedPayslip() {
+        guard let id = confirmedObservedCompanyId() else { return }
+        let result = SalaryPayslipObservedStoreV2.read(companyId: id, period: salaryStore.selectedPeriod)
+        guard result.reliable, let record = result.record else {
+            payslipComparisonFeedback = result.reliable ? "Aucune valeur confirmée pour ce mois." : "Stockage des valeurs observées à vérifier."
+            return
+        }
+        resetPayslipComparison()
+        func value(_ field: SalaryPayslipFieldV2) -> String { record.amounts[field.rawValue].map { String($0) } ?? "" }
+        payslipGrossText = value(.socialGross)
+        payslipNetBeforeTaxText = value(.netBeforeIncomeTax)
+        payslipNetTaxableText = value(.netTaxable)
+        payslipIncomeTaxText = value(.incomeTax)
+        payslipNetAfterTaxText = value(.netAfterIncomeTax)
+        observedExcerpts = record.excerpts
+        importSources = SalaryPayslipFieldV2.allCases.compactMap { field in record.excerpts[field.rawValue].map { "\(field.label) — \($0)" } }
+        importedAmountFingerprint = [payslipGrossText, payslipNetBeforeTaxText, payslipNetTaxableText, payslipIncomeTaxText, payslipNetAfterTaxText]
+    }
+
+    private func removeObservedPayslip() {
+        guard let id = confirmedObservedCompanyId() else { return }
+        let removed = SalaryPayslipObservedStoreV2.remove(companyId: id, period: salaryStore.selectedPeriod)
+        if removed { resetPayslipComparison() }
+        payslipComparisonFeedback = removed ? "Valeurs confirmées supprimées pour ce mois." : "Suppression impossible."
+    }
+
     private func comparePayslip() {
         let parsed = [
             parseObservedAmount(payslipGrossText),
@@ -1066,7 +1237,168 @@ struct SalaryV2View: View {
         payslipComparisonFeedback = nil
     }
 
+    private var confirmedSicknessCashCard: some View {
+        GroupBox("IJSS réelles du mois — avant PAS") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Entreprise : \(salaryStore.selectedCompany?.name ?? "À choisir") • \(salaryStore.selectedPeriod.description)")
+                Text("Ces virements restent distincts du net employeur. Ils ne sont jamais ajoutés à la paie ; le maintien, le net fiscal et le PAS restent à vérifier. Un champ vide reste inconnu.").font(.footnote)
+                if let cash = salaryStore.confirmedSicknessCash {
+                    ForEach(cash.warnings, id: \.self) { Text($0).font(.footnote) }
+                    if let record = cash.record {
+                        Text("Direct salarié : \(record.directEmployeeNetBeforeTax.map { NSDecimalNumber(decimal: $0).stringValue + " €" } ?? "Inconnu")")
+                        Text("Employeur subrogé : \(record.subrogatedEmployerNetBeforeTax.map { NSDecimalNumber(decimal: $0).stringValue + " €" } ?? "Inconnu")")
+                        Text("Source : \(record.source)").font(.caption)
+                    } else if cash.reliable { Text("Aucun montant mensuel confirmé.").font(.footnote) }
+                }
+                TextField("IJSS directes salarié — net avant PAS", text: $sicknessDirectText).keyboardType(.decimalPad)
+                TextField("IJSS employeur subrogé — net avant PAS", text: $sicknessSubrogatedText).keyboardType(.decimalPad)
+                TextField("Source : décompte, date et référence", text: $sicknessSourceText)
+                Toggle("Je confirme l’entreprise, le mois et ces totaux réels séparés par destinataire", isOn: $sicknessConfirmed)
+                Button("Enregistrer ces IJSS réelles") { saveSicknessCash() }
+                    .disabled(!sicknessConfirmed || salaryStore.selectedCompanyId == nil)
+                Button("Supprimer les IJSS confirmées de ce mois") { sicknessDeleteConfirmation = true }
+                    .disabled(salaryStore.confirmedSicknessCash?.record == nil && salaryStore.confirmedSicknessCash?.reliable != false)
+                    .confirmationDialog("Supprimer les IJSS confirmées de cette entreprise et de ce mois ?", isPresented: $sicknessDeleteConfirmation) {
+                        Button("Supprimer", role: .destructive) {
+                            if let id = salaryStore.selectedCompanyId {
+                                SalaryConfirmedSicknessCashV2.remove(companyId: id, period: salaryStore.selectedPeriod)
+                                resetSicknessCashDraft(); salaryStore.refresh()
+                            }
+                        }
+                    }
+                if let sicknessFeedback { Text(sicknessFeedback).font(.footnote) }
+            }
+            .onChange(of: sicknessDirectText) { _ in sicknessConfirmed = false }
+            .onChange(of: sicknessSubrogatedText) { _ in sicknessConfirmed = false }
+            .onChange(of: sicknessSourceText) { _ in sicknessConfirmed = false }
+        }
+    }
+    private func resetSicknessCashDraft() {
+        sicknessDirectText = ""; sicknessSubrogatedText = ""; sicknessSourceText = ""
+        sicknessConfirmed = false; sicknessFeedback = nil; sicknessDeleteConfirmation = false
+    }
+    private func saveSicknessCash() {
+        guard sicknessConfirmed, let id = salaryStore.selectedCompanyId else { return }
+        guard SalaryCompanyStoreV2.confirmedCompany(SalaryCompanyStoreV2.readConfirmed(), companyId: id) != nil else {
+            sicknessConfirmed = false
+            sicknessFeedback = "Entreprise absente ou stockage non fiable : aucun montant enregistré."
+            return
+        }
+        func parse(_ raw: String) -> Decimal? {
+            let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
+            guard normalized.range(of: #"^[0-9]+(?:\.[0-9]{1,2})?$"#, options: .regularExpression) != nil else { return nil }
+            return Decimal(string: normalized, locale: Locale(identifier: "en_US_POSIX"))
+        }
+        let direct = parse(sicknessDirectText), subrogated = parse(sicknessSubrogatedText)
+        guard (sicknessDirectText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || direct != nil),
+              (sicknessSubrogatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || subrogated != nil) else {
+            sicknessFeedback = "Montant invalide : corrigez-le ou laissez le champ vide."; return
+        }
+        let record = SalaryConfirmedSicknessCashV2.Record(companyId: id, period: salaryStore.selectedPeriod,
+            directEmployeeNetBeforeTax: direct, subrogatedEmployerNetBeforeTax: subrogated,
+            source: sicknessSourceText.trimmingCharacters(in: .whitespacesAndNewlines), confirmedAt: Date())
+        guard SalaryConfirmedSicknessCashV2.save(record, confirmed: true) else {
+            sicknessFeedback = "Au moins un montant et une source (500 caractères maximum) sont requis ; le stockage doit être fiable."; return
+        }
+        resetSicknessCashDraft(); salaryStore.refresh()
+        sicknessFeedback = "IJSS réelles du mois enregistrées séparément du net employeur."
+    }
+
+    private func clearImportDraft() {
+        importToken = UUID()
+        importProposals = []
+        importConfirmed = false
+        importedHourlyRateDraft = nil
+        importedPayslipPeriod = nil
+        hourlyRateImportConfirmed = false
+        importFeedback = nil
+        // Cancellation invalidates the result, but does not finish the worker.
+        // Keep the import button disabled until the existing OCR worker returns.
+    }
+
+    private func readPayslip(_ url: URL) {
+        guard !importBusy else { return }
+        clearImportDraft()
+        importBusy = true
+        let token = importToken
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try SalaryPayslipLocalImporterV2.read(url: url) }
+            DispatchQueue.main.async {
+                importBusy = false
+                guard importToken == token else { return }
+                switch result {
+                case .success(let draft):
+                    importProposals = draft.observedAmounts
+                    importedHourlyRateDraft = draft.hourlyRate
+                    importedPayslipPeriod = draft.period
+                    importFeedback = draft.observedAmounts.isEmpty && draft.hourlyRate == nil ? "Aucun montant certain identifié. Utilisez la saisie manuelle." : "Vérifiez les propositions et leur provenance avant de confirmer."
+                case .failure(let error): importFeedback = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private var importedPeriodMatchesSelection: Bool {
+        guard let period = importedPayslipPeriod else { return true }
+        return salaryStore.selectedPeriod.year == period.year && salaryStore.selectedPeriod.month == period.month
+    }
+
+    private func applyImportedHourlyRate() {
+        guard hourlyRateImportConfirmed, hourlyContractSelected, importedPeriodMatchesSelection,
+              salaryStore.selectedCompanyId != nil, let draft = importedHourlyRateDraft else { return }
+        salaryStore.contractHourlyRateText = NSDecimalNumber(decimal: draft.grossHourlyRate).stringValue
+        // Bulletin month is not proof of a contract version's effective date.
+        salaryStore.contractEffectiveDateText = ""
+        salaryStore.contractSourceText = "Bulletin vérifié \(salaryStore.selectedPeriod.description) — \(draft.source)"
+        importedHourlyRateDraft = nil
+        hourlyRateImportConfirmed = false
+        importFeedback = "Taux proposé dans le formulaire de contrat. Confirmez la date d’effet et enregistrez la version du contrat."
+    }
+
+    private func applyImportedPayslip() {
+        guard importConfirmed, importedPeriodMatchesSelection, salaryStore.selectedCompanyId != nil else { return }
+        // Replace the comparison draft, never mix it with another bulletin.
+        payslipGrossText = ""
+        payslipNetBeforeTaxText = ""
+        payslipNetTaxableText = ""
+        payslipIncomeTaxText = ""
+        payslipNetAfterTaxText = ""
+        observedExcerpts = Dictionary(uniqueKeysWithValues: importProposals.map { proposal in
+            let key: String
+            switch proposal.field {
+            case .gross: key = SalaryPayslipFieldV2.socialGross.rawValue
+            case .netBeforeTax: key = SalaryPayslipFieldV2.netBeforeIncomeTax.rawValue
+            case .netTaxable: key = SalaryPayslipFieldV2.netTaxable.rawValue
+            case .incomeTax: key = SalaryPayslipFieldV2.incomeTax.rawValue
+            case .netAfterTax: key = SalaryPayslipFieldV2.netAfterIncomeTax.rawValue
+            }
+            return (key, String(proposal.source.prefix(300)))
+        })
+        importSources = importProposals.map { "\($0.field.label) — \($0.source)" }
+        for proposal in importProposals {
+            let value = NSDecimalNumber(decimal: proposal.amount).stringValue
+            switch proposal.field {
+            case .gross: payslipGrossText = value
+            case .netBeforeTax: payslipNetBeforeTaxText = value
+            case .netTaxable: payslipNetTaxableText = value
+            case .incomeTax: payslipIncomeTaxText = value
+            case .netAfterTax: payslipNetAfterTaxText = value
+            }
+        }
+        importedAmountFingerprint = [payslipGrossText, payslipNetBeforeTaxText,
+                                     payslipNetTaxableText, payslipIncomeTaxText,
+                                     payslipNetAfterTaxText]
+        clearImportDraft()
+        clearPayslipComparisonResult()
+    }
+
     private func resetPayslipComparison() {
+        clearImportDraft()
+        observationsDeleteConfirmation = false
+        importSources = []
+        observedExcerpts = [:]
+        observationsConfirmed = false
+        importedAmountFingerprint = nil
         payslipGrossText = ""
         payslipNetBeforeTaxText = ""
         payslipNetTaxableText = ""

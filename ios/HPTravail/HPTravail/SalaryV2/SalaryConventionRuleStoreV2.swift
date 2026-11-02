@@ -249,6 +249,13 @@ enum SalaryConventionRuleStoreV2 {
         ].compactMap { $0 }
         guard multipliers.allSatisfy({ $0.isFinite && $0 >= 1.0 }) else { return false }
 
+        if let schedule = snapshot.rules.complementarySchedule {
+            guard schedule.sourceId == snapshot.sourceId,
+                  schedule.effectiveFromEpochDay == snapshot.effectiveFromEpochDay,
+                  schedule.effectiveToEpochDay == snapshot.effectiveToEpochDay,
+                  schedule.contractualMinutes > 0, !schedule.tiers.isEmpty,
+                  OvertimeCoverageV2.isStructurallyValid(regularLimitMinutes: schedule.contractualMinutes, tiers: schedule.tiers) else { return false }
+        }
         return snapshot.rules.overtimeTiers.allSatisfy { tier in
             guard tier.fromMinutes >= 0,
                   tier.multiplier.isFinite,
@@ -303,7 +310,8 @@ enum SalaryConventionRuleStoreV2 {
                     "saturdayMultiplier": jsonValue(snapshot.rules.saturdayMultiplier),
                     "sundayMultiplier": jsonValue(snapshot.rules.sundayMultiplier),
                     "publicHolidayMultiplier": jsonValue(snapshot.rules.publicHolidayMultiplier),
-                    "overtimeTiers": tiers
+                    "overtimeTiers": tiers,
+                    "complementarySchedule": snapshot.rules.complementarySchedule.map { encodeComplementary($0) as Any } ?? NSNull()
                 ]
             ]
         }
@@ -333,6 +341,12 @@ enum SalaryConventionRuleStoreV2 {
             return nil
         }
 
+        let schedule: ConfirmedComplementaryScheduleV2?
+        if let raw = rulesObject["complementarySchedule"], !(raw is NSNull) {
+            guard let decoded = decodeComplementary(raw) else { return nil }
+            schedule = decoded
+        } else { schedule = nil }
+
         return SalaryConventionRuleSnapshotV2(
             idcc: idccRaw,
             versionId: versionRaw,
@@ -345,11 +359,28 @@ enum SalaryConventionRuleStoreV2 {
                 nightMultiplier: night,
                 saturdayMultiplier: saturday,
                 sundayMultiplier: sunday,
-                publicHolidayMultiplier: publicHoliday
+                publicHolidayMultiplier: publicHoliday,
+                complementarySchedule: schedule
             ),
             checkedAtMs: checkedAt,
             note: note
         )
+    }
+
+    private static func encodeComplementary(_ schedule: ConfirmedComplementaryScheduleV2) -> [String: Any] {
+        ["sourceId": schedule.sourceId, "contractualMinutes": schedule.contractualMinutes,
+         "effectiveFromEpochDay": schedule.effectiveFromEpochDay, "effectiveToEpochDay": jsonValue(schedule.effectiveToEpochDay),
+         "tiers": schedule.tiers.map { ["fromMinutes": $0.fromMinutes, "toMinutes": jsonValue($0.toMinutes), "multiplier": $0.multiplier] }]
+    }
+
+    private static func decodeComplementary(_ raw: Any) -> ConfirmedComplementaryScheduleV2? {
+        guard let object = raw as? [String: Any], let source = object["sourceId"] as? String,
+              let minutes = strictInt(object["contractualMinutes"]),
+              let start = strictInt64(object["effectiveFromEpochDay"]),
+              let end = optionalInt64(object["effectiveToEpochDay"]),
+              object["tiers"] is [Any], let tiers = decodeTiers(object["tiers"]) else { return nil }
+        return ConfirmedComplementaryScheduleV2(sourceId: source, contractualMinutes: minutes,
+            effectiveFromEpochDay: start, effectiveToEpochDay: end, tiers: tiers)
     }
 
     private static func decodeTiers(_ raw: Any?) -> [OvertimeTierV2]? {

@@ -24,7 +24,7 @@ final class SalaryPaidWorkRoundingParityV2Tests: XCTestCase {
         ))!
     }
 
-    func testSubMinuteSessionsRemainEmittedButAreTruncatedPerSliceLikeAndroid() {
+    func testSubMinuteSessionsAccumulateBeforeWeeklyMinuteConversionLikeAndroid() {
         let calendar = calendar()
         let start = startDate(calendar)
         let secondStart = start.addingTimeInterval(120)
@@ -56,8 +56,11 @@ final class SalaryPaidWorkRoundingParityV2Tests: XCTestCase {
         XCTAssertTrue(result.reliable)
         XCTAssertEqual(result.completedSessionCount, 2)
         XCTAssertEqual(result.weeks.count, 1)
-        XCTAssertEqual(result.weeks.first?.paidMinutes, 0)
-        XCTAssertEqual(result.totalPaidMinutes, 0)
+        // Android accumulates paidMs by ISO week before converting to minutes
+        // (ContractSegmentPaidWorkV2 / SegmentedPayrollSessionEvidenceBuilderV2).
+        // 59 + 59 = 118 seconds: one whole minute, not two per-session zeros.
+        XCTAssertEqual(result.weeks.first?.paidMinutes, 1)
+        XCTAssertEqual(result.totalPaidMinutes, 1)
     }
 
     func testFullyUnpaidReliableSliceIsNotEmittedLikeAndroid() {

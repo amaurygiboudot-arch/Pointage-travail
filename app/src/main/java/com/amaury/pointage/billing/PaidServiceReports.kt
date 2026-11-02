@@ -183,7 +183,7 @@ object PaidServiceReports {
         check(comparable.intersect(expected.keys).intersect(values.keys).size >= 3 && "Brut" in expected) {
             "Moins de trois familles rapprochables dont le brut : détail insuffisant pour ce service."
         }
-        refs += "Montants attendus issus du moteur canonique HoraTrack pour cette entreprise et cette période ; aucune reconstitution indépendante ni taux supposé."
+        refs += "Montants attendus issus du moteur canonique AGKGMG pour cette entreprise et cette période ; aucune reconstitution indépendante ni taux supposé."
         return PaidServiceReportBuilder.Month(record.year, record.month, record.id, source.first, source.second,
             dateFormat.format(Instant.ofEpochMilli(record.importedAtMs)), values, expected, comparable, chronology, refs, warnings.distinct(), true)
     }
@@ -220,7 +220,7 @@ object PaidServiceReports {
                         val companyLabel = input.companyName.replace(Regex("[^A-Za-z0-9_-]"), "_").take(32).ifBlank { "entreprise" }
                         val periodLabel = if (input.productId == "horatrack_annual_review") input.year.toString()
                             else "%04d_%02d".format(Locale.FRANCE, input.year, input.months.single().month + 1)
-                        Prepared(file, "HoraTrack_${input.productId.removePrefix("horatrack_")}_${companyLabel}_$periodLabel.pdf", report.inputSha256,
+                        Prepared(file, "AGKGMG_${input.productId.removePrefix("horatrack_")}_${companyLabel}_$periodLabel.pdf", report.inputSha256,
                             report.inputSha256, report.scope)
                     }
                     activity.runOnUiThread {

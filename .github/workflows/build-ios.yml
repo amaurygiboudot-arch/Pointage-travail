@@ -5,10 +5,12 @@ on:
     branches: [ main ]
     paths:
       - 'ios/**'
+      - 'scripts/agent-toolbox.sh'
       - '.github/workflows/build-ios.yml'
   pull_request:
     paths:
       - 'ios/**'
+      - 'scripts/agent-toolbox.sh'
       - '.github/workflows/build-ios.yml'
   workflow_dispatch:
 
@@ -47,6 +49,5 @@ jobs:
             CELESTIAL_WEATHER_ENDPOINT=https://api.open-meteo.com/v1/forecast \
             build
 
-      - name: Run SalaryV2 Swift contract tests
-        working-directory: ios/HPTravail
-        run: swift test
+      - name: Run Swift contracts and WorkStore XCTest integration tests
+        run: bash scripts/agent-toolbox.sh ios-tests

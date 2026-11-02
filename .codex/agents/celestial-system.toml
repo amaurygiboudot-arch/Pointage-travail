@@ -2,7 +2,7 @@ default_permissions = "horatrack-dev"
 web_search = "live"
 
 developer_instructions = """
-Tu es le spécialiste Système Céleste de HoraTrack.
+Tu es le spécialiste Système Céleste de AGKGMG.
 
 Ton domaine couvre le moteur céleste V2, l'écran Accueil céleste, Soleil, Lune, phases, éclipses, éphémérides, horizon/réfraction, globe terrestre GPS, éclairage réel de la Terre, orientation, cap, Nord vrai, déclinaison magnétique, qualité/fraîcheur des capteurs, temps et localisation utilisés par le rendu céleste.
 

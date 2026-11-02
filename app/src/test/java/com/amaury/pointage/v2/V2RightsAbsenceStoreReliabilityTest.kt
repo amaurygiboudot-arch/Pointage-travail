@@ -1,5 +1,14 @@
 package com.amaury.pointage.v2
 
+import android.app.Application
+import com.amaury.pointage.GpsDeliveryAuthShadow
+import com.google.firebase.auth.FirebaseAuth
+import org.junit.Before
+import org.junit.runner.RunWith
+import org.mockito.Mockito
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.model.AbsenceProvidentTreatmentV2
 import com.amaury.pointage.v2.model.AbsenceSalaryTreatmentV2
@@ -15,7 +24,18 @@ import org.junit.Test
 import java.time.LocalDate
 import java.time.ZoneId
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35], application = Application::class,
+    shadows = [GpsDeliveryAuthShadow::class], instrumentedPackages = ["com.google.firebase.auth"])
 class V2RightsAbsenceStoreReliabilityTest {
+    @Before
+    fun initializeReliableGuestJournal() {
+        // The absence engine requires a verified runtime source in the active account.
+        // A plain JVM has no Firebase application and must remain fail-closed in production.
+        GpsDeliveryAuthShadow.auth = Mockito.mock(FirebaseAuth::class.java)
+        V2RuntimeHistoryGuardV2.publishSourceState(true)
+    }
+
     private val zone = ZoneId.of("UTC")
     private val start = LocalDate.of(2026, 9, 10).atStartOfDay(zone).toInstant().toEpochMilli()
     private val end = LocalDate.of(2026, 9, 11).atStartOfDay(zone).toInstant().toEpochMilli()

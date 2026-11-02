@@ -11,6 +11,17 @@ public struct WorkSession: Codable, Equatable, Identifiable {
     public var pauses: [PausePeriod]
     public var employerId: String? = nil
     public var placeLabel: String? = nil
+    /// Fact provenance, independent of optional diagnostics and payroll classification.
+    public var closureOrigin: String? = nil
+    public var departureObservedAt: Date? = nil
+    /// Absent for historical/manual sessions. GPS presence is never paid work by default.
+    public var segments: [WorkSegmentV2]? = nil
+    public var gpsEntryEventId: UUID? = nil
+    public var gpsExitEventId: UUID? = nil
+    public var gpsZoneId: UUID? = nil
+    public var gpsConfigurationFingerprint: String? = nil
+    public var gpsAccountScope: String? = nil
+    public var gpsHomeExclusionConfigured: Bool? = nil
 
     public init(
         id: UUID,
@@ -26,6 +37,24 @@ public struct WorkSession: Codable, Equatable, Identifiable {
         self.pauses = pauses
         self.employerId = employerId
         self.placeLabel = placeLabel
+    }
+}
+
+public enum WorkSegmentKindV2: String, Codable {
+    case work, intervention, paidTravel, onCall, personalTravel, nonWork, toConfirm
+}
+
+public struct WorkSegmentV2: Codable, Equatable {
+    public var start: Date
+    public var end: Date?
+    public var kind: WorkSegmentKindV2
+    public var confirmed: Bool
+
+    public init(start: Date, end: Date?, kind: WorkSegmentKindV2, confirmed: Bool) {
+        self.start = start
+        self.end = end
+        self.kind = kind
+        self.confirmed = confirmed
     }
 }
 
@@ -134,6 +163,33 @@ enum WorkSessionPersistenceV2 {
             if let exit = session.exit, exit <= session.entry { return false }
             if Set(session.pauses.map(\.id)).count != session.pauses.count { return false }
             if session.pauses.filter({ $0.end == nil }).count > 1 { return false }
+            if let segments = session.segments {
+                guard !segments.isEmpty else { return false }
+                var cursor = session.entry
+                for (index, segment) in segments.enumerated() {
+                    guard segment.start.timeIntervalSinceReferenceDate.isFinite,
+                          segment.start == cursor,
+                          segment.kind != .toConfirm || !segment.confirmed else { return false }
+                    if let end = segment.end {
+                        guard end.timeIntervalSinceReferenceDate.isFinite, end > segment.start,
+                              session.exit.map({ end <= $0 }) ?? true else { return false }
+                        cursor = end
+                    } else {
+                        guard session.exit == nil, index == segments.count - 1 else { return false }
+                    }
+                }
+                if let exit = session.exit, cursor != exit { return false }
+            }
+            if let eventId = session.gpsEntryEventId {
+                guard eventId == session.id, session.gpsZoneId != nil,
+                      session.gpsConfigurationFingerprint?.isEmpty == false,
+                      session.gpsAccountScope?.isEmpty == false,
+                      session.employerId?.isEmpty == false, session.segments != nil else { return false }
+            }
+            if session.gpsExitEventId != nil {
+                guard session.exit != nil, session.departureObservedAt == session.exit,
+                      session.closureOrigin == "AUTOMATIC", session.segments != nil else { return false }
+            }
 
             for pause in session.pauses {
                 guard pause.start.timeIntervalSinceReferenceDate.isFinite,
@@ -224,6 +280,13 @@ enum WorkSessionMutationV2 {
             updated[index].pauses[pauseIndex].end = date
         }
         updated[index].exit = date
+        if var segments = updated[index].segments, let last = segments.indices.last {
+            if segments[last].end == nil {
+                guard date > segments[last].start else { return nil }
+                segments[last].end = date
+            }
+            updated[index].segments = segments
+        }
         return WorkSessionPersistenceV2.isStructurallyValid(updated) ? updated : nil
     }
 }

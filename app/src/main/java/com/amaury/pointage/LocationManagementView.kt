@@ -100,7 +100,7 @@ class LocationManagementView @JvmOverloads constructor(
         for (group in groups) {
             val roles = summarizeGpsPlaceTypes(group)
             val description = if (group.legacyOnly) "Zone GPS à configurer" else
-                "${group.zones.size} zones : ${roles.workZones} travail, ${roles.parkingZones} parking, ${roles.pauseZones} pause, ${roles.otherZones} à confirmer"
+                "${group.zones.size} zones : ${roles.workZones} travail, ${roles.homeZones} domicile, ${roles.parkingZones} parking, ${roles.pauseZones} pause, ${roles.otherZones} à confirmer"
             addView(action("${companyLabel(group)}\n${groupTitle(group)}\n${group.address}\n$description") { showPlace(group.scope()) })
         }
     }

@@ -38,7 +38,7 @@ class SalaryAuthActivity : Activity() {
         }
         @Suppress("DEPRECATION")
         val authIntent = keyguard.createConfirmDeviceCredentialIntent(
-            "HoraTrack — accès sécurisé",
+            "AGKGMG — accès sécurisé",
             "Authentifie-toi pour ouvrir les informations détaillées de l’entreprise."
         )
         if (authIntent == null) {

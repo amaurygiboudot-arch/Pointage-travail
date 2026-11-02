@@ -17,7 +17,7 @@ import java.util.concurrent.Executors
 
 /** Sauvegarde des données fonctionnelles AGKGMG, sans jetons d'authentification. */
 object V2BackupManager {
-    private const val FORMAT_VERSION = 4
+    private const val FORMAT_VERSION = 5
     private const val ROOT_FOLDER = "AGKGMG"
     private const val FILE_NAME = "AGKGMG_backup.json"
     private const val RECOVERY_FILE_A = "AGKGMG_backup.recovery_a.json"
@@ -53,6 +53,7 @@ object V2BackupManager {
     )
 
     data class RestoreResult(val restoredFiles:Int,val mergedSessions:Int)
+    internal data class RuntimeMergePlan(val values: Map<String, Any?>, val added: Int)
     internal data class HistoryMergePlan(val history:JSONArray,val added:Int)
     internal data class BackupCopy(
         val fileName: String,
@@ -61,13 +62,31 @@ object V2BackupManager {
     )
     private data class BackupCandidate(val uri: Uri, val copy: BackupCopy)
 
-    fun backupIfConfiguredAsync(context:Context){ val app=context.applicationContext;if(DriveBackupManager.savedTreeUri(app)==null)return;executor.execute{backupToConfiguredDrive(app)} }
-    fun restoreFreshInstallIfConfiguredAsync(context:Context){ val app=context.applicationContext;if(DriveBackupManager.savedTreeUri(app)==null||!isFreshInstall(app))return;executor.execute{runCatching{val uri=configuredBackupUri(app)?:return@runCatching;restoreFromUri(app,uri).getOrThrow()}} }
+    fun backupIfConfiguredAsync(context:Context) {
+        val app = context.applicationContext
+        val scope = V2RuntimeAccountScope.currentScope() ?: return
+        if (DriveBackupManager.savedTreeUri(app) == null) return
+        executor.execute {
+            if (scope == V2RuntimeAccountScope.currentScope()) backupToConfiguredDrive(app)
+        }
+    }
+    fun restoreFreshInstallIfConfiguredAsync(context:Context) {
+        val app = context.applicationContext
+        val scope = V2RuntimeAccountScope.currentScope() ?: return
+        if (DriveBackupManager.savedTreeUri(app) == null || !isFreshInstall(app)) return
+        executor.execute { runCatching {
+            if (scope != V2RuntimeAccountScope.currentScope()) return@runCatching
+            val uri = configuredBackupUri(app) ?: return@runCatching
+            if (scope == V2RuntimeAccountScope.currentScope()) restoreFromUri(app, uri).getOrThrow()
+        } }
+    }
     fun backupToConfiguredDrive(context:Context):Result<Uri> = runCatching {
         DriveBackupManager.withStorageAccess {
             val tree = DriveBackupManager.savedTreeUri(context)
                 ?: error("Choisis d'abord un dossier Google Drive")
             val content = snapshot(context).toString(2)
+            val owner = JSONObject(content).getString("accountScope")
+            require(owner == V2RuntimeAccountScope.currentScope()) { "Compte modifié pendant la sauvegarde" }
             val parsed = runCatching { JSONObject(content) }.getOrNull()
                 ?: error("Snapshot de sauvegarde illisible")
             require(isStructurallyRestorableBackup(parsed)) {
@@ -75,17 +94,27 @@ object V2BackupManager {
             }
 
             val root = treeRootDocumentUri(tree)
-            val folder = ensureDirectory(context, root, ROOT_FOLDER)
+            check(owner == V2RuntimeAccountScope.currentScope()) { "Compte modifié pendant la sauvegarde" }
+            val folder = ensureDirectory(context, root, accountBackupFolder(owner))
             val existing = currentRecoveryCandidates(context, folder)
+            listOf(FILE_NAME, RECOVERY_FILE_A, RECOVERY_FILE_B).forEach { fileName ->
+                val existingUri = findChild(context, folder, fileName, "application/json") ?: return@forEach
+                val previous = context.contentResolver.openInputStream(existingUri)
+                    ?.bufferedReader(Charsets.UTF_8)?.use { JSONObject(it.readText()) }
+                    ?: error("Sauvegarde existante illisible")
+                require(backupOwnerMatches(previous, owner)) { "Ancienne sauvegarde conservée : propriétaire à confirmer" }
+            }
+            require(owner == V2RuntimeAccountScope.currentScope()) { "Compte modifié pendant la sauvegarde" }
             val recoveryName = recoveryTargetFileName(existing.map { it.copy })
             val recovery = ensureFile(context, folder, recoveryName, "application/json")
 
             // Une copie validée est durable avant toute réécriture du fichier principal.
-            writeAndVerifyBackup(context, recovery, content)
+            writeAndVerifyBackup(context, recovery, content, owner)
 
+            check(owner == V2RuntimeAccountScope.currentScope()) { "Compte modifié pendant la sauvegarde" }
             val canonical = ensureFile(context, folder, FILE_NAME, "application/json")
             // Si cette seconde écriture échoue, la copie recovery validée reste disponible.
-            writeAndVerifyBackup(context, canonical, content)
+            writeAndVerifyBackup(context, canonical, content, owner)
 
             context.getSharedPreferences("horatrack_v2_backup", Context.MODE_PRIVATE)
                 .edit()
@@ -97,8 +126,10 @@ object V2BackupManager {
     fun restoreFromUri(context:Context,uri:Uri):Result<RestoreResult> = runCatching { val raw=DriveBackupManager.withStorageAccess { context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use{it.readText()}?:error("Impossible de lire la sauvegarde") };restoreFromJson(context,raw).getOrThrow() }
 
     /** Même restauration conservatrice pour Drive et Firestore. */
-    fun restoreFromJson(context:Context,raw:String):Result<RestoreResult> = runCatching {
+    fun restoreFromJson(context:Context,raw:String, authenticatedSourceScope: String? = null):Result<RestoreResult> = runCatching { V2RuntimeAccountScope.withScope {
         val root=JSONObject(raw)
+        val accountScope = V2RuntimeAccountScope.currentScope()
+        require(backupOwnerAuthorized(root, accountScope, authenticatedSourceScope)) { "Propriétaire de sauvegarde non confirmé pour ce compte" }
         require(isSupportedFormatVersion(root.optInt("formatVersion",0))){"Format de sauvegarde non reconnu"}
         val files=root.optJSONObject("preferences")?:error("Sauvegarde incomplète")
         val savedNames=files.keys().asSequence().filter(::isManagedPreferenceFileName).filter(BackupSecurityPolicy::canTransferPreferenceFile).toList()
@@ -110,12 +141,14 @@ object V2BackupManager {
             saved
         }
         val restoredResult = V2RuntimeStore.withTransaction {
+            require(accountScope == V2RuntimeAccountScope.currentScope()) { "Compte modifié pendant la restauration" }
             val runtimePlan=payloads[RUNTIME_PREFS]?.let{prepareRuntimeMerge(context,it)}
             val coveragePlan=payloads[V2PayrollCoverageStore.PREFS]
                 ?.let{prepareCoverageMerge(context,it)}
             clearEphemeralGpsPresenceState(context)
             var restored=0;var merged=0
             savedNames.forEach{name->
+                require(accountScope == V2RuntimeAccountScope.currentScope()) { "Compte modifié pendant la restauration" }
                 val saved=payloads.getValue(name)
                 when(name){
                     RUNTIME_PREFS->{
@@ -136,18 +169,33 @@ object V2BackupManager {
         V2MigrationManager.ensureMigrated(context)
         GeofenceManager.reconfigureStoredZones(context)
         restoredResult
-    }
+    } }
 
     /** Importe un ancien cloud directement dans le moteur actuel, sans toucher au stockage legacy local. */
     fun importLegacyPointageJson(context:Context,legacy:JSONArray):Int =
         V2MigrationManager.importLegacyArray(context.applicationContext, legacy).imported
 
-    fun snapshot(context:Context):JSONObject {
+    fun snapshot(context:Context):JSONObject = V2RuntimeAccountScope.withScope {
+        val accountScope = V2RuntimeAccountScope.currentScope() ?: error("Compte indisponible")
         V2RuntimeReader.allSessions(context).requireReliable()
         val all=JSONObject()
         transferablePreferenceFiles(context).forEach{all.put(it,encodePreferences(context,it))}
-        return JSONObject().put("formatVersion",FORMAT_VERSION).put("schemaVersion",HoraTrackV2.SCHEMA_VERSION).put("createdAtMs",System.currentTimeMillis()).put("preferences",all)
+        check(accountScope == V2RuntimeAccountScope.currentScope()) { "Compte modifié pendant la sauvegarde" }
+        JSONObject().put("accountScope", accountScope).put("formatVersion",FORMAT_VERSION).put("schemaVersion",HoraTrackV2.SCHEMA_VERSION).put("createdAtMs",System.currentTimeMillis()).put("preferences",all)
     }
+
+    internal fun backupOwnerMatches(root: JSONObject, accountScope: String?): Boolean =
+        !accountScope.isNullOrBlank() && root.opt("accountScope") is String &&
+            root.optString("accountScope") == accountScope
+
+    internal fun backupOwnerAuthorized(root: JSONObject, scope: String?, authenticatedSourceScope: String?): Boolean =
+        backupOwnerMatches(root, scope) || (!root.has("accountScope") &&
+            scope != null && scope.startsWith("uid:") && scope.length > 4 && authenticatedSourceScope == scope)
+
+    private fun preferences(context: Context, name: String) =
+        if (name == RUNTIME_PREFS || name == "horatrack_v2_migration")
+            V2RuntimeAccountScope.preferences(context, name)
+        else context.applicationContext.getSharedPreferences(name, Context.MODE_PRIVATE)
 
     internal fun isSupportedFormatVersion(version:Int):Boolean = version in 1..FORMAT_VERSION
 
@@ -172,7 +220,7 @@ object V2BackupManager {
     }
 
     private fun isFreshInstall(context:Context):Boolean {
-        val runtime=context.getSharedPreferences(RUNTIME_PREFS,Context.MODE_PRIVATE)
+        val runtime=preferences(context,RUNTIME_PREFS)
         val history=V2RuntimeHistoryGuardV2.read(context)
         if(!history.reliable)return false
         val runtimeEntry=runtime.all["real_entry"]
@@ -193,7 +241,7 @@ object V2BackupManager {
         val root = treeRootDocumentUri(tree)
         val candidates = mutableListOf<BackupCandidate>()
 
-        backupSearchLocations().groupBy { it.first }.forEach { (folderName, locations) ->
+        backupSearchLocations(V2RuntimeAccountScope.currentScope()).groupBy { it.first }.forEach { (folderName, locations) ->
             val folder = findChild(context, root, folderName, DocumentsContract.Document.MIME_TYPE_DIR)
                 ?: return@forEach
             locations.forEach { (_, fileName) ->
@@ -217,8 +265,12 @@ object V2BackupManager {
                 ?.let { inspectBackupCandidate(context, it, fileName, priority) }
         }
 
-    internal fun backupSearchLocations(): List<Pair<String, String>> =
-        (listOf(ROOT_FOLDER) + LEGACY_ROOT_FOLDERS).flatMap { folder ->
+    /** A separate stable directory preserves unowned historical backups byte-for-byte. */
+    internal fun accountBackupFolder(scope: String): String =
+        requireNotNull(V2RuntimeAccountScope.fileName(ROOT_FOLDER, scope)) { "Compte indisponible" }
+
+    internal fun backupSearchLocations(scope: String? = null): List<Pair<String, String>> =
+        (listOfNotNull(scope?.let(::accountBackupFolder), ROOT_FOLDER) + LEGACY_ROOT_FOLDERS).flatMap { folder ->
             (listOf(FILE_NAME) + LEGACY_FILE_NAMES + listOf(RECOVERY_FILE_A, RECOVERY_FILE_B))
                 .map { file -> folder to file }
         }
@@ -249,8 +301,12 @@ object V2BackupManager {
         uri: Uri,
         fileName: String,
         priority: Int
-    ): BackupCandidate? = inspectBackupContent(fileName, priority) { readBackupText(context, uri) }
-        ?.let { BackupCandidate(uri, it) }
+    ): BackupCandidate? {
+        val raw = readBackupText(context, uri)
+        val root = runCatching { JSONObject(raw) }.getOrNull() ?: return null
+        if (!backupOwnerMatches(root, V2RuntimeAccountScope.currentScope())) return null
+        return inspectBackupContent(fileName, priority) { raw }?.let { BackupCandidate(uri, it) }
+    }
 
     /** Une erreur I/O reste une erreur : elle ne rend jamais une copie disponible à l'écrasement. */
     internal fun inspectBackupContent(fileName: String, priority: Int, read: () -> String): BackupCopy? {
@@ -261,10 +317,12 @@ object V2BackupManager {
         return BackupCopy(fileName, createdAtMs, priority)
     }
 
-    private fun writeAndVerifyBackup(context: Context, uri: Uri, content: String) {
+    private fun writeAndVerifyBackup(context: Context, uri: Uri, content: String, owner: String) {
+        check(owner == V2RuntimeAccountScope.currentScope()) { "Compte modifié pendant la sauvegarde" }
         context.contentResolver.openOutputStream(uri, "w")
             ?.bufferedWriter(Charsets.UTF_8)
             ?.use { writer ->
+                check(owner == V2RuntimeAccountScope.currentScope()) { "Compte modifié pendant la sauvegarde" }
                 writer.write(content)
                 writer.flush()
             }
@@ -285,10 +343,10 @@ object V2BackupManager {
             ?.use { it.readText() }
             ?: error("Impossible de lire la sauvegarde existante")
 
-    private fun encodePreferences(context:Context,name:String):JSONObject { val out=JSONObject();context.applicationContext.getSharedPreferences(name,Context.MODE_PRIVATE).all.forEach{(k,v)->if(BackupPreferenceKeyPolicy.canTransfer(name,k))when(v){is String->out.put(k,JSONObject().put("t","s").put("v",v));is Boolean->out.put(k,JSONObject().put("t","b").put("v",v));is Int->out.put(k,JSONObject().put("t","i").put("v",v));is Long->out.put(k,JSONObject().put("t","l").put("v",v));is Float->out.put(k,JSONObject().put("t","f").put("v",v.toDouble()));is Set<*>->out.put(k,JSONObject().put("t","set").put("v",JSONArray(v.filterIsInstance<String>())))}};return out }
+    private fun encodePreferences(context:Context,name:String):JSONObject { val out=JSONObject();preferences(context,name).all.forEach{(k,v)->if(BackupPreferenceKeyPolicy.canTransfer(name,k))when(v){is String->out.put(k,JSONObject().put("t","s").put("v",v));is Boolean->out.put(k,JSONObject().put("t","b").put("v",v));is Int->out.put(k,JSONObject().put("t","i").put("v",v));is Long->out.put(k,JSONObject().put("t","l").put("v",v));is Float->out.put(k,JSONObject().put("t","f").put("v",v.toDouble()));is Set<*>->out.put(k,JSONObject().put("t","set").put("v",JSONArray(v.filterIsInstance<String>())))}};return out }
     private fun mergePreferences(context:Context,name:String,saved:JSONObject){
         require(isValidTypedPreferencePayload(saved)){"Préférences $name invalides"}
-        val editor=context.applicationContext.getSharedPreferences(name,Context.MODE_PRIVATE).edit()
+        val editor=preferences(context,name).edit()
         if(name=="gps_settings")GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach{editor.remove(it)}
         val keys=saved.keys()
         while(keys.hasNext()){
@@ -334,7 +392,7 @@ object V2BackupManager {
     internal fun isRestorablePreferencePayload(name: String, saved: JSONObject): Boolean {
         if (!isValidTypedPreferencePayload(saved)) return false
         return when (name) {
-            RUNTIME_PREFS -> runCatching { decodeBackupHistory(saved) }.isSuccess
+            RUNTIME_PREFS -> runCatching { mergeRuntimeValues(emptyMap<String, Any>(), decodeRuntimeValues(saved)) }.isSuccess
             V2PayrollCoverageStore.PREFS -> runCatching { decodeBackupCoverage(saved) }.isSuccess
             V2SegmentedProrationStore.PREFS -> saved.keys().asSequence().all { key ->
                 val item = saved.optJSONObject(key)
@@ -446,11 +504,54 @@ object V2BackupManager {
         else->value.toString()
     }
 
-    private fun prepareRuntimeMerge(context:Context,saved:JSONObject):HistoryMergePlan {
+    private const val ACTIVE_RECOVERY_RECEIPT = "legacy_recovery_receipt"
+    private const val RESTORED_PROVENANCE = "restored_legacy_provenance"
+
+    internal fun decodeRuntimeValues(saved: JSONObject): Map<String, Any?> {
+        require(isValidTypedPreferencePayload(saved)) { "Journal sauvegardé invalide" }
+        return saved.keys().asSequence().associateWith { key ->
+            val item = saved.getJSONObject(key)
+            when (item.getString("t")) {
+                "s" -> item.getString("v")
+                "b" -> item.getBoolean("v")
+                "l" -> strictLong(item.get("v")) ?: error("Long invalide")
+                "i" -> (strictLong(item.get("v")) ?: error("Entier invalide")).toInt()
+                else -> error("Type non pris en charge dans le journal")
+            }
+        }
+    }
+
+    /** Restore facts atomically; foreign recovery receipts are evidence, never local ownership. */
+    internal fun mergeRuntimeValues(local: Map<String, *>, saved: Map<String, *>): RuntimeMergePlan {
+        val metadata = setOf(ACTIVE_RECOVERY_RECEIPT, RESTORED_PROVENANCE)
+        fun facts(values: Map<String, *>) = values.filterKeys { it !in metadata }
+        val left = facts(local)
+        val right = facts(saved)
+        val merged = requireNotNull(V2LegacyJournalRecovery.merge(left, right)) {
+            "Session courante ou historique en conflit : restauration annulée sans remplacer les faits locaux"
+        }.toMutableMap()
+        val before = JSONArray(left["history"] as? String ?: "[]").length()
+        val after = JSONArray(merged["history"] as? String ?: "[]").length()
+        local[ACTIVE_RECOVERY_RECEIPT]?.let {
+            require(it is String)
+            merged[ACTIVE_RECOVERY_RECEIPT] = it
+        }
+        val provenance = linkedSetOf<String>()
+        for (values in listOf(local, saved)) {
+            values[RESTORED_PROVENANCE]?.let { raw ->
+                require(raw is String)
+                val items = JSONArray(raw)
+                for (i in 0 until items.length()) provenance += items.getString(i)
+            }
+        }
+        saved[ACTIVE_RECOVERY_RECEIPT]?.let { require(it is String); provenance += it }
+        if (provenance.isNotEmpty()) merged[RESTORED_PROVENANCE] = JSONArray(provenance.sorted()).toString()
+        return RuntimeMergePlan(merged, after - before)
+    }
+
+    private fun prepareRuntimeMerge(context:Context,saved:JSONObject):RuntimeMergePlan {
         V2RuntimeReader.allSessions(context).requireReliable()
-        val current=V2RuntimeHistoryGuardV2.read(context)
-        require(current.reliable){"Historique local illisible : restauration bloquée"}
-        return mergeHistories(current.history,decodeBackupHistory(saved))
+        return mergeRuntimeValues(preferences(context, RUNTIME_PREFS).all, decodeRuntimeValues(saved))
     }
 
     private fun prepareCoverageMerge(
@@ -471,9 +572,18 @@ object V2BackupManager {
         }
     }
 
-    private fun applyRuntimeMerge(context:Context,plan:HistoryMergePlan):Int {
-        if(plan.added==0)return 0
-        check(V2RuntimeHistoryGuardV2.save(context,plan.history)){"Impossible d'enregistrer l'historique fusionné"}
+    private fun applyRuntimeMerge(context:Context,plan:RuntimeMergePlan):Int {
+        val editor = preferences(context, RUNTIME_PREFS).edit()
+        for ((key, value) in plan.values) {
+            when (value) {
+                is String -> editor.putString(key, value)
+                is Long -> editor.putLong(key, value)
+                is Int -> editor.putInt(key, value)
+                is Boolean -> editor.putBoolean(key, value)
+                else -> error("Type de journal invalide")
+            }
+        }
+        check(editor.commit()) { "Impossible d'enregistrer le journal fusionné" }
         return plan.added
     }
     private fun strictLong(value:Any?):Long?=when(value){
