@@ -91,7 +91,7 @@ object V2RuntimeStore {
      */
     private fun readForWrite(context: Context, nowMs: Long = System.currentTimeMillis()): WriteRead {
         bind(context)
-        if (!V2RuntimeAccountScope.available()) {
+        if (!V2RuntimeAccountScope.available(context)) {
             V2RuntimeHistoryGuardV2.publishSourceState(false, listOf(V2RuntimeAccountScope.AUTH_WARNING))
             return WriteRead(false, null)
         }
@@ -198,7 +198,7 @@ object V2RuntimeStore {
     /** Explicit user qualification of one unchanged GPS presence; no inference for travel. */
     fun qualifyObservedPresence(context: Context, expectedAccountScope: String,
         expectedSession: WorkSessionV2, worked: Boolean): Boolean = withTransaction {
-        if (V2RuntimeAccountScope.operationScope() != expectedAccountScope || !V2RuntimeAccountScope.available())
+        if (V2RuntimeAccountScope.operationScope() != expectedAccountScope || !V2RuntimeAccountScope.available(context))
             return@withTransaction false
         val read = readForWrite(context)
         if (!read.reliable || expectedSession.status != SessionStatusV2.CLOSED ||
@@ -703,7 +703,7 @@ object V2RuntimeStore {
     fun snapshot(context: Context, nowMs: Long = System.currentTimeMillis()): Snapshot {
         return V2RuntimeAccountScope.withScope {
         bind(context)
-        if (!V2RuntimeAccountScope.available()) {
+        if (!V2RuntimeAccountScope.available(context)) {
             V2RuntimeHistoryGuardV2.publishSourceState(false, listOf(V2RuntimeAccountScope.AUTH_WARNING))
             return Snapshot(null, null)
         }
@@ -817,6 +817,10 @@ object V2RuntimeStore {
     fun allSessions(context: Context, nowMs: Long = System.currentTimeMillis(), requireCompleteHistory: Boolean = true): List<WorkSessionV2> {
         return V2RuntimeAccountScope.withScope {
         bind(context)
+        if (!V2RuntimeAccountScope.available(context)) {
+            V2RuntimeHistoryGuardV2.publishSourceState(false, listOf(V2RuntimeAccountScope.AUTH_WARNING))
+            return emptyList()
+        }
         if (requireCompleteHistory && V2RuntimeAccountScope.hasUnassignedHistory(context)) {
             V2RuntimeHistoryGuardV2.publishSourceState(false, listOf(V2RuntimeAccountScope.UNASSIGNED_WARNING))
             return emptyList()

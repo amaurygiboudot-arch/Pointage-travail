@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -408,7 +410,7 @@ object PointageStore {
     }
 
     private fun resolveCompanySlot(context: Context, rawAddress: String?): Int {
-        val gps = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val gps = RestoreGuardedPreferences.open(context, "gps_settings", Context.MODE_PRIVATE)
         val address = rawAddress?.trim().orEmpty()
         if (address.isNotBlank()) {
             val map = runCatching { JSONObject(gps.getString("address_company_slots", "{}") ?: "{}") }.getOrNull()
@@ -419,7 +421,7 @@ object PointageStore {
     }
 
     private fun currentActiveZone(context: Context): Pair<String, String>? {
-        val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, "gps_settings", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("enabled", false)) return null
         val ids = prefs.getStringSet("active_zones", emptySet()).orEmpty()
         if (ids.isEmpty()) return null

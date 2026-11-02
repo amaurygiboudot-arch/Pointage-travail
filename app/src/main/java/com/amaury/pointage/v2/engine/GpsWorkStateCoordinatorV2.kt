@@ -1,5 +1,7 @@
 package com.amaury.pointage.v2.engine
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import com.amaury.pointage.DailyDiagnosticStoreV2
 import com.amaury.pointage.DailyDiagnosticKindV2
 import com.amaury.pointage.DailyDiagnosticModelV2
@@ -404,7 +406,7 @@ object GpsWorkStateCoordinatorV2 {
         if (confirmDurableDeliveryReceipt(context, delivery) != DeliveryReceiptState.ACKNOWLEDGED) return null
         val runtime = V2RuntimeReader.current(context, nowMs)
         val session = runtime.snapshot.session ?: return null
-        val gps = context.applicationContext.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val gps = RestoreGuardedPreferences.open(context.applicationContext, "gps_settings", Context.MODE_PRIVATE)
         val zones = (com.amaury.pointage.readPersistedGpsZones(gps) as? com.amaury.pointage.GpsZonesReadResult.Valid)?.zones ?: return null
         val employer = session.employerId?.takeIf { it.isNotBlank() } ?: return null
         val companies by lazy { com.amaury.pointage.SalaryCompanyStore.readConfirmed(context) }

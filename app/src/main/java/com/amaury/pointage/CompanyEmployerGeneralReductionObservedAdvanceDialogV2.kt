@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
@@ -89,8 +91,9 @@ object CompanyEmployerGeneralReductionObservedAdvanceDialogV2 {
             setOnClickListener {
                 listDialog?.dismiss()
                 context.startActivity(
-                    Intent(context, RgduObservedDocumentImportActivity::class.java)
-                        .putExtra(RgduObservedDocumentImportActivity.EXTRA_COMPANY_ID, companyId)
+                    SalaryAccountUi.attach(Intent(context, RgduObservedDocumentImportActivity::class.java)
+                        .putExtra(RgduObservedDocumentImportActivity.EXTRA_COMPANY_ID, companyId),
+                        com.amaury.pointage.v2.SalaryAccountScope.lease(context))
                 )
             }
         }, rowParams(context))
@@ -156,7 +159,7 @@ object CompanyEmployerGeneralReductionObservedAdvanceDialogV2 {
         }
 
         val scroll = ScrollView(context).apply { addView(box) }
-        listDialog = AlertDialog.Builder(context)
+        listDialog = SalaryAccountUi.dialog(context)
             .setTitle("RGDU réellement constatée")
             .setView(scroll)
             .setNegativeButton("FERMER", null)
@@ -196,7 +199,7 @@ object CompanyEmployerGeneralReductionObservedAdvanceDialogV2 {
             source.setText(it.source)
         }
 
-        val builder = AlertDialog.Builder(context)
+        val builder = SalaryAccountUi.dialog(context)
             .setTitle(if (existing == null) "Confirmer une RGDU mensuelle" else "Modifier la RGDU mensuelle")
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)
@@ -264,7 +267,7 @@ object CompanyEmployerGeneralReductionObservedAdvanceDialogV2 {
     }
 
     private fun selectedPayrollMonth(context: Context): YearMonth {
-        val ms = context.getSharedPreferences("navigation_state", Context.MODE_PRIVATE)
+        val ms = RestoreGuardedPreferences.open(context, "navigation_state", Context.MODE_PRIVATE)
             .getLong("report_month_ms", -1L)
         val calendar = Calendar.getInstance(Locale.FRANCE)
         if (ms > 0L) calendar.timeInMillis = ms

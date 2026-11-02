@@ -37,21 +37,29 @@ object DatedWorkRuleStoreV2 {
     private val lock = Any()
 
     fun read(context: Context, owner: WorkRuleOwnerV2): ReadResult {
-        if (!confirmedOwner(context, owner)) return ReadResult(emptyList(), false, listOf(OWNER_WARNING))
-        return synchronized(lock) {
-            if (!confirmedOwner(context, owner)) return@synchronized ReadResult(emptyList(), false, listOf(OWNER_WARNING))
-            val stored = readLocal(context, owner)
-            val contract = matchingContract(context, owner)
-            if (!stored.reliable || contract == null || stored.records.any {
-                    !DatedWorkRuleContractScopeV2.verifiedApplicability(it, contract)
-                }
-            ) ReadResult(stored.records, false, (stored.warnings + STORAGE_WARNING).distinct())
-            else stored
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(records = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            if (!confirmedOwner(context, owner)) return ReadResult(emptyList(), false, listOf(OWNER_WARNING))
+            return synchronized(lock) {
+                if (!confirmedOwner(context, owner)) return@synchronized ReadResult(emptyList(), false, listOf(OWNER_WARNING))
+                val stored = readLocal(context, owner)
+                val contract = matchingContract(context, owner)
+                if (!stored.reliable || contract == null || stored.records.any {
+                        !DatedWorkRuleContractScopeV2.verifiedApplicability(it, contract)
+                    }
+                ) ReadResult(stored.records, false, (stored.warnings + STORAGE_WARNING).distinct())
+                else stored
+            }
         }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     /** Append-only : un doublon ou un chevauchement confirmé n'écrase aucune version. */
     fun append(context: Context, owner: WorkRuleOwnerV2, record: DatedWorkRuleV2): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (!confirmedOwner(context, owner) || record.owner != owner ||
             matchingContract(context, owner)?.let {
                 DatedWorkRuleContractScopeV2.verifiedApplicability(record, it)
@@ -73,6 +81,7 @@ object DatedWorkRuleStoreV2 {
         oldRecordId: String,
         newRecord: DatedWorkRuleV2
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (!confirmedOwner(context, owner) || newRecord.owner != owner ||
             newRecord.confirmation != WorkRuleConfirmationV2.CONFIRMED ||
             matchingContract(context, owner)?.let {
@@ -102,6 +111,7 @@ object DatedWorkRuleStoreV2 {
     }.getOrNull()?.takeIf { it.isNotBlank() }
 
     private fun matchingContract(context: Context, owner: WorkRuleOwnerV2): EmploymentContractSnapshotV2? {
+        val context = SalaryAccountScope.bindContext(context)
         val contracts = V2EmploymentContractHistoryStore.readConfirmed(context)
         if (!contracts.reliable) return null
         return contracts.snapshots.singleOrNull {
@@ -111,6 +121,7 @@ object DatedWorkRuleStoreV2 {
     }
 
     private fun confirmedOwner(context: Context, owner: WorkRuleOwnerV2): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (!DatedWorkRuleOwnerAuthorizationV2.authorizes(owner, signedInUid())) return false
         val companies = SalaryCompanyStore.readConfirmed(context)
         if (!companies.reliable || companies.companies.none { it.id == owner.employerId }) return false
@@ -118,7 +129,7 @@ object DatedWorkRuleStoreV2 {
     }
 
     private fun prefs(context: Context) =
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        SalaryAccountScope.preferences(context, PREFS)
 
     internal fun ownerStorageKey(owner: WorkRuleOwnerV2): String {
         val parts = listOf(owner.accountId, owner.employeeId, owner.employerId, owner.contractVersionId)
@@ -127,24 +138,72 @@ object DatedWorkRuleStoreV2 {
         return "owner:" + digest.joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 
+    /** A backup must include already owned historical rules even before their screen is opened. */
+    internal fun prepareOwnedLegacyForBackup(context: Context): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
+        val scope = SalaryAccountScope.lease(context).scope ?: return false
+        if (!scope.startsWith("uid:")) return SalaryAccountScope.available(context)
+        val uid = scope.removePrefix("uid:")
+        val legacy = SalaryAccountScope.rawContext(context).getSharedPreferences(PREFS, Context.MODE_PRIVATE).all
+        val owners = linkedSetOf<WorkRuleOwnerV2>()
+        for ((key, value) in legacy) {
+            val json = (value as? String)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return false
+            if (json.optString("accountId") != uid) continue
+            val owner = WorkRuleOwnerV2(json.optString("accountId"), json.optString("employeeId"),
+                json.optString("employerId"), json.optString("contractVersionId"))
+            if (key != ownerStorageKey(owner) && key != ownerStorageKey(owner) + ":backup") return false
+            owners += owner
+        }
+        for (owner in owners) {
+            if (!confirmedOwner(context, owner) || !read(context, owner).reliable) return false
+        }
+        return SalaryAccountScope.available(context)
+    }
+
     private fun readLocal(context: Context, owner: WorkRuleOwnerV2): ReadResult {
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(records = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            val p = prefs(context)
+            val key = ownerStorageKey(owner)
+            if (!migrateOwnedLegacy(context, owner)) return corrupt()
+            val primary = runCatching { p.getString(key, null) }.getOrNull()
+            val backup = runCatching { p.getString(key + ":backup", null) }.getOrNull()
+            if (primary == null && backup == null) {
+                if (p.contains(key) || p.contains(key + ":backup")) return corrupt()
+                return ReadResult(emptyList(), true, emptyList())
+            }
+            val decodedPrimary = primary?.let { decode(it, owner) }
+            if (decodedPrimary?.reliable == true) return decodedPrimary
+            val decodedBackup = backup?.let { decode(it, owner) }
+            if (decodedBackup?.reliable != true) return corrupt()
+            val restored = p.edit().putString(key, backup).commit()
+            return if (restored) decodedBackup else corrupt()
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
+    }
+
+    /** Existing dated envelopes already prove their exact owner; unrelated global keys are never copied. */
+    private fun migrateOwnedLegacy(context: Context, owner: WorkRuleOwnerV2): Boolean {
         val p = prefs(context)
         val key = ownerStorageKey(owner)
-        val primary = runCatching { p.getString(key, null) }.getOrNull()
-        val backup = runCatching { p.getString(key + ":backup", null) }.getOrNull()
-        if (primary == null && backup == null) {
-            if (p.contains(key) || p.contains(key + ":backup")) return corrupt()
-            return ReadResult(emptyList(), true, emptyList())
-        }
-        val decodedPrimary = primary?.let { decode(it, owner) }
-        if (decodedPrimary?.reliable == true) return decodedPrimary
-        val decodedBackup = backup?.let { decode(it, owner) }
-        if (decodedBackup?.reliable != true) return corrupt()
-        val restored = p.edit().putString(key, backup).commit()
-        return if (restored) decodedBackup else corrupt()
+        if (p.contains(key) || p.contains(key + ":backup")) return true
+        val legacy = SalaryAccountScope.rawContext(context).getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!legacy.contains(key) && !legacy.contains(key + ":backup")) return true
+        if (!confirmedOwner(context, owner)) return false
+        val values = legacy.all
+        val raw = listOf(key, key + ":backup").mapNotNull { values[it] as? String }
+            .firstOrNull { decode(it, owner).reliable } ?: return false
+        val contract = matchingContract(context, owner) ?: return false
+        if (decode(raw, owner).records.any { !DatedWorkRuleContractScopeV2.verifiedApplicability(it, contract) }) return false
+        if (legacy.all != values) return false
+        return p.edit().putString(key, raw).putString(key + ":backup", raw).commit()
     }
 
     private fun writeLocal(context: Context, owner: WorkRuleOwnerV2, records: List<DatedWorkRuleV2>): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (!confirmedOwner(context, owner) ||
             !DatedWorkRuleApplicabilityV2.validTimeline(owner, records)) return false
         val contract = matchingContract(context, owner) ?: return false

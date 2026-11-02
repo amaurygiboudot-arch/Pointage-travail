@@ -4,7 +4,7 @@ import Foundation
 /// Aucun montant n'est recalculé ici.
 enum SalaryConfirmedCashGrossComponentsBridgeV2 {
     static func load(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults,
         companyId: String,
         idcc: String,
         referenceDate: PayrollCivilDateV2,
@@ -13,6 +13,7 @@ enum SalaryConfirmedCashGrossComponentsBridgeV2 {
         conventionalMinimumMonthlyGross: Double?,
         professionalStatus: String? = nil
     ) -> SalaryConfirmedCashGrossComponentsV2 {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let seniority = SalaryConventionSeniorityPremiumBridgeV2.load(
             defaults: defaults,
             companyId: companyId,

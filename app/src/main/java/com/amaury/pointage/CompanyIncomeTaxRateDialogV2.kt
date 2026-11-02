@@ -80,7 +80,7 @@ object CompanyIncomeTaxRateDialogV2 {
             }
         }, rowParams(context))
 
-        listDialog = AlertDialog.Builder(context)
+        listDialog = SalaryAccountUi.dialog(context)
             .setTitle("Prélèvement à la source — taux datés")
             .setView(box)
             .setNegativeButton("FERMER", null)
@@ -124,7 +124,7 @@ object CompanyIncomeTaxRateDialogV2 {
             source.setText(record.source.orEmpty())
         }
 
-        val builder = AlertDialog.Builder(context)
+        val builder = SalaryAccountUi.dialog(context)
             .setTitle(if (existing == null) "Ajouter un taux PAS" else "Modifier le taux PAS")
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)

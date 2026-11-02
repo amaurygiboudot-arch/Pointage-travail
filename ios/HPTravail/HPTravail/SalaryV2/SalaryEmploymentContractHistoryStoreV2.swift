@@ -28,30 +28,34 @@ enum SalaryEmploymentContractHistoryStoreV2 {
     private static let lock = NSLock()
     private static let maxExactJSONInteger = 9_007_199_254_740_991.0
 
-    static func readConfirmed(defaults: UserDefaults = .standard) -> SalaryEmploymentContractHistoryReadResultV2 {
-        if let envelopeObject = defaults.object(forKey: envelopeKey) {
-            guard let envelopeRaw = envelopeObject as? String,
-                  let confirmedRaw = decodeEnvelope(envelopeRaw) else {
-                return recoverFromBackup(defaults: defaults)
+    static func readConfirmed(defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults) -> SalaryEmploymentContractHistoryReadResultV2 {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return SalaryAccountStorageV2.readConsistently(defaults, unavailable: SalaryEmploymentContractHistoryReadResultV2(snapshots: [], reliable: false, repairedFromBackup: false, warnings: [SalaryAccountStorageV2.warning])) {
+            guard SalaryAccountStorageV2.available(defaults) else { return SalaryEmploymentContractHistoryReadResultV2(snapshots: [], reliable: false, repairedFromBackup: false, warnings: [SalaryAccountStorageV2.warning]) }
+            if let envelopeObject = defaults.object(forKey: envelopeKey) {
+                guard let envelopeRaw = envelopeObject as? String,
+                      let confirmedRaw = decodeEnvelope(envelopeRaw) else {
+                    return recoverFromBackup(defaults: defaults)
+                }
+
+                let confirmed = decodeConfirmed(confirmedRaw)
+                guard confirmed.reliable else {
+                    return recoverFromBackup(defaults: defaults, fallback: confirmed)
+                }
+
+                // Compatibilité descendante et copie de récupération. Ces écritures ne sont pas la
+                // source autoritative : l'envelope unique ci-dessus l'est.
+                if defaults.string(forKey: primaryKey) != confirmedRaw {
+                    _ = writeVerified(confirmedRaw, forKey: primaryKey, defaults: defaults)
+                }
+                if defaults.string(forKey: backupKey) != confirmedRaw {
+                    _ = writeVerified(confirmedRaw, forKey: backupKey, defaults: defaults)
+                }
+                return confirmed
             }
 
-            let confirmed = decodeConfirmed(confirmedRaw)
-            guard confirmed.reliable else {
-                return recoverFromBackup(defaults: defaults, fallback: confirmed)
-            }
-
-            // Compatibilité descendante et copie de récupération. Ces écritures ne sont pas la
-            // source autoritative : l'envelope unique ci-dessus l'est.
-            if defaults.string(forKey: primaryKey) != confirmedRaw {
-                _ = writeVerified(confirmedRaw, forKey: primaryKey, defaults: defaults)
-            }
-            if defaults.string(forKey: backupKey) != confirmedRaw {
-                _ = writeVerified(confirmedRaw, forKey: backupKey, defaults: defaults)
-            }
-            return confirmed
+            return readLegacyAndMigrate(defaults: defaults)
         }
-
-        return readLegacyAndMigrate(defaults: defaults)
     }
 
     static func history(
@@ -64,8 +68,9 @@ enum SalaryEmploymentContractHistoryStoreV2 {
     @discardableResult
     static func saveConfirmed(
         _ snapshot: SalaryEmploymentContractSnapshotV2,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let candidate = normalizedSnapshot(snapshot)
         guard SalaryEmploymentContractHistoryV2([candidate]) != nil else { return false }
 
@@ -98,8 +103,9 @@ enum SalaryEmploymentContractHistoryStoreV2 {
         sourceId: String,
         checkedAtMs: Int64,
         note: String? = nil,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         lock.lock()
         defer { lock.unlock() }
 
@@ -198,6 +204,7 @@ enum SalaryEmploymentContractHistoryStoreV2 {
     private static func readLegacyAndMigrate(
         defaults: UserDefaults
     ) -> SalaryEmploymentContractHistoryReadResultV2 {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let primaryObject = defaults.object(forKey: primaryKey)
         let backupObject = defaults.object(forKey: backupKey)
 
@@ -270,6 +277,7 @@ enum SalaryEmploymentContractHistoryStoreV2 {
         defaults: UserDefaults,
         fallback: SalaryEmploymentContractHistoryReadResultV2 = unreliableResult()
     ) -> SalaryEmploymentContractHistoryReadResultV2 {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard let backupRaw = defaults.string(forKey: backupKey) else { return fallback }
         let backup = decodeConfirmed(backupRaw)
         guard backup.reliable else { return fallback }
@@ -469,6 +477,7 @@ enum SalaryEmploymentContractHistoryStoreV2 {
         _ snapshots: [SalaryEmploymentContractSnapshotV2],
         defaults: UserDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard SalaryEmploymentContractHistoryV2(snapshots) != nil,
               let confirmedRaw = encodeConfirmed(snapshots),
               writeEnvelopeVerified(confirmedRaw, defaults: defaults) else {
@@ -483,6 +492,7 @@ enum SalaryEmploymentContractHistoryStoreV2 {
     }
 
     private static func writeEnvelopeVerified(_ confirmedRaw: String, defaults: UserDefaults) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard let envelopeRaw = encodeEnvelope(confirmedRaw) else { return false }
         defaults.set(envelopeRaw, forKey: envelopeKey)
         return defaults.string(forKey: envelopeKey) == envelopeRaw
@@ -490,6 +500,7 @@ enum SalaryEmploymentContractHistoryStoreV2 {
     }
 
     private static func writeVerified(_ value: String, forKey key: String, defaults: UserDefaults) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         defaults.set(value, forKey: key)
         return defaults.string(forKey: key) == value
     }

@@ -34,8 +34,9 @@ enum SalaryDatedWorkRuleStoreV2 {
     static func read(
         owner: SalaryWorkRuleOwnerV2,
         authenticatedAccountId: String?,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> SalaryDatedWorkRuleReadResultV2 {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard confirmedOwner(owner, authenticatedAccountId: authenticatedAccountId, defaults: defaults) else {
             return .init(records: [], reliable: false, warnings: [ownerWarning])
         }
@@ -57,8 +58,9 @@ enum SalaryDatedWorkRuleStoreV2 {
         _ record: SalaryDatedWorkRuleV2,
         owner: SalaryWorkRuleOwnerV2,
         authenticatedAccountId: String?,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard record.owner == owner,
               confirmedOwner(owner, authenticatedAccountId: authenticatedAccountId, defaults: defaults),
               let contract = matchingContract(owner, defaults: defaults),
@@ -78,8 +80,9 @@ enum SalaryDatedWorkRuleStoreV2 {
         oldRecordId: String, with newRecord: SalaryDatedWorkRuleV2,
         owner: SalaryWorkRuleOwnerV2,
         authenticatedAccountId: String?,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard !oldRecordId.isEmpty, newRecord.owner == owner,
               newRecord.confirmation == .confirmed,
               confirmedOwner(owner, authenticatedAccountId: authenticatedAccountId, defaults: defaults),
@@ -116,6 +119,7 @@ enum SalaryDatedWorkRuleStoreV2 {
     private static func matchingContract(
         _ owner: SalaryWorkRuleOwnerV2, defaults: UserDefaults
     ) -> SalaryEmploymentContractSnapshotV2? {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let history = SalaryEmploymentContractHistoryStoreV2.readConfirmed(defaults: defaults)
         guard history.reliable else { return nil }
         let matches = history.snapshots.filter {
@@ -130,6 +134,7 @@ enum SalaryDatedWorkRuleStoreV2 {
         authenticatedAccountId: String?,
         defaults: UserDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard SalaryDatedWorkRuleOwnerAuthorizationV2.authorizes(
             owner, authenticatedUid: authenticatedAccountId
         ) else { return false }
@@ -142,6 +147,7 @@ enum SalaryDatedWorkRuleStoreV2 {
     private static func readLocal(
         _ owner: SalaryWorkRuleOwnerV2, defaults: UserDefaults
     ) -> SalaryDatedWorkRuleReadResultV2 {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let key = ownerStorageKey(owner)
         let primary = defaults.object(forKey: key)
         let backup = defaults.object(forKey: key + ":backup")
@@ -166,6 +172,7 @@ enum SalaryDatedWorkRuleStoreV2 {
         authenticatedAccountId: String?,
         defaults: UserDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard confirmedOwner(owner, authenticatedAccountId: authenticatedAccountId, defaults: defaults),
               let contract = matchingContract(owner, defaults: defaults),
               SalaryDatedWorkRuleApplicabilityV2.validTimeline(owner, records: records),

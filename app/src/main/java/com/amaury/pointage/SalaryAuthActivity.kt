@@ -8,9 +8,10 @@ import android.os.Bundle
 import android.widget.Toast
 
 /** Activity transparente dédiée à l'authentification de l'espace Salaire. */
-class SalaryAuthActivity : Activity() {
+class SalaryAuthActivity : SalaryAccountActivity() {
     companion object {
         const val EXTRA_COMPANY_ID = "company_id"
+        const val EXTRA_LEGACY_RECOVERY = "salary_legacy_recovery"
         private const val REQUEST_DEVICE_AUTH = 4717
     }
 
@@ -19,8 +20,9 @@ class SalaryAuthActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!accountReady()) return
         companyId = intent.getStringExtra(EXTRA_COMPANY_ID).orEmpty()
-        if (companyId.isBlank()) { finish(); return }
+        if (companyId.isBlank() && !intent.getBooleanExtra(EXTRA_LEGACY_RECOVERY, false)) { finish(); return }
         if (savedInstanceState != null) authStarted = savedInstanceState.getBoolean("auth_started", false)
         if (!authStarted) startAuthentication()
     }
@@ -39,7 +41,9 @@ class SalaryAuthActivity : Activity() {
         @Suppress("DEPRECATION")
         val authIntent = keyguard.createConfirmDeviceCredentialIntent(
             "AGKGMG — accès sécurisé",
-            "Authentifie-toi pour ouvrir les informations détaillées de l’entreprise."
+            if (intent.getBooleanExtra(EXTRA_LEGACY_RECOVERY, false))
+                "Authentifie-toi pour confirmer la reprise des anciennes données salariales."
+            else "Authentifie-toi pour ouvrir les informations détaillées de l’entreprise."
         )
         if (authIntent == null) {
             Toast.makeText(this, "Authentification Android indisponible", Toast.LENGTH_LONG).show()
@@ -52,8 +56,12 @@ class SalaryAuthActivity : Activity() {
     @Deprecated("Résultat requis pour l'API d'authentification système utilisée avec Activity classique")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (!accountReady()) return
         if (requestCode == REQUEST_DEVICE_AUTH) {
-            if (resultCode == RESULT_OK) PendingSalaryCompanyAccess.authorizedCompanyId = companyId
+            if (resultCode == RESULT_OK) salaryAccountLease?.let {
+                if (intent.getBooleanExtra(EXTRA_LEGACY_RECOVERY, false)) PendingSalaryCompanyAccess.authorizeRecovery(it)
+                else PendingSalaryCompanyAccess.authorize(companyId, it)
+            }
             finish()
         }
     }

@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -248,7 +250,7 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
      * Les images/textures de boutons et de cadres n'entrent jamais dans ce circuit.
      */
     private fun selectedBackgroundFile(): File? {
-        val prefs = context.getSharedPreferences(AppThemeCatalog.PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, AppThemeCatalog.PREFS, Context.MODE_PRIVATE)
         if (!prefs.getBoolean("custom_image_bg", false)) return null
 
         val file = File(context.filesDir, AppearanceManager.BACKGROUND_FILE)

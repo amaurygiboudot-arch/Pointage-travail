@@ -20,9 +20,9 @@ import java.nio.charset.StandardCharsets
 
 /** Ajout d'une entreprise V2 par nom OU SIRET. */
 class V2SalaryCompanyLookupView(
-    context: Context,
+    hostContext: Context,
     private val onSaved: () -> Unit
-) : LinearLayout(context) {
+) : SalaryAccountLayout(hostContext) {
 
     private val queryInput = EditText(context)
     private val status = TextView(context)
@@ -41,6 +41,7 @@ class V2SalaryCompanyLookupView(
     }
 
     private fun search() {
+        if (!accountCurrent()) return
         val query = queryInput.text.toString().trim()
         if (query.length < 2) { Toast.makeText(context, "Écris un nom d'entreprise ou un SIRET", Toast.LENGTH_LONG).show(); return }
         val digits = query.filter(Char::isDigit)
@@ -61,19 +62,20 @@ class V2SalaryCompanyLookupView(
                 if (results.length() == 0) throw IllegalStateException("aucune entreprise trouvée")
                 val choices = (0 until results.length()).mapNotNull { i -> results.optJSONObject(i)?.let { parseCompany(it, if (digits.length == 14) digits else "") } }
                 if (choices.isEmpty()) throw IllegalStateException("résultat incomplet")
-                post { setSearching(false); if (choices.size == 1) saveCompany(choices.first()) else showChoices(choices) }
+                post { if (!accountCurrent()) return@post; setSearching(false); if (choices.size == 1) saveCompany(choices.first()) else showChoices(choices) }
             } catch (e: Exception) {
-                post { setSearching(false); status.text = "Impossible de trouver l'entreprise : ${e.message ?: "erreur inconnue"}" }
+                post { if (!accountCurrent()) return@post; setSearching(false); status.text = "Impossible de trouver l'entreprise : ${e.message ?: "erreur inconnue"}" }
             }
         }.start()
     }
 
     private fun showChoices(companies: List<SalaryCompanyStore.Company>) {
         val labels = companies.map { c -> buildString { append(c.name.ifBlank { "Entreprise" }); if (c.siret.isNotBlank()) append("\nSIRET : ").append(c.siret); if (c.address.isNotBlank()) append("\n").append(c.address) } }.toTypedArray()
-        AlertDialog.Builder(context).setTitle("Choisis l'entreprise").setItems(labels) { _, which -> companies.getOrNull(which)?.let(::saveCompany) }.setNegativeButton("ANNULER", null).show()
+        SalaryAccountUi.dialog(context).setTitle("Choisis l'entreprise").setItems(labels) { _, which -> companies.getOrNull(which)?.let(::saveCompany) }.setNegativeButton("ANNULER", null).show()
     }
 
     private fun saveCompany(company: SalaryCompanyStore.Company) {
+        if (!accountCurrent()) return
         val before = SalaryCompanyStore.readConfirmed(context)
         val resolution = SalaryCompanyIdentityResolverV2.resolve(before, company)
         val target = resolution.company

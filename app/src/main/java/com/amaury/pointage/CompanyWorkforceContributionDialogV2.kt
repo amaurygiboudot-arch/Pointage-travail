@@ -65,7 +65,7 @@ object CompanyWorkforceContributionDialogV2 {
             }
         }, rowParams(context))
 
-        listDialog = AlertDialog.Builder(context)
+        listDialog = SalaryAccountUi.dialog(context)
             .setTitle("Effectif employeur — FNAL / formation")
             .setView(box)
             .setNegativeButton("FERMER", null)
@@ -112,7 +112,7 @@ object CompanyWorkforceContributionDialogV2 {
             source.setText(record.source)
         }
 
-        val builder = AlertDialog.Builder(context)
+        val builder = SalaryAccountUi.dialog(context)
             .setTitle(if (existing == null) "Ajouter une tranche d'effectif" else "Modifier la tranche d'effectif")
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)

@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.SalaryAccountScope
+
 import android.app.Activity
 import android.content.Context
 import android.content.SharedPreferences
@@ -24,16 +26,32 @@ object CompanyNameUiBinder : SharedPreferences.OnSharedPreferenceChangeListener 
     private val bindings = WeakHashMap<TextView, Pair<LabelBinding, LabelBinding>>()
     private var initialized = false
     private var currentActivity: WeakReference<Activity>? = null
+    private var watchedPreferences = emptyList<SharedPreferences>()
+    private var appContext: Context? = null
+    private val accountListener: () -> Unit = {
+        appContext?.let(::observeAccount)
+        currentActivity?.get()?.let { activity ->
+            activity.runOnUiThread {
+                if (!activity.isFinishing && !activity.isDestroyed) apply(activity.window.decorView, activity)
+            }
+        }
+    }
 
     fun init(context: Context) {
         if (initialized) return
         val app = context.applicationContext
-        app.getSharedPreferences(preferenceFileName(HoraTrackV2.ENABLED), Context.MODE_PRIVATE)
-            .registerOnSharedPreferenceChangeListener(this)
-        // Historical identities remain dependencies of alias resolution, never name fallbacks.
-        if (HoraTrackV2.ENABLED) app.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
-            .registerOnSharedPreferenceChangeListener(this)
+        appContext = app
         initialized = true
+        observeAccount(app)
+        SalaryAccountScope.addListener(accountListener)
+    }
+
+    private fun observeAccount(context: Context) {
+        watchedPreferences.forEach { it.unregisterOnSharedPreferenceChangeListener(this) }
+        val ownerContext = SalaryAccountScope.bindContext(context)
+        watchedPreferences = listOf(preferenceFileName(HoraTrackV2.ENABLED), LEGACY_PREFS).distinct()
+            .map { SalaryAccountScope.preferences(ownerContext, it) }
+        watchedPreferences.forEach { it.registerOnSharedPreferenceChangeListener(this) }
     }
 
     fun bind(activity: Activity) {
@@ -58,7 +76,7 @@ object CompanyNameUiBinder : SharedPreferences.OnSharedPreferenceChangeListener 
             }
         }
         val key = if (slot == 1) "company_name" else "company2_name"
-        return context.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
+        return SalaryAccountScope.preferences(context, LEGACY_PREFS)
             .getString(key, "").orEmpty().trim()
     }
 
@@ -83,7 +101,11 @@ object CompanyNameUiBinder : SharedPreferences.OnSharedPreferenceChangeListener 
     }
 
     private fun apply(view: View, context: Context) {
-        applyLabels(view, name(context, 1), name(context, 2))
+        val ownerContext = SalaryAccountScope.bindContext(context)
+        val first = name(ownerContext, 1)
+        val second = name(ownerContext, 2)
+        if (SalaryAccountScope.available(ownerContext)) applyLabels(view, first, second)
+        else applyLabels(view, "", "")
     }
 
     private fun applyLabels(view: View, company1: String, company2: String) {

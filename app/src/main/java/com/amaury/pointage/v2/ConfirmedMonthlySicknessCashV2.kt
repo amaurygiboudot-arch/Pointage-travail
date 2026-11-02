@@ -18,10 +18,17 @@ object ConfirmedMonthlySicknessCashV2 {
         listOfNotNull(record.directEmployeeNetBeforeTax, record.subrogatedEmployerNetBeforeTax).all { it.isFinite() && it >= 0.0 }
     private fun key(companyId: String, period: String) = "$companyId|$period"
     fun read(context: Context, companyId: String, period: String): Result {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val key = key(companyId, period)
-        if (!prefs.contains(key)) return Result(null, true, emptyList())
-        return decode(runCatching { prefs.getString(key, null) }.getOrNull(), companyId, period)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): Result = Result(record = null, reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): Result {
+            val prefs = SalaryAccountScope.preferences(context, PREFS)
+            val key = key(companyId, period)
+            if (!prefs.contains(key)) return Result(null, true, emptyList())
+            return decode(runCatching { prefs.getString(key, null) }.getOrNull(), companyId, period)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
     internal fun decode(raw: String?, companyId: String, period: String): Result = runCatching {
         val json = JSONObject(raw ?: error("invalid"))
@@ -43,6 +50,7 @@ object ConfirmedMonthlySicknessCashV2 {
         Result(record, true, emptyList())
     }.getOrElse { Result(null, false, listOf(WARNING)) }
     fun save(context: Context, record: Record, confirmed: Boolean): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (!confirmed || !valid(record)) return false
         // Never overwrite unreadable existing evidence silently.
         if (!read(context, record.companyId, record.period).reliable) return false
@@ -50,10 +58,10 @@ object ConfirmedMonthlySicknessCashV2 {
             .put("direct", record.directEmployeeNetBeforeTax ?: JSONObject.NULL)
             .put("subrogated", record.subrogatedEmployerNetBeforeTax ?: JSONObject.NULL)
             .put("source", record.source).put("confirmedAt", record.confirmedAtMs).toString()
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = SalaryAccountScope.preferences(context, PREFS)
         return prefs.edit().putString(key(record.companyId, record.period), raw).commit() &&
             read(context, record.companyId, record.period).let { it.reliable && it.record == record }
     }
     fun remove(context: Context, companyId: String, period: String): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(key(companyId, period)).commit()
+        SalaryAccountScope.preferences(context, PREFS).edit().remove(key(companyId, period)).commit()
 }

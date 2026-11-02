@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.AttributeSet
@@ -25,7 +27,7 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
     }
 
     private val navigationPrefs by lazy {
-        context.getSharedPreferences(NAVIGATION_PREFS, Context.MODE_PRIVATE)
+        RestoreGuardedPreferences.open(context, NAVIGATION_PREFS, Context.MODE_PRIVATE)
     }
 
     private val updater = object : Runnable {

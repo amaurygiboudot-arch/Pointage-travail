@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
@@ -24,7 +26,7 @@ import java.util.UUID
 import java.util.concurrent.Executors
 
 /** Import local assisté d'un montant RGDU depuis bulletin, DSN ou justificatif employeur. */
-class RgduObservedDocumentImportActivity : Activity() {
+class RgduObservedDocumentImportActivity : SalaryAccountActivity() {
     companion object {
         private const val REQUEST_FILE = 9711
         const val EXTRA_COMPANY_ID = "company_id"
@@ -37,6 +39,7 @@ class RgduObservedDocumentImportActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!accountReady()) return
         if (companyId.isBlank()) {
             finish()
             return
@@ -63,6 +66,7 @@ class RgduObservedDocumentImportActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (!accountReady()) return
         if (requestCode != REQUEST_FILE) return
         if (resultCode != RESULT_OK) {
             finish()
@@ -88,10 +92,11 @@ class RgduObservedDocumentImportActivity : Activity() {
         setContentView(label)
 
         executor.execute {
+            if (!accountReady()) return@execute
             var temporary: java.io.File? = null
             try {
                 val document = CompanyAgreementDocumentReaderV2.read(this, uri) { message ->
-                    runOnUiThread { if (!isFinishing && !isDestroyed) status?.text = message }
+                    runOnUiThread { if (accountReady()) status?.text = message }
                 }
                 temporary = document.temporaryFile
                 val parsed = EmployerGeneralReductionObservedDocumentParserV2.parse(document.extractedText)
@@ -100,7 +105,7 @@ class RgduObservedDocumentImportActivity : Activity() {
                     append(" • SHA-256 ").append(document.sha256.take(16))
                 }
                 runOnUiThread {
-                    if (!isFinishing && !isDestroyed) {
+                    if (accountReady()) {
                         showConfirmation(parsed, source)
                     }
                 }
@@ -108,7 +113,7 @@ class RgduObservedDocumentImportActivity : Activity() {
                 Thread.currentThread().interrupt()
             } catch (_: Throwable) {
                 runOnUiThread {
-                    if (!isFinishing && !isDestroyed) {
+                    if (accountReady()) {
                         showConfirmation(
                             EmployerGeneralReductionObservedDocumentParserV2.Result(
                                 rgdu = EmployerGeneralReductionObservedDocumentParserV2.Candidate(null, 0.0),
@@ -171,7 +176,7 @@ class RgduObservedDocumentImportActivity : Activity() {
             addView(source, rowParams())
         }
 
-        val dialog = AlertDialog.Builder(this)
+        val dialog = SalaryAccountUi.dialog(this)
             .setTitle("Confirmer la RGDU du document")
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)
@@ -181,6 +186,7 @@ class RgduObservedDocumentImportActivity : Activity() {
 
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                if (!accountReady()) return@setOnClickListener
                 val parsedMonth = runCatching {
                     YearMonth.parse(month.text.toString().trim(), monthFormatter)
                 }.getOrNull()
@@ -219,7 +225,7 @@ class RgduObservedDocumentImportActivity : Activity() {
     }
 
     private fun selectedPayrollMonth(): YearMonth {
-        val ms = getSharedPreferences("navigation_state", Context.MODE_PRIVATE)
+        val ms = RestoreGuardedPreferences.open(this, "navigation_state", Context.MODE_PRIVATE)
             .getLong("report_month_ms", -1L)
         val calendar = Calendar.getInstance(Locale.FRANCE)
         if (ms > 0L) calendar.timeInMillis = ms
@@ -230,6 +236,17 @@ class RgduObservedDocumentImportActivity : Activity() {
         ViewGroup.LayoutParams.MATCH_PARENT,
         ViewGroup.LayoutParams.WRAP_CONTENT
     ).apply { topMargin = dp(6) }
+
+    override fun onSalaryAccountInvalidated() {
+        executor.shutdownNow()
+        status = null
+        super.onSalaryAccountInvalidated()
+    }
+
+    override fun onDestroy() {
+        executor.shutdownNow()
+        super.onDestroy()
+    }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 }

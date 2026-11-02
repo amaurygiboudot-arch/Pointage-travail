@@ -176,7 +176,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     private fun installV2PdfExport(activity: MainActivity) {
         if (!HoraTrackV2.ENABLED) return
         activity.findViewById<Button>(R.id.generateMonthlyPdfButton)?.setOnClickListener {
-            activity.startActivity(Intent(activity, V2MonthlyPdfActivity::class.java))
+            activity.startActivity(SalaryAccountUi.attach(Intent(activity, V2MonthlyPdfActivity::class.java), com.amaury.pointage.v2.SalaryAccountScope.lease(activity)))
         }
     }
 

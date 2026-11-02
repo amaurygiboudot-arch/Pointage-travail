@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.content.Context
 import android.graphics.Typeface
 import android.view.ViewGroup
@@ -16,7 +18,7 @@ import java.util.Calendar
 import java.util.Locale
 
 /** Vue JORF : piste récente de publications légales susceptibles d'affecter la paie. */
-class V2JorfPayrollSourcesView(context: Context) : LinearLayout(context) {
+class V2JorfPayrollSourcesView(hostContext: Context) : SalaryAccountLayout(hostContext) {
     private val status = TextView(context)
     private val verifyButton = Button(context)
 
@@ -100,7 +102,7 @@ class V2JorfPayrollSourcesView(context: Context) : LinearLayout(context) {
     private data class Reference(val atMs: Long, val label: String)
 
     private fun referenceDate(): Reference {
-        val prefs = context.getSharedPreferences("navigation_state", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, "navigation_state", Context.MODE_PRIVATE)
         val selectedMs = prefs.getLong("report_month_ms", -1L)
         val calendar = Calendar.getInstance(Locale.FRANCE)
         if (selectedMs > 0L) calendar.timeInMillis = selectedMs

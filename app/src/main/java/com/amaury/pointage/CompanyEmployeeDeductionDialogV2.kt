@@ -86,7 +86,7 @@ object CompanyEmployeeDeductionDialogV2 {
             }
         }, rowParams(context))
 
-        listDialog = AlertDialog.Builder(context)
+        listDialog = SalaryAccountUi.dialog(context)
             .setTitle("Retenues salarié / fiscales datées")
             .setView(box)
             .setNegativeButton("FERMER", null)
@@ -142,7 +142,7 @@ object CompanyEmployeeDeductionDialogV2 {
             source.setText(record.source.orEmpty())
         }
 
-        val builder = AlertDialog.Builder(context)
+        val builder = SalaryAccountUi.dialog(context)
             .setTitle(if (existing == null) "Ajouter une retenue datée" else "Modifier la retenue")
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)

@@ -9,6 +9,7 @@ struct SalaryDatedWorkRulesEditorV2: View {
     @EnvironmentObject private var authentication: AuthManager
     @Environment(\.dismiss) private var dismiss
     @State private var openedUid: String?
+    @State private var openedLease = SalaryAccountSessionV2.capture()
     @State private var selectedContractId = ""
     @State private var selectedTopic: SalaryWorkRuleTopicV2 = .timeAccounting
     @State private var effectiveFrom = Date()
@@ -29,14 +30,17 @@ struct SalaryDatedWorkRulesEditorV2: View {
         return uid.isEmpty ? nil : uid
     }
     private var accountStillValid: Bool {
-        openedUid != nil && openedUid == authenticatedUid
+        openedLease.isCurrent && openedUid != nil && openedUid == authenticatedUid
     }
     private var companyConfirmed: Bool {
+        guard openedLease.isCurrent else { return false }
         let stored = SalaryCompanyStoreV2.readConfirmed()
         return stored.reliable && stored.companies.contains(where: { $0.id == companyId })
     }
     private var history: SalaryEmploymentContractHistoryReadResultV2 {
-        SalaryEmploymentContractHistoryStoreV2.readConfirmed()
+        let operation = SalaryAccountSessionV2.pin(openedLease)
+        defer { operation.close() }
+        return SalaryEmploymentContractHistoryStoreV2.readConfirmed()
     }
     private var companyContracts: [SalaryEmploymentContractSnapshotV2] {
         guard companyConfirmed, history.reliable else { return [] }
@@ -55,7 +59,7 @@ struct SalaryDatedWorkRulesEditorV2: View {
                 ruleSection
                 submitSection
             }
-            savedHistorySection
+            if accountStillValid { savedHistorySection }
             if !info.isEmpty {
                 Section("État") { Text(info).font(.footnote) }
             }
@@ -226,6 +230,9 @@ struct SalaryDatedWorkRulesEditorV2: View {
     }
 
     private func reloadHistory() {
+        guard openedLease.isCurrent else { return }
+        let operation = SalaryAccountSessionV2.pin(openedLease)
+        defer { operation.close() }
         savedRecords = []
         guard accountStillValid, let uid = authenticatedUid,
               let snapshot = selectedContract,
@@ -248,6 +255,9 @@ struct SalaryDatedWorkRulesEditorV2: View {
     }
 
     private func prepareProposal() {
+        guard openedLease.isCurrent else { return }
+        let operation = SalaryAccountSessionV2.pin(openedLease)
+        defer { operation.close() }
         guard accountStillValid, confirmsOwnContract,
               let uid = authenticatedUid, let snapshot = selectedContract,
               let owner = SalaryDatedWorkRuleOwnerAuthorizationV2.ownerForSelf(
@@ -317,6 +327,9 @@ struct SalaryDatedWorkRulesEditorV2: View {
     }
 
     private func saveProposal() {
+        guard openedLease.isCurrent else { return }
+        let operation = SalaryAccountSessionV2.pin(openedLease)
+        defer { operation.close() }
         defer { clearConfirmation() }
         guard accountStillValid, let uid = authenticatedUid,
               let selected = selectedContract, let record = proposal,

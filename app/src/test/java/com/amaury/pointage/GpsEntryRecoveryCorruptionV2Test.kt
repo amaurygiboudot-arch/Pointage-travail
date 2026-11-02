@@ -1,5 +1,6 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.SalaryAccountScope
 import android.app.Application
 import android.content.Context
 import android.content.Intent
@@ -39,7 +40,7 @@ class GpsEntryRecoveryCorruptionV2Test {
         Mockito.`when`(user.uid).thenReturn("entry-corruption-account")
         Mockito.`when`(auth.currentUser).thenReturn(user)
         GpsDeliveryAuthShadow.auth = auth
-        context.getSharedPreferences("salary_companies_v2", Context.MODE_PRIVATE).edit()
+        SalaryAccountScope.preferences(context, "salary_companies_v2").edit()
             .putString("companies", """[{"id":"company-a","name":"A","siret":""}]""").commit()
         assertTrue(V2ProfileStore.setActiveCompanyId(context, "company-a"))
         V2RuntimeStore.reset(context)

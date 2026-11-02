@@ -84,7 +84,7 @@ object CompanyProfessionalStatusDialogV2 {
             }
         }, rowParams(context))
 
-        listDialog = AlertDialog.Builder(context)
+        listDialog = SalaryAccountUi.dialog(context)
             .setTitle("Statut professionnel — versions datées")
             .setView(ScrollView(context).apply { addView(box) })
             .setNegativeButton("FERMER", null)
@@ -133,7 +133,7 @@ object CompanyProfessionalStatusDialogV2 {
             source.setText(record.source)
         }
 
-        val builder = AlertDialog.Builder(context)
+        val builder = SalaryAccountUi.dialog(context)
             .setTitle(if (existing == null) "Ajouter un statut professionnel" else "Modifier le statut professionnel")
             .setView(ScrollView(context).apply { addView(box) })
             .setPositiveButton("CONFIRMER CETTE VERSION DATÉE", null)

@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.content.Context
 import android.graphics.Typeface
 import android.view.ViewGroup
@@ -51,7 +53,7 @@ internal fun legalPayrollSourceStatusText(
 }
 
 /** Vue de contrôle des sources légales LEGI utilisées comme piste d'audit de la paie. */
-class V2LegalPayrollSourcesView(context: Context) : LinearLayout(context) {
+class V2LegalPayrollSourcesView(hostContext: Context) : SalaryAccountLayout(hostContext) {
     private val status = TextView(context)
     private val verifyButton = Button(context)
 
@@ -112,7 +114,7 @@ class V2LegalPayrollSourcesView(context: Context) : LinearLayout(context) {
     private data class Reference(val atMs: Long, val label: String)
 
     private fun referenceDate(): Reference {
-        val prefs = context.getSharedPreferences("navigation_state", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, "navigation_state", Context.MODE_PRIVATE)
         val selectedMs = prefs.getLong("report_month_ms", -1L)
         val calendar = Calendar.getInstance(Locale.FRANCE)
         if (selectedMs > 0L) calendar.timeInMillis = selectedMs

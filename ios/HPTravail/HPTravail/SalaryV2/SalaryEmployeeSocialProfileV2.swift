@@ -63,41 +63,45 @@ enum SalaryEmployeeSocialProfileStoreV2 {
     private static let maxExactJSONInteger = 9_007_199_254_740_991.0
 
     static func readConfirmed(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults,
         companyId rawCompanyId: String
     ) -> SalaryEmployeeSocialProfileReadResultV2 {
-        let companyId = normalized(rawCompanyId)
-        guard confirmedCompany(defaults: defaults, companyId: companyId) else {
-            return SalaryEmployeeSocialProfileReadResultV2(
-                snapshots: [],
-                reliable: false,
-                warnings: [companyWarning]
-            )
-        }
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return SalaryAccountStorageV2.readConsistently(defaults, unavailable: SalaryEmployeeSocialProfileReadResultV2(snapshots: [], reliable: false, warnings: [SalaryAccountStorageV2.warning])) {
+            let companyId = normalized(rawCompanyId)
+            guard confirmedCompany(defaults: defaults, companyId: companyId) else {
+                return SalaryEmployeeSocialProfileReadResultV2(
+                    snapshots: [],
+                    reliable: false,
+                    warnings: [companyWarning]
+                )
+            }
 
-        guard let object = defaults.object(forKey: storageKey(companyId)) else {
-            return SalaryEmployeeSocialProfileReadResultV2(
-                snapshots: [],
-                reliable: true,
-                warnings: []
-            )
+            guard let object = defaults.object(forKey: storageKey(companyId)) else {
+                return SalaryEmployeeSocialProfileReadResultV2(
+                    snapshots: [],
+                    reliable: true,
+                    warnings: []
+                )
+            }
+            guard let raw = object as? String else {
+                return unreliableResult()
+            }
+            let decoded = decode(raw)
+            guard decoded.reliable,
+                  decoded.snapshots.allSatisfy({ normalized($0.companyId) == companyId }) else {
+                return unreliableResult(snapshots: decoded.snapshots)
+            }
+            return decoded
         }
-        guard let raw = object as? String else {
-            return unreliableResult()
-        }
-        let decoded = decode(raw)
-        guard decoded.reliable,
-              decoded.snapshots.allSatisfy({ normalized($0.companyId) == companyId }) else {
-            return unreliableResult(snapshots: decoded.snapshots)
-        }
-        return decoded
     }
 
     @discardableResult
     static func saveConfirmed(
         _ snapshot: SalaryEmployeeSocialProfileSnapshotV2,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let candidate = normalizedSnapshot(snapshot)
         guard valid(candidate),
               confirmedCompany(defaults: defaults, companyId: candidate.companyId) else {
@@ -129,7 +133,7 @@ enum SalaryEmployeeSocialProfileStoreV2 {
     /// précédente à J-1. Une version future déjà connue borne la nouvelle version à J-1.
     @discardableResult
     static func upsertEffectiveVersion(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults,
         companyId rawCompanyId: String,
         effectiveFromEpochDay: Int64,
         professionalStatus: SalaryProfessionalStatusV2,
@@ -137,6 +141,7 @@ enum SalaryEmployeeSocialProfileStoreV2 {
         sourceId rawSourceId: String,
         checkedAtMs: Int64
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let companyId = normalized(rawCompanyId)
         let sourceId = rawSourceId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !companyId.isEmpty,
@@ -215,11 +220,12 @@ enum SalaryEmployeeSocialProfileStoreV2 {
     }
 
     static func resolve(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults,
         companyId: String,
         period: YearMonthV2
     ) -> SalaryEmployeeSocialProfileResolutionV2 {
-        resolve(
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return resolve(
             readConfirmed(defaults: defaults, companyId: companyId),
             companyId: companyId,
             period: period
@@ -466,6 +472,7 @@ enum SalaryEmployeeSocialProfileStoreV2 {
     }
 
     private static func confirmedCompany(defaults: UserDefaults, companyId: String) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard !companyId.isEmpty else { return false }
         let stored = SalaryCompanyStoreV2.readConfirmed(defaults: defaults)
         return SalaryCompanyStoreV2.confirmedCompany(stored, companyId: companyId) != nil

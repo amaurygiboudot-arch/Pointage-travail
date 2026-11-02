@@ -10,11 +10,13 @@ import android.net.Uri
 import androidx.core.content.FileProvider
 import java.io.File
 import android.os.Looper
+import android.os.Handler
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.Switch
 import android.widget.TextView
+import com.amaury.pointage.v2.SalaryAccountScope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import org.junit.Assert.*
@@ -38,17 +40,28 @@ class DailyDiagnosticUiV2Test {
     private lateinit var auth: FirebaseAuth
     private val scope = "uid:diagnostic-ui-user"
     private val listeners = mutableListOf<FirebaseAuth.AuthStateListener>()
+    private lateinit var processListeners: List<FirebaseAuth.AuthStateListener>
 
     @Before fun authenticatedOffline() {
         auth = Mockito.mock(FirebaseAuth::class.java)
         DailyDiagnosticAuthShadow.auth = auth
         account("diagnostic-ui-user")
         Mockito.doAnswer { invocation ->
-            listeners.add(invocation.getArgument<FirebaseAuth.AuthStateListener>(0)); null
+            val listener = invocation.getArgument<FirebaseAuth.AuthStateListener>(0)
+            listeners.add(listener)
+            Handler(Looper.getMainLooper()).post {
+                if (listener in listeners) listener.onAuthStateChanged(auth)
+            }
+            null
         }.`when`(auth).addAuthStateListener(Mockito.any(FirebaseAuth.AuthStateListener::class.java))
         Mockito.doAnswer { invocation ->
             listeners.remove(invocation.getArgument<FirebaseAuth.AuthStateListener>(0)); null
         }.`when`(auth).removeAuthStateListener(Mockito.any(FirebaseAuth.AuthStateListener::class.java))
+        // The account boundary keeps one process-wide observer; dialogs own only their additions.
+        SalaryAccountScope.capture()
+        shadowOf(Looper.getMainLooper()).idle()
+        processListeners = listeners.toList()
+        assertEquals(1, processListeners.size)
     }
 
     private fun account(uid: String) {
@@ -193,6 +206,7 @@ class DailyDiagnosticUiV2Test {
         assertFalse(main.isShowing)
         assertFalse(preview.isShowing)
         assertTrue(report.text.isEmpty())
-        assertTrue(listeners.isEmpty())
+        assertEquals("All dialog listeners must be removed; only the original process observer remains",
+            processListeners, listeners)
     }
 }

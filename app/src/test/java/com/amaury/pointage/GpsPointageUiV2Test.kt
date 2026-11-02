@@ -4,9 +4,11 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.app.Application
 import android.os.Looper
+import android.os.Handler
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import com.amaury.pointage.v2.SalaryAccountScope
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.model.EventSourceV2
@@ -31,17 +33,28 @@ import org.robolectric.shadows.ShadowDialog
 class GpsPointageUiV2Test {
     private lateinit var auth: FirebaseAuth
     private val listeners = mutableListOf<FirebaseAuth.AuthStateListener>()
+    private lateinit var processListeners: List<FirebaseAuth.AuthStateListener>
 
     @Before fun setUp() {
         auth = Mockito.mock(FirebaseAuth::class.java)
         DailyDiagnosticAuthShadow.auth = auth
         account("gps-pointage-ui")
         Mockito.doAnswer {
-            listeners.add(it.getArgument(0)); null
+            val listener = it.getArgument<FirebaseAuth.AuthStateListener>(0)
+            listeners.add(listener)
+            Handler(Looper.getMainLooper()).post {
+                if (listener in listeners) listener.onAuthStateChanged(auth)
+            }
+            null
         }.`when`(auth).addAuthStateListener(Mockito.any(FirebaseAuth.AuthStateListener::class.java))
         Mockito.doAnswer {
             listeners.remove(it.getArgument<FirebaseAuth.AuthStateListener>(0)); null
         }.`when`(auth).removeAuthStateListener(Mockito.any(FirebaseAuth.AuthStateListener::class.java))
+        // Record the long-lived account observer before opening any screen under test.
+        SalaryAccountScope.capture()
+        shadowOf(Looper.getMainLooper()).idle()
+        processListeners = listeners.toList()
+        assertEquals(1, processListeners.size)
     }
 
     private fun account(uid: String) {
@@ -62,13 +75,14 @@ class GpsPointageUiV2Test {
             assertFalse(activity.isFinishing)
             assertTrue(descendants(activity.window.decorView).filterIsInstance<Button>()
                 .any { it.text.toString() == "Retour" })
-            assertEquals(1, listeners.size)
+            assertEquals(1, listeners.count { it !in processListeners })
+            assertTrue(listeners.containsAll(processListeners))
             account("gps-pointage-other")
             listeners.toList().forEach { it.onAuthStateChanged(auth) }
             shadowOf(Looper.getMainLooper()).idle()
             assertTrue(activity.isFinishing)
         } finally { controller.pause().stop().destroy() }
-        assertTrue(listeners.isEmpty())
+        assertEquals(processListeners, listeners)
     }
 
     @Test fun accountChangeDismissesReviewAndConfirmationWithoutQualifyingSession() {
@@ -94,7 +108,7 @@ class GpsPointageUiV2Test {
             shadowOf(Looper.getMainLooper()).idle()
             assertFalse(review.isShowing)
             assertFalse(confirmation.isShowing)
-            assertTrue(listeners.isEmpty())
+            assertEquals(processListeners, listeners)
             account("gps-pointage-ui")
             assertEquals(original, V2RuntimeReader.allSessions(activity).sessions.single())
         } finally {

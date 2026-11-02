@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import android.content.Context
+import com.amaury.pointage.v2.SalaryAccountScope
 import com.amaury.pointage.v2.engine.CompanyPayrollOverridesV2
 import com.amaury.pointage.v2.engine.ConventionRuleHistoryV2
 import com.amaury.pointage.v2.engine.EmployeeNetProjectionV2
@@ -15,6 +16,16 @@ import com.amaury.pointage.v2.engine.PayrollPeriodV2
  * fois. Cela évite tout double retrait entre l'adapter brut et le moteur net.
  */
 object V2SalaryNetBridgeV2 {
+    private fun unavailableResult(year: Int, month: Int): Result = project(
+        salary = V2SalaryAdapter.unavailableResult(),
+        year = year,
+        companyPayroll = CompanyPayrollOverridesV2.unresolvedCompanySnapshot(
+            companyId = "",
+            referenceDate = PayrollPeriodV2.month(year, month).referenceDate,
+            warnings = listOf(SalaryAccountScope.AUTH_WARNING)
+        )
+    )
+
     data class Result(
         val salary: V2SalaryAdapter.Result,
         val payroll: NetSalaryEngineV2.Result,
@@ -39,26 +50,34 @@ object V2SalaryNetBridgeV2 {
         convention: ConventionCatalog.Convention,
         ruleHistory: ConventionRuleHistoryV2? = null
     ): Result {
-        val salary = V2SalaryAdapter.calculateForCompany(
-            context = context,
-            company = company,
-            year = year,
-            month = month,
-            convention = convention,
-            ruleHistory = ruleHistory
-        )
-        val period = PayrollPeriodV2.month(year, month)
-        val companyPayroll = CompanyPayrollOverridesV2.load(
-            context = context,
-            companyId = company.id,
-            referenceDate = period.referenceDate
-        )
-        return project(
-            salary = salary,
-            year = year,
-            companyPayroll = companyPayroll
-        ).copy(confirmedSicknessCash = com.amaury.pointage.v2.ConfirmedMonthlySicknessCashV2.read(
-            context, company.id, java.time.YearMonth.of(year, month + 1).toString()))
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): Result = unavailableResult(year, month)
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        val company = SalaryCompanyStore.confirmedCompany(SalaryCompanyStore.readConfirmed(context), company.id) ?: return unavailable()
+        fun calculateInScope(): Result {
+            val salary = V2SalaryAdapter.calculateForCompany(
+                context = context,
+                company = company,
+                year = year,
+                month = month,
+                convention = convention,
+                ruleHistory = ruleHistory
+            )
+            val period = PayrollPeriodV2.month(year, month)
+            val companyPayroll = CompanyPayrollOverridesV2.load(
+                context = context,
+                companyId = company.id,
+                referenceDate = period.referenceDate
+            )
+            return project(
+                salary = salary,
+                year = year,
+                companyPayroll = companyPayroll
+            ).copy(confirmedSicknessCash = com.amaury.pointage.v2.ConfirmedMonthlySicknessCashV2.read(
+                context, company.id, java.time.YearMonth.of(year, month + 1).toString()))
+        }
+        val result = SalaryAccountScope.withLease(SalaryAccountScope.lease(context)) { calculateInScope() }
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     /**

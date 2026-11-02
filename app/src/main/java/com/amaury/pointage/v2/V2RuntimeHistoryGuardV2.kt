@@ -31,7 +31,8 @@ object V2RuntimeHistoryGuardV2 {
     data class SourceState(
         val reliable: Boolean,
         val warnings: List<String>,
-        val accountScope: String? = null
+        val accountScope: String? = null,
+        val accountLease: SalaryAccountScope.Lease? = null
     )
 
     // Source reliability belongs to the caller's read, never to another worker's last read.
@@ -41,7 +42,8 @@ object V2RuntimeHistoryGuardV2 {
         context: Context,
         allowLegacyMissingIds: Boolean = false
     ): ReadResult {
-        if (!V2RuntimeAccountScope.available()) {
+        val context = SalaryAccountScope.bindContext(context)
+        if (!V2RuntimeAccountScope.available(context)) {
             val warning = V2RuntimeAccountScope.AUTH_WARNING
             publishSourceState(false, listOf(warning))
             return ReadResult(JSONArray(), false, listOf(warning))
@@ -53,13 +55,16 @@ object V2RuntimeHistoryGuardV2 {
             val raw = runCatching { prefs.getString(KEY_HISTORY, null) }.getOrNull()
             if (raw == null) corrupt() else decode(raw, allowLegacyMissingIds)
         }
-        publishSourceState(result.reliable, result.warnings)
-        return result
+        val guarded = if (V2RuntimeAccountScope.available(context)) result
+            else ReadResult(JSONArray(), false, listOf(V2RestoreTransaction.WARNING))
+        publishSourceState(guarded.reliable, guarded.warnings)
+        return guarded
     }
 
     internal fun sourceState(): SourceState {
         val state = lastSourceState.get() ?: return SourceState(false, listOf(V2RuntimeAccountScope.AUTH_WARNING))
-        return if (V2RuntimeAccountScope.available() && state.accountScope == V2RuntimeAccountScope.currentScope()) state
+        return if (V2RuntimeAccountScope.available() && state.accountScope == V2RuntimeAccountScope.currentScope() &&
+            state.accountLease?.let(SalaryAccountScope::isCurrent) == true) state
         else SourceState(false, listOf(V2RuntimeAccountScope.AUTH_WARNING))
     }
 
@@ -67,7 +72,8 @@ object V2RuntimeHistoryGuardV2 {
         lastSourceState.set(SourceState(
             reliable = reliable,
             warnings = warnings.distinct(),
-            accountScope = V2RuntimeAccountScope.operationScope()
+            accountScope = V2RuntimeAccountScope.operationScope(),
+            accountLease = V2RuntimeAccountScope.pinnedLease.get() ?: SalaryAccountScope.capture()
         ))
     }
 
@@ -201,7 +207,8 @@ object V2RuntimeHistoryGuardV2 {
     }
 
     fun save(context: Context, history: JSONArray): Boolean {
-        if (!V2RuntimeAccountScope.available()) return false
+        val context = SalaryAccountScope.bindContext(context)
+        if (!V2RuntimeAccountScope.available(context)) return false
         val inspected = inspect(history)
         if (!inspected.reliable) {
             publishSourceState(false, inspected.warnings)

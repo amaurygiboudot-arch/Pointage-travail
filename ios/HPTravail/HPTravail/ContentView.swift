@@ -19,7 +19,15 @@ struct ContentView: View {
     @State private var editingGpsZone: GpsZoneV2?
     @State private var gpsZonePendingDeletion: GpsZoneV2?
     @State private var showGpsConfirmation = false
-    @State private var clockCompanies = SalaryCompanyStoreV2.readConfirmed()
+    @State private var salaryAccountLease = SalaryAccountSessionV2.capture()
+    @State private var storedClockCompanies = SalaryCompanyStoreV2.readConfirmed()
+    private var clockCompanies: SalaryCompanyReadResultV2 {
+        get {
+            salaryAccountLease.isCurrent ? storedClockCompanies :
+                SalaryCompanyReadResultV2(companies: [], reliable: false, repairedFromBackup: false, warnings: [SalaryAccountStorageV2.warning])
+        }
+        nonmutating set { if salaryAccountLease.isCurrent { storedClockCompanies = newValue } }
+    }
     @State private var clockEmployerChoice: ClockEmployerChoice = .unresolved
     @State private var clockInFeedback: String?
     @State private var gpsFeedback: String?
@@ -374,6 +382,9 @@ struct ContentView: View {
     }
 
     private func refreshClockEmployerSelection() {
+        guard salaryAccountLease.isCurrent else { clockEmployerChoice = .unresolved; return }
+        let operation = SalaryAccountSessionV2.pin(salaryAccountLease)
+        defer { operation.close() }
         let latest = SalaryCompanyStoreV2.readConfirmed()
         clockCompanies = latest
         clockInFeedback = nil

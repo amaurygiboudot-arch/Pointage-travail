@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.app.Activity
 import android.content.Context
 import android.graphics.Typeface
@@ -31,7 +33,7 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         super.onWindowFocusChanged(hasWindowFocus)
         // Au retour de SalaryAuthActivity, Salaire reprend la main puis la racine V2 consomme
         // l'autorisation et ouvre l'espace de l'entreprise sélectionnée.
-        if (hasWindowFocus && PendingSalaryCompanyAccess.authorizedCompanyId != null) post { showIntegratedSalaryTab() }
+        if (hasWindowFocus && PendingSalaryCompanyAccess.hasCurrentAccess()) post { showIntegratedSalaryTab() }
     }
 
     private fun showIntegratedSalaryTab() {
@@ -48,7 +50,7 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         val shiftControl = root.findViewById<ShiftControlView>(R.id.shiftControlView)
 
         (context as? MainActivity)?.onSalaryTabShown()
-            ?: context.getSharedPreferences("navigation_state", Context.MODE_PRIVATE)
+            ?: RestoreGuardedPreferences.open(context, "navigation_state", Context.MODE_PRIVATE)
                 .edit()
                 .putString("active_tab", "salary")
                 .apply()

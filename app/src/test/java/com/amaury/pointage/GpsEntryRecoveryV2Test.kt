@@ -1,5 +1,6 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.SalaryAccountScope
 import android.app.Application
 import android.content.Context
 import android.content.ContextWrapper
@@ -49,7 +50,7 @@ class GpsEntryRecoveryV2Test {
             override fun getSharedPreferences(name: String, mode: Int): SharedPreferences =
                 if (name == runtimeName) runtime else super.getSharedPreferences(name, mode)
         }
-        context.getSharedPreferences("salary_companies_v2", Context.MODE_PRIVATE).edit()
+        SalaryAccountScope.preferences(context, "salary_companies_v2").edit()
             .putString("companies", """[{"id":"company-a","name":"A","siret":""},{"id":"company-b","name":"B","siret":""}]""")
             .commit()
         assertTrue(V2ProfileStore.setActiveCompanyId(context, "company-a"))
@@ -252,7 +253,7 @@ class GpsEntryRecoveryV2Test {
             observe()
             replay()
             val original = checkNotNull(V2RuntimeReader.current(context).snapshot.session)
-            context.getSharedPreferences("salary_companies_v2", Context.MODE_PRIVATE).edit()
+            SalaryAccountScope.preferences(context, "salary_companies_v2").edit()
                 .clear().putString("companies", companies).commit()
             deliverExit()
             assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)

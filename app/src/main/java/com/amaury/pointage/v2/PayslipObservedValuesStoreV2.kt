@@ -44,10 +44,17 @@ object PayslipObservedValuesStoreV2 {
     )
 
     internal fun readResult(context: Context): ReadResult {
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (!prefs.contains(KEY)) return ReadResult(emptyMap(), true, emptyList())
-        val raw = runCatching { prefs.getString(KEY, null) }.getOrNull() ?: return corruptResult()
-        return decodeValues(raw)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(valuesByRecord = emptyMap(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            val prefs = SalaryAccountScope.preferences(context, PREFS)
+            if (!prefs.contains(KEY)) return ReadResult(emptyMap(), true, emptyList())
+            val raw = runCatching { prefs.getString(KEY, null) }.getOrNull() ?: return corruptResult()
+            return decodeValues(raw)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     internal fun decodeValues(raw: String): ReadResult {
@@ -98,6 +105,7 @@ object PayslipObservedValuesStoreV2 {
     }
 
     fun put(context: Context, recordId: String, values: Map<String, Double>, evidence: Map<String, String> = emptyMap()): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (recordId.isBlank()) return false
         if (values.any { (key, value) -> key !in allowedKeys || !value.isFinite() || value < 0.0 }) return false
 
@@ -110,6 +118,7 @@ object PayslipObservedValuesStoreV2 {
 
     /** Valeurs actuellement autorisées à entrer dans la comparaison automatique. */
     fun get(context: Context, recordId: String): Map<String, Double> {
+        val context = SalaryAccountScope.bindContext(context)
         val stored = readResult(context)
         if (!stored.reliable) return emptyMap()
         return comparisonValues(stored, recordId)
@@ -122,12 +131,14 @@ object PayslipObservedValuesStoreV2 {
 
     /** Toutes les valeurs confirmées restent disponibles pour affichage/audit futur. */
     fun getAll(context: Context, recordId: String): Map<String, Double> {
+        val context = SalaryAccountScope.bindContext(context)
         val stored = readResult(context)
         if (!stored.reliable || recordId.isBlank()) return emptyMap()
         return stored.valuesByRecord[recordId].orEmpty()
     }
 
     fun remove(context: Context, recordId: String): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (recordId.isBlank()) return false
         val stored = readResult(context)
         if (!stored.reliable) return false
@@ -137,7 +148,8 @@ object PayslipObservedValuesStoreV2 {
     }
 
     private fun saveWithEvidence(context: Context, values: Map<String, Map<String, Double>>, recordId: String, evidence: Map<String, String>): Boolean {
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val context = SalaryAccountScope.bindContext(context)
+        val prefs = SalaryAccountScope.preferences(context, PREFS)
         val root = runCatching { JSONObject(prefs.getString("observed_evidence_v2", "{}") ?: "{}") }.getOrNull() ?: return false
         if (evidence.isEmpty()) root.remove(recordId) else {
             val item = JSONObject()
@@ -149,12 +161,13 @@ object PayslipObservedValuesStoreV2 {
 
     /** Bounded per-field excerpts only; the full OCR text is never retained. */
     fun evidence(context: Context, recordId: String): Map<String, String> = runCatching {
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = SalaryAccountScope.preferences(context, PREFS)
         val item = JSONObject(prefs.getString("observed_evidence_v2", "{}") ?: "{}").optJSONObject(recordId) ?: return@runCatching emptyMap()
         allowedKeys.mapNotNull { key -> (item.opt(key) as? String)?.takeIf { it.length <= 300 }?.let { key to it } }.toMap()
     }.getOrDefault(emptyMap())
 
     private fun save(context: Context, valuesByRecord: Map<String, Map<String, Double>>, evidenceJson: String): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (valuesByRecord.any { (recordId, values) ->
                 recordId.isBlank() || values.isEmpty() ||
                     values.any { (key, value) -> key !in allowedKeys || !value.isFinite() || value < 0.0 }
@@ -167,7 +180,7 @@ object PayslipObservedValuesStoreV2 {
             root.put(recordId, item)
         }
         return runCatching {
-            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            SalaryAccountScope.preferences(context, PREFS)
                 .edit().putString(KEY, root.toString()).putString("observed_evidence_v2", evidenceJson).commit()
         }.getOrDefault(false)
     }

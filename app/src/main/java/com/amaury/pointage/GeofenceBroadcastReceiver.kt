@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -35,7 +37,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
         /** Resume only an observed, durable arrival. This never installs geofences. */
         internal fun replayPendingEntry(context: Context) = V2RuntimeStore.withTransaction {
-            val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+            val prefs = RestoreGuardedPreferences.open(context, "gps_settings", Context.MODE_PRIVATE)
             if (!prefs.getBoolean(GpsPresenceStateKeysV2.ENTRY_RESOLUTION_PENDING, false) ||
                 !GeofenceManager.isStoredRegistrationCurrent(context)) return@withTransaction
             if (GpsEntryRecoveryV2.read(prefs) == null) {
@@ -57,7 +59,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val observedAtMs = System.currentTimeMillis()
-        val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, "gps_settings", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("enabled", false)) {
             GeofenceManager.observeMonitoringAvailability(context)
             DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.GPS_DISABLED, observedAtMs)
@@ -737,7 +739,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
     private fun showArrivalContactNotification(context: Context, zone: StoredGpsZone) {
         val address = zone.address?.trim().orEmpty()
         if (address.isBlank()) return
-        val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, "gps_settings", Context.MODE_PRIVATE)
         val contacts = runCatching {
             JSONObject(prefs.getString("arrival_contacts", "{}") ?: "{}")
         }.getOrNull() ?: return

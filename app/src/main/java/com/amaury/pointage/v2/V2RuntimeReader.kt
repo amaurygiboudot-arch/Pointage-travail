@@ -38,10 +38,10 @@ object V2RuntimeReader {
         V2RuntimeStore.withTransaction {
             // allSessions/current normally migrate. An export must never trigger that mutation,
             // including repair of historical timestamps or generation of missing session IDs.
-            if (!V2RuntimeAccountScope.available() || !V2MigrationManager.completedForDiagnostic(context)) {
-                val currentWarnings = listOf(if (!V2RuntimeAccountScope.available())
+            if (!V2RuntimeAccountScope.available(context) || !V2MigrationManager.completedForDiagnostic(context)) {
+                val currentWarnings = listOf(if (!V2RuntimeAccountScope.available(context))
                     V2RuntimeAccountScope.AUTH_WARNING else DIAGNOSTIC_MIGRATION_WARNING)
-                val historyWarnings = currentWarnings + if (V2RuntimeAccountScope.available() &&
+                val historyWarnings = currentWarnings + if (V2RuntimeAccountScope.available(context) &&
                     V2RuntimeAccountScope.hasUnassignedHistory(context)) listOf(V2RuntimeAccountScope.UNASSIGNED_WARNING)
                     else emptyList()
                 V2RuntimeHistoryGuardV2.publishSourceState(false, historyWarnings)

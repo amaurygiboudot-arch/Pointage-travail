@@ -34,9 +34,9 @@ import java.util.UUID
  * Les domaines hors référentiel contractuel sont enregistrés TO_CONFIRM.
  */
 class DatedWorkRulesEditorV2(
-    context: Context,
+    hostContext: Context,
     private val companyId: String
-) : LinearLayout(context) {
+) : SalaryAccountLayout(hostContext) {
     private val startingUid: String? = activeUid()
     private var contracts: List<EmploymentContractSnapshotV2> = emptyList()
     private val contractSpinner = Spinner(context)
@@ -259,7 +259,7 @@ class DatedWorkRulesEditorV2(
             if (open != null) append("\nL'ancienne version ${open.id} sera fermée à la date d'effet.")
         }
         dismissConfirmation()
-        val dialog = AlertDialog.Builder(context)
+        val dialog = SalaryAccountUi.dialog(context)
             .setTitle("Vérifier la règle datée")
             .setMessage(preview)
             .setNegativeButton("ANNULER", null)
@@ -310,7 +310,7 @@ class DatedWorkRulesEditorV2(
 
     private fun button(value: String, action: () -> Unit) = Button(context).apply {
         text = value; minHeight = dp(48)
-        setOnClickListener { action() }
+        setOnClickListener { if (accountCurrent()) action() }
         gravity = Gravity.CENTER
     }
 
