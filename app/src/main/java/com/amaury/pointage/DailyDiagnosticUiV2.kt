@@ -89,11 +89,11 @@ internal object DailyDiagnosticUiV2 {
                         runCatching {
                             val dir = File(activity.cacheDir, "daily_diagnostic_exports").apply { mkdirs() }
                             dir.listFiles()?.forEach { it.delete() }
-                            val file = File(dir, "HoraTrack-diagnostic-$date-${UUID.randomUUID()}.txt").apply { writeText(report, Charsets.UTF_8) }
+                            val file = File(dir, "AGKGMG-diagnostic-$date-${UUID.randomUUID()}.txt").apply { writeText(report, Charsets.UTF_8) }
                             val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.daily-diagnostic-files", file)
                             val intent = Intent(Intent.ACTION_SEND).apply {
                                 type = "text/plain"; putExtra(Intent.EXTRA_STREAM, uri)
-                                clipData = ClipData.newRawUri("Diagnostic HoraTrack", uri)
+                                clipData = ClipData.newRawUri("Diagnostic AGKGMG", uri)
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
                             activity.startActivity(Intent.createChooser(intent, "Partager le diagnostic"))

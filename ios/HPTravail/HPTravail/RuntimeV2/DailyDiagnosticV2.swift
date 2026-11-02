@@ -145,7 +145,7 @@ enum DailyDiagnosticV2 {
             guard let id else { return "inconnu" }
             return SHA256.hash(data: Data((salt + id.uuidString).utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
         }
-        var lines = ["HoraTrack — Diagnostic quotidien iOS v1",
+        var lines = ["AGKGMG — Diagnostic quotidien iOS v1",
                      "Version application : \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "inconnue") ; build : \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "inconnu")",
                      "Jour sélectionné : \(formatter.string(from: calendar.startOfDay(for: day)))",
                      "Fuseau de sélection : \(calendar.timeZone.identifier)",

@@ -34,7 +34,7 @@ internal object DailyDiagnosticExportV2 {
         check(scope == V2RuntimeAccountScope.currentScope()) { "Compte modifié : export annulé." }
         fun time(value: Long?) = value?.let { DailyDiagnosticModelV2.timestamp(it, zone) } ?: "inconnu / non enregistré"
         buildString {
-            appendLine("HORATRACK — DIAGNOSTIC DE JOURNÉE v1")
+            appendLine("AGKGMG — DIAGNOSTIC DE JOURNÉE v1")
             appendLine("Journée : $date ; fuseau de présentation : $zone")
             appendLine("Exporté : ${time(now)} ; Android ${Build.VERSION.SDK_INT} ; application ${BuildConfig.VERSION_NAME}")
             appendLine("Partage volontaire. Horaires personnels : vérifier ce fichier avant de le transmettre.")

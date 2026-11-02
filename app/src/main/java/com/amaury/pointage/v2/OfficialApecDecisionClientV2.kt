@@ -25,7 +25,7 @@ object OfficialApecDecisionClientV2 {
     private const val MAX_REDIRECTS = 3
     private const val CONNECT_TIMEOUT_MS = 10_000
     private const val READ_TIMEOUT_MS = 20_000
-    private const val USER_AGENT = "HoraTrack APEC legal verification"
+    private const val USER_AGENT = "AGKGMG APEC legal verification"
     private val executor = Executors.newSingleThreadExecutor()
 
     data class FetchedDocument(

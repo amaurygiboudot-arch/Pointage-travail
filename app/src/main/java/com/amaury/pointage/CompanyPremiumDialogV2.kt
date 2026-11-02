@@ -218,7 +218,7 @@ object CompanyPremiumDialogV2 {
             setPadding(dp(context, 20), dp(context, 8), dp(context, 20), 0)
         }
         box.addView(TextView(context).apply {
-            text = "Confirmer signifie que toutes les primes contractuelles/personnelles entrant dans le brut de ${period.format(monthFormatter)} sont enregistrées dans HoraTrack. Si la liste est vide, cette confirmation établit explicitement 0 €. Sans confirmation, le moteur conserve le total comme inconnu."
+            text = "Confirmer signifie que toutes les primes contractuelles/personnelles entrant dans le brut de ${period.format(monthFormatter)} sont enregistrées dans AGKGMG. Si la liste est vide, cette confirmation établit explicitement 0 €. Sans confirmation, le moteur conserve le total comme inconnu."
             textSize = 13f
             setPadding(0, 0, 0, dp(context, 8))
         })

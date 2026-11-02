@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reject truncated, transparent or wrongly wired HoraTrack launcher icons."""
+"""Reject truncated, transparent or wrongly wired AGKGMG launcher icons."""
 
 from __future__ import annotations
 

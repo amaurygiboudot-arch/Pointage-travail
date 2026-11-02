@@ -102,7 +102,7 @@ class DailyDiagnosticUiV2Test {
         assertTrue(button(main, "PRÉVISUALISER ET PARTAGER").performClick())
         val preview = latest()
         val report = descendants(checkNotNull(preview.window).decorView).filterIsInstance<TextView>()
-            .single { it.text.toString().startsWith("HORATRACK — DIAGNOSTIC DE JOURNÉE") }
+            .single { it.text.toString().startsWith("AGKGMG — DIAGNOSTIC DE JOURNÉE") }
         assertTrue(report.text.contains("Journée : 2026-10-14"))
         assertTrue(report.text.contains("RÉCIT À DEMANDER À L'UTILISATEUR"))
         preview.getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
@@ -155,7 +155,7 @@ class DailyDiagnosticUiV2Test {
         button(main, "PRÉVISUALISER ET PARTAGER").performClick()
         val preview = latest()
         val expected = descendants(checkNotNull(preview.window).decorView).filterIsInstance<TextView>()
-            .single { it.text.toString().startsWith("HORATRACK — DIAGNOSTIC DE JOURNÉE") }.text.toString()
+            .single { it.text.toString().startsWith("AGKGMG — DIAGNOSTIC DE JOURNÉE") }.text.toString()
         preview.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
         shadowOf(Looper.getMainLooper()).idle()
 
@@ -185,7 +185,7 @@ class DailyDiagnosticUiV2Test {
         button(main, "PRÉVISUALISER ET PARTAGER").performClick()
         val preview = latest()
         val report = descendants(checkNotNull(preview.window).decorView).filterIsInstance<TextView>()
-            .single { it.text.toString().startsWith("HORATRACK — DIAGNOSTIC DE JOURNÉE") }
+            .single { it.text.toString().startsWith("AGKGMG — DIAGNOSTIC DE JOURNÉE") }
         assertTrue(report.text.isNotEmpty())
         account("different-user")
         listeners.toList().forEach { it.onAuthStateChanged(auth) }

@@ -274,7 +274,7 @@ object ButtonReliefInstaller {
             .setTitle("💎 Activer le moteur Diamant 3D ?")
             .setMessage(
                 "Le thème Diamant utilise un moteur de simulation 3D dédié pour les trois boutons de pointage : Entrée, Pause et Sortie.\n\n" +
-                    "Les autres boutons conservent l'apparence standard HoraTrack."
+                    "Les autres boutons conservent l'apparence standard AGKGMG."
             )
             .setPositiveButton("ACTIVER LE DIAMANT 3D") { _, _ ->
                 AppThemeCatalog.set(activity, targetTheme)

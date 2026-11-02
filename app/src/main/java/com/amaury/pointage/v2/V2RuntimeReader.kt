@@ -59,7 +59,7 @@ object V2RuntimeReader {
         }
 
     const val UNRELIABLE_MESSAGE =
-        "Historique HoraTrack V2 non fiable : données, analyses et exports bloqués jusqu'à vérification."
+        "Historique AGKGMG V2 non fiable : données, analyses et exports bloqués jusqu'à vérification."
 
     fun allSessions(
         context: Context,

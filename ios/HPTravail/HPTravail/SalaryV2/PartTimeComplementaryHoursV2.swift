@@ -67,7 +67,7 @@ enum PartTimeComplementaryHoursV2 {
             warnings.append("Temps partiel : dépassement supérieur au tiers de la durée contractuelle. Les heures sont conservées au taux de base dans l'estimation, mais leur majoration et la régularité de la situation doivent être vérifiées.")
         }
         if paid >= legalWeeklyMinutes {
-            warnings.append("Temps partiel : la durée réellement accomplie atteint ou dépasse la durée légale hebdomadaire ; situation à vérifier, aucune requalification n'est inventée par HoraTrack.")
+            warnings.append("Temps partiel : la durée réellement accomplie atteint ou dépasse la durée légale hebdomadaire ; situation à vérifier, aucune requalification n'est inventée par AGKGMG.")
         }
 
         let gross = Double(firstMinutes) * ratePerMinute * 1.10

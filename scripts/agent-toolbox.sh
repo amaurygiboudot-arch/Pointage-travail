@@ -6,7 +6,7 @@ cd "$ROOT"
 
 usage() {
   cat <<'EOF'
-HoraTrack agent toolbox
+AGKGMG agent toolbox
 
 Usage:
   bash scripts/agent-toolbox.sh <commande>
