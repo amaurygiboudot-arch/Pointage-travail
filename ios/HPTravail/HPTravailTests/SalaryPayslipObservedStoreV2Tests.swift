@@ -1,8 +1,6 @@
 import XCTest
 #if SWIFT_PACKAGE
 @testable import SalaryV2Contract
-#else
-@testable import HPTravail
 #endif
 
 final class SalaryPayslipObservedStoreV2Tests: XCTestCase {
