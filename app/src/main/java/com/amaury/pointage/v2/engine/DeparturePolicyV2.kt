@@ -9,10 +9,13 @@ internal object DeparturePolicyV2 {
         val hasActiveZone: Boolean, val unresolved: Boolean,
         val lastObservedAtMs: Long = observedAtMs
     )
-    fun eligible(f: Facts): Boolean = f.contextMatches && f.sessionOpen &&
+    /** Validated physical departure. It neither ends a workday nor qualifies paid time. */
+    fun observed(f: Facts): Boolean = f.contextMatches && f.sessionOpen &&
         !f.hasActiveZone && !f.unresolved && f.arrivalMs > 0 &&
         f.observedAtMs > f.arrivalMs && f.nowMs >= f.observedAtMs &&
-        f.lastObservedAtMs >= f.observedAtMs && f.nowMs >= f.lastObservedAtMs &&
+        f.lastObservedAtMs >= f.observedAtMs && f.nowMs >= f.lastObservedAtMs
+
+    fun eligible(f: Facts): Boolean = observed(f) &&
         f.nowMs - f.lastObservedAtMs >= RETURN_WINDOW_MS
 
     fun automatic(f: Facts, enabled: Boolean, expectedEndMs: Long?): Boolean =

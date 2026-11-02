@@ -58,4 +58,36 @@ class V2LegacyJournalRecoveryTest {
         assertNotEquals(V2LegacyJournalRecovery.fingerprint(current()), V2LegacyJournalRecovery.fingerprint(current() + ("real_entry" to "1000")))
         assertNotEquals(V2LegacyJournalRecovery.fingerprint(current()), V2LegacyJournalRecovery.fingerprint(current() + ("pause_start" to 2000L)))
     }
+
+    @Test fun openGpsPresenceQualificationSurvivesBackupMergeWithoutBeingPromotedToWork() {
+        val segments = """[{"start":1000,"end":null,"kind":"TO_CONFIRM","status":"TO_CONFIRM"}]"""
+        val source = current() + ("work_segments" to segments)
+        assertTrue(V2LegacyJournalRecovery.validSource(source))
+        assertEquals(source, V2BackupManager.mergeRuntimeValues(emptyMap<String, Any>(), source).values)
+        val recovered = V2LegacyJournalRecovery.merge(emptyMap<String, Any>(), source)!!
+        assertEquals(segments, recovered["work_segments"])
+        assertFalse(V2LegacyJournalRecovery.validSource(source + ("work_segments" to segments.replace("TO_CONFIRM", "WORK"))))
+        assertFalse(V2LegacyJournalRecovery.validSource(source + ("work_segments" to segments.replace("1000", "500"))))
+        assertFalse(V2LegacyJournalRecovery.validSource(source + ("work_segments" to "broken")))
+    }
+
+    @Test fun closedGpsPresenceAndProvenanceSurviveBackupMerge() {
+        val segments = """[{"start":1000,"end":3000,"kind":"TO_CONFIRM","status":"TO_CONFIRM"}]"""
+        val row = """{"id":"one","realEntry":1000,"realExit":3000,"countedEntry":1000,"countedExit":3000,"timeBasis":"REAL_FACTS","pauses":[],"workSegments":$segments,"closureOrigin":"AUTOMATIC","departureObservedAtMs":3000}"""
+        val source = current() + mapOf("real_exit" to 3000L, "counted_exit" to 3000L,
+            "work_segments" to segments, "closureOrigin" to "AUTOMATIC", "departureObservedAtMs" to 3000L,
+            "history" to "[$row]")
+        assertTrue(V2LegacyJournalRecovery.validSource(source))
+        assertEquals(source, V2BackupManager.mergeRuntimeValues(emptyMap<String, Any>(), source).values)
+        assertFalse(V2LegacyJournalRecovery.validSource(source + ("departureObservedAtMs" to 3100L)))
+        assertFalse(V2LegacyJournalRecovery.validSource(source + ("work_segments" to segments.replace("3000", "null"))))
+    }
+
+    @Test fun manualAndHistoricalSourcesKeepTheirOriginalQualificationDuringRestore() {
+        val manual = current() + ("work_segments" to "[]")
+        assertEquals(manual, V2BackupManager.mergeRuntimeValues(emptyMap<String, Any>(), manual).values)
+        val historical = current() + ("time_basis" to "LEGACY_UNVERIFIED")
+        assertEquals(historical, V2BackupManager.mergeRuntimeValues(emptyMap<String, Any>(), historical).values)
+        assertFalse(V2LegacyJournalRecovery.validSource(manual + ("unrecognized_metadata" to true)))
+    }
 }

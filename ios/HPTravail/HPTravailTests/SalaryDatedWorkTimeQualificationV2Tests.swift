@@ -68,6 +68,22 @@ final class SalaryDatedWorkTimeQualificationV2Tests: XCTestCase {
         XCTAssertTrue(wrong.selectedSourceIds.isEmpty)
     }
 
+    func testVerifiedRulesDoNotQualifyUnconfirmedGpsPresence() {
+        let start = at(day: 8, hour: 8)
+        let end = at(day: 8, hour: 16)
+        let fact = SalarySessionFactV2(
+            id: "gps", entry: start, exit: end, employerId: owner.employerId, pauses: [],
+            segments: [.init(start: start, end: end, kind: .toConfirm, confirmed: false)]
+        )
+        let result = SalaryDatedWorkTimeQualificationV2.assess(
+            session: fact, owner: owner, calendar: paris,
+            requiredTopics: [.timeAccounting], rules: [policy()], sourceReliable: true
+        )
+        XCTAssertFalse(result.time.reliable)
+        XCTAssertFalse(result.reliable)
+        XCTAssertEqual(result.time.paidDuration, 0)
+    }
+
     func testNightSpanningTwoPoliciesNeedsSegmentedCalculation() {
         let result = SalaryDatedWorkTimeQualificationV2.assess(
             session: session(start: at(day: 8, hour: 22), end: at(day: 9, hour: 6)),

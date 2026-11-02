@@ -39,7 +39,7 @@ internal sealed class StoredGeofencePlanV2 {
 }
 
 internal fun StoredGpsZone.registersAutomaticGeofenceV2(): Boolean =
-    isGpsCandidate() || roleForContextV2() == GpsZoneRoleV2.WORK
+    isGpsCandidate() || roleForContextV2() in setOf(GpsZoneRoleV2.WORK, GpsZoneRoleV2.HOME)
 
 internal fun storedGpsAutomaticFingerprintV2(
     enabled: Boolean,
@@ -157,12 +157,30 @@ object GeofenceManager {
         )
     }
 
-    private fun invalidateStoredRegistration(context: Context): Boolean =
-        context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
+    private fun recordJourneyMonitoringInterruption(context: Context) {
+        if (!GpsSiteJourneyStoreV2.interrupt(context)) {
+            DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.GPS_REASON,
+                System.currentTimeMillis(), "SITE_JOURNEY_WRITE_REFUSED")
+        }
+    }
+
+    /** A healthy resume is not an interruption. This only records observed unavailability,
+     * without clearing arrival evidence, changing the account epoch or writing a work event. */
+    internal fun observeMonitoringAvailability(context: Context) {
+        if (!isAutomaticGpsEnabled(context) || !hasRequiredPermissions(context) ||
+            !DeviceLocationAvailability.isEnabled(context)) {
+            recordJourneyMonitoringInterruption(context)
+        }
+    }
+
+    private fun invalidateStoredRegistration(context: Context): Boolean {
+        recordJourneyMonitoringInterruption(context)
+        return context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(GpsPresenceStateKeysV2.REGISTRATION_VALID, false)
             .remove(GpsPresenceStateKeysV2.REGISTRATION_FINGERPRINT)
             .commit()
+    }
 
     /** Service error: request re-registration at the next safe opening; retain GPS evidence. */
     internal fun markRegistrationUnavailable(context: Context): Boolean =
@@ -366,6 +384,7 @@ object GeofenceManager {
         clearPresenceState: Boolean,
         onResult: (Boolean, String) -> Unit
     ) {
+        observeMonitoringAvailability(context)
         val prefs = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
         val fingerprint = storedGpsConfigurationFingerprint(prefs)
         if (isCurrentStoredGeofenceRegistrationV2(
@@ -461,10 +480,15 @@ object GeofenceManager {
             context to Triple(currentSerial, mustClearBusiness, mustClearPresence)
         }
         val (serial, clearBusinessState, clearPresenceState) = state
+        // The serialized path actually removes/reinstalls platform monitoring. It is
+        // not used by an ordinary resume with a valid registration.
+        recordJourneyMonitoringInterruption(app)
         val prefs = app.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
         val presenceCleared = if (clearPresenceState) {
+            val corruptEntryObservation = GpsEntryRecoveryV2.read(prefs) == null
             val presenceEditor = prefs.edit()
             GpsPresenceStateKeysV2.EPHEMERAL_KEYS
+                .filterNot { it == GpsEntryRecoveryV2.KEY && corruptEntryObservation }
                 .filterNot { !clearBusinessState && it in setOf(GpsExitDeliveryV2.KEY,
                     GpsReturnObservationV2.KEY, GpsReturnObservationV2.QUALIFICATION_KEY) }
                 .forEach(presenceEditor::remove)
@@ -695,6 +719,7 @@ object GeofenceManager {
     }
 
     fun remove(context: Context) {
+        recordJourneyMonitoringInterruption(context)
         try {
             val client = LocationServices.getGeofencingClient(context)
             val recoveredZones = recoverRadiusOnlyUpdate(context)

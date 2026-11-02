@@ -263,8 +263,9 @@ object V2LegacyJournalRecovery {
     internal fun validSource(values: Map<String, *>): Boolean = runCatching {
         val mapping = mapOf("session_id" to "id", "real_entry" to "realEntry", "counted_entry" to "countedEntry",
             "real_exit" to "realExit", "counted_exit" to "countedExit", "employer_id" to "employerId",
-            "company_slot" to "companySlot", "place_id" to "placeId", "place_label" to "placeLabel", "time_basis" to "timeBasis")
-        val allowed = mapping.keys + setOf("history", "expected_end", "pauses", "pause_start", "pause_source", "pause_paid", "restored_legacy_provenance")
+            "company_slot" to "companySlot", "place_id" to "placeId", "place_label" to "placeLabel", "time_basis" to "timeBasis",
+            "closureOrigin" to "closureOrigin", "departureObservedAtMs" to "departureObservedAtMs")
+        val allowed = mapping.keys + setOf("history", "expected_end", "pauses", "pause_start", "pause_source", "pause_paid", "work_segments", "restored_legacy_provenance")
         if (values.isEmpty() || values.keys.any { it !in allowed }) return false
         if (values.containsKey("restored_legacy_provenance")) {
             val raw = values["restored_legacy_provenance"] as? String ?: return false
@@ -278,6 +279,18 @@ object V2LegacyJournalRecovery {
         val current = JSONObject()
         mapping.forEach { (key, target) -> if (values.containsKey(key)) current.put(target, values[key]) }
         val entry = values["real_entry"] as? Long ?: return false
+        val exit = V2RuntimeStore.optionalStrictPositive(values, "real_exit")
+        if (!exit.valid) return false
+        if (V2RuntimeStore.currentWorkSegments(values, entry, exit.value) == null) return false
+        // The sole open TO_CONFIRM segment is a current GPS presence, not malformed history.
+        // Its structure was checked above; closed intervals also use the canonical archive guard.
+        if (values.containsKey("work_segments") && exit.value != null)
+            current.put("workSegments", JSONArray(values["work_segments"] as String))
+        if (values.containsKey("closureOrigin") &&
+            (values["closureOrigin"] !is String || com.amaury.pointage.ClosureOriginV2.values().none {
+                it.name == values["closureOrigin"] })) return false
+        val observed = V2RuntimeStore.optionalStrictPositive(values, "departureObservedAtMs")
+        if (!observed.valid || (observed.value != null && observed.value != exit.value)) return false
         val pauses = JSONArray(values["pauses"] as? String ?: return false)
         current.put("pauses", pauses)
         val expected = V2RuntimeStore.optionalStrictPositive(values, "expected_end")

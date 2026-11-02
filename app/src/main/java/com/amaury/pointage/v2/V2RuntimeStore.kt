@@ -29,6 +29,7 @@ object V2RuntimeStore {
     private const val KEY_COUNTED_EXIT = "counted_exit"
     private const val KEY_EXPECTED_END = "expected_end"
     private const val KEY_TIME_BASIS = "time_basis"
+    private const val KEY_WORK_SEGMENTS = "work_segments"
     private const val KEY_PAUSE_START = "pause_start"
     private const val KEY_PAUSE_SOURCE = "pause_source"
     private const val KEY_PAUSE_PAID = "pause_paid"
@@ -42,6 +43,20 @@ object V2RuntimeStore {
         "Historique de pointage V2 validé mais impossible à reconstruire sans perte : calcul bloqué."
 
     @Volatile private var boundContext: Context? = null
+    private val unconfirmedWrites = mutableSetOf<String>()
+
+    private fun commitRuntime(context: Context, editor: android.content.SharedPreferences.Editor): Boolean {
+        val scope = V2RuntimeAccountScope.operationScope() ?: return false
+        unconfirmedWrites.add(scope)
+        val saved = runCatching { editor.commit() }.getOrDefault(false)
+        if (saved) unconfirmedWrites.remove(scope)
+        return saved
+    }
+
+    private fun ensureRuntimeDurable(context: Context): Boolean {
+        val scope = V2RuntimeAccountScope.operationScope() ?: return false
+        return scope !in unconfirmedWrites || commitRuntime(context, prefs(context).edit())
+    }
 
     data class Snapshot(
         val session: WorkSessionV2?,
@@ -97,7 +112,8 @@ object V2RuntimeStore {
         context: Context,
         nowMs: Long = System.currentTimeMillis(),
         expectedEndMs: Long? = null,
-        companySlot: Int? = null
+        companySlot: Int? = null,
+        source: EventSourceV2 = EventSourceV2.MANUAL
     ): Boolean {
         return V2RuntimeAccountScope.withScope {
         DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.ENTRY_REQUEST, nowMs, value = expectedEndMs)
@@ -143,12 +159,70 @@ object V2RuntimeStore {
             .putLong(KEY_REAL_ENTRY, nowMs)
             .putLong(KEY_COUNTED_ENTRY, nowMs)
             .putString(KEY_TIME_BASIS, TimeBasisV2.REAL_FACTS.name)
+            .putString(KEY_WORK_SEGMENTS, workSegmentsToJson(if (source == EventSourceV2.GPS)
+                listOf(WorkSegmentV2(nowMs, null, WorkSegmentKindV2.TO_CONFIRM, DecisionStatusV2.TO_CONFIRM))
+                else emptyList()).toString())
             .putString(KEY_PAUSES, "[]")
         legacySlot?.let { editor.putInt(KEY_COMPANY_SLOT, it) }
         employerId?.let { editor.putString(KEY_EMPLOYER_ID, it) }
         knownExpected?.let { editor.putLong(KEY_EXPECTED_END, it) }
-        return editor.commit().also { DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.ENTRY_WRITE, nowMs, if (it) "SUCCESS" else "FAILED", value = nowMs) }
+        return commitRuntime(context, editor).also { DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.ENTRY_WRITE, nowMs, if (it) "SUCCESS" else "FAILED", value = nowMs) }
         }
+    }
+
+    /** A successful read of SharedPreferences is not a durable write receipt. */
+    internal fun confirmCurrent(context: Context, expectedSessionId: String): Boolean = withTransaction {
+        val current = readForWrite(context)
+        current.reliable && current.session?.id == expectedSessionId &&
+            commitRuntime(context, prefs(context).edit())
+    }
+
+    /** The existing activity qualification carries the uncertainty of GPS presence. */
+    internal fun hasOnlyUnqualifiedPresenceSegment(session: WorkSessionV2): Boolean {
+        val segment = session.workSegments.singleOrNull() ?: return false
+        return segment.startMs == session.realArrivalMs && segment.endMs == session.realExitMs &&
+            segment.kind == WorkSegmentKindV2.TO_CONFIRM && segment.status == DecisionStatusV2.TO_CONFIRM
+    }
+
+    /** Close an observed site interval, without asserting that it is paid work. */
+    internal fun recordObservedDeparture(context: Context, observedAtMs: Long): Boolean = withTransaction {
+        val current = readForWrite(context, observedAtMs)
+        val session = current.session ?: return@withTransaction false
+        if (!current.reliable || session.timeBasis != TimeBasisV2.REAL_FACTS || session.travels.isNotEmpty() ||
+            session.pauses.any { it.endMs == null || it.paid == null || it.endMs > observedAtMs } ||
+            (session.workSegments.isNotEmpty() && !hasOnlyUnqualifiedPresenceSegment(session))) return@withTransaction false
+        exit(context, observedAtMs, origin = ClosureOriginV2.AUTOMATIC,
+            departureObservedAtMs = observedAtMs, observedPresenceOnly = true)
+    }
+
+    /** Explicit user qualification of one unchanged GPS presence; no inference for travel. */
+    fun qualifyObservedPresence(context: Context, expectedAccountScope: String,
+        expectedSession: WorkSessionV2, worked: Boolean): Boolean = withTransaction {
+        if (V2RuntimeAccountScope.operationScope() != expectedAccountScope || !V2RuntimeAccountScope.available())
+            return@withTransaction false
+        val read = readForWrite(context)
+        if (!read.reliable || expectedSession.status != SessionStatusV2.CLOSED ||
+            !hasOnlyUnqualifiedPresenceSegment(expectedSession)) return@withTransaction false
+        val stored = V2RuntimeHistoryGuardV2.read(context)
+        if (!stored.reliable) return@withTransaction false
+        val sessions = parseHistory(context, stored.history) ?: return@withTransaction false
+        if (sessions.singleOrNull { it.id == expectedSession.id } != expectedSession) return@withTransaction false
+        val current = read.session
+        if (current?.id == expectedSession.id && current != expectedSession) return@withTransaction false
+        val segment = expectedSession.workSegments.single().copy(
+            kind = if (worked) WorkSegmentKindV2.WORK else WorkSegmentKindV2.NON_WORK,
+            status = DecisionStatusV2.CONFIRMED)
+        val history = JSONArray(stored.history.toString())
+        for (i in 0 until history.length()) {
+            val item = history.getJSONObject(i)
+            if (item.getString("id") == expectedSession.id)
+                item.put("workSegments", workSegmentsToJson(listOf(segment)))
+        }
+        if (!V2RuntimeHistoryGuardV2.inspect(history).reliable) return@withTransaction false
+        val editor = prefs(context).edit().putString(KEY_HISTORY, history.toString())
+        if (current?.id == expectedSession.id)
+            editor.putString(KEY_WORK_SEGMENTS, workSegmentsToJson(listOf(segment)).toString())
+        commitRuntime(context, editor)
     }
 
     @Synchronized
@@ -504,7 +578,8 @@ object V2RuntimeStore {
         nowMs: Long = System.currentTimeMillis(),
         expectedEndMs: Long? = null,
         origin: ClosureOriginV2 = ClosureOriginV2.UNKNOWN,
-        departureObservedAtMs: Long? = null
+        departureObservedAtMs: Long? = null,
+        observedPresenceOnly: Boolean = false
     ): Boolean {
         return V2RuntimeAccountScope.withScope {
         DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.EXIT_REQUEST, nowMs, origin.name, value = expectedEndMs)
@@ -539,10 +614,17 @@ object V2RuntimeStore {
             countedExitForClosure(nowMs, knownExpectedEnd, session.countedEntryMs)
         }
         val closedPauses = pauseArrayOrNull(pauses)?.let(::parsePauseArray) ?: return false
+        val closedSegments = when {
+            observedPresenceOnly || hasOnlyUnqualifiedPresenceSegment(session) ->
+                listOf(WorkSegmentV2(entry, nowMs, WorkSegmentKindV2.TO_CONFIRM, DecisionStatusV2.TO_CONFIRM))
+            session.workSegments.any { it.endMs == null || it.endMs > nowMs } -> return false
+            else -> session.workSegments
+        }
         val closedSession = session.copy(
             countedExitMs = countedExit,
             realExitMs = nowMs,
             pauses = closedPauses,
+            workSegments = closedSegments,
             status = SessionStatusV2.CLOSED,
             closureOrigin = origin.name,
             departureObservedAtMs = departureObservedAtMs
@@ -554,9 +636,10 @@ object V2RuntimeStore {
 
         // La fermeture runtime et l'ajout Historique partagent le même SharedPreferences : un seul
         // commit garantit qu'une sortie ne peut jamais être CLOSED sans sa copie historique durable.
-        val closed = prefs.edit()
+        val closeEditor = prefs.edit()
             .putString(KEY_HISTORY, history.toString())
             .putString(KEY_PAUSES, pauses)
+            .putString(KEY_WORK_SEGMENTS, workSegmentsToJson(closedSegments).toString())
             .remove(KEY_PAUSE_START)
             .remove(KEY_PAUSE_SOURCE)
             .remove(KEY_PAUSE_PAID)
@@ -570,7 +653,7 @@ object V2RuntimeStore {
                 if (countedExit == null) remove(KEY_COUNTED_EXIT)
                 else putLong(KEY_COUNTED_EXIT, countedExit)
             }
-            .commit()
+        val closed = commitRuntime(context, closeEditor)
         DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.EXIT_WRITE, nowMs, if (closed) "SUCCESS" else "FAILED", value = countedExit)
         if (!closed) {
             V2RuntimeHistoryGuardV2.publishSourceState(
@@ -611,9 +694,9 @@ object V2RuntimeStore {
     internal fun hasOrphanedCurrentSession(values: Map<String, *>): Boolean =
         !values.containsKey(KEY_REAL_ENTRY) && setOf(
             KEY_ID, KEY_EMPLOYER_ID, KEY_COMPANY_SLOT, KEY_COUNTED_ENTRY,
-            KEY_REAL_EXIT, KEY_COUNTED_EXIT, KEY_EXPECTED_END, KEY_TIME_BASIS,
+            KEY_REAL_EXIT, KEY_COUNTED_EXIT, KEY_EXPECTED_END, KEY_TIME_BASIS, KEY_WORK_SEGMENTS,
             KEY_PAUSE_START, KEY_PAUSE_SOURCE, KEY_PAUSE_PAID, KEY_PAUSES,
-            KEY_PLACE_ID, KEY_PLACE_LABEL
+            KEY_PLACE_ID, KEY_PLACE_LABEL, "closureOrigin", "departureObservedAtMs"
         ).any(values::containsKey)
 
     @Synchronized
@@ -624,6 +707,7 @@ object V2RuntimeStore {
             V2RuntimeHistoryGuardV2.publishSourceState(false, listOf(V2RuntimeAccountScope.AUTH_WARNING))
             return Snapshot(null, null)
         }
+        if (!ensureRuntimeDurable(context)) return corruptCurrentSnapshot()
         // Toutes les clés proviennent du même instant, même si un autre écrivain met à jour
         // les préférences pendant la reconstruction de cette session.
         val values = prefs(context).all
@@ -708,6 +792,7 @@ object V2RuntimeStore {
                 ?: return corruptCurrentSnapshot()
         } ?: if (values.containsKey(KEY_TIME_BASIS)) return corruptCurrentSnapshot()
             else TimeBasisV2.LEGACY_UNVERIFIED
+        val workSegments = currentWorkSegments(values, realEntry, realExit) ?: return corruptCurrentSnapshot()
         val session = WorkSessionV2(
             id = id,
             employerId = employerId,
@@ -720,6 +805,7 @@ object V2RuntimeStore {
             placeId = placeId,
             placeLabel = placeLabel,
             timeBasis = timeBasis,
+            workSegments = workSegments,
             closureOrigin = values["closureOrigin"] as? String,
             departureObservedAtMs = strictPositive(values["departureObservedAtMs"])
         )
@@ -918,7 +1004,20 @@ object V2RuntimeStore {
         }
     }
 
-    private fun parseWorkSegments(session: JSONObject): List<WorkSegmentV2>? {
+    internal fun currentWorkSegments(values: Map<String, *>, realEntry: Long, realExit: Long?): List<WorkSegmentV2>? {
+        if (!values.containsKey(KEY_WORK_SEGMENTS)) return emptyList()
+        val raw = values[KEY_WORK_SEGMENTS] as? String ?: return null
+        val encoded = runCatching { JSONObject().put("workSegments", JSONArray(raw)) }.getOrNull() ?: return null
+        val segments = parseWorkSegments(encoded, allowOpen = realExit == null) ?: return null
+        if (segments.any { it.startMs < realEntry ||
+                (it.endMs != null && (it.endMs <= it.startMs || (realExit != null && it.endMs > realExit))) ||
+                (it.endMs == null && (segments.size != 1 || it.startMs != realEntry ||
+                    it.kind != WorkSegmentKindV2.TO_CONFIRM || it.status != DecisionStatusV2.TO_CONFIRM))
+            }) return null
+        return segments
+    }
+
+    private fun parseWorkSegments(session: JSONObject, allowOpen: Boolean = false): List<WorkSegmentV2>? {
         if (!session.has("workSegments")) return emptyList()
         val array = session.optJSONArray("workSegments") ?: return null
         return runCatching {
@@ -926,7 +1025,8 @@ object V2RuntimeStore {
                 for (i in 0 until array.length()) {
                     val item = array.getJSONObject(i)
                     val start = positive(item, "start") ?: error("start invalide")
-                    val end = positive(item, "end") ?: error("end invalide")
+                    val end = if (allowOpen && item.has("end") && item.isNull("end")) null
+                        else positive(item, "end") ?: error("end invalide")
                     add(WorkSegmentV2(
                         startMs = start,
                         endMs = end,

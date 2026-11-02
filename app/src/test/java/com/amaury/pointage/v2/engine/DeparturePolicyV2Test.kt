@@ -10,6 +10,13 @@ class DeparturePolicyV2Test {
         assertFalse(DeparturePolicyV2.eligible(facts.copy(nowMs = 1_119_999)))
         assertTrue(DeparturePolicyV2.eligible(facts.copy(nowMs = 1_120_000)))
     }
+    @Test fun physicalDepartureRecordsAnImmediateFactWithoutCertifyingEndOfWorkday() {
+        assertTrue(DeparturePolicyV2.observed(facts.copy(nowMs = facts.observedAtMs)))
+        assertFalse(DeparturePolicyV2.observed(facts.copy(nowMs = facts.observedAtMs - 1)))
+        assertFalse(DeparturePolicyV2.observed(facts.copy(hasActiveZone = true)))
+        assertFalse(DeparturePolicyV2.observed(facts.copy(unresolved = true)))
+        assertFalse(DeparturePolicyV2.observed(facts.copy(contextMatches = false)))
+    }
     @Test fun automaticRequiresExplicitPolicyAndObservedDepartureAfterExpectedEnd() {
         assertFalse(DeparturePolicyV2.automatic(facts, false, 900_000))
         assertFalse(DeparturePolicyV2.automatic(facts, true, null))

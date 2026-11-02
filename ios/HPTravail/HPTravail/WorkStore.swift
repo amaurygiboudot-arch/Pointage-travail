@@ -218,8 +218,8 @@ final class WorkStoreV2: ObservableObject {
         return DeparturePolicyV2.eligibleObservation(state: state, account: account, session: session, zones: zones, now: now)
     }
 
-    /// Explicit account/company API. No UI activation is shipped before a canonical movement
-    /// resolver exists on iOS. Absence of travel evidence is not evidence of no travel.
+    /// Legacy qualified-departure policy. Factual site exits use processAutomaticGpsPointage
+    /// and unqualified segments; they do not assert that professional travel has ended.
     func departurePolicy(employerId: String) -> DepartureAccountPolicyV2? {
         guard let account = diagnosticAccount else { return nil }
         return DepartureAccountPolicyStoreV2.read(account: account, employerId: employerId, defaults: defaults)
@@ -231,8 +231,8 @@ final class WorkStoreV2: ObservableObject {
         return DepartureAccountPolicyStoreV2.write(policy, defaults: defaults)
     }
 
-    /// Invoke on a future canonical movement resolver cycle/app wake. Default is fail-closed;
-    /// the production UI never supplies fabricated movement clearance.
+    /// Qualified closure remains fail-closed without a canonical movement resolver.
+    /// It is distinct from the unqualified presence facts consumed by the GPS coordinator.
     @discardableResult
     func resolveAutomaticDeparture(movementAndAmbiguityResolved: Bool = false, now: Date = Date()) -> Bool {
         guard let (state, zones, account, session) = departureContext(),
@@ -313,8 +313,153 @@ final class WorkStoreV2: ObservableObject {
             pauses: session.pauses.map {
                 PaidPauseFactV2(start: $0.start, end: $0.end, paid: $0.paid)
             },
-            until: endDate
+            until: endDate,
+            segments: SalaryWorkSessionBridgeV2.paidSegments(for: session)
         )
+    }
+
+    var observedSiteJourneys: [GpsSiteJourneyV2] {
+        guard storageReliable, gpsJourneyHistoryReliable, let account = diagnosticAccount else { return [] }
+        return GpsSiteJourneyProjectionV2.journeys(sessions: sessions, account: account,
+            homeObservations: GpsHomeObservationStoreV2.read(account: account, defaults: defaults),
+            siteObservations: observedSiteBoundaries)
+            .filter { !$0.excludedByHome }
+    }
+
+    var observedSiteBoundaries: [GpsSiteObservationV2] {
+        guard gpsObservationHistoryReliable, let account = diagnosticAccount else { return [] }
+        let archived = GpsObservationArchiveStoreV2.read(account: account, defaults: defaults)?.observations ?? []
+        let current: [GpsSiteObservationV2]
+        if case .valid(let state) = GpsStateStoreV2.read(defaults.data(forKey: GpsStateStoreV2.scopedKey(account: account))),
+           state.accountScope == account { current = state.observations ?? [] } else { current = [] }
+        var unique = [UUID: GpsSiteObservationV2]()
+        for value in archived + current where value.account == account { unique[value.id] = value }
+        return unique.values.sorted { $0.observedAt < $1.observedAt }
+    }
+
+    var historicalGpsObservations: [GpsLegacyObservationV2] {
+        guard let account = diagnosticAccount else { return [] }
+        return GpsObservationArchiveStoreV2.read(account: account, defaults: defaults)?.legacy ?? []
+    }
+
+    var gpsObservationHistoryReliable: Bool {
+        guard let account = diagnosticAccount,
+              GpsObservationArchiveStoreV2.read(account: account, defaults: defaults) != nil else { return false }
+        switch GpsStateStoreV2.read(defaults.data(forKey: GpsStateStoreV2.scopedKey(account: account))) {
+        case .missing: return true
+        case .corrupt: return false
+        case .valid(let state):
+            let values = state.observations ?? []
+            return state.accountScope == account && Set(values.map(\.id)).count == values.count &&
+                values.allSatisfy { $0.account == account && $0.fingerprint == state.fingerprint &&
+                    $0.observedAt.timeIntervalSinceReferenceDate.isFinite }
+        }
+    }
+
+    var gpsJourneyHistoryReliable: Bool {
+        guard gpsObservationHistoryReliable, let account = diagnosticAccount else { return false }
+        return GpsHomeObservationStoreV2.read(account: account, defaults: defaults) != nil
+    }
+
+    /// Runs without a view. The durable GPS queue is the outbox; the session journal owns
+    /// pointage. A failed acknowledgement leaves the already committed session intact.
+    @discardableResult
+    func processAutomaticGpsPointage(now: Date = Date()) -> Bool {
+        reloadAccount()
+        guard storageReliable, let account = diagnosticAccount else { return false }
+        guard defaults.bool(forKey: GpsZoneConfigurationV2.enabledKey) else { return true }
+        guard case .valid(let zones) = GpsZoneConfigurationV2.read(
+            defaults.data(forKey: GpsZoneConfigurationV2.zonesKey)) else { return false }
+        let companies = SalaryCompanyStoreV2.readConfirmed(defaults: defaults)
+        guard companies.reliable else { return false }
+        let key = GpsStateStoreV2.scopedKey(account: account)
+        for _ in 0 ..< GpsPresenceTransitionV2.maximumPendingEventCount {
+            guard accountMatches, diagnosticAccount == account,
+                  case .valid(let state) = GpsStateStoreV2.read(defaults.data(forKey: key)) else { return false }
+            guard let event = state.pendingEvents.first else { return true }
+            // Retire old prompts into a visible archive before removing their queue entry.
+            // No old observation gains permission to create or close a session.
+            if event.siteFactVersion == nil {
+                guard GpsObservationArchiveStoreV2.preserve(state, account: account, defaults: defaults),
+                      diagnosticAccount == account,
+                      GpsStateStoreV2.read(defaults.data(forKey: key)) == .valid(state) else { return false }
+                var retired = state
+                retired.pendingEvents.removeFirst()
+                guard GpsStateStoreV2.write(retired, defaults: defaults, storageKey: key) else { return false }
+                continue
+            }
+            guard event.siteFactVersion == 1 else { return false }
+            guard let commit = GpsAutomaticPointageV2.plan(state: state, zones: zones,
+                account: account, sessions: sessions,
+                confirmedEmployerIds: Set(companies.companies.map(\.id)), now: now) else { return false }
+            guard defaults.bool(forKey: GpsZoneConfigurationV2.enabledKey),
+                  GpsZoneConfigurationV2.read(defaults.data(forKey: GpsZoneConfigurationV2.zonesKey)) == .valid(zones),
+                  GpsStateStoreV2.read(defaults.data(forKey: key)) == .valid(state),
+                  diagnosticAccount == account else { return false }
+            if commit.sessions != sessions {
+                guard persistCanonical(commit.sessions) else {
+                    loadedStorageReliable = false
+                    return false
+                }
+                loadedSessions = commit.sessions
+                diagnostic(event.kind == .arrival ? .clockInCommitted : .clockOutCommitted,
+                    at: event.occurredAt, sessionId: commit.sessionId, origin: .automatic)
+            }
+            guard diagnosticAccount == account,
+                  GpsStateStoreV2.read(defaults.data(forKey: key)) == .valid(state),
+                  GpsStateStoreV2.write(commit.state, defaults: defaults, storageKey: key) else { return false }
+        }
+        if case .valid(let state) = GpsStateStoreV2.read(defaults.data(forKey: key)) {
+            return diagnosticAccount == account && state.pendingEvents.isEmpty
+        }
+        return false
+    }
+
+    /// Explicit classification of the exact facts displayed to the person. Dates, GPS
+    /// provenance and pauses are preserved; stale UI/account snapshots cannot rewrite them.
+    @discardableResult
+    func qualifyGpsSession(_ expected: WorkSession, account: String, as kind: WorkSegmentKindV2) -> Bool {
+        reloadAccount()
+        guard kind == .work || kind == .nonWork,
+              storageReliable, diagnosticAccount == account,
+              let index = sessions.firstIndex(where: { $0 == expected }), expected.exit != nil,
+              let segments = expected.segments, !segments.isEmpty,
+              segments.allSatisfy({ $0.kind == .toConfirm && !$0.confirmed && $0.end != nil }) else { return false }
+        var updated = sessions
+        updated[index].segments = segments.map {
+            WorkSegmentV2(start: $0.start, end: $0.end, kind: kind, confirmed: true)
+        }
+        guard persistCanonical(updated) else {
+            loadedStorageReliable = false
+            return false
+        }
+        loadedSessions = updated
+        return true
+    }
+
+    @discardableResult
+    func selectGpsArrival(_ event: GpsPendingEventV2, zoneId: UUID, account: String) -> Bool {
+        reloadAccount()
+        guard storageReliable, diagnosticAccount == account, event.kind == .arrival,
+              event.siteFactVersion == 1, event.zoneIds.contains(zoneId),
+              defaults.bool(forKey: GpsZoneConfigurationV2.enabledKey),
+              case .valid(let zones) = GpsZoneConfigurationV2.read(defaults.data(forKey: GpsZoneConfigurationV2.zonesKey)),
+              zones.contains(where: { $0.id == zoneId && $0.kind == .worksite }),
+              var state = departureIndependentGpsState(account: account, zones: zones),
+              state.pendingEvents.first == event else { return false }
+        state.pendingEvents[0].selectedArrivalZoneId = zoneId
+        guard diagnosticAccount == account,
+              GpsStateStoreV2.write(state, defaults: defaults, storageKey: GpsStateStoreV2.scopedKey(account: account)) else { return false }
+        return processAutomaticGpsPointage()
+    }
+
+    private func departureIndependentGpsState(account: String, zones: [GpsZoneV2]) -> GpsPersistedStateV2? {
+        guard case .valid(let state) = GpsStateStoreV2.read(defaults.data(forKey: GpsStateStoreV2.scopedKey(account: account))),
+              let fingerprint = GpsZoneConfigurationV2.fingerprint(enabled: true, zones: zones),
+              GpsStateValidationV2.startupState(read: .valid(state), expectedFingerprint: fingerprint,
+                configuredZoneIds: GpsZoneConfigurationV2.automaticZoneIds(zones),
+                expectedAccountScope: account) == .resume(state) else { return nil }
+        return state
     }
 
     private func persistCanonical(_ decoded: [WorkSession]) -> Bool {
