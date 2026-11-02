@@ -4,6 +4,48 @@ import XCTest
 #endif
 
 final class SalarySegmentedPayrollSessionEvidenceBuilderV2Tests: XCTestCase {
+    func testSaturdaySundayPremiumsAreDisjointWithoutCumulPolicy() throws {
+        let rules = PayrollRulesV2(weeklyRegularMinutes: 2100,
+            overtimeTiers: [OvertimeTierV2(fromMinutes: 2100, toMinutes: nil, multiplier: 1.25)],
+            saturdayMultiplier: 1.25, sundayMultiplier: 1.5)
+        let f = try fixture([session("sat", 9, 8, 9, 14), session("sun", 10, 8, 10, 14)], payrollRules: rules)
+        XCTAssertTrue(f.calculate().reliable)
+        XCTAssertEqual(try XCTUnwrap(f.calculate().pieces.first).variableGross, 45, accuracy: 0.001)
+    }
+
+    func testOverlappingNightSundayBlocksAndDailySeparatedPremiumsStayProven() throws {
+        let rule = payrollRules(night: 1.25, sunday: 1.5)
+        let night = NightPremiumRuleV2(startMinute: 22 * 60, endMinute: 6 * 60, multiplier: 1.25)
+        let overlapping = try fixture([session("sun-night", 10, 0, 10, 6)], payrollRules: rule, night: night)
+        assertBlocked(overlapping)
+        XCTAssertTrue(overlapping.build().warnings.contains(SalarySegmentedWorkedVariableGrossSourceV2.cumulWarning))
+        let separated = try fixture([session("mon-night", 4, 0, 4, 6), session("sun-day", 10, 8, 10, 14)],
+            payrollRules: rule, night: night)
+        let proof = separated.build()
+        XCTAssertTrue(proof.reliable)
+        XCTAssertTrue(separated.calculate().reliable)
+        let slices = proof.slices.map { slice in
+            SalarySegmentedPayrollSliceEvidenceV2(startEpochDay: slice.startEpochDay, endEpochDay: slice.endEpochDay,
+                contractVersionId: slice.contractVersionId, ruleVersionId: slice.ruleVersionId,
+                weeks: slice.weeks.map { week in
+                    var value = week; value.temporalPremiumsNonOverlappingProven = false; return value
+                }, evidence: slice.evidence, warnings: slice.warnings)
+        }
+        let unknown = SalarySegmentedWorkedVariableGrossSourceV2.calculate(contracts: separated.contracts,
+            rules: separated.convention, sliceEvidence: slices)
+        XCTAssertFalse(unknown.reliable)
+        XCTAssertTrue(unknown.warnings.contains(SalarySegmentedWorkedVariableGrossSourceV2.cumulWarning))
+    }
+
+    func testSingleSundayPremiumRemainsReliableAndOvertimeCumulRequiresProof() throws {
+        let single = try fixture([session("sunday", 10, 8, 10, 16)], payrollRules: payrollRules(sunday: 1.5))
+        XCTAssertTrue(single.calculate().reliable)
+        let sessions = (4...8).map { session("s\($0)", Int64($0), 8, Int64($0), 16) } + [session("sunday", 10, 8, 10, 10)]
+        let overtime = try fixture(sessions, payrollRules: payrollRules(sunday: 1.5))
+        XCTAssertFalse(overtime.calculate().reliable)
+        XCTAssertTrue(overtime.calculate().warnings.contains(SalarySegmentedWorkedVariableGrossSourceV2.cumulWarning))
+    }
+
     func testRealV2SessionsReachB21WithoutMonthlyBaseDuplication() throws {
         let f = try fixture((4...8).map { session("s\($0)", Int64($0), 8, Int64($0), 16) })
         let proof = f.build()

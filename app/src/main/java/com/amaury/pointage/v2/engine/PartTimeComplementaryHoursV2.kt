@@ -14,6 +14,20 @@ import kotlin.math.min
  *   mais aucune majoration supplémentaire n'est inventée et un avertissement est émis.
  */
 object PartTimeComplementaryHoursV2 {
+    /** Explicitly supplied upstream proof; overtime schedules must never be reused here. */
+    data class ConfirmedSchedule(
+        val sourceId: String,
+        val contractualMinutes: Int,
+        val effectiveFromEpochDay: Long,
+        val effectiveToEpochDay: Long?,
+        val tiers: List<OvertimeTierV2>
+    ) {
+        fun applies(referenceEpochDay: Long?, minutes: Int): Boolean =
+            sourceId.isNotBlank() && contractualMinutes == minutes && referenceEpochDay != null &&
+                referenceEpochDay >= effectiveFromEpochDay &&
+                (effectiveToEpochDay == null || referenceEpochDay <= effectiveToEpochDay)
+    }
+
     data class Tier(
         val label: String,
         val minutes: Int,
@@ -24,14 +38,17 @@ object PartTimeComplementaryHoursV2 {
         val complementaryMinutes: Int,
         val grossToAdd: Double,
         val tiers: List<Tier>,
-        val warnings: List<String>
+        val warnings: List<String>,
+        val confirmedScheduleUsed: Boolean = false
     )
 
     fun calculateWeek(
         contractualMinutes: Int,
         paidMinutes: Int,
         grossHourlyRate: Double,
-        legalWeeklyMinutes: Int = 35 * 60
+        legalWeeklyMinutes: Int = 35 * 60,
+        confirmedSchedule: ConfirmedSchedule? = null,
+        referenceEpochDay: Long? = null
     ): Result {
         require(contractualMinutes > 0) { "Durée contractuelle temps partiel invalide" }
         require(paidMinutes >= 0) { "Minutes payées invalides" }
@@ -41,6 +58,20 @@ object PartTimeComplementaryHoursV2 {
         val paid = paidMinutes
         val extra = (paid - contractualMinutes).coerceAtLeast(0)
         if (extra == 0) return Result(0, 0.0, emptyList(), emptyList())
+
+        if (confirmedSchedule?.applies(referenceEpochDay, contractualMinutes) == true &&
+            OvertimeCoverageV2.isFullyCovered(contractualMinutes, paid, confirmedSchedule.tiers)) {
+            val tiers = confirmedSchedule.tiers.sortedBy { it.fromMinutes }.mapNotNull { tier ->
+                val minutes = (minOf(paid, tier.toMinutes ?: Int.MAX_VALUE) - tier.fromMinutes).coerceAtLeast(0)
+                if (minutes == 0) null else Tier("Heures complémentaires — ${confirmedSchedule.sourceId}", minutes, tier.multiplier)
+            }
+            val gross = tiers.sumOf { it.minutes / 60.0 * grossHourlyRate * it.multiplier }
+            require(gross.isFinite()) { "Montant d'heures complémentaires invalide" }
+            val warnings = if (paid >= legalWeeklyMinutes) listOf(
+                "Temps partiel : durée légale hebdomadaire atteinte ; situation à vérifier malgré le barème confirmé."
+            ) else emptyList()
+            return Result(extra, gross, tiers, warnings, confirmedScheduleUsed = warnings.isEmpty())
+        }
 
         // Les seuils légaux sont des fractions de la durée prévue au contrat.
         // On travaille en minutes entières et on arrondit le seuil inférieur vers le bas

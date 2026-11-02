@@ -188,6 +188,24 @@ object SegmentedPayrollSessionEvidenceBuilderV2 {
                         if (PublicHolidayPremiumPolicyV2.paidOverlap(session, from, to, dedicatedDates, timeZone) > 0) {
                             return blocked(HOLIDAY_WARNING)
                         }
+                        for (dayIndex in 0..6) {
+                            val day = monday.plusDays(dayIndex.toLong())
+                            val dayStart = startOfDay(day, zone)
+                            val dayEnd = startOfDay(day.plusDays(1), zone)
+                            val dayPaid = PaidWorkAllocationV2.paidOverlapResult(session, dayStart, dayEnd)
+                            if (!dayPaid.reliable) return blocked(SOURCE_WARNING)
+                            if (dayPaid.paidMs == 0L) continue
+                            val activeDatePremiums = listOf(
+                                dayIndex == 5 && (payrollRules.saturdayMultiplier ?: 1.0) > 1.0,
+                                dayIndex == 6 && (payrollRules.sundayMultiplier ?: 1.0) > 1.0,
+                                day in holidayDates && (payrollRules.publicHolidayMultiplier ?: 1.0) > 1.0
+                            ).count { it }
+                            if (activeDatePremiums > 1) return blocked(SegmentedWorkedVariableGrossSourceV2.CUMUL_WARNING)
+                            if (activeDatePremiums > 0 && (nightMultiplier ?: 1.0) > 1.0 &&
+                                NightPremiumPolicyV2.paidOverlap(session, dayStart, dayEnd, context.nightRule!!, timeZone) > 0L) {
+                                return blocked(SegmentedWorkedVariableGrossSourceV2.CUMUL_WARNING)
+                            }
+                        }
                         paidMs = Math.addExact(paidMs, full.paidMs)
                         if (nightMultiplier != null) nightMs = Math.addExact(nightMs,
                             NightPremiumPolicyV2.paidOverlap(session, from, to, context.nightRule!!, timeZone))
@@ -209,7 +227,7 @@ object SegmentedPayrollSessionEvidenceBuilderV2 {
                         Math.toIntExact(holidayMs / 60_000L)
                     )
                     weeks += SegmentedPayrollWeekEvidenceV2(monday.get(WeekFields.ISO.weekBasedYear()),
-                        monday.get(WeekFields.ISO.weekOfWeekBasedYear()), week, fullWeekContextReliable = true)
+                        monday.get(WeekFields.ISO.weekOfWeekBasedYear()), week, fullWeekContextReliable = true, temporalPremiumsNonOverlappingProven = true)
                     sliceWarnings += scope.warnings
                     monday = nextMonday
                 }

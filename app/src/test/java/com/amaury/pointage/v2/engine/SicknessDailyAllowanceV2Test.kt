@@ -87,4 +87,28 @@ class SicknessDailyAllowanceV2Test {
         assertFalse(result.complete)
         assertTrue(result.warnings.any { it.contains("barème HoraTrack non intégré") })
     }
+    @Test
+    fun `un salaire non fini ne devient pas une reference plafonnee valide`() {
+        listOf(Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY).forEach { invalid ->
+            val result = SicknessDailyAllowanceV2.calculate(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 11), mapOf(
+                YearMonth.of(2026, 6) to invalid, YearMonth.of(2026, 7) to 2000.0, YearMonth.of(2026, 8) to 2000.0
+            ))
+            assertFalse(result.complete)
+            assertEquals(null, result.estimatedGrossTotal)
+        }
+    }
+
+    @Test
+    fun `un bareme 2026 ne devient pas le bareme des annees suivantes`() {
+        assertFalse(SicknessDailyAllowanceV2.calculate(LocalDate.of(2027, 9, 1), LocalDate.of(2027, 9, 11), emptyMap()).complete)
+    }
+
+    @Test
+    fun `une duree excessive ne deborde pas en zero jours indemnises`() {
+        val result = SicknessDailyAllowanceV2.calculate(LocalDate.of(2026, 9, 1), LocalDate.MAX, mapOf(
+            YearMonth.of(2026, 6) to 2000.0, YearMonth.of(2026, 7) to 2000.0, YearMonth.of(2026, 8) to 2000.0
+        ))
+        assertFalse(result.complete)
+        assertEquals(null, result.payableDays)
+    }
 }

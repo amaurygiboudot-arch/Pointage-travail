@@ -53,7 +53,7 @@ object SicknessDailyAllowanceV2 {
         val startMonth = YearMonth.from(absenceStart)
         val required = listOf(startMonth.minusMonths(3), startMonth.minusMonths(2), startMonth.minusMonths(1))
         val months = required.mapNotNull { ym ->
-            confirmedGrossByMonth[ym]?.takeIf { it >= 0.0 }?.let { SalaryMonth(ym, it) }
+            confirmedGrossByMonth[ym]?.takeIf { it.isFinite() && it >= 0.0 }?.let { SalaryMonth(ym, it) }
         }
         if (months.size != 3) {
             val missing = required.filter { ym -> months.none { it.period == ym } }
@@ -73,7 +73,11 @@ object SicknessDailyAllowanceV2 {
         val cappedTotal = months.sumOf { min(it.gross, cap.monthlySalaryCap) }
         val salaryDailyBase = cappedTotal / 91.25
         val daily = min(salaryDailyBase * 0.50, cap.maxDailyGross)
-        val calendarDays = ChronoUnit.DAYS.between(absenceStart, absenceEndExclusive).toInt().coerceAtLeast(0)
+        val durationDays = ChronoUnit.DAYS.between(absenceStart, absenceEndExclusive)
+        if (durationDays > Int.MAX_VALUE.toLong()) {
+            return Result(false, null, null, null, months, listOf("IJSS maladie : durée hors plage de calcul ; aucun montant n'est produit."))
+        }
+        val calendarDays = durationDays.toInt()
         val payableDays = (calendarDays - 3).coerceAtLeast(0)
         val total = daily * payableDays
 
@@ -104,6 +108,7 @@ object SicknessDailyAllowanceV2 {
     private data class Regulation(val monthlySalaryCap: Double, val maxDailyGross: Double)
 
     private fun regulation(start: LocalDate): Regulation? = when {
+        start.year != 2026 -> null
         !start.isBefore(LocalDate.of(2026, 7, 1)) -> Regulation(2613.83, 42.97)
         !start.isBefore(LocalDate.of(2026, 6, 1)) -> Regulation(2522.52, 41.95)
         else -> null

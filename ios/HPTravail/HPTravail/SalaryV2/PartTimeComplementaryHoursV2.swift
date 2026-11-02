@@ -1,5 +1,20 @@
 import Foundation
 
+struct ConfirmedComplementaryScheduleV2: Equatable {
+    let sourceId: String
+    let contractualMinutes: Int
+    let effectiveFromEpochDay: Int64
+    let effectiveToEpochDay: Int64?
+    let tiers: [OvertimeTierV2]
+
+    func applies(referenceEpochDay: Int64?, minutes: Int) -> Bool {
+        guard let date = referenceEpochDay else { return false }
+        return !sourceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            minutes == contractualMinutes && date >= effectiveFromEpochDay &&
+            (effectiveToEpochDay == nil || date <= effectiveToEpochDay!)
+    }
+}
+
 struct PartTimeComplementaryTierV2: Equatable {
     let label: String
     let minutes: Int
@@ -11,6 +26,7 @@ struct PartTimeComplementaryResultV2: Equatable {
     let grossToAdd: Double
     let tiers: [PartTimeComplementaryTierV2]
     let warnings: [String]
+    var confirmedScheduleUsed: Bool = false
 }
 
 enum PartTimeComplementaryHoursV2 {
@@ -18,7 +34,9 @@ enum PartTimeComplementaryHoursV2 {
         contractualMinutes: Int,
         paidMinutes: Int,
         grossHourlyRate: Double,
-        legalWeeklyMinutes: Int = 35 * 60
+        legalWeeklyMinutes: Int = 35 * 60,
+        confirmedSchedule: ConfirmedComplementaryScheduleV2? = nil,
+        referenceEpochDay: Int64? = nil
     ) throws -> PartTimeComplementaryResultV2 {
         guard contractualMinutes > 0 else { throw PayrollEngineErrorV2.invalidWeeklyDuration }
         guard paidMinutes >= 0 else { throw PayrollEngineErrorV2.invalidPaidMinutes }
@@ -34,6 +52,21 @@ enum PartTimeComplementaryHoursV2 {
                 tiers: [],
                 warnings: []
             )
+        }
+
+        if let schedule = confirmedSchedule,
+           schedule.applies(referenceEpochDay: referenceEpochDay, minutes: contractualMinutes),
+           OvertimeCoverageV2.isFullyCovered(regularLimitMinutes: contractualMinutes, paidMinutes: paid, tiers: schedule.tiers) {
+            let tiers = schedule.tiers.sorted { $0.fromMinutes < $1.fromMinutes }.compactMap { tier -> PartTimeComplementaryTierV2? in
+                let minutes = max(0, min(paid, tier.toMinutes ?? Int.max) - tier.fromMinutes)
+                return minutes == 0 ? nil : PartTimeComplementaryTierV2(
+                    label: "Heures complémentaires — \(schedule.sourceId)", minutes: minutes, multiplier: tier.multiplier)
+            }
+            let gross = tiers.reduce(0.0) { $0 + Double($1.minutes) / 60 * grossHourlyRate * $1.multiplier }
+            guard gross.isFinite else { throw PayrollEngineErrorV2.invalidMoneyAmount }
+            let warnings = paid >= legalWeeklyMinutes ? ["Temps partiel : durée légale hebdomadaire atteinte ; situation à vérifier malgré le barème confirmé."] : []
+            return PartTimeComplementaryResultV2(complementaryMinutes: extra, grossToAdd: gross,
+                tiers: tiers, warnings: warnings, confirmedScheduleUsed: warnings.isEmpty)
         }
 
         let tenthLimit = max(0, Int(Double(contractualMinutes) / 10.0))

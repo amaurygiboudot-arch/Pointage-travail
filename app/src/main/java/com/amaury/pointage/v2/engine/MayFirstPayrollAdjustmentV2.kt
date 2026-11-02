@@ -24,7 +24,11 @@ object MayFirstPayrollAdjustmentV2 {
     )
 
     fun calculate(input: Input): Result {
-        val minutes = input.workedMinutes.coerceAtLeast(0)
+        if (input.workedMinutes < 0) return Result(
+            extraGross = 0.0, reliable = false,
+            warning = "1er mai travaillé : durée invalide ; aucune absence d'indemnité n'est déduite d'un faux zéro."
+        )
+        val minutes = input.workedMinutes
         if (minutes == 0) return Result(extraGross = 0.0, reliable = true)
 
         val rate = input.grossHourlyRate?.takeIf { it.isFinite() && it > 0.0 }
@@ -44,9 +48,11 @@ object MayFirstPayrollAdjustmentV2 {
             )
         }
 
-        return Result(
-            extraGross = minutes / 60.0 * rate * input.verifiedExtraMultiplier,
-            reliable = true
+        val extraGross = minutes / 60.0 * rate * input.verifiedExtraMultiplier
+        if (!extraGross.isFinite()) return Result(
+            extraGross = 0.0, reliable = false,
+            warning = "1er mai travaillé : montant non calculable ; aucune indemnité fiable n'est affichée."
         )
+        return Result(extraGross = extraGross, reliable = true)
     }
 }

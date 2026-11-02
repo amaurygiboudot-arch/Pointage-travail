@@ -60,6 +60,7 @@ final class SalaryV2Store: ObservableObject {
     @Published private(set) var conventionCoverage: SalaryConventionCoverageV2?
     @Published private(set) var contractResolution: SalaryEmploymentContractPayrollSnapshotV2?
     @Published private(set) var socialProfile: SalaryEmployeeSocialProfileResolutionV2?
+    @Published private(set) var confirmedSicknessCash: SalaryConfirmedSicknessCashV2.Result?
     @Published private(set) var absenceSource: SalaryAbsenceSourceV2?
     @Published private(set) var segmentedProrationSource: SalarySegmentedProrationSourceV2?
     @Published private(set) var segmentedMonthlyBase: SegmentedMonthlyBaseResultV2?
@@ -929,6 +930,7 @@ final class SalaryV2Store: ObservableObject {
         let taxRate = companyId.map { incomeTaxStore.snapshot(companyId: $0, for: selectedPeriod) }
 
         if let companyId {
+            confirmedSicknessCash = SalaryConfirmedSicknessCashV2.read(companyId: companyId, period: selectedPeriod)
             let source = workSourceProvider()
             paidWork = SalaryPaidWorkAggregatorV2.aggregate(
                 sessions: source.sessions,
@@ -1027,6 +1029,7 @@ final class SalaryV2Store: ObservableObject {
             contractResolution = nil
             socialProfile = nil
             absenceSource = nil
+            confirmedSicknessCash = nil
             segmentedProrationSource = nil
             segmentedMonthlyBase = nil
             segmentedPayrollBoundary = nil
