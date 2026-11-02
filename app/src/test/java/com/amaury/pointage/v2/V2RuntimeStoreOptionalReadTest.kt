@@ -9,7 +9,8 @@ class V2RuntimeStoreOptionalReadTest {
     @Test fun `missing entry with residual current facts is corruption rather than empty runtime`() {
         listOf("session_id", "employer_id", "company_slot", "counted_entry", "real_exit",
             "counted_exit", "expected_end", "time_basis", "pause_start", "pause_source",
-            "pause_paid", "pauses", "place_id", "place_label").forEach { key ->
+            "pause_paid", "pauses", "place_id", "place_label", "work_segments",
+            "closureOrigin", "departureObservedAtMs").forEach { key ->
             assertTrue(key, V2RuntimeStore.hasOrphanedCurrentSession(mapOf(key to null)))
         }
         assertFalse(V2RuntimeStore.hasOrphanedCurrentSession(emptyMap<String, Any>()))

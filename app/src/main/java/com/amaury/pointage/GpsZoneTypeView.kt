@@ -29,7 +29,7 @@ class GpsZoneTypeView @JvmOverloads constructor(context: Context, attrs: Attribu
         removeAllViews()
         addView(TextView(context).apply { text = "RÔLE DES ZONES GPS"; textSize = 14f })
         addView(TextView(context).apply {
-            text = "Travail, parking, pause ou autre contexte. Le GPS ne décide pas à lui seul du temps payé."
+            text = "Travail, domicile, parking, pause ou autre contexte. Le domicile exclut les trajets domicile–travail ; il ne déclenche aucun pointage."
             textSize = 12f; setPadding(0, dp(4), 0, dp(6))
         })
         val snapshot = GpsZoneEditorStoreV2.read(prefs)

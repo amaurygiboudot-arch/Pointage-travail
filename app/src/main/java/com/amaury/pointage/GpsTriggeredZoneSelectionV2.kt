@@ -170,7 +170,7 @@ internal object GpsTriggeredZoneSelectionV2 {
         GpsZoneRoleV2.WORK -> GpsPointTypeV2.POSTE
         GpsZoneRoleV2.PARKING -> GpsPointTypeV2.PARKING
         // Le rôle Pause reste une observation à confirmer, pas une pause payée automatique.
-        GpsZoneRoleV2.BREAK, GpsZoneRoleV2.OTHER -> GpsPointTypeV2.OTHER
+        GpsZoneRoleV2.HOME, GpsZoneRoleV2.BREAK, GpsZoneRoleV2.OTHER -> GpsPointTypeV2.OTHER
     }
 
     private data class Signature(

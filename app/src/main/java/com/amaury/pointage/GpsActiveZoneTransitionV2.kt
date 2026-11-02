@@ -121,6 +121,7 @@ internal object GpsPresenceStateKeysV2 {
         ACTIVE_ZONES,
         ENTRY_RESOLUTION_PENDING,
         ENTRY_RESOLUTION_TOKEN,
+        GpsEntryRecoveryV2.KEY,
         PENDING_EXIT_ZONES,
         PENDING_EXIT_OBSERVATIONS,
         "pending_exit_deliveries",

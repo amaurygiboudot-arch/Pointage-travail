@@ -258,6 +258,9 @@ class MainActivity : Activity() {
             if (ok) refreshScreen()
         }
 
+        findViewById<View>(R.id.reviewPointageButton)?.setOnClickListener {
+            GpsPointageReviewDialogV2.show(this)
+        }
         locationPermissionButton?.setOnClickListener { animateClick(locationPermissionButton); requestLocationAccess() }
         chooseReportMonthButton?.setOnClickListener { animateClick(chooseReportMonthButton); showReportMonthDialog() }
         generateMonthlyPdfButton?.setOnClickListener { animateClick(generateMonthlyPdfButton); requestMonthlyPdfPreview() }
@@ -673,6 +676,7 @@ class MainActivity : Activity() {
     }
 
     private fun tryRestoreGeofence() {
+        GeofenceManager.observeMonitoringAvailability(this)
         if (!gpsPrefs.getBoolean("enabled", false) || !GeofenceManager.hasRequiredPermissions(this)) return
         when (val stored = readPersistedGpsZones(gpsPrefs)) {
             GpsZonesReadResult.Missing -> {
@@ -697,6 +701,8 @@ class MainActivity : Activity() {
                         locationEnabled = DeviceLocationAvailability.isEnabled(this),
                         registrationCurrent = GeofenceManager.isStoredRegistrationCurrent(this)
                     )) {
+                    GeofenceBroadcastReceiver.replayPendingEntry(this)
+                    com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2.resolveObservedDeparture(this)
                     showGpsReconciliationResult(true, "Zones GPS déjà synchronisées")
                     return
                 }
@@ -737,7 +743,9 @@ class MainActivity : Activity() {
             systemLocationEnabled = systemLocationEnabled,
             registrationCurrent = gpsRegistrationConfirmed &&
                 GeofenceManager.isStoredRegistrationCurrent(this),
-            registrationError = gpsRegistrationError
+            registrationError = gpsRegistrationError ?: if (GpsEntryRecoveryV2.read(gpsPrefs) == null)
+                "Observation d’arrivée GPS illisible — données conservées, vérification nécessaire"
+                else null
         )
         val openSystemSettings = shouldOpenSystemLocationSettings(
             enabled = autoGpsSwitch.isChecked,

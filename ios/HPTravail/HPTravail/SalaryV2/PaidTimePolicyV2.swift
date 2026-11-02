@@ -6,7 +6,7 @@ struct PaidPauseFactV2: Equatable {
     let paid: Bool?
 }
 
-enum PaidWorkSegmentKindV2: Equatable { case work, intervention, paidTravel, onCall, personalTravel, nonWork, toConfirm }
+enum PaidWorkSegmentKindV2: String, Equatable { case work, intervention, paidTravel, onCall, personalTravel, nonWork, toConfirm }
 
 struct PaidWorkSegmentFactV2: Equatable {
     let start: Date

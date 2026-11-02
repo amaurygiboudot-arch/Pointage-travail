@@ -84,7 +84,8 @@ enum GpsConfiguredPresenceTransitionV2 {
         configuredZones: [GpsZoneV2],
         zoneId: UUID,
         transition: GpsPresenceTransitionV2.Transition,
-        occurredAt: Date
+        occurredAt: Date,
+        recordsSiteFacts: Bool = false
     ) -> GpsPresenceTransitionV2.State {
         guard GpsZoneConfigurationV2.isValid(configuredZones),
               let zone = configuredZones.first(where: { $0.id == zoneId }),
@@ -116,7 +117,8 @@ enum GpsConfiguredPresenceTransitionV2 {
             transition: transition,
             occurredAt: occurredAt,
             allowsSameZoneReturn: sameZoneReturn,
-            verifiedOverlappingWorksiteReturn: overlappingReturn
+            verifiedOverlappingWorksiteReturn: overlappingReturn,
+            recordsSiteFacts: recordsSiteFacts
         )
         if let sourceZoneId = next.confirmedZoneId,
            let departure = next.pendingEvents.last,

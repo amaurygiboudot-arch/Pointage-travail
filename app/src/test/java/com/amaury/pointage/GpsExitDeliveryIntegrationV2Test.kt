@@ -177,6 +177,136 @@ class GpsExitDeliveryIntegrationV2Test {
         assertEquals(exit, V2RuntimeReader.current(context).snapshot.session?.realExitMs)
     }
 
+    @Test fun observedSiteDepartureIsImmediateWithoutScheduleAndCannotCertifyPaidTime() {
+        stage()
+        assertNull(V2RuntimeStore.expectedEnd(context))
+        assertTrue(GpsWorkStateCoordinatorV2.resolveObservedDeparture(context, exit))
+        val closed = checkNotNull(V2RuntimeReader.current(context).snapshot.session)
+        assertEquals(exit, closed.realExitMs)
+        assertEquals(exit, closed.countedExitMs)
+        assertEquals(exit, closed.departureObservedAtMs)
+        assertEquals("AUTOMATIC", closed.closureOrigin)
+        assertTrue(V2RuntimeStore.hasOnlyUnqualifiedPresenceSegment(closed))
+        assertFalse(com.amaury.pointage.v2.engine.DefaultTimeEngineV2.calculate(closed, exit).reliable)
+        assertFalse(com.amaury.pointage.v2.engine.PaidWorkAllocationV2.paidOverlapResult(closed, arrival, exit).reliable)
+        assertEquals(closed, V2RuntimeStore.allSessions(context).single())
+        assertFalse(GpsWorkStateCoordinatorV2.resolveObservedDeparture(context, exit + 1))
+        assertEquals(1, V2RuntimeStore.allSessions(context).size)
+    }
+
+    @Test fun gpsEntryAndExitKeepQualificationAfterReloadAndAllowNextArrival() {
+        V2RuntimeStore.reset(context)
+        assertTrue(V2RuntimeStore.entry(context, arrival, source = com.amaury.pointage.v2.model.EventSourceV2.GPS))
+        V2RuntimeAccountScope.preferences(context, "horatrack_v2_test_runtime").edit()
+            .putString("employer_id", "company-a").commit()
+        val opened = checkNotNull(V2RuntimeReader.current(context).snapshot.session)
+        assertTrue(V2RuntimeStore.hasOnlyUnqualifiedPresenceSegment(opened))
+        assertNull(opened.workSegments.single().endMs)
+        stage()
+        assertTrue(GpsWorkStateCoordinatorV2.resolveObservedDeparture(context, exit))
+        val closed = checkNotNull(V2RuntimeReader.current(context).snapshot.session)
+        assertTrue(V2RuntimeStore.hasOnlyUnqualifiedPresenceSegment(closed))
+        assertTrue(V2RuntimeStore.entry(context, exit + 20_000, source = com.amaury.pointage.v2.model.EventSourceV2.GPS))
+        val next = checkNotNull(V2RuntimeReader.current(context).snapshot.session)
+        assertNotEquals(closed.id, next.id)
+        assertEquals(exit + 20_000, next.realArrivalMs)
+        assertEquals(listOf(closed, next), V2RuntimeStore.allSessions(context))
+    }
+
+    @Test fun observedDepartureRetainsEvidenceWhileZoneOrEntryResolutionIsActive() {
+        stage()
+        gps.edit().putStringSet("active_zones", setOf("work")).commit()
+        assertFalse(GpsWorkStateCoordinatorV2.resolveObservedDeparture(context, exit))
+        assertNotNull(GpsWorkStateCoordinatorV2.pending(context))
+        gps.edit().putStringSet("active_zones", emptySet()).putBoolean("entry_resolution_pending", true).commit()
+        assertFalse(GpsWorkStateCoordinatorV2.resolveObservedDeparture(context, exit))
+        assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
+        gps.edit().remove("entry_resolution_pending").commit()
+        assertTrue(GpsWorkStateCoordinatorV2.resolveObservedDeparture(context, exit))
+    }
+
+    @Test fun observedDepartureDoesNotInventPauseQualification() {
+        stage()
+        V2RuntimeAccountScope.preferences(context, "horatrack_v2_test_runtime").edit()
+            .putLong("pause_start", arrival + 1000).putString("pause_source", "MANUAL").commit()
+        assertFalse(GpsWorkStateCoordinatorV2.resolveObservedDeparture(context, exit))
+        assertNotNull(GpsWorkStateCoordinatorV2.pending(context))
+        val session = checkNotNull(V2RuntimeReader.current(context).snapshot.session)
+        assertNull(session.realExitMs)
+        assertNull(session.pauses.single().paid)
+    }
+
+    @Test fun observedDepartureCannotReinterpretAnUnverifiedHistoricalOpenSession() {
+        stage()
+        V2RuntimeAccountScope.preferences(context, "horatrack_v2_test_runtime").edit()
+            .putString("time_basis", "LEGACY_UNVERIFIED").commit()
+        assertFalse(GpsWorkStateCoordinatorV2.resolveObservedDeparture(context, exit))
+        assertNotNull(GpsWorkStateCoordinatorV2.pending(context))
+        assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
+    }
+
+    @Test fun failedObservedClosureRetainsObservationAndRetriesAfterProcessRestart() {
+        stage()
+        val runtime = faultRuntime()
+        runtime.failNext = 1
+        assertFalse(GpsWorkStateCoordinatorV2.resolveObservedDeparture(context, exit))
+        assertNotNull(GpsWorkStateCoordinatorV2.pending(context))
+        runtime.restart()
+        assertNull(V2RuntimeReader.current(context).snapshot.session?.realExitMs)
+        assertTrue(GpsWorkStateCoordinatorV2.resolveObservedDeparture(context, exit))
+        runtime.restart()
+        assertEquals(exit, V2RuntimeReader.current(context).snapshot.session?.realExitMs)
+        assertEquals(1, V2RuntimeStore.allSessions(context).size)
+    }
+
+    @Test fun explicitPresenceQualificationChecksAccountAndExactSnapshotWithoutChangingFacts() {
+        stage()
+        assertTrue(GpsWorkStateCoordinatorV2.resolveObservedDeparture(context, exit))
+        val closed = checkNotNull(V2RuntimeReader.current(context).snapshot.session)
+        assertFalse(V2RuntimeStore.qualifyObservedPresence(context, "uid:account-b", closed, worked = true))
+        assertFalse(V2RuntimeStore.qualifyObservedPresence(context, "uid:account-a",
+            closed.copy(realExitMs = exit + 1), worked = true))
+        assertTrue(V2RuntimeStore.qualifyObservedPresence(context, "uid:account-a", closed, worked = true))
+        val qualified = checkNotNull(V2RuntimeReader.current(context).snapshot.session)
+        assertEquals(closed.copy(workSegments = qualified.workSegments), qualified)
+        assertEquals(com.amaury.pointage.v2.model.WorkSegmentKindV2.WORK, qualified.workSegments.single().kind)
+        assertTrue(com.amaury.pointage.v2.engine.DefaultTimeEngineV2.calculate(qualified, exit).reliable)
+        assertEquals(qualified, V2RuntimeStore.allSessions(context).single())
+        assertFalse(V2RuntimeStore.qualifyObservedPresence(context, "uid:account-a", closed, worked = false))
+    }
+
+    @Test fun explicitNonWorkQualificationDoesNotAlterPresenceDuration() {
+        stage()
+        assertTrue(GpsWorkStateCoordinatorV2.resolveObservedDeparture(context, exit))
+        val closed = checkNotNull(V2RuntimeReader.current(context).snapshot.session)
+        assertTrue(V2RuntimeStore.qualifyObservedPresence(context, "uid:account-a", closed, worked = false))
+        val result = checkNotNull(V2RuntimeReader.current(context).snapshot.result)
+        assertTrue(result.reliable)
+        assertEquals(exit - arrival, result.presenceMs)
+        assertEquals(0L, result.paidWorkMs)
+    }
+
+    @Test fun confirmedManualSessionRemainsReliableAndCannotBeRequalifiedAsGpsPresence() {
+        assertTrue(V2RuntimeStore.exit(context, exit, origin = ClosureOriginV2.MANUAL))
+        val session = checkNotNull(V2RuntimeReader.current(context).snapshot.session)
+        assertTrue(session.workSegments.isEmpty())
+        assertTrue(com.amaury.pointage.v2.engine.DefaultTimeEngineV2.calculate(session, exit).reliable)
+        assertFalse(V2RuntimeStore.qualifyObservedPresence(context, "uid:account-a", session, worked = false))
+    }
+
+    private fun faultRuntime(): FaultPreferences {
+        val name = checkNotNull(V2RuntimeAccountScope.fileName("horatrack_v2_test_runtime", "uid:account-a"))
+        val previous = context
+        val fault = FaultPreferences()
+        fault.seed(previous.getSharedPreferences(name, Context.MODE_PRIVATE).all)
+        context = object : ContextWrapper(previous) {
+            override fun getApplicationContext(): Context = this
+            override fun getSharedPreferences(requested: String, mode: Int): SharedPreferences =
+                if (requested == name) fault else previous.getSharedPreferences(requested, mode)
+        }
+        return fault
+    }
+
     @Test fun oldPendingIsNeutralizedWithoutClosingOrPrompting() {
         stage()
         GpsExitDeliveryV2.replay(context)
@@ -666,6 +796,10 @@ class GpsExitDeliveryIntegrationV2Test {
         private var disk = mapOf<String, Any>()
         var failNext = 0
         var deliverySetReads = 0
+        fun seed(values: Map<String, *>) {
+            memory = values.filterValues { it != null }.mapValues { it.value!! }.toMutableMap()
+            disk = memory.toMap()
+        }
         fun restart() { memory = disk.toMutableMap() }
         override fun getAll(): MutableMap<String, *> = memory.toMutableMap()
         override fun contains(key: String): Boolean = memory.containsKey(key)

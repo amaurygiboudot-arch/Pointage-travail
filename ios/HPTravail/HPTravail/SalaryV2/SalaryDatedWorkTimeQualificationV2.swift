@@ -29,7 +29,8 @@ enum SalaryDatedWorkTimeQualificationV2 {
             sessionStart: session.entry,
             sessionEnd: session.exit,
             pauses: session.pauses,
-            until: now
+            until: now,
+            segments: session.segments
         )
         guard owner.isValid, !requiredTopics.isEmpty,
               session.employerId == owner.employerId,

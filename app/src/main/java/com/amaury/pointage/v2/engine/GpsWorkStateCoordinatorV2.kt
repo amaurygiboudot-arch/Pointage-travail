@@ -193,7 +193,7 @@ object GpsWorkStateCoordinatorV2 {
                     currentPending = null
                 }
                 if (current == null || current.realExitMs != null) {
-                    val started = V2RuntimeStore.entry(context, event.atMs)
+                    val started = V2RuntimeStore.entry(context, event.atMs, source = EventSourceV2.GPS)
                     if (shouldDiscardPending(currentPending, current, entryStarted = started)) {
                         clearPending(context)
                     }
@@ -375,6 +375,10 @@ object GpsWorkStateCoordinatorV2 {
             val binding = pendingBindingMatches(context, runtime.snapshot.session)
             if (binding == null) return null
             if (binding == false || shouldDiscardPending(found, runtime.snapshot.session)) {
+                // A failed runtime commit may expose a CLOSED RAM snapshot. Reconfirm it
+                // before acknowledging the only durable departure observation.
+                val session = runtime.snapshot.session
+                if (session != null && !V2RuntimeStore.confirmCurrent(context, session.id)) return null
                 clearPending(context)
                 return null
             }
@@ -391,7 +395,10 @@ object GpsWorkStateCoordinatorV2 {
     }
 
     /** One canonical observation, with existing durable return/arbitration guards. */
-    internal fun eligibleDepartureAt(context: Context, nowMs: Long, automatic: Boolean = false): Long? {
+    internal fun eligibleDepartureAt(context: Context, nowMs: Long, automatic: Boolean = false): Long? =
+        departureAt(context, nowMs, automatic = automatic, observedPresenceOnly = false)
+
+    private fun departureAt(context: Context, nowMs: Long, automatic: Boolean, observedPresenceOnly: Boolean): Long? {
         val found = pendingForOpenSession(context)?.takeIf { it.kind == Pending.Kind.EXIT_WORKSITE } ?: return null
         val delivery = pendingDelivery(context) ?: return null
         if (confirmDurableDeliveryReceipt(context, delivery) != DeliveryReceiptState.ACKNOWLEDGED) return null
@@ -399,15 +406,35 @@ object GpsWorkStateCoordinatorV2 {
         val session = runtime.snapshot.session ?: return null
         val gps = context.applicationContext.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
         val zones = (com.amaury.pointage.readPersistedGpsZones(gps) as? com.amaury.pointage.GpsZonesReadResult.Valid)?.zones ?: return null
-        val zone = zones.singleOrNull { it.id == found.placeId } ?: return null
         val employer = session.employerId?.takeIf { it.isNotBlank() } ?: return null
+        val companies by lazy { com.amaury.pointage.SalaryCompanyStore.readConfirmed(context) }
+        fun boundZone(stored: com.amaury.pointage.StoredGpsZone): com.amaury.pointage.StoredGpsZone? {
+            if (stored.companyId != null) return stored.takeIf { !it.companyId.isNullOrBlank() }
+            val resolution = com.amaury.pointage.resolveGpsZoneEmployerV2(null,
+                stored.companySlot ?: com.amaury.pointage.resolveLegacyGpsAddressCompanySlotV2(gps, stored),
+                companies.reliable, companies.companies.map { it.id })
+            val companyId = when (resolution) {
+                is com.amaury.pointage.GpsZoneEmployerResolutionV2.UseCompany -> resolution.companyId
+                com.amaury.pointage.GpsZoneEmployerResolutionV2.KeepCurrent -> {
+                    // The arrival already bound this exact GPS place to the session. A later
+                    // active-company change, missing company, or manual session is not proof.
+                    if (!companies.reliable || companies.companies.none { it.id == employer } ||
+                        session.placeId != stored.id || !V2RuntimeStore.hasOnlyUnqualifiedPresenceSegment(session) ||
+                        com.amaury.pointage.v2.V2ProfileStore.activeCompanyId(context) != employer) return null
+                    employer
+                }
+                is com.amaury.pointage.GpsZoneEmployerResolutionV2.Block -> return null
+            }
+            return stored.copy(companyId = companyId, companySlot = null)
+        }
+        val zone = zones.singleOrNull { it.id == found.placeId }?.let(::boundZone) ?: return null
         val episodeConsistent = delivery.episodeZoneIds.all { id ->
-            val other = zones.singleOrNull { it.id == id } ?: return@all false
+            val other = zones.singleOrNull { it.id == id }?.let(::boundZone) ?: return@all false
             other.companyId == employer && (id == zone.id ||
                 com.amaury.pointage.GpsTriggeredZoneSelectionV2.pointType(other) == GpsPointTypeV2.PARKING ||
                 com.amaury.pointage.GpsOverlappingWorkZoneContinuityV2.hasEquivalentWorkGeometry(zone, other))
         }
-        // A missing stable company binding is unknown, not permission to infer an employer.
+        // A missing or contradictory company binding is unknown, never the currently selected employer by default.
         val active = runCatching { gps.getStringSet(com.amaury.pointage.GpsPresenceStateKeysV2.ACTIVE_ZONES, null) }.getOrNull() ?: return null
         val facts = DeparturePolicyV2.Facts(found.atMs, session.realArrivalMs ?: return null, nowMs,
             runtime.reliable && episodeConsistent && zone.companyId == employer && pendingBindingMatches(context, session) == true,
@@ -415,13 +442,26 @@ object GpsWorkStateCoordinatorV2 {
             active.isNotEmpty(),
             gps.getBoolean(com.amaury.pointage.GpsPresenceStateKeysV2.ENTRY_RESOLUTION_PENDING, false) ||
                 session.pauses.any { it.endMs == null || it.paid == null || (it.endMs ?: Long.MAX_VALUE) > found.atMs } ||
-                session.travels.isNotEmpty() || session.workSegments.any { it.endMs == null || (it.endMs ?: Long.MAX_VALUE) > found.atMs },
+                session.travels.isNotEmpty() ||
+                if (observedPresenceOnly) session.workSegments.isNotEmpty() && !V2RuntimeStore.hasOnlyUnqualifiedPresenceSegment(session)
+                else session.workSegments.any { it.endMs == null || (it.endMs ?: Long.MAX_VALUE) > found.atMs },
             lastObservedAtMs = delivery.lastObservedAtMs)
-        val eligible = if (automatic) DeparturePolicyV2.automatic(facts,
+        val eligible = if (observedPresenceOnly) DeparturePolicyV2.observed(facts)
+            else if (automatic) DeparturePolicyV2.automatic(facts,
             com.amaury.pointage.v2.V2DeparturePolicyStore.enabled(context, employer), V2RuntimeStore.expectedEnd(context))
             else DeparturePolicyV2.eligible(facts)
         return found.atMs.takeIf { eligible }
     }
+
+    /** Record the exit from a site as a fact; work/travel/payroll qualification remains unknown. */
+    internal fun resolveObservedDeparture(context: Context, nowMs: Long = System.currentTimeMillis()): Boolean =
+        V2RuntimeStore.withTransaction {
+            val at = departureAt(context, nowMs, automatic = false, observedPresenceOnly = true)
+                ?: return@withTransaction false
+            val closed = V2RuntimeStore.recordObservedDeparture(context, at)
+            if (closed) clearPending(context)
+            closed
+        }
 
     internal fun resolveAutomaticDeparture(context: Context, nowMs: Long = System.currentTimeMillis(), movementResolved: Boolean = false): Boolean =
         V2RuntimeStore.withTransaction {

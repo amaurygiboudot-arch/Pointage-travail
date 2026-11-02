@@ -10,6 +10,17 @@ struct SalarySessionFactV2: Equatable {
     let exit: Date?
     let employerId: String?
     let pauses: [PaidPauseFactV2]
+    let segments: [PaidWorkSegmentFactV2]
+
+    init(id: String, entry: Date, exit: Date?, employerId: String?,
+         pauses: [PaidPauseFactV2], segments: [PaidWorkSegmentFactV2] = []) {
+        self.id = id
+        self.entry = entry
+        self.exit = exit
+        self.employerId = employerId
+        self.pauses = pauses
+        self.segments = segments
+    }
 }
 
 struct SalaryPaidWeekV2: Equatable {
@@ -45,6 +56,8 @@ enum SalaryPaidWorkAggregatorV2 {
         "Temps de travail : un pointage de la période est incohérent ; le total payé reste à confirmer."
     static let unresolvedPauseWarning =
         "Temps de travail : une pause de la période n'a pas un statut payé/non payé fiable ; le total payé reste à confirmer."
+    static let unresolvedSegmentWarning =
+        "Temps de travail : la qualification d'un intervalle de présence reste à confirmer ; le total payé n'est pas certifiable."
     static let conflictingPauseWarning =
         "Temps de travail : des pauses qui se chevauchent ont des statuts payé/non payé contradictoires ; le total payé reste à confirmer."
     static let overlapWarning =
@@ -218,11 +231,15 @@ enum SalaryPaidWorkAggregatorV2 {
                     sessionEnd: sliceEnd,
                     pauses: slicePauses,
                     until: sliceEnd,
+                    segments: PaidWorkSegmentClippingV2.clip(
+                        session.segments, sessionStart: session.entry, sessionEnd: exit,
+                        rangeStart: cursor, rangeEnd: sliceEnd
+                    ),
                     enforcePauseSessionBounds: false // Full-session geometry checked above.
                 )
                 if !assessment.reliable {
                     reliable = false
-                    warnings.append(unresolvedPauseWarning)
+                    warnings.append(session.segments.isEmpty ? unresolvedPauseWarning : unresolvedSegmentWarning)
                 }
 
                 let components = calendar.dateComponents(

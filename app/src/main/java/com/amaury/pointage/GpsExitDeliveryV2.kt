@@ -164,6 +164,8 @@ internal object GpsExitDeliveryV2 {
                 val session = runtime.snapshot.session
                 if (session?.status != SessionStatusV2.OPEN || session.realExitMs != null ||
                     !delivery.matchesSession(session.id, session.realArrivalMs)) {
+                    if (session != null && delivery.matchesSession(session.id, session.realArrivalMs) &&
+                        !V2RuntimeStore.confirmCurrent(app, session.id)) return@withTransaction
                     acknowledged.add(encoded)
                     return@withTransaction
                 }

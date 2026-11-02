@@ -3,6 +3,7 @@ import Foundation
 
 enum GpsZoneKindV2: String, Codable, CaseIterable, Identifiable {
     case worksite
+    case home
     case parking
     case breakZone = "break"
     case other
@@ -12,6 +13,7 @@ enum GpsZoneKindV2: String, Codable, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .worksite: return "Travail"
+        case .home: return "Domicile"
         case .parking: return "Parking"
         case .breakZone: return "Pause"
         case .other: return "Autre"
@@ -19,6 +21,7 @@ enum GpsZoneKindV2: String, Codable, CaseIterable, Identifiable {
     }
 
     var drivesAutomaticPointage: Bool { self == .worksite }
+    var requiresRegionMonitoring: Bool { self == .worksite || self == .home }
 }
 
 struct GpsZoneV2: Codable, Equatable, Identifiable {
@@ -98,10 +101,14 @@ enum GpsZoneConfigurationV2 {
         Set(automaticZones(zones).map(\.id))
     }
 
+    static func monitoredZones(_ zones: [GpsZoneV2]) -> [GpsZoneV2] {
+        zones.filter { $0.kind.requiresRegionMonitoring }
+    }
+
     static func fingerprint(enabled: Bool, zones: [GpsZoneV2]) -> String? {
         guard enabled, isValid(zones) else { return nil }
-        let canonical = automaticZones(zones).sorted { $0.id.uuidString < $1.id.uuidString }
-        guard !canonical.isEmpty else { return nil }
+        guard !automaticZones(zones).isEmpty else { return nil }
+        let canonical = monitoredZones(zones).sorted { $0.id.uuidString < $1.id.uuidString }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(canonical) else { return nil }
@@ -149,6 +156,9 @@ struct GpsPendingEventV2: Codable, Equatable, Identifiable {
     // Only newly observed departures may confirm a timestamp; old prompts stay inert.
     var departureEvidenceVersion: Int? = nil
     var expectedSessionEntry: Date? = nil
+    /// Only new callbacks participate in automatic factual pointage; old prompts stay historical.
+    var siteFactVersion: Int? = nil
+    var selectedArrivalZoneId: UUID? = nil
 }
 
 enum GpsEventConfirmationV2 {
@@ -184,7 +194,8 @@ enum GpsPresenceTransitionV2 {
         transition: Transition,
         occurredAt: Date,
         allowsSameZoneReturn: Bool = true,
-        verifiedOverlappingWorksiteReturn: Bool = false
+        verifiedOverlappingWorksiteReturn: Bool = false,
+        recordsSiteFacts: Bool = false
     ) -> State {
         var next = state
         switch transition {
@@ -197,7 +208,7 @@ enum GpsPresenceTransitionV2 {
                 // Une entrée antérieure au départ ne peut réordonner la file, même dans une autre zone.
                 if let pending = next.pendingEvents.last,
                    pending.kind == .departure, occurredAt < pending.occurredAt { return state }
-                if let confirmedSessionId = next.confirmedSessionId,
+                if !recordsSiteFacts, let confirmedSessionId = next.confirmedSessionId,
                    let pending = next.pendingEvents.last,
                    pending.kind == .departure,
                    pending.expectedSessionId == confirmedSessionId,
@@ -221,7 +232,8 @@ enum GpsPresenceTransitionV2 {
                         id: UUID(),
                         kind: .arrival,
                         zoneIds: [zoneId],
-                        occurredAt: occurredAt
+                        occurredAt: occurredAt,
+                        siteFactVersion: recordsSiteFacts ? 1 : nil
                     ), to: &next)
                 }
             } else if var pending = next.pendingEvents.last, pending.kind == .arrival {
@@ -259,7 +271,8 @@ enum GpsPresenceTransitionV2 {
                     },
                     occurredAt: occurredAt,
                     expectedSessionId: next.confirmedSessionId,
-                    exitObservations: updatedObservations
+                    exitObservations: updatedObservations,
+                    siteFactVersion: recordsSiteFacts ? 1 : nil
                 ), to: &next)
                 next.pendingExitZoneIds.removeAll()
                 next.pendingExitObservations = nil
@@ -276,7 +289,8 @@ enum GpsPresenceTransitionV2 {
         // A later visit can already have cleared confirmedSessionId. Cleanup must
         // therefore use each observation's session identity, even for nil == nil.
         next.pendingEvents.removeAll {
-            $0.kind == .departure && $0.expectedSessionId != nil && $0.expectedSessionId != openSessionId
+            $0.kind == .departure && $0.siteFactVersion != 1 &&
+                $0.expectedSessionId != nil && $0.expectedSessionId != openSessionId
         }
         guard next.confirmedSessionId != openSessionId else { return next }
         next.confirmedSessionId = nil
@@ -290,7 +304,7 @@ enum GpsPresenceTransitionV2 {
     static func arbitrateDepartures(state: State) -> State {
         var next = state
         next.pendingEvents = state.pendingEvents.enumerated().compactMap { index, event in
-            if event.kind == .departure,
+            if event.kind == .departure, event.siteFactVersion != 1,
                state.pendingEvents.dropFirst(index + 1).contains(where: { $0.kind == .arrival }) {
                 return nil
             }
@@ -318,6 +332,7 @@ struct GpsPersistedStateV2: Codable, Equatable {
     var confirmedZoneId: UUID? = nil
     var pendingExitObservations: [GpsZoneExitObservationV2]? = nil
     var accountScope: String? = nil
+    var observations: [GpsSiteObservationV2]? = nil
 }
 
 /// Effets des confirmations explicites ; l'événement a été retiré de la file par le gestionnaire.
@@ -399,17 +414,27 @@ enum GpsStateValidationV2 {
                       state.pendingExitObservations, zoneIds: state.pendingExitZoneIds.union(state.activeZoneIds)
                   ),
                   state.pendingEvents.allSatisfy({ event in
-                      Set(event.zoneIds).isSubset(of: configuredZoneIds) &&
+                      (event.siteFactVersion == nil || event.siteFactVersion == 1) &&
+                          Set(event.zoneIds).isSubset(of: configuredZoneIds) &&
                           GpsDepartureTimeEvidenceV2.observationsAreValid(
                               event.exitObservations, zoneIds: Set(event.zoneIds)
                           ) &&
                           (event.verifiedDepartureZoneId.map {
                               event.kind == .departure && event.expectedSessionId != nil && event.zoneIds.contains($0)
+                          } ?? true) &&
+                          (event.selectedArrivalZoneId.map {
+                              event.kind == .arrival && event.zoneIds.contains($0)
                           } ?? true)
                   }),
                   zip(state.pendingEvents, state.pendingEvents.dropFirst()).allSatisfy({ pair in
                       pair.0.occurredAt <= pair.1.occurredAt
                   }),
+                  (state.observations.map { observations in
+                      Set(observations.map(\.id)).count == observations.count &&
+                      observations.allSatisfy { $0.account == state.accountScope &&
+                          $0.fingerprint == state.fingerprint && $0.observedAt.timeIntervalSinceReferenceDate.isFinite } &&
+                      zip(observations, observations.dropFirst()).allSatisfy { $0.0.observedAt <= $0.1.observedAt }
+                  } ?? true),
                   !state.eventQueueOverflowed else {
                 return .suspend(state)
             }

@@ -23,6 +23,9 @@ struct ContentView: View {
     @State private var clockEmployerChoice: ClockEmployerChoice = .unresolved
     @State private var clockInFeedback: String?
     @State private var gpsFeedback: String?
+    @State private var qualificationTarget: WorkSession?
+    @State private var qualificationAccount: String?
+    @State private var qualificationFeedback: String?
     @State private var homeTabBarVisible = true
     @State private var recoveryPreview: WorkSessionAccountStorageV2.RecoveryPreview?
     @State private var showRecoveryConfirmation = false
@@ -50,6 +53,16 @@ struct ContentView: View {
                 .tabItem { Label("Réglages", systemImage: "gearshape") }
         }
         .tint(accent)
+        .confirmationDialog("Qualifier cette présence", isPresented: Binding(
+            get: { qualificationTarget != nil },
+            set: { if !$0 { qualificationTarget = nil; qualificationAccount = nil } }
+        ), titleVisibility: .visible) {
+            Button("Temps de travail") { qualifyPresence(as: .work) }
+            Button("Hors travail") { qualifyPresence(as: .nonWork) }
+            Button("Annuler", role: .cancel) { qualificationTarget = nil; qualificationAccount = nil }
+        } message: {
+            Text("Le GPS a enregistré une présence sur site. Confirme sa nature pour le calcul du salaire. Les pauses enregistrées restent conservées et les trajets se qualifient séparément.")
+        }
         .alert("Déclarer la propriété de l’ancien journal", isPresented: $showRecoveryConfirmation) {
             Button("Annuler", role: .cancel) { recoveryPreview = nil }
             Button("Tous ces pointages m’appartiennent") {
@@ -94,7 +107,7 @@ struct ContentView: View {
             titleVisibility: .visible
         ) {
             if let event = locationManager.pendingEvent {
-                if event.kind == .arrival {
+                if event.kind == .arrival && (event.siteFactVersion == nil || event.siteFactVersion == 1) {
                     ForEach(event.zoneIds, id: \.self) { zoneId in
                         if let zone = locationManager.zone(id: zoneId) {
                             Button("Confirmer l'entrée — \(zone.label)") {
@@ -103,7 +116,7 @@ struct ContentView: View {
                         }
                     }
                 }
-                Button("Ignorer cet événement", role: .destructive) {
+                if event.siteFactVersion == nil { Button("Ignorer cet événement", role: .destructive) {
                     guard locationManager.reconcileSession(
                         openSessionId: store.currentSession?.id
                     ), locationManager.isCurrentPendingEvent(event) else {
@@ -111,31 +124,37 @@ struct ContentView: View {
                         return
                     }
                     locationManager.clearPendingEvent()
-                }
+                } }
             }
             Button("Plus tard", role: .cancel) {}
         } message: {
             Text("La présence GPS reste un indice. AGKGMG n'enregistre aucun temps payé sans ta confirmation. Le pointage et la qualification du temps payé restent distincts.")
         }
         .onAppear {
-            store.reloadAccount()
+            locationManager.refreshAutomaticPointageStatus(succeeded: store.processAutomaticGpsPointage())
             _ = locationManager.reconcileSession(openSessionId: store.currentSession?.id)
-            showGpsConfirmation = locationManager.pendingEvent != nil
+            showGpsConfirmation = shouldShowGpsConfirmation
         }
         .onChange(of: authManager.user?.uid) { _ in
             recoveryFeedback = nil
             recoveryPreview = nil
+            qualificationTarget = nil
+            qualificationAccount = nil
+            qualificationFeedback = nil
             showRecoveryConfirmation = false
             store.reloadAccount()
             locationManager.reloadAndReconcile()
         }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
-            store.reloadAccount()
+            locationManager.refreshAutomaticPointageStatus(succeeded: store.processAutomaticGpsPointage())
             _ = locationManager.reconcileSession(openSessionId: store.currentSession?.id)
         }
         .onChange(of: locationManager.pendingEvent?.id) { pendingId in
-            showGpsConfirmation = pendingId != nil
+            showGpsConfirmation = pendingId != nil && shouldShowGpsConfirmation
+        }
+        .onChange(of: locationManager.automaticPointageNeedsReview) { _ in
+            showGpsConfirmation = shouldShowGpsConfirmation
         }
         .confirmationDialog(
             "Cette pause est-elle rémunérée ?",
@@ -374,30 +393,91 @@ struct ContentView: View {
     }
 
     private var historyView: some View {
-        NavigationStack {
+        let gpsHistory = store.gpsHistorySnapshot
+        let journeys = gpsHistory.journeys
+        let observations = gpsHistory.observations
+        let historicalObservations = gpsHistory.historicalObservations
+        return NavigationStack {
             Group {
-                if store.storageReliable {
-                    List(store.sessions.reversed()) { session in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(session.entry.formatted(date: .abbreviated, time: .shortened))
-                                .font(.headline)
-                            if let exit = session.exit {
-                                Text("Sortie : \(exit.formatted(date: .omitted, time: .shortened))")
-                                Text(paidTimeLabel(for: session, until: exit))
-                            } else {
-                                Text("En cours")
-                                    .foregroundStyle(.green)
-                            }
-                            if let employerId = session.employerId {
-                                Text("Entreprise : \(employerId)")
-                                    .foregroundStyle(.secondary)
-                            }
-                            if !session.pauses.isEmpty {
-                                Text("Pauses : \(session.pauses.count)")
-                                    .foregroundStyle(.secondary)
+                if gpsHistory.storageReliable {
+                    List {
+                        if !gpsHistory.observationHistoryReliable || !gpsHistory.journeyHistoryReliable {
+                            Label("Observations GPS incomplètes ou illisibles — trajets à vérifier", systemImage: "exclamationmark.triangle")
+                                .foregroundStyle(.orange)
+                        }
+                        if !journeys.isEmpty {
+                            Section("Entre les sites") {
+                                ForEach(journeys.reversed()) { journey in
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text("\(journey.fromLabel) → \(journey.toLabel)").font(.headline)
+                                        Text("\(journey.departure.formatted(date: .abbreviated, time: .shortened)) → \(journey.arrival.formatted(date: .abbreviated, time: .shortened))")
+                                        Text("Intervalle observé : \(format(journey.observedDuration))")
+                                        Text("Trajet à confirmer · distance inconnue · non ajouté au salaire")
+                                            .font(.footnote).foregroundStyle(.orange)
+                                        if !journey.homeExclusionConfigured {
+                                            Text("Configure une zone Domicile pour identifier les passages par ton domicile.")
+                                                .font(.footnote)
+                                        }
+                                        if !journey.homeEvidenceReadable {
+                                            Text("Observations domicile illisibles : exclusion des trajets à vérifier.")
+                                                .font(.footnote).foregroundStyle(.orange)
+                                        }
+                                    }
+                                }
                             }
                         }
-                        .padding(.vertical, 4)
+                        Section("Pointages") {
+                            ForEach(store.sessions.reversed()) { session in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(session.entry.formatted(date: .abbreviated, time: .shortened))
+                                        .font(.headline)
+                                    if let exit = session.exit {
+                                        Text("Sortie : \(exit.formatted(date: .omitted, time: .shortened))")
+                                        Text(paidTimeLabel(for: session, until: exit))
+                                    } else {
+                                        Text("En cours")
+                                            .foregroundStyle(.green)
+                                    }
+                                    if let employerId = session.employerId {
+                                        Text("Entreprise : \(employerId)")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if !session.pauses.isEmpty {
+                                        Text("Pauses : \(session.pauses.count)")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if session.exit != nil, let segments = session.segments,
+                                       !segments.isEmpty, segments.allSatisfy({ $0.kind == .toConfirm && !$0.confirmed }) {
+                                        Button("Qualifier cette présence") {
+                                            qualificationTarget = session
+                                            qualificationAccount = store.diagnosticAccount
+                                        }
+                                        .buttonStyle(.bordered)
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
+                        if !observations.isEmpty {
+                            Section("Passages GPS observés") {
+                                ForEach(observations.reversed()) { observation in
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("\(observation.entered ? "Arrivée" : "Départ") — \(observation.zoneLabel)")
+                                        Text(observation.observedAt.formatted(date: .abbreviated, time: .standard))
+                                            .font(.footnote)
+                                    }
+                                }
+                            }
+                        }
+                        if !historicalObservations.isEmpty {
+                            Section("Observations anciennes à vérifier") {
+                                Text("Ces anciennes observations ont été conservées sans modifier les pointages. Vérifie l’historique avant toute saisie manuelle.")
+                                    .font(.footnote)
+                                ForEach(historicalObservations) { observation in
+                                    Text("\(observation.event.kind == .arrival ? "Arrivée" : "Départ") — \(observation.event.occurredAt.formatted(date: .abbreviated, time: .standard))")
+                                }
+                            }
+                        }
                     }
                 } else {
                     VStack(spacing: 12) {
@@ -414,6 +494,12 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("Historique")
+            .alert("Qualification non enregistrée", isPresented: Binding(
+                get: { qualificationFeedback != nil },
+                set: { if !$0 { qualificationFeedback = nil } }
+            )) { Button("OK", role: .cancel) { qualificationFeedback = nil } } message: {
+                Text(qualificationFeedback ?? "")
+            }
         }
     }
 
@@ -675,7 +761,34 @@ struct ContentView: View {
         }
     }
 
+    private var shouldShowGpsConfirmation: Bool {
+        guard let event = locationManager.pendingEvent else { return false }
+        return event.siteFactVersion != 1 || locationManager.automaticPointageNeedsReview
+    }
+
+    private func qualifyPresence(as kind: WorkSegmentKindV2) {
+        defer { qualificationTarget = nil; qualificationAccount = nil }
+        guard let session = qualificationTarget, let account = qualificationAccount,
+              store.qualifyGpsSession(session, account: account, as: kind) else {
+            qualificationFeedback = "La session ou le compte a changé. Recharge l’historique avant de qualifier cette présence."
+            return
+        }
+        qualificationFeedback = nil
+    }
+
     private func confirmGpsArrival(event: GpsPendingEventV2, zone: GpsZoneV2) {
+        if event.siteFactVersion == 1 {
+            let succeeded = store.diagnosticAccount.map {
+                store.selectGpsArrival(event, zoneId: zone.id, account: $0)
+            } ?? false
+            locationManager.refreshAutomaticPointageStatus(succeeded: succeeded)
+            gpsFeedback = succeeded ? nil : "Observation conservée. L’entreprise ou l’historique reste à vérifier."
+            return
+        }
+        guard event.siteFactVersion == nil else {
+            gpsFeedback = "Version d’observation GPS incompatible : les données restent conservées."
+            return
+        }
         guard locationManager.reconcileSession(openSessionId: store.currentSession?.id) else {
             gpsFeedback = "État GPS à vérifier avant de confirmer cet événement."
             return
@@ -812,7 +925,9 @@ private struct GpsZoneEditorSheetV2: View {
                     }
 
                     Text(
-                        selectedKind.drivesAutomaticPointage
+                        selectedKind == .home
+                            ? "Cette zone exclut les trajets domicile–travail et travail–domicile. Elle ne crée aucun pointage de travail."
+                            : selectedKind.drivesAutomaticPointage
                             ? "Cette zone peut participer au pointage automatique."
                             : "Cette zone reste contextuelle : elle ne crée pas automatiquement du temps travaillé ou payé."
                     )
@@ -829,7 +944,7 @@ private struct GpsZoneEditorSheetV2: View {
                     }
                 }
 
-                Section("Entreprise") {
+                if selectedKind != .home { Section("Entreprise") {
                     if companies.reliable {
                         Picker("Entreprise", selection: $selectedCompanyId) {
                             Text("Sans entreprise / autre").tag("")
@@ -841,7 +956,7 @@ private struct GpsZoneEditorSheetV2: View {
                         Label("Stockage entreprises à vérifier", systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.orange)
                     }
-                }
+                } }
 
                 if let errorMessage {
                     Section {
@@ -875,7 +990,7 @@ private struct GpsZoneEditorSheetV2: View {
     }
 
     private func save() {
-        let employerId = selectedCompanyId.isEmpty ? nil : selectedCompanyId
+        let employerId = selectedKind == .home || selectedCompanyId.isEmpty ? nil : selectedCompanyId
         guard employerId == nil || companies.companies.contains(where: { $0.id == employerId }) else {
             errorMessage = "L'entreprise sélectionnée n'est plus disponible."
             return

@@ -8,7 +8,7 @@ import FirebaseCore
 struct HPTravailApp: App {
     @StateObject private var store: WorkStoreV2
     @StateObject private var salaryStore: SalaryV2Store
-    @StateObject private var locationManager = LocationManager()
+    @StateObject private var locationManager: LocationManager
     @StateObject private var authManager: AuthManager
 
     init() {
@@ -21,6 +21,17 @@ struct HPTravailApp: App {
             )
         })
         _store = StateObject(wrappedValue: workStore)
+        let location = LocationManager()
+        _locationManager = StateObject(wrappedValue: location)
+        location.automaticPointageHandler = { [weak workStore, weak location] in
+            Task { @MainActor in
+                guard let workStore, let location else { return }
+                let succeeded = workStore.processAutomaticGpsPointage()
+                location.refreshAutomaticPointageStatus(succeeded: succeeded)
+            }
+        }
+        // Includes OS location relaunches: no view needs to appear to replay pending facts.
+        location.automaticPointageHandler?()
         _salaryStore = StateObject(
             wrappedValue: SalaryV2Store(
                 referenceProvider: { companyId, period in
