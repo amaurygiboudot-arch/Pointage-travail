@@ -234,7 +234,7 @@ class MainActivity : Activity() {
             }
             val message = when {
                 ok -> "Entrée enregistrée"
-                HoraTrackV2.ENABLED && !V2RuntimeReader.current(this).reliable -> "Pointage bloqué : données HoraTrack à vérifier"
+                HoraTrackV2.ENABLED && !V2RuntimeReader.current(this).reliable -> "Pointage bloqué : données AGKGMG à vérifier"
                 else -> "Une entrée est déjà en cours"
             }
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
@@ -251,7 +251,7 @@ class MainActivity : Activity() {
             }
             val message = when {
                 ok -> "Sortie enregistrée"
-                HoraTrackV2.ENABLED && !V2RuntimeReader.current(this).reliable -> "Pointage bloqué : données HoraTrack à vérifier"
+                HoraTrackV2.ENABLED && !V2RuntimeReader.current(this).reliable -> "Pointage bloqué : données AGKGMG à vérifier"
                 else -> "Aucune entrée en cours"
             }
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
@@ -382,7 +382,7 @@ class MainActivity : Activity() {
                 V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
                 MonthlyPdfReport.write(this, PointageStore.load(this), pendingPdfYear, pendingPdfMonth, output)
             }
-            BillingPdfGate.require(this, file, "HoraTrack_${pendingPdfYear}_${pendingPdfMonth + 1}.pdf", onDenied = {
+            BillingPdfGate.require(this, file, "AGKGMG_${pendingPdfYear}_${pendingPdfMonth + 1}.pdf", onDenied = {
                 runCatching { android.provider.DocumentsContract.deleteDocument(contentResolver, uri) }
             }) { authorizedFile ->
                 runCatching {
@@ -788,7 +788,7 @@ class MainActivity : Activity() {
             val read = V2RuntimeReader.current(this)
             if (!read.reliable) {
                 statusCard.text = "STATUT ACTUEL\n⚠ DONNÉES À VÉRIFIER"
-                historyText.text = "Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
+                historyText.text = "Historique AGKGMG indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
                 return
             }
             val session = read.snapshot.session
@@ -817,7 +817,7 @@ class MainActivity : Activity() {
         val now = System.currentTimeMillis()
         val read = V2RuntimeReader.allSessions(this, now)
         if (!read.reliable) {
-            return "Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
+            return "Historique AGKGMG indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
         }
 
         val employerNames = buildV2EmployerNames()
@@ -893,7 +893,7 @@ class MainActivity : Activity() {
 
     private fun buildLegacyAnalyticsText(): String {
         V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.ANALYTICS)
-        return "Analyses historiques désactivées lorsque HoraTrack est actif."
+        return "Analyses historiques désactivées lorsque AGKGMG est actif."
     }
 
     private fun formatDuration(ms: Long): String {

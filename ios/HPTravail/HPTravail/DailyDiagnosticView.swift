@@ -34,7 +34,7 @@ struct DailyDiagnosticView: View {
                     clearReport()
                     let folder = FileManager.default.temporaryDirectory.appendingPathComponent("HoraTrackDiagnostics", isDirectory: true)
                     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                    let file = folder.appendingPathComponent("HoraTrack-diagnostic-\(UUID().uuidString).txt")
+                    let file = folder.appendingPathComponent("AGKGMG-diagnostic-\(UUID().uuidString).txt")
                     try Data(text.utf8).write(to: file, options: .atomic)
                     try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: file.path)
                     reportURL = file

@@ -95,7 +95,7 @@ internal fun smartCandidateZoneJson(
  *
  * Une adresse trouvée grâce au SIRET n'est jamais considérée immédiatement comme
  * un lieu de travail. Elle devient d'abord une zone candidate silencieuse.
- * HoraTrack ne propose cette adresse comme lieu de travail qu'après une présence
+ * AGKGMG ne propose cette adresse comme lieu de travail qu'après une présence
  * d'au moins 7 heures pendant 3 jours calendaires consécutifs sur la même zone.
  * L'utilisateur doit ensuite confirmer explicitement la proposition.
  */
@@ -334,7 +334,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
             .setTitle("Lieu de travail détecté ?")
             .setMessage(
                 "Tu as passé au moins 7 heures à cette adresse pendant 3 jours consécutifs :\n\n$address\n\n" +
-                    "Est-ce bien un lieu de travail pour $companyDescription ? HoraTrack ne l'activera jamais sans ta confirmation."
+                    "Est-ce bien un lieu de travail pour $companyDescription ? AGKGMG ne l'activera jamais sans ta confirmation."
             )
             .setPositiveButton("OUI, C'EST MON TRAVAIL") { _, _ ->
                 confirmCandidate(activity, zoneId)

@@ -33,7 +33,7 @@ class V2BoccPayrollSourcesView(
             setTypeface(typeface, Typeface.BOLD)
         })
         addView(TextView(context).apply {
-            text = "HoraTrack contrôle les BOCC publiés pour l’IDCC de l’entreprise et conserve les références des avenants dont le titre touche potentiellement la paie ou le temps de travail. Le BOCC constitue une piste de publication ; KALI reste la source conventionnelle consolidée. Aucune règle chiffrée n’est appliquée à partir du seul titre ou du seul PDF."
+            text = "AGKGMG contrôle les BOCC publiés pour l’IDCC de l’entreprise et conserve les références des avenants dont le titre touche potentiellement la paie ou le temps de travail. Le BOCC constitue une piste de publication ; KALI reste la source conventionnelle consolidée. Aucune règle chiffrée n’est appliquée à partir du seul titre ou du seul PDF."
             textSize = 12f
             setPadding(0, dp(6), 0, dp(10))
         })

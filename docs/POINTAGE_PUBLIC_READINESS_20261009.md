@@ -1,4 +1,4 @@
-# HoraTrack — critères de publication du pointage
+# AGKGMG — critères de publication du pointage
 
 **Décision utilisateur du 9 octobre 2026 : le pointage est désormais la priorité produit n° 1.** Salaire V2 doit rester compatible, mais son achèvement ne détourne pas le chantier des blocages de pointage. Ce fichier définit les *preuves à obtenir* ; aucun résultat non testé n'y vaut PASS.
 

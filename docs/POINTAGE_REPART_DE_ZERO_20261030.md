@@ -1,4 +1,4 @@
-# HoraTrack — refonte du pointage à partir de zéro
+# AGKGMG — refonte du pointage à partir de zéro
 
 Décision utilisateur : 30 octobre 2026, Europe/Paris.
 Périmètre : 100 % des utilisateurs concernés, Android et iOS, tous métiers, contrats, sites, appareils compatibles.

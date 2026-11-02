@@ -2,7 +2,7 @@ import Foundation
 
 /// Couche légale nationale iOS des retenues salariales de base.
 ///
-/// Les taux sont datés. HoraTrack ne remplace jamais la paie par un pourcentage
+/// Les taux sont datés. AGKGMG ne remplace jamais la paie par un pourcentage
 /// global brut -> net et ne transforme jamais une donnée inconnue en zéro confirmé.
 enum SocialContributionCatalogV2 {
     enum Base: Equatable {

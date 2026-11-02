@@ -47,7 +47,7 @@ object SicknessDailyAllowanceV2 {
                 payableDays = null,
                 estimatedGrossTotal = null,
                 referenceMonths = emptyList(),
-                warnings = listOf("IJSS maladie : barème HoraTrack non intégré pour la date de début de cet arrêt.")
+                warnings = listOf("IJSS maladie : barème AGKGMG non intégré pour la date de début de cet arrêt.")
             )
 
         val startMonth = YearMonth.from(absenceStart)

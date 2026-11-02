@@ -43,7 +43,7 @@ object CompanyProfessionalStatusDialogV2 {
 
         if (!stored.reliable) {
             box.addView(TextView(context).apply {
-                text = "⚠ Stockage des versions de statut incohérent. Les cotisations liées au statut restent à confirmer et HoraTrack ne réutilise pas l'ancien statut sans date.\n• " +
+                text = "⚠ Stockage des versions de statut incohérent. Les cotisations liées au statut restent à confirmer et AGKGMG ne réutilise pas l'ancien statut sans date.\n• " +
                     stored.warnings.joinToString("\n• ")
                 textSize = 12f
                 setPadding(0, 0, 0, dp(context, 8))

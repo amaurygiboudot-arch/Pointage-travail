@@ -31,7 +31,7 @@ object V2GpsPromptController {
                     AlertDialog.Builder(activity)
                         .setTitle("Pause détectée")
                         .setMessage(
-                            "HoraTrack a détecté ton arrivée dans cette zone. " +
+                            "AGKGMG a détecté ton arrivée dans cette zone. " +
                                 "Si c'est bien le début d'une pause, indique explicitement si elle est payée."
                         )
                         .setPositiveButton("PAUSE PAYÉE") { _, _ ->
@@ -79,7 +79,7 @@ object V2GpsPromptController {
                     AlertDialog.Builder(activity)
                         .setTitle("Tu reprends le travail ?")
                         .setMessage(
-                            "HoraTrack a détecté ta sortie de cette zone. Confirme si ce déplacement correspond à la reprise du travail."
+                            "AGKGMG a détecté ta sortie de cette zone. Confirme si ce déplacement correspond à la reprise du travail."
                         )
                         .setPositiveButton("OUI") { _, _ ->
                             if (!GpsWorkStateCoordinatorV2.confirmPauseEnd(activity, pending.id)) {

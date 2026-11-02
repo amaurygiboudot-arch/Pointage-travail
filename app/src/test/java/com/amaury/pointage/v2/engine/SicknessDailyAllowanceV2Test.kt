@@ -85,7 +85,7 @@ class SicknessDailyAllowanceV2Test {
             emptyMap()
         )
         assertFalse(result.complete)
-        assertTrue(result.warnings.any { it.contains("barème HoraTrack non intégré") })
+        assertTrue(result.warnings.any { it.contains("barème AGKGMG non intégré") })
     }
     @Test
     fun `un salaire non fini ne devient pas une reference plafonnee valide`() {

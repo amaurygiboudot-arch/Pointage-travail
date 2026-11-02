@@ -2,7 +2,7 @@
 set -euo pipefail
 
 log() {
-  printf '[HoraTrack Cloud Setup] %s\n' "$*"
+  printf '[AGKGMG Cloud Setup] %s\n' "$*"
 }
 
 is_java17() {
@@ -136,12 +136,12 @@ while True:
         break
     if next_begin == -1 or next_end == -1 or next_end < next_begin:
         raise SystemExit(
-            f"Refus de modifier {path}: marqueurs HoraTrack incomplets ou désordonnés"
+            f"Refus de modifier {path}: marqueurs AGKGMG incomplets ou désordonnés"
         )
     nested_begin = text.find(begin, next_begin + len(begin), next_end)
     if nested_begin != -1:
         raise SystemExit(
-            f"Refus de modifier {path}: marqueurs HoraTrack imbriqués"
+            f"Refus de modifier {path}: marqueurs AGKGMG imbriqués"
         )
     cursor = next_end + len(end)
 
