@@ -6,6 +6,8 @@ import com.amaury.pointage.v2.V2RuntimeAccountScope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import java.io.File
+import java.time.Instant
+import java.time.ZoneId
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
@@ -73,6 +75,32 @@ class DailyDiagnosticStoreV2Test {
         assertTrue(DailyDiagnosticStoreV2.read(context, "uid:diagnostic-b").events.isEmpty())
         account("diagnostic-a")
         assertTrue(DailyDiagnosticStoreV2.read(context, scope).events.any { it.kind == DailyDiagnosticKindV2.ENTRY_REQUEST })
+    }
+    @Test fun gpsFailureReasonsSurviveStorageAndExportWithoutCollectingFreeTextOrChangingPointage() {
+        val before = com.amaury.pointage.v2.V2RuntimeReader.current(context).snapshot
+        assertTrue(DailyDiagnosticStoreV2.setEnabled(context, scope, true))
+        val observedAt = System.currentTimeMillis()
+        val machineReasons = listOf("GPS_ENTRY_OBSERVATION_CORRUPT", "SITE_JOURNEY_WRITE_REFUSED")
+        val privateDetails = listOf("person@example.test", "48.1234,2.5678", "SITE_PRIVATE_ALICE")
+        for (code in machineReasons + privateDetails) {
+            DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.GPS_REASON, observedAtMs = observedAt,
+                code = code, zoneId = "private-location-marker")
+        }
+        drain()
+        val events = DailyDiagnosticStoreV2.read(context, scope).events
+            .filter { it.kind == DailyDiagnosticKindV2.GPS_REASON }
+        assertEquals(machineReasons + List(privateDetails.size) { "" }, events.map { it.code })
+        val stored = File(context.noBackupFilesDir,
+            V2RuntimeAccountScope.fileName("daily_diagnostic_v2", scope) + ".json").readText()
+        val day = Instant.ofEpochMilli(observedAt).atZone(ZoneId.systemDefault()).toLocalDate()
+        val exported = DailyDiagnosticExportV2.render(context, scope, day)
+        for (output in listOf(stored, exported)) {
+            machineReasons.forEach { assertTrue("The failure reason must remain diagnosable", output.contains(it)) }
+            (privateDetails + "private-location-marker").forEach {
+                assertFalse("Diagnostic output must not disclose free text or raw locations", output.contains(it))
+            }
+        }
+        assertEquals(before, com.amaury.pointage.v2.V2RuntimeReader.current(context).snapshot)
     }
     @Test fun clearingAndReenablingDoesNotResurrectQueuedEvents() {
         DailyDiagnosticStoreV2.setEnabled(context, scope, true)
