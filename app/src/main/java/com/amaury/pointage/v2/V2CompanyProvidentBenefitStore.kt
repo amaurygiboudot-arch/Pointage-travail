@@ -39,14 +39,22 @@ object V2CompanyProvidentBenefitStore {
      * non fiable afin qu'une corruption ne ressemble jamais à une absence de garanties ACCO.
      */
     fun readVerified(context: Context, companyId: String): ReadResult {
-        val id = companyId.trim()
-        if (id.isBlank()) return companyUnavailableResult(id)
-        return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
-            readConfirmed(context, company.id)
-        } ?: companyUnavailableResult(id)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(rules = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            val id = companyId.trim()
+            if (id.isBlank()) return companyUnavailableResult(id)
+            return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
+                readConfirmed(context, company.id)
+            } ?: companyUnavailableResult(id)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     fun rules(context: Context, companyId: String): List<CompanyProvidentBenefitV2.Rule> {
+        val context = SalaryAccountScope.bindContext(context)
         val id = companyId.trim()
         if (id.isBlank()) return emptyList()
         return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
@@ -60,6 +68,7 @@ object V2CompanyProvidentBenefitStore {
     }
 
     fun saveVerified(context: Context, companyId: String, rule: CompanyProvidentBenefitV2.Rule): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val id = companyId.trim()
         if (id.isBlank()) return false
         return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
@@ -138,11 +147,18 @@ object V2CompanyProvidentBenefitStore {
     internal fun decodeRules(raw: String): List<CompanyProvidentBenefitV2.Rule> = decodeVerified(raw).rules
 
     private fun readConfirmed(context: Context, companyId: String): ReadResult {
-        val prefs = SalaryCompanyStore.prefs(context, companyId)
-        if (!prefs.contains(KEY)) return ReadResult(emptyList(), true, emptyList())
-        val raw = runCatching { prefs.getString(KEY, null) }.getOrNull()
-            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
-        return decodeVerified(raw)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(rules = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            val prefs = SalaryCompanyStore.prefs(context, companyId)
+            if (!prefs.contains(KEY)) return ReadResult(emptyList(), true, emptyList())
+            val raw = runCatching { prefs.getString(KEY, null) }.getOrNull()
+                ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+            return decodeVerified(raw)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     private fun hasDuplicateStoredIdentity(rules: List<CompanyProvidentBenefitV2.Rule>): Boolean =

@@ -15,7 +15,7 @@ enum SalarySegmentedWorkedGrossProductionBridgeV2 {
         "Brut segmenté : entreprise ou mois incohérent entre la demande, les contrats et les règles."
 
     static func calculateFromStores(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults,
         companyId: String,
         companyAddress: String,
         period: YearMonthV2,
@@ -25,6 +25,7 @@ enum SalarySegmentedWorkedGrossProductionBridgeV2 {
         rules: SalaryConventionCoverageV2,
         now: Date
     ) -> SalarySegmentedWorkedGrossAssemblyResultV2 {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let detailed = calculateDetailedFromStores(
             defaults: defaults,
             companyId: companyId,
@@ -40,7 +41,7 @@ enum SalarySegmentedWorkedGrossProductionBridgeV2 {
     }
 
     static func calculateDetailedFromStores(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults,
         companyId: String,
         companyAddress: String,
         period: YearMonthV2,
@@ -50,6 +51,7 @@ enum SalarySegmentedWorkedGrossProductionBridgeV2 {
         rules: SalaryConventionCoverageV2,
         now: Date
     ) -> SalarySegmentedWorkedGrossDetailedBridgeResultV2 {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard sourcesMatch(
             companyId: companyId, period: period, contracts: contracts, rules: rules
         ) else { return detailedBlocked(sourceMismatchWarning) }
@@ -78,7 +80,7 @@ enum SalarySegmentedWorkedGrossProductionBridgeV2 {
     }
 
     static func calculate(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults,
         companyId: String,
         period: YearMonthV2,
         timeZoneId: String,
@@ -88,6 +90,7 @@ enum SalarySegmentedWorkedGrossProductionBridgeV2 {
         premiums: [SalarySegmentedPayrollPremiumEvidenceV2],
         now: Date
     ) -> SalarySegmentedWorkedGrossAssemblyResultV2 {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let detailed = calculateDetailed(
             defaults: defaults,
             companyId: companyId,
@@ -103,7 +106,7 @@ enum SalarySegmentedWorkedGrossProductionBridgeV2 {
     }
 
     static func calculateDetailed(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults,
         companyId: String,
         period: YearMonthV2,
         timeZoneId: String,
@@ -113,6 +116,7 @@ enum SalarySegmentedWorkedGrossProductionBridgeV2 {
         premiums: [SalarySegmentedPayrollPremiumEvidenceV2],
         now: Date
     ) -> SalarySegmentedWorkedGrossDetailedBridgeResultV2 {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard sourcesMatch(
             companyId: companyId, period: period, contracts: contracts, rules: rules
         ) else { return detailedBlocked(sourceMismatchWarning) }

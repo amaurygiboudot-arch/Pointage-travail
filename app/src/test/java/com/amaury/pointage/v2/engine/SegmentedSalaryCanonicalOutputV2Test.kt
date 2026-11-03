@@ -126,6 +126,52 @@ class SegmentedSalaryCanonicalOutputV2Test {
         assertTrue(result.warnings.contains(SegmentedSalaryCanonicalOutputAssemblerV2.NET_PROOF_WARNING))
     }
 
+    @Test
+    fun `brut social avec avantages reste rattache au cash de la chaine`() {
+        val worked = fixtureWorked()
+        val cash = cash(worked, 1_100.0)
+        val original = net(cash, complete = true)
+        val projection = original.projection!!
+        val withBenefits = original.copy(projection = projection.copy(payroll =
+            projection.payroll.copy(gross = 1_200.0, benefitsInKindDeduction = 100.0)))
+
+        val actual = SegmentedSalaryCanonicalOutputAssemblerV2.assemble(worked, cash, withBenefits)
+
+        assertTrue(actual.netBeforeIncomeTaxComplete)
+        assertEquals(900.0, actual.netBeforeIncomeTax!!, 0.0)
+    }
+
+    @Test
+    fun `demi centime de cash utilise la meme normalisation que la projection`() {
+        val worked = fixtureWorked()
+        val cash = cash(worked, 3_000.005)
+        val original = net(cash, complete = true)
+        val projection = original.projection!!
+        val rounded = original.copy(projection = projection.copy(payroll =
+            projection.payroll.copy(gross = 3_000.01)))
+
+        val actual = SegmentedSalaryCanonicalOutputAssemblerV2.assemble(worked, cash, rounded)
+
+        assertTrue(actual.netBeforeIncomeTaxComplete)
+        assertEquals(900.0, actual.netBeforeIncomeTax!!, 0.0)
+    }
+
+    @Test
+    fun `avantages ne permettent pas de masquer une divergence du brut cash`() {
+        val worked = fixtureWorked()
+        val cash = cash(worked, 1_100.0)
+        val original = net(cash, complete = true)
+        val projection = original.projection!!
+        val otherCash = original.copy(projection = projection.copy(payroll =
+            projection.payroll.copy(gross = 1_210.0, benefitsInKindDeduction = 100.0)))
+
+        val actual = SegmentedSalaryCanonicalOutputAssemblerV2.assemble(worked, cash, otherCash)
+
+        assertFalse(actual.netBeforeIncomeTaxComplete)
+        assertNull(actual.netBeforeIncomeTax)
+        assertTrue(actual.warnings.contains(SegmentedSalaryCanonicalOutputAssemblerV2.NET_PROOF_WARNING))
+    }
+
     private fun fixtureWorked(): SegmentedWorkedGrossProductionResultV2 {
         val week = SegmentedPayrollWeekEvidenceV2(
             weekYear = 2026,

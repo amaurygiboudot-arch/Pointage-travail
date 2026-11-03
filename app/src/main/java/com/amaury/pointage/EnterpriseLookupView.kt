@@ -1,5 +1,9 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
+import com.amaury.pointage.v2.SalaryAccountScope
+
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
@@ -29,7 +33,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
-) : LinearLayout(context, attrs, defStyleAttr) {
+) : SalaryAccountLayout(context, attrs, defStyleAttr) {
 
     private data class SlotViews(
         val root: LinearLayout,
@@ -41,7 +45,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
         val delete: Button
     )
 
-    private val prefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
+    private val prefs = SalaryAccountScope.preferences(this.context, "salary_settings")
     private val header = TextView(context)
     private val help = TextView(context)
     private val slots = mutableMapOf<Int, SlotViews>()
@@ -150,6 +154,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
     }
 
     private fun lookup(slot: Int) {
+        if (!SalaryAccountScope.available(context)) return
         val v = slots[slot] ?: return
         val siret = v.siret.text.toString().filter(Char::isDigit)
         if (siret.length != 14) {
@@ -191,6 +196,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
                 val conventionName = convention?.fullName.orEmpty()
                 val agreements = fetchCompanyAgreementSummary(siren, name)
 
+                if (!SalaryAccountScope.available(context)) return@Thread
                 prefs.edit()
                     .putString(key(slot, "siret"), siret)
                     .putString(key(slot, "siren"), siren)
@@ -207,6 +213,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
                 }
 
                 post {
+                    if (!SalaryAccountScope.available(context)) return@post
                     v.search.isEnabled = true
                     v.search.text = "RECHERCHER"
                     restoreSlot(slot)
@@ -214,6 +221,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
                 }
             } catch (e: Exception) {
                 post {
+                    if (!SalaryAccountScope.available(context)) return@post
                     v.search.isEnabled = true
                     v.search.text = "RECHERCHER"
                     v.summary.text = "Impossible de récupérer l'entreprise : ${e.message ?: "erreur inconnue"}"
@@ -261,7 +269,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
             setTextColor(themeColors().second)
         }
         val scroll = ScrollView(context).apply { addView(tv) }
-        AlertDialog.Builder(context)
+        SalaryAccountUi.dialog(context)
             .setTitle(name)
             .setView(scroll)
             .setPositiveButton("Fermer", null)
@@ -271,7 +279,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
 
     private fun confirmDelete(slot: Int) {
         val name = prefs.getString(key(slot, "name"), "").orEmpty().ifBlank { "Entreprise $slot" }
-        AlertDialog.Builder(context)
+        SalaryAccountUi.dialog(context)
             .setTitle("Supprimer $name ?")
             .setMessage("Les informations de cette entreprise seront supprimées. Les pointages déjà enregistrés restent conservés.")
             .setPositiveButton("Supprimer") { _, _ -> deleteSlot(slot) }
@@ -357,7 +365,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
     }
 
     private fun themeColors(): Triple<Int, Int, Int> {
-        val appearance = context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+        val appearance = RestoreGuardedPreferences.open(context, "appearance_settings", Context.MODE_PRIVATE)
         val mode = appearance.getString("mode", "auto") ?: "auto"
         val systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         val dark = mode == "dark" || (mode == "auto" && systemDark)

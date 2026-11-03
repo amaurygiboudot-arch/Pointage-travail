@@ -7,13 +7,14 @@ import Foundation
 /// Elle ne recrée aucun taux, barème, droit ou formule de présentation.
 enum SalarySegmentedCanonicalReferenceProviderV2 {
     static func build(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults,
         companyId: String,
         period: YearMonthV2,
         work: SalaryWorkSessionSourceV2,
         calendar: Calendar = .current,
         now: Date = Date()
     ) -> SalarySegmentedCanonicalOutputV2? {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let companies = SalaryCompanyStoreV2.readConfirmed(defaults: defaults)
         guard let company = SalaryCompanyStoreV2.confirmedCompany(
             companies,

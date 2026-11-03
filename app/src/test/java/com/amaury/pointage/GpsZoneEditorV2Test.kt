@@ -291,6 +291,7 @@ class GpsZoneEditorV2Test {
                 "entry_resolution_pending" to true,
                 "entry_resolution_token" to "token",
                 "pending_exit_zones" to setOf("work-active"),
+                "pending_exit_observations" to setOf("57600000|work-active"),
                 "geofence_registration_valid" to true,
                 "geofence_registration_fingerprint" to "stable"
             )
@@ -302,6 +303,7 @@ class GpsZoneEditorV2Test {
         assertEquals(true, prefs.data["entry_resolution_pending"])
         assertEquals("token", prefs.data["entry_resolution_token"])
         assertEquals(setOf("work-active"), prefs.data["pending_exit_zones"])
+        assertEquals(setOf("57600000|work-active"), prefs.data["pending_exit_observations"])
         assertEquals(true, prefs.data["geofence_registration_valid"])
         assertEquals("stable", prefs.data["geofence_registration_fingerprint"])
     }
@@ -315,6 +317,7 @@ class GpsZoneEditorV2Test {
                 "entry_resolution_pending" to true,
                 "entry_resolution_token" to "token",
                 "pending_exit_zones" to setOf("work"),
+                "pending_exit_observations" to setOf("57600000|work"),
                 "geofence_registration_valid" to true,
                 "geofence_registration_fingerprint" to "old"
             )
@@ -326,6 +329,7 @@ class GpsZoneEditorV2Test {
         assertFalse(prefs.data.containsKey("entry_resolution_pending"))
         assertFalse(prefs.data.containsKey("entry_resolution_token"))
         assertFalse(prefs.data.containsKey("pending_exit_zones"))
+        assertFalse(prefs.data.containsKey("pending_exit_observations"))
         assertFalse(prefs.data.containsKey("geofence_registration_valid"))
         assertFalse(prefs.data.containsKey("geofence_registration_fingerprint"))
     }

@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.content.Context
 import android.location.LocationManager
 import org.json.JSONArray
@@ -15,11 +17,11 @@ object SmartWorkplaceTestHarness {
     private const val GPS_PREFS = "gps_settings"
 
     fun simulateThreeQualifiedDays(context: Context): String {
-        val gps = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
+        val gps = RestoreGuardedPreferences.open(context, GPS_PREFS, Context.MODE_PRIVATE)
         val zones = readPersistedGpsZones(gps).toMutableJsonArrayOrNull()
             ?: return "Configuration GPS illisible. La simulation n'a rien modifié."
 
-        // Réutilise d'abord une vraie zone candidate si HoraTrack en a déjà appris une.
+        // Réutilise d'abord une vraie zone candidate si AGKGMG en a déjà appris une.
         var zoneId = ""
         var address = ""
         var companySlot = 1
@@ -68,7 +70,7 @@ object SmartWorkplaceTestHarness {
         }
         days.sort()
 
-        context.getSharedPreferences(SMART_PREFS, Context.MODE_PRIVATE).edit()
+        RestoreGuardedPreferences.open(context, SMART_PREFS, Context.MODE_PRIVATE).edit()
             .putString("candidate_days_$zoneId", JSONArray(days).toString())
             .putString("pending_workplace_zone", zoneId)
             .putString("pending_workplace_address", address)

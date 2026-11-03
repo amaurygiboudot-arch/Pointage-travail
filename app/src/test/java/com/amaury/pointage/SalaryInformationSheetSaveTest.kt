@@ -6,6 +6,11 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.Spinner
 import com.amaury.pointage.v2.V2EmploymentContractHistoryStore
+import com.amaury.pointage.v2.SalaryAccountScope
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
+import org.junit.Before
+import org.mockito.Mockito
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,11 +20,19 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(application = Application::class, sdk = [28])
+@Config(application = Application::class, sdk = [28], shadows = [GpsDeliveryAuthShadow::class], instrumentedPackages = ["com.google.firebase.auth"])
 class SalaryInformationSheetSaveTest {
+    @Before fun account() {
+        val auth = Mockito.mock(FirebaseAuth::class.java)
+        val user = Mockito.mock(FirebaseUser::class.java)
+        Mockito.`when`(user.uid).thenReturn("information-sheet-test")
+        Mockito.`when`(auth.currentUser).thenReturn(user)
+        GpsDeliveryAuthShadow.auth = auth
+        SalaryAccountScope.capture()
+    }
     private fun form(): SalaryInformationSheetView {
         val context = RuntimeEnvironment.getApplication()
-        context.getSharedPreferences("horatrack_v2_employment_contract_history", 0).edit().clear().commit()
+        SalaryAccountScope.preferences(context, "horatrack_v2_employment_contract_history").edit().clear().commit()
         assertTrue(SalaryCompanyStore.createOrUpdate(context, SalaryCompanyStore.Company("save-test", "Entreprise", "")))
         return SalaryInformationSheetView(context).bindCompany("save-test").apply {
             val spinner = javaClass.getDeclaredField("contractType").apply { isAccessible = true }.get(this) as Spinner

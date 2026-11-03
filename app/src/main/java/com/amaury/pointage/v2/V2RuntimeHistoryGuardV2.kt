@@ -2,6 +2,9 @@ package com.amaury.pointage.v2
 
 import android.content.Context
 import com.amaury.pointage.v2.model.EventSourceV2
+import com.amaury.pointage.v2.model.TimeBasisV2
+import com.amaury.pointage.v2.model.WorkSegmentKindV2
+import com.amaury.pointage.v2.model.DecisionStatusV2
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -27,34 +30,51 @@ object V2RuntimeHistoryGuardV2 {
 
     data class SourceState(
         val reliable: Boolean,
-        val warnings: List<String>
+        val warnings: List<String>,
+        val accountScope: String? = null,
+        val accountLease: SalaryAccountScope.Lease? = null
     )
 
-    @Volatile
-    private var lastSourceState = SourceState(true, emptyList())
+    // Source reliability belongs to the caller's read, never to another worker's last read.
+    private val lastSourceState = ThreadLocal<SourceState>()
 
     fun read(
         context: Context,
         allowLegacyMissingIds: Boolean = false
     ): ReadResult {
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val context = SalaryAccountScope.bindContext(context)
+        if (!V2RuntimeAccountScope.available(context)) {
+            val warning = V2RuntimeAccountScope.AUTH_WARNING
+            publishSourceState(false, listOf(warning))
+            return ReadResult(JSONArray(), false, listOf(warning))
+        }
+        val prefs = V2RuntimeAccountScope.preferences(context, PREFS)
         val result = if (!prefs.contains(KEY_HISTORY)) {
             ReadResult(JSONArray(), true, emptyList())
         } else {
             val raw = runCatching { prefs.getString(KEY_HISTORY, null) }.getOrNull()
             if (raw == null) corrupt() else decode(raw, allowLegacyMissingIds)
         }
-        publishSourceState(result.reliable, result.warnings)
-        return result
+        val guarded = if (V2RuntimeAccountScope.available(context)) result
+            else ReadResult(JSONArray(), false, listOf(V2RestoreTransaction.WARNING))
+        publishSourceState(guarded.reliable, guarded.warnings)
+        return guarded
     }
 
-    internal fun sourceState(): SourceState = lastSourceState
+    internal fun sourceState(): SourceState {
+        val state = lastSourceState.get() ?: return SourceState(false, listOf(V2RuntimeAccountScope.AUTH_WARNING))
+        return if (V2RuntimeAccountScope.available() && state.accountScope == V2RuntimeAccountScope.currentScope() &&
+            state.accountLease?.let(SalaryAccountScope::isCurrent) == true) state
+        else SourceState(false, listOf(V2RuntimeAccountScope.AUTH_WARNING))
+    }
 
     internal fun publishSourceState(reliable: Boolean, warnings: List<String> = emptyList()) {
-        lastSourceState = SourceState(
+        lastSourceState.set(SourceState(
             reliable = reliable,
-            warnings = warnings.distinct()
-        )
+            warnings = warnings.distinct(),
+            accountScope = V2RuntimeAccountScope.operationScope(),
+            accountLease = V2RuntimeAccountScope.pinnedLease.get() ?: SalaryAccountScope.capture()
+        ))
     }
 
     internal fun decode(
@@ -118,6 +138,35 @@ object V2RuntimeHistoryGuardV2 {
                 if (value == null || value < 0L) malformed = true
             }
 
+            if (item.has("timeBasis")) {
+                val basis = optionalString(item, "timeBasis")
+                if (basis == null || runCatching { TimeBasisV2.valueOf(basis) }.isFailure) malformed = true
+            }
+            if (item.has("workSegments")) {
+                val segments = item.optJSONArray("workSegments")
+                if (segments == null) {
+                    malformed = true
+                } else {
+                    for (segmentIndex in 0 until segments.length()) {
+                        val segment = segments.optJSONObject(segmentIndex)
+                        if (segment == null) {
+                            malformed = true
+                            continue
+                        }
+                        val start = positiveLong(segment, "start")
+                        val end = positiveLong(segment, "end")
+                        val kind = optionalString(segment, "kind")
+                        val status = optionalString(segment, "status")
+                        if (start == null || end == null || end <= start ||
+                            (realEntry != null && start < realEntry) ||
+                            (realExit.value != null && end > realExit.value) ||
+                            kind == null || runCatching { WorkSegmentKindV2.valueOf(kind) }.isFailure ||
+                            status == null || runCatching { DecisionStatusV2.valueOf(status) }.isFailure
+                        ) malformed = true
+                    }
+                }
+            }
+
             val pauses = item.optJSONArray(KEY_PAUSES)
             if (pauses == null) {
                 malformed = true
@@ -158,13 +207,15 @@ object V2RuntimeHistoryGuardV2 {
     }
 
     fun save(context: Context, history: JSONArray): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
+        if (!V2RuntimeAccountScope.available(context)) return false
         val inspected = inspect(history)
         if (!inspected.reliable) {
             publishSourceState(false, inspected.warnings)
             return false
         }
         val saved = runCatching {
-            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            V2RuntimeAccountScope.preferences(context, PREFS)
                 .edit()
                 .putString(KEY_HISTORY, history.toString())
                 .commit()

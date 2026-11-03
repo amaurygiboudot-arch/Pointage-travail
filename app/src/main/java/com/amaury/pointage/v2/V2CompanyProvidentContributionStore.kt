@@ -37,35 +37,43 @@ object V2CompanyProvidentContributionStore {
     }
 
     fun readVerified(context: Context, companyId: String): ReadResult {
-        val id = companyId.trim()
-        if (id.isBlank()) return companyUnavailableResult(id)
-        return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
-            val profile = ConventionLegalProfileV2.load(context, company.id)
-                ?: return@withConfirmedCompany ReadResult(
-                    emptyList(),
-                    false,
-                    listOf("ACCO cotisations prévoyance : profil juridique local introuvable ; SIRET exact requis.")
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(rules = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            val id = companyId.trim()
+            if (id.isBlank()) return companyUnavailableResult(id)
+            return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
+                val profile = ConventionLegalProfileV2.load(context, company.id)
+                    ?: return@withConfirmedCompany ReadResult(
+                        emptyList(),
+                        false,
+                        listOf("ACCO cotisations prévoyance : profil juridique local introuvable ; SIRET exact requis.")
+                    )
+                val expectedSiret = profile.siret.filter(Char::isDigit).takeIf { it.length == 14 }
+                    ?: return@withConfirmedCompany ReadResult(
+                        emptyList(),
+                        false,
+                        listOf("ACCO cotisations prévoyance : SIRET local exact requis avant lecture des règles d'entreprise.")
+                    )
+                val stored = readStored(context, company.id)
+                if (!stored.reliable) return@withConfirmedCompany stored
+                ReadResult(
+                    rules = stored.rules.filter { acceptsVerifiedRule(it, expectedSiret) },
+                    reliable = true,
+                    warnings = emptyList()
                 )
-            val expectedSiret = profile.siret.filter(Char::isDigit).takeIf { it.length == 14 }
-                ?: return@withConfirmedCompany ReadResult(
-                    emptyList(),
-                    false,
-                    listOf("ACCO cotisations prévoyance : SIRET local exact requis avant lecture des règles d'entreprise.")
-                )
-            val stored = readStored(context, company.id)
-            if (!stored.reliable) return@withConfirmedCompany stored
-            ReadResult(
-                rules = stored.rules.filter { acceptsVerifiedRule(it, expectedSiret) },
-                reliable = true,
-                warnings = emptyList()
-            )
-        } ?: companyUnavailableResult(id)
+            } ?: companyUnavailableResult(id)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     fun rules(
         context: Context,
         companyId: String
     ): List<OfficialAccoProvidentContributionParserV2.Rule> {
+        val context = SalaryAccountScope.bindContext(context)
         val stored = readVerified(context, companyId)
         check(stored.reliable) { stored.warnings.firstOrNull() ?: STORAGE_WARNING }
         return stored.rules
@@ -76,6 +84,7 @@ object V2CompanyProvidentContributionStore {
         companyId: String,
         rule: OfficialAccoProvidentContributionParserV2.Rule
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val id = companyId.trim()
         if (id.isBlank()) return false
         return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
@@ -100,6 +109,7 @@ object V2CompanyProvidentContributionStore {
         agreementId: String,
         fingerprint: String
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val id = companyId.trim()
         if (id.isBlank()) return false
         return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
@@ -207,11 +217,18 @@ object V2CompanyProvidentContributionStore {
     }
 
     private fun readStored(context: Context, companyId: String): ReadResult {
-        val prefs = SalaryCompanyStore.prefs(context, companyId)
-        if (!prefs.contains(KEY)) return ReadResult(emptyList(), true, emptyList())
-        val raw = runCatching { prefs.getString(KEY, null) }.getOrNull()
-            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
-        return decodeVerified(raw)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(rules = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            val prefs = SalaryCompanyStore.prefs(context, companyId)
+            if (!prefs.contains(KEY)) return ReadResult(emptyList(), true, emptyList())
+            val raw = runCatching { prefs.getString(KEY, null) }.getOrNull()
+                ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+            return decodeVerified(raw)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     private fun persist(
@@ -219,6 +236,7 @@ object V2CompanyProvidentContributionStore {
         companyId: String,
         rules: List<OfficialAccoProvidentContributionParserV2.Rule>
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (!acceptsVerifiedPackage(rules)) return false
         return SalaryCompanyStore.prefs(context, companyId)
             .edit()

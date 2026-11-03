@@ -1,4 +1,4 @@
-# HoraTrack — Plan des 6 couches Salaire V2
+# AGKGMG — Plan des 6 couches Salaire V2
 
 Ce document fixe l'ordre de développement. Chaque couche doit être livrée dans un commit distinct, compiler, conserver l'isolation par entreprise et ne pas toucher au moteur OpenGL/diamants.
 
