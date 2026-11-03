@@ -168,7 +168,7 @@ def route(files: list[str], base: str, head: str) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Route une PR HoraTrack vers les agents requis.")
+    parser = argparse.ArgumentParser(description="Route une PR AGKGMG vers les agents requis.")
     parser.add_argument("--base", default="origin/main")
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--output")

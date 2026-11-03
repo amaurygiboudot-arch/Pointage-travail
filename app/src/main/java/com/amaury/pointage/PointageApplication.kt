@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.Application
@@ -28,6 +30,7 @@ import java.io.File
 class PointageApplication : Application(), Application.ActivityLifecycleCallbacks {
     override fun onCreate() {
         super.onCreate()
+        com.amaury.pointage.v2.V2RestoreTransaction.recover(this)
         registerActivityLifecycleCallbacks(this)
         ConventionCatalog.initialize(this)
     }
@@ -70,7 +73,7 @@ object AppearanceManager {
     const val BACKGROUND_FILE = "custom_app_background.jpg"
 
     fun apply(activity: Activity) {
-        val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(activity, PREFS, Context.MODE_PRIVATE)
         val dark = AppThemeCatalog.useDarkPalette(activity)
         val theme = AppThemeCatalog.current(activity)
         val defaultBg = if (dark) theme.darkBackground else theme.lightBackground
@@ -186,7 +189,7 @@ object PlaceNames {
         get(context, zoneId = null, address = address)
 
     fun get(context: Context, zoneId: String?, address: String): String? {
-        val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, "gps_settings", Context.MODE_PRIVATE)
         val canonical = resolveGpsZoneLabel(readPersistedGpsZones(prefs), zoneId, address)
         if (!canonical.isNullOrBlank()) return canonical
 
@@ -202,7 +205,7 @@ object PlaceNames {
     }
 
     fun put(context: Context, zoneId: String?, address: String, name: String) {
-        val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, "gps_settings", Context.MODE_PRIVATE)
         val stored = readPersistedGpsZones(prefs)
         if (stored is GpsZonesReadResult.Corrupt) return
 
@@ -277,7 +280,7 @@ object SettingsUiInstaller {
         appearance.addView(title(activity, "APPARENCE DE L'APPLICATION"))
         val modeButton = styledButton(activity, "")
         fun updateModeLabel() {
-            val mode = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE).getString("mode", "auto") ?: "auto"
+            val mode = RestoreGuardedPreferences.open(activity, "appearance_settings", Context.MODE_PRIVATE).getString("mode", "auto") ?: "auto"
             modeButton.text = "MODE : " + when (mode) { "light" -> "CLAIR"; "dark" -> "SOMBRE"; else -> "AUTOMATIQUE JOUR / NUIT" }
         }
         updateModeLabel()
@@ -285,7 +288,7 @@ object SettingsUiInstaller {
             val values = arrayOf("Automatique jour / nuit", "Clair", "Sombre")
             AlertDialog.Builder(activity).setTitle("Mode d'affichage").setItems(values) { _, which ->
                 val mode = arrayOf("auto", "light", "dark")[which]
-                activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE).edit().putString("mode", mode).apply()
+                RestoreGuardedPreferences.open(activity, "appearance_settings", Context.MODE_PRIVATE).edit().putString("mode", mode).apply()
                 updateModeLabel()
                 AppearanceManager.apply(activity)
                 PointageWidgetProvider.refreshAppearance(activity)
@@ -305,7 +308,7 @@ object SettingsUiInstaller {
         val resetBg = styledButton(activity, "RÉINITIALISER LE FOND")
         resetBg.setOnClickListener {
             File(activity.filesDir, AppearanceManager.BACKGROUND_FILE).delete()
-            activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE).edit()
+            RestoreGuardedPreferences.open(activity, "appearance_settings", Context.MODE_PRIVATE).edit()
                 .remove("app_bg").putBoolean("custom_bg", false).putBoolean("custom_image_bg", false).apply()
             AppearanceManager.apply(activity)
         }
@@ -323,9 +326,9 @@ object SettingsUiInstaller {
         val showPosition = Switch(activity).apply {
             text = "Afficher la position dans le widget"
             textSize = 14f
-            isChecked = activity.getSharedPreferences(WidgetStyleSettings.PREFS, Context.MODE_PRIVATE).getBoolean(WidgetStyleSettings.KEY_SHOW_POSITION, true)
+            isChecked = RestoreGuardedPreferences.open(activity, WidgetStyleSettings.PREFS, Context.MODE_PRIVATE).getBoolean(WidgetStyleSettings.KEY_SHOW_POSITION, true)
             setOnCheckedChangeListener { _, checked ->
-                activity.getSharedPreferences(WidgetStyleSettings.PREFS, Context.MODE_PRIVATE).edit().putBoolean(WidgetStyleSettings.KEY_SHOW_POSITION, checked).apply()
+                RestoreGuardedPreferences.open(activity, WidgetStyleSettings.PREFS, Context.MODE_PRIVATE).edit().putBoolean(WidgetStyleSettings.KEY_SHOW_POSITION, checked).apply()
                 PointageWidgetProvider.updateAll(activity)
                 QuickActionsWidgetProvider.updateAll(activity)
             }
@@ -375,6 +378,7 @@ object SettingsUiInstaller {
         listOf(updates, appearance, widget, drive, help).forEach(panel::addView)
         SettingsV2SectionOrganizer.organize(activity)
         installPointageAddressButton(activity)
+        DailyDiagnosticUiV2.install(activity)
         refreshDriveSection(activity)
         SettingsCompactMenuV2.installOrRefresh(activity)
         AppearanceManager.apply(activity)
@@ -463,7 +467,7 @@ object SettingsUiInstaller {
 
     private fun saveAppBg(activity: Activity, color: String) {
         File(activity.filesDir, AppearanceManager.BACKGROUND_FILE).delete()
-        activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE).edit()
+        RestoreGuardedPreferences.open(activity, "appearance_settings", Context.MODE_PRIVATE).edit()
             .putString("app_bg", color).putBoolean("custom_bg", true).putBoolean("custom_image_bg", false).apply()
         AppearanceManager.apply(activity)
     }
@@ -478,7 +482,7 @@ object SettingsUiInstaller {
     }
 
     private fun saveWidgetColor(activity: Activity, key: String, color: String) {
-        activity.getSharedPreferences(WidgetStyleSettings.PREFS, Context.MODE_PRIVATE).edit().putString(key, color).apply()
+        RestoreGuardedPreferences.open(activity, WidgetStyleSettings.PREFS, Context.MODE_PRIVATE).edit().putString(key, color).apply()
         PointageWidgetProvider.refreshAppearance(activity)
         QuickActionsWidgetProvider.refreshAppearance(activity)
         Toast.makeText(activity, "Widget mis à jour", Toast.LENGTH_SHORT).show()

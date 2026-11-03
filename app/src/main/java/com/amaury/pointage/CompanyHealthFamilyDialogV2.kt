@@ -57,7 +57,7 @@ object CompanyHealthFamilyDialogV2 {
             setOnClickListener { listDialog?.dismiss(); showEditor(context,companyId,null) }
         },rowParams(context))
 
-        listDialog=AlertDialog.Builder(context)
+        listDialog=SalaryAccountUi.dialog(context)
             .setTitle("Maladie / allocations familiales employeur")
             .setView(box)
             .setNegativeButton("FERMER",null)
@@ -87,7 +87,7 @@ object CompanyHealthFamilyDialogV2 {
             start.setText(it.effectiveFrom.format(monthFormatter));end.setText(it.effectiveTo?.format(monthFormatter).orEmpty())
             source.setText(it.source)
         }
-        val builder=AlertDialog.Builder(context)
+        val builder=SalaryAccountUi.dialog(context)
             .setTitle(if(existing==null) "Ajouter maladie / AF" else "Modifier maladie / AF")
             .setView(box).setPositiveButton("ENREGISTRER",null).setNegativeButton("ANNULER",null)
         if(existing!=null) builder.setNeutralButton("SUPPRIMER",null)

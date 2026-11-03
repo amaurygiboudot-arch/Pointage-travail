@@ -21,15 +21,23 @@ object V2CompanyMealBasketStore {
     )
 
     fun read(context: Context, companyId: String): ReadResult {
-        if (companyId.isBlank()) return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (!prefs.contains(companyId)) return ReadResult(emptyList(), true, emptyList())
-        val raw = runCatching { prefs.getString(companyId, null) }.getOrNull()
-            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
-        return decodeStored(raw)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(rules = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            if (companyId.isBlank()) return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+            val prefs = SalaryAccountScope.preferences(context, PREFS)
+            if (!prefs.contains(companyId)) return ReadResult(emptyList(), true, emptyList())
+            val raw = runCatching { prefs.getString(companyId, null) }.getOrNull()
+                ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+            return decodeStored(raw)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     fun rules(context: Context, companyId: String, expectedSiret: String): List<OfficialAccoMealBasketParserV2.Rule> {
+        val context = SalaryAccountScope.bindContext(context)
         val siret = expectedSiret.filter(Char::isDigit)
         if (companyId.isBlank() || siret.length != 14) return emptyList()
         val stored = read(context, companyId)
@@ -48,6 +56,7 @@ object V2CompanyMealBasketStore {
         companyId: String,
         rules: List<OfficialAccoMealBasketParserV2.Rule>
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank() || !acceptsVerifiedPackage(rules)) return false
         val stored = read(context, companyId)
         if (!stored.reliable) return false
@@ -76,6 +85,7 @@ object V2CompanyMealBasketStore {
         classification: ConventionClassificationV2,
         professionalStatus: String
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val acco = agreementId.trim().uppercase()
         val siret = expectedSiret.filter(Char::isDigit)
         val status = professionalStatus.trim().uppercase()
@@ -96,6 +106,7 @@ object V2CompanyMealBasketStore {
 
     /** Remplacement unitaire historique : ne supprime jamais les autres objets du même accord. */
     fun saveVerified(context: Context, companyId: String, rule: OfficialAccoMealBasketParserV2.Rule): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank() || !rule.structurallyValid()) return false
         val stored = read(context, companyId)
         if (!stored.reliable) return false
@@ -154,12 +165,13 @@ object V2CompanyMealBasketStore {
         companyId: String,
         rules: List<OfficialAccoMealBasketParserV2.Rule>
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank() || rules.size > MAX_RULES || rules.any { !it.structurallyValid() } ||
             hasDuplicateLegalIdentity(rules)) return false
         val array = JSONArray()
         rules.forEach { array.put(encode(it)) }
         return runCatching {
-            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            SalaryAccountScope.preferences(context, PREFS)
                 .edit()
                 .putString(companyId, array.toString())
                 .commit()

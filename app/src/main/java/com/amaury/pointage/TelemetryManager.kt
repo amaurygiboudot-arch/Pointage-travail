@@ -76,8 +76,8 @@ object TelemetryManager {
             scope.setTag("android_version", Build.VERSION.RELEASE.orEmpty().take(80))
             scope.setTag("device_model", "${Build.MANUFACTURER} ${Build.MODEL}".trim().take(120))
             scope.setExtra("idea", idea.take(4000))
-            scope.setExtra("governance", "Suggestion uniquement. Toute modification nécessite l'approbation explicite du propriétaire de HoraTrack.")
-            Sentry.captureMessage("Suggestion utilisateur HoraTrack", SentryLevel.INFO)
+            scope.setExtra("governance", "Suggestion uniquement. Toute modification nécessite l'approbation explicite du propriétaire de AGKGMG.")
+            Sentry.captureMessage("Suggestion utilisateur AGKGMG", SentryLevel.INFO)
         }
         return true
     }

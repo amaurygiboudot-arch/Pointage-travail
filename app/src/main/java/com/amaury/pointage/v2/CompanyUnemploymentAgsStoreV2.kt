@@ -26,16 +26,24 @@ object CompanyUnemploymentAgsStoreV2 {
     )
 
     fun read(context: Context, companyId: String): ReadResult {
-        if (companyId.isBlank()) return companyUnavailableResult()
-        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
-            readConfirmed(context, companyId)
-        } ?: companyUnavailableResult()
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(records = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            if (companyId.isBlank()) return companyUnavailableResult()
+            return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+                readConfirmed(context, companyId)
+            } ?: companyUnavailableResult()
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     fun list(context: Context, companyId: String): List<EmployerUnemploymentAgsV2.Record> =
         read(context, companyId).records
 
     fun save(context: Context, companyId: String, record: EmployerUnemploymentAgsV2.Record): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank()) return false
         return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
             val stored = readConfirmed(context, companyId)
@@ -48,6 +56,7 @@ object CompanyUnemploymentAgsStoreV2 {
     }
 
     fun remove(context: Context, companyId: String, id: String): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank() || id.isBlank()) return false
         return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
             val stored = readConfirmed(context, companyId)
@@ -87,14 +96,22 @@ object CompanyUnemploymentAgsStoreV2 {
     }
 
     private fun readConfirmed(context: Context, companyId: String): ReadResult {
-        val prefs = SalaryCompanyStore.prefs(context, companyId)
-        if (!prefs.contains(KEY)) return ReadResult(emptyList(), true, emptyList())
-        val raw = runCatching { prefs.getString(KEY, null) }.getOrNull()
-            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
-        return decodeRecords(raw)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(records = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            val prefs = SalaryCompanyStore.prefs(context, companyId)
+            if (!prefs.contains(KEY)) return ReadResult(emptyList(), true, emptyList())
+            val raw = runCatching { prefs.getString(KEY, null) }.getOrNull()
+                ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+            return decodeRecords(raw)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     private fun writeConfirmed(context: Context, companyId: String, items: List<EmployerUnemploymentAgsV2.Record>): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val array = JSONArray()
         items.forEach { array.put(toJson(it)) }
         return SalaryCompanyStore.prefs(context, companyId).edit().putString(KEY, array.toString()).commit()

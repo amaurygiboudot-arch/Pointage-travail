@@ -28,7 +28,7 @@ object CompanyUnemploymentAgsDialogV2 {
             setPadding(dp(context, 16), dp(context, 8), dp(context, 16), dp(context, 8))
         }
         box.addView(TextView(context).apply {
-            text = "Enregistre les taux employeur réellement confirmés pour la période (notification Urssaf, DSN ou autre source fiable). Le cas général 2026 est souvent 4,00 % chômage et 0,25 % AGS, mais HoraTrack ne les applique jamais sans confirmation car bonus-malus et cas ETT existent."
+            text = "Enregistre les taux employeur réellement confirmés pour la période (notification Urssaf, DSN ou autre source fiable). Le cas général 2026 est souvent 4,00 % chômage et 0,25 % AGS, mais AGKGMG ne les applique jamais sans confirmation car bonus-malus et cas ETT existent."
             textSize = 13f
             setPadding(0, 0, 0, dp(context, 8))
         })
@@ -65,7 +65,7 @@ object CompanyUnemploymentAgsDialogV2 {
             }
         }, rowParams(context))
 
-        listDialog = AlertDialog.Builder(context)
+        listDialog = SalaryAccountUi.dialog(context)
             .setTitle("Chômage / AGS employeur")
             .setView(box)
             .setNegativeButton("FERMER", null)
@@ -110,7 +110,7 @@ object CompanyUnemploymentAgsDialogV2 {
             source.setText(record.source)
         }
 
-        val builder = AlertDialog.Builder(context)
+        val builder = SalaryAccountUi.dialog(context)
             .setTitle(if (existing == null) "Ajouter chômage / AGS" else "Modifier chômage / AGS")
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)

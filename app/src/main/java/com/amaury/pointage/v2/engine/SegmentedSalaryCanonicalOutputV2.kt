@@ -142,7 +142,7 @@ object SegmentedSalaryCanonicalOutputAssemblerV2 {
                 net.netBeforeIncomeTaxComplete &&
                 projection?.payroll?.grossReliable == true &&
                 projection?.netBeforeIncomeTaxComplete == true &&
-                sameMoney(projection?.payroll?.gross, reliableCashGross) &&
+                socialGrossMatchesCash(projection?.payroll, reliableCashGross) &&
                 projection?.netBeforeIncomeTax != null
         if (net.netBeforeIncomeTaxComplete && !netComplete) warnings += NET_PROOF_WARNING
 
@@ -199,6 +199,16 @@ object SegmentedSalaryCanonicalOutputAssemblerV2 {
         left != null && right != null &&
             finiteNonNegative(left) && finiteNonNegative(right) &&
             kotlin.math.abs(left - right) <= 0.005
+
+    private fun socialGrossMatchesCash(payroll: NetSalaryEngineV2.Result?, cashGross: Double?): Boolean {
+        if (payroll == null || cashGross == null || !finiteNonNegative(cashGross) ||
+            !finiteNonNegative(payroll.gross) || !finiteNonNegative(payroll.benefitsInKindDeduction)
+        ) return false
+        val cash = PayrollMoneyV2.cents(cashGross) ?: return false
+        val benefits = PayrollMoneyV2.cents(payroll.benefitsInKindDeduction) ?: return false
+        val expectedSocialGross = PayrollMoneyV2.sum(listOf(cash, benefits)) ?: return false
+        return PayrollMoneyV2.cents(payroll.gross) == expectedSocialGross
+    }
 
     private fun finiteNonNegative(value: Double): Boolean =
         value.isFinite() && value >= 0.0

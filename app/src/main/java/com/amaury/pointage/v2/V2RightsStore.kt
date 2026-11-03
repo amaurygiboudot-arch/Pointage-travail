@@ -63,13 +63,14 @@ object V2RightsStore {
     }
 
     fun all(context:Context):List<Balance> = decode(
-        context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
+        SalaryAccountScope.preferences(context, PREFS)
             .getString(KEY_COUNTERS,"[]").orEmpty()
     )
 
     fun forCompany(context:Context,companyId:String):List<Balance> = all(context).filter { it.companyId == companyId }
 
     fun upsert(context:Context,balance:Balance){
+        val context = SalaryAccountScope.bindContext(context)
         require(balance.id.isNotBlank()){"Identifiant compteur manquant"}
         require(balance.referenceEndMs>=balance.referenceStartMs){"Période de référence invalide"}
         val list=all(context).toMutableList()
@@ -86,16 +87,24 @@ object V2RightsStore {
     fun absences(context:Context):List<AbsenceV2> = asAbsenceList(readAbsences(context))
 
     fun absencesForCompany(context:Context,companyId:String):List<AbsenceV2> {
+        val context = SalaryAccountScope.bindContext(context)
         val stored=readAbsences(context)
         return asAbsenceList(stored.copy(absences=stored.absences.filter { it.employerId == companyId }))
     }
 
     internal fun readAbsences(context:Context):AbsenceReadResult {
-        val prefs=context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
-        if(!prefs.contains(KEY_ABSENCES)) return AbsenceReadResult(emptyList(),true,emptyList())
-        val raw=runCatching { prefs.getString(KEY_ABSENCES,null) }.getOrNull()
-            ?:return corruptAbsenceResult()
-        return decodeAbsences(raw)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): AbsenceReadResult = AbsenceReadResult(absences = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): AbsenceReadResult {
+            val prefs=SalaryAccountScope.preferences(context, PREFS)
+            if(!prefs.contains(KEY_ABSENCES)) return AbsenceReadResult(emptyList(),true,emptyList())
+            val raw=runCatching { prefs.getString(KEY_ABSENCES,null) }.getOrNull()
+                ?:return corruptAbsenceResult()
+            return decodeAbsences(raw)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     internal fun asAbsenceList(result:AbsenceReadResult):List<AbsenceV2> = StoredAbsenceList(
@@ -105,6 +114,7 @@ object V2RightsStore {
     )
 
     fun upsertAbsence(context:Context,absence:AbsenceV2):Boolean{
+        val context = SalaryAccountScope.bindContext(context)
         validateAbsenceForWrite(absence)
         val stored=readAbsences(context)
         if(!stored.reliable)return false
@@ -115,6 +125,7 @@ object V2RightsStore {
     }
 
     fun removeAbsence(context:Context,id:String):Boolean{
+        val context = SalaryAccountScope.bindContext(context)
         if(id.isBlank())return false
         val stored=readAbsences(context)
         if(!stored.reliable)return false
@@ -123,6 +134,7 @@ object V2RightsStore {
     }
 
     fun snapshot(context:Context,nowMs:Long=System.currentTimeMillis(),companyId:String?=null):RightsSnapshotV2{
+        val context = SalaryAccountScope.bindContext(context)
         val balances=if(companyId==null)all(context) else forCompany(context,companyId)
         val counters=balances.flatMap{b->buildList{
             b.acquired?.let{add(counter(b,"acquired","${b.label} — acquis",it))}
@@ -144,6 +156,7 @@ object V2RightsStore {
     }
 
     private fun maintenanceWarnings(context:Context,nowMs:Long,companyId:String):List<String>{
+        val context = SalaryAccountScope.bindContext(context)
         val zone=ZoneId.systemDefault()
         val currentYear=Instant.ofEpochMilli(nowMs).atZone(zone).year
         val display=DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE)
@@ -229,6 +242,7 @@ object V2RightsStore {
         CounterV2("${b.id}:$suffix",label,value,b.unit,b.referenceStartMs,b.referenceEndMs)
 
     private fun save(context:Context,balances:List<Balance>){
+        val context = SalaryAccountScope.bindContext(context)
         val a=JSONArray()
         balances.forEach{b->a.put(JSONObject()
             .put("id",b.id)
@@ -243,11 +257,12 @@ object V2RightsStore {
             .put("referenceEndMs",b.referenceEndMs)
             .put("source",b.source)
             .put("companyId",b.companyId))}
-        context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
+        SalaryAccountScope.preferences(context, PREFS)
             .edit().putString(KEY_COUNTERS,a.toString()).apply()
     }
 
     private fun saveAbsences(context:Context,absences:List<AbsenceV2>):Boolean{
+        val context = SalaryAccountScope.bindContext(context)
         if(absences.groupingBy{it.id}.eachCount().any{it.value>1})return false
         absences.forEach(::validateAbsenceForWrite)
         val a=JSONArray()
@@ -269,7 +284,7 @@ object V2RightsStore {
                 .put("providentRelayObservedGrossAmount",absence.providentRelayObservedGrossAmount?:JSONObject.NULL))
         }
         return runCatching{
-            context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
+            SalaryAccountScope.preferences(context, PREFS)
                 .edit().putString(KEY_ABSENCES,a.toString()).commit()
         }.getOrDefault(false)
     }

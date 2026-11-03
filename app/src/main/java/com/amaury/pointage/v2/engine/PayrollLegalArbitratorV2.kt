@@ -13,7 +13,7 @@ import java.time.LocalDate
  * entreprise/branche dépend de la matière. Le moteur exige donc qu'une politique juridique soit
  * choisie explicitement pour chaque famille de règle.
  *
- * Autre garde-fou essentiel : l'absence d'une règle dans le stockage HoraTrack ne prouve jamais
+ * Autre garde-fou essentiel : l'absence d'une règle dans le stockage AGKGMG ne prouve jamais
  * qu'aucune règle officielle n'existe. Un repli vers une source inférieure n'est autorisé que si
  * l'absence de règle applicable dans la source prioritaire a été explicitement confirmée.
  */
