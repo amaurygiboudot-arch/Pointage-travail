@@ -199,6 +199,34 @@ class PayslipImportStoreV2Test {
         assertNotNull(PayslipImportStoreV2.load(context, company, saved.id))
     }
 
+    @Test fun failedDiscardAfterPublicationRestoresBothDraftsAndAllowsSameIdentityResume() {
+        val saved = save(draft())
+        val other = save(draft().copy(rawFields = mapOf(gross to "1800", net to "1400")))
+        val before = prefs().getString(PayslipImportStoreV2.DRAFTS_KEY, null)
+        val faulty = FaultContext(context)
+        var attempts = 0
+        faulty.onCommit = { commit -> attempts++; commit(); false }
+
+        assertFalse(PayslipImportStoreV2.discard(faulty, saved))
+        assertEquals(2, attempts) // refused removal and restoration; neither is certified as success
+        assertEquals(before, prefs().getString(PayslipImportStoreV2.DRAFTS_KEY, null))
+        val remaining = PayslipImportStoreV2.read(context, company).drafts
+        assertEquals(setOf(saved.id, other.id), remaining.map { it.id }.toSet())
+        assertEquals(saved.rawFields, remaining.single { it.id == saved.id }.rawFields)
+        assertEquals(other.rawFields, remaining.single { it.id == other.id }.rawFields)
+        assertTrue(V2PayslipStore.all(context).isEmpty())
+
+        faulty.onCommit = { commit -> commit() }
+        val resumed = requireNotNull(PayslipImportStoreV2.load(faulty, company, saved.id))
+        val reconfirmed = save(resumed.copy(periodConfirmed = true), faulty)
+        val result = PayslipImportStoreV2.commit(faulty, reconfirmed)
+        assertEquals(PayslipImportStoreV2.Status.SUCCESS, result.status)
+        assertEquals(saved.recordId, requireNotNull(result.record).id)
+        assertEquals(saved.recordId, V2PayslipStore.all(context).single().id)
+        assertEquals(other.id, PayslipImportStoreV2.read(context, company).drafts.single().id)
+        assertEquals(other.rawFields, requireNotNull(PayslipImportStoreV2.load(context, company, other.id)).rawFields)
+    }
+
     @Test fun secondEditorCannotReplaceOrDiscardANewerDraftRevision() {
         val saved = save(draft())
         val stale = requireNotNull(PayslipImportStoreV2.load(context, company, saved.id))

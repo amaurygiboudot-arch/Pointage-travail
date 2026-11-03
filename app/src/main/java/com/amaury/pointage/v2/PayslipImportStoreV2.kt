@@ -169,7 +169,14 @@ object PayslipImportStoreV2 {
             val current = drafts.singleOrNull { it.id == draft.id }
             if (current == null) return@withStorageAccess writeDrafts(preferences(bound), drafts)
             if (!sameIdentity(current, draft) || current.storageToken != draft.storageToken) return@withStorageAccess false
-            writeDrafts(preferences(bound), drafts.filterNot { it.id == draft.id })
+            val prefs = preferences(bound)
+            if (!writeDrafts(prefs, drafts.filterNot { it.id == draft.id })) {
+                // A refused removal may already have changed Android's in-memory preferences.
+                // Restore the prior intent so the failed discard remains resumable, not orphaned.
+                writeDrafts(prefs, drafts)
+                return@withStorageAccess false
+            }
+            true
         }
     }
 
