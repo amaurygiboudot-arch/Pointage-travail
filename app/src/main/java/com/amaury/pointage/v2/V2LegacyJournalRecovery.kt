@@ -18,6 +18,12 @@ object V2LegacyJournalRecovery {
     private const val BASE = "horatrack_v2_test_runtime"
     private const val CLAIM = "horatrack_v2_legacy_recovery_claim"
     private const val RECEIPT = "legacy_recovery_receipt"
+    private val currentHistoryFields = mapOf(
+        "session_id" to "id", "real_entry" to "realEntry", "counted_entry" to "countedEntry",
+        "real_exit" to "realExit", "counted_exit" to "countedExit", "employer_id" to "employerId",
+        "company_slot" to "companySlot", "place_id" to "placeId", "place_label" to "placeLabel",
+        "time_basis" to "timeBasis", "closureOrigin" to "closureOrigin",
+        "departureObservedAtMs" to "departureObservedAtMs")
     @Volatile private var uncertainCommit = false
     private val recoveryWriter = ThreadLocal<Boolean>()
     internal fun canWrite(context: Context, scope: String?): Boolean = recoveryWriter.get() == true || runCatching {
@@ -301,6 +307,34 @@ object V2LegacyJournalRecovery {
         else -> value.toString()
     }
 
+    /** Called only for validated sources. CLOSED alone does not prove that its facts are archived. */
+    private fun closedCurrentIsArchived(values: Map<String, *>): Boolean = runCatching {
+        if (V2RuntimeStore.optionalStrictPositive(values, "real_exit").value == null) return@runCatching false
+        val id = values["session_id"] as? String ?: return@runCatching false
+        val history = JSONArray(values["history"] as? String ?: return@runCatching false)
+        val archived = (0 until history.length()).map { history.getJSONObject(it) }
+            .singleOrNull { it.optString("id") == id } ?: return@runCatching false
+        // Absence would resolve through a legacy profile (including default slot 1), unlike explicit null.
+        if (!archived.has("employerId")) return@runCatching false
+        val currentFacts = JSONObject()
+        val archivedFacts = JSONObject()
+        currentHistoryFields.forEach { (key, target) ->
+            val default = if (target == "timeBasis") "LEGACY_UNVERIFIED" else JSONObject.NULL
+            currentFacts.put(target, if (values.containsKey(key)) values[key] else default)
+            archivedFacts.put(target, if (archived.has(target)) archived.get(target) else default)
+        }
+        currentFacts.put("pauses", JSONArray(values["pauses"] as String))
+        archivedFacts.put("pauses", archived.getJSONArray("pauses"))
+        currentFacts.put("workSegments", JSONArray(values["work_segments"] as? String ?: "[]"))
+        archivedFacts.put("workSegments", if (archived.has("workSegments")) archived.getJSONArray("workSegments") else JSONArray())
+        currentFacts.put("legacyFixedUnpaidPauseMs", 0L)
+        archivedFacts.put("legacyFixedUnpaidPauseMs", if (archived.isNull("legacyFixedUnpaidPauseMs")) 0L else archived.get("legacyFixedUnpaidPauseMs"))
+        // expected_end only guides an OPEN session. Its CLOSED counted exit is already frozen;
+        // entry replaces this expired planning value. Never copy it onto the other current session.
+        // Compare effective defaults too: an absent current basis/segment is not richer archive data.
+        canonical(currentFacts) == canonical(archivedFacts)
+    }.getOrDefault(false)
+
     /** Merge disjoint factual journals. Never infer identity from matching timestamps alone. */
     internal fun merge(left: Map<String, *>, right: Map<String, *>, trace: Trace? = null): Map<String, Any?>? = runCatching {
         if (left.isEmpty()) return@runCatching right.toMap().also { trace?.alias(it, right) }.takeIf { it.isEmpty() || validSource(it, trace) }
@@ -308,11 +342,18 @@ object V2LegacyJournalRecovery {
         require(validSource(left, trace) && validSource(right, trace))
         val leftCurrent = left.filterKeys { it != "history" && it != "restored_legacy_provenance" }
         val rightCurrent = right.filterKeys { it != "history" && it != "restored_legacy_provenance" }
-        if (!(leftCurrent.isEmpty() || rightCurrent.isEmpty() || fingerprint(leftCurrent) == fingerprint(rightCurrent))) {
-            trace?.fail(Code.CURRENT_CONFLICT, trace.ref(left), second = trace.ref(right))
-            error("Conflicting current states")
+        val currentSource = when {
+            leftCurrent.isEmpty() -> right
+            rightCurrent.isEmpty() || fingerprint(leftCurrent) == fingerprint(rightCurrent) -> left
+            // Different snapshots of one identity remain a conflict, even if both are closed.
+            leftCurrent["session_id"] != rightCurrent["session_id"] && closedCurrentIsArchived(right) -> left
+            leftCurrent["session_id"] != rightCurrent["session_id"] && closedCurrentIsArchived(left) -> right
+            else -> {
+                trace?.fail(Code.CURRENT_CONFLICT, trace.ref(left), second = trace.ref(right))
+                error("Conflicting current states")
+            }
         }
-        val result = (if (leftCurrent.isNotEmpty()) leftCurrent else rightCurrent).toMutableMap()
+        val result = (if (currentSource === left) leftCurrent else rightCurrent).toMutableMap()
         val identities = linkedMapOf<String, JSONObject>()
         val references = linkedMapOf<String, Reference>()
         for (source in listOf(left, right)) {
@@ -341,7 +382,7 @@ object V2LegacyJournalRecovery {
         }
         if (provenance.isNotEmpty()) result["restored_legacy_provenance"] = JSONArray(provenance.sorted()).toString()
         trace?.register(result, LegacyJournalDiagnosticV2.Origins(Source.MERGE, references.values.toList(),
-            trace.ref(if (leftCurrent.isNotEmpty()) left else right)))
+            trace.ref(currentSource)))
         result.takeIf { validSource(it, trace) }
     }.onFailure { trace?.fail(Code.UNVERIFIED, Reference(Source.MERGE)) }.getOrNull()
 
@@ -398,10 +439,7 @@ object V2LegacyJournalRecovery {
             return read.reliable
         }
         return runCatching {
-        val mapping = mapOf("session_id" to "id", "real_entry" to "realEntry", "counted_entry" to "countedEntry",
-            "real_exit" to "realExit", "counted_exit" to "countedExit", "employer_id" to "employerId",
-            "company_slot" to "companySlot", "place_id" to "placeId", "place_label" to "placeLabel", "time_basis" to "timeBasis",
-            "closureOrigin" to "closureOrigin", "departureObservedAtMs" to "departureObservedAtMs")
+        val mapping = currentHistoryFields
         val allowed = mapping.keys + setOf("history", "expected_end", "pauses", "pause_start", "pause_source", "pause_paid", "work_segments", "restored_legacy_provenance")
         if (values.isEmpty()) return fail()
         if (values.keys.any { it !in allowed }) return fail(Code.UNSUPPORTED_FIELD, null)

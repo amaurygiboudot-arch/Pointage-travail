@@ -62,6 +62,75 @@ class V2LegacyJournalRecoveryIntegrationTest {
         assertTrue(V2RuntimeAccountScope.preferences(context, "horatrack_v2_test_runtime").all.isEmpty())
         assertNull(V2LegacyJournalRecovery.preview(context))
     }
+
+    private fun producedClosed(uid: String, start: Long, gps: Boolean): Map<String, *> {
+        account(uid)
+        val employer = "synthetic-employer-$uid"
+        assertTrue(com.amaury.pointage.SalaryCompanyStore.createOrUpdate(context,
+            com.amaury.pointage.SalaryCompanyStore.Company(employer, "Synthetic employer", "")))
+        assertTrue(V2ProfileStore.setActiveCompanyId(context, employer))
+        assertTrue(V2RuntimeStore.entry(context, start, expectedEndMs = start + 8_000L,
+            source = if (gps) com.amaury.pointage.v2.model.EventSourceV2.GPS else com.amaury.pointage.v2.model.EventSourceV2.MANUAL))
+        if (!gps) assertEquals(2, V2RuntimeStore.addQualifiedManualPauses(context, listOf(
+            QualifiedManualPauseV2(start + 1_000L, start + 2_000L, true),
+            QualifiedManualPauseV2(start + 3_000L, start + 4_000L, false))))
+        assertTrue(V2RuntimeStore.exit(context, start + 9_000L,
+            origin = com.amaury.pointage.ClosureOriginV2.WIDGET, departureObservedAtMs = start + 9_000L))
+        return V2RuntimeAccountScope.preferences(context, "horatrack_v2_test_runtime").all.toMap()
+    }
+
+    private fun seedProducedClosedJournals(): Pair<Map<String, *>, Map<String, *>> {
+        val old = producedClosed("b", 10_000L, gps = true)
+        val destination = producedClosed("a", 30_000L, gps = false)
+        assertTrue(V2PreferenceValues.replace(file("horatrack_v2_test_runtime"), old))
+        assertTrue(V2LegacyJournalRecovery.validSource(old))
+        assertTrue(V2LegacyJournalRecovery.validSource(destination))
+        return old to destination
+    }
+
+    @Test fun realProducerClosedCachesRecoverWithoutChangingPausesPresenceOrOriginals() {
+        val (old, destination) = seedProducedClosedJournals()
+        val before = files.mapValues { it.value.all }.filterValues { it.isNotEmpty() }
+        val commits = files.values.sumOf { it.commits }
+        val diagnostic = V2LegacyJournalRecovery.beginDiagnostic(context)!!
+        assertTrue(V2LegacyJournalRecovery.diagnose(context, diagnostic, true).contains("Aucun conflit détecté"))
+        val preview = V2LegacyJournalRecovery.preview(context)!!
+        assertTrue(preview.message, preview.eligible)
+        assertEquals(before, files.mapValues { it.value.all }.filterValues { it.isNotEmpty() })
+        assertEquals(commits, files.values.sumOf { it.commits })
+        assertTrue(V2LegacyJournalRecovery.confirm(context, preview, true).success)
+        assertEquals(old, file("horatrack_v2_test_runtime").all)
+        val saved = V2RuntimeAccountScope.preferences(context, "horatrack_v2_test_runtime").all
+        assertEquals(destination.filterKeys { it != "history" },
+            saved.filterKeys { it != "history" && it != "legacy_recovery_receipt" })
+        val history = JSONArray(saved["history"] as String)
+        assertEquals(2, history.length())
+        assertEquals(JSONArray(destination["history"] as String).getJSONObject(0).toString(), history.getJSONObject(0).toString())
+        assertEquals(JSONArray(old["history"] as String).getJSONObject(0).toString(), history.getJSONObject(1).toString())
+        assertEquals("TO_CONFIRM", history.getJSONObject(1).getJSONArray("workSegments").getJSONObject(0).getString("kind"))
+        files.values.forEach { it.restart() }
+        assertEquals(old, file("horatrack_v2_test_runtime").all)
+        assertNull(V2LegacyJournalRecovery.preview(context))
+        val all = V2RuntimeStore.allSessions(context)
+        assertEquals(2, all.size)
+        assertEquals(setOf(true, false), all.single { it.id == destination["session_id"] }.pauses.map { it.paid }.toSet())
+    }
+
+    @Test fun closedCacheReconciliationRetriesFailedDestinationCommitWithoutDuplicate() {
+        val (old, destination) = seedProducedClosedJournals()
+        val target = file(V2RuntimeAccountScope.fileName("horatrack_v2_test_runtime", "uid:a")!!)
+        target.failOnCommit = target.commits + 1
+        assertFalse(V2LegacyJournalRecovery.confirm(context, V2LegacyJournalRecovery.preview(context)!!, true).success)
+        files.values.forEach { it.restart() }
+        val retry = V2LegacyJournalRecovery.preview(context)!!
+        assertTrue(retry.message, retry.eligible)
+        assertTrue(V2LegacyJournalRecovery.confirm(context, retry, true).success)
+        files.values.forEach { it.restart() }
+        assertEquals(old, file("horatrack_v2_test_runtime").all)
+        assertEquals(destination["session_id"], target.all["session_id"])
+        assertEquals(2, JSONArray(target.all["history"] as String).length())
+        assertNull(V2LegacyJournalRecovery.preview(context))
+    }
     private fun recoverAfterFailure(target: String, failAt: Int, restart: Boolean) {
         val preview = V2LegacyJournalRecovery.preview(context)!!
         val faulty = file(target)

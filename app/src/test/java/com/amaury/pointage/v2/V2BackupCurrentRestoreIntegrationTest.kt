@@ -72,4 +72,51 @@ class V2BackupCurrentRestoreIntegrationTest {
         assertTrue(V2BackupManager.restoreFromJson(context, backup()).isFailure)
         assertEquals(before, prefs.all)
     }
+
+    private fun closed(id: String, start: Long, end: Long) = mapOf<String, Any>(
+        "session_id" to id, "real_entry" to start, "counted_entry" to start,
+        "real_exit" to end, "counted_exit" to end, "time_basis" to "REAL_FACTS",
+        "expected_end" to end + 1_000L, "pauses" to "[]",
+        "history" to """[{"id":"$id","realEntry":$start,"countedEntry":$start,"realExit":$end,"countedExit":$end,"employerId":null,"timeBasis":"REAL_FACTS","pauses":[]}]"""
+    )
+    private fun backup(values: Map<String, *>) = JSONObject().put("formatVersion", 5)
+        .put("accountScope", "uid:restore-test")
+        .put("preferences", JSONObject().put(runtime, V2PreferenceValues.encode(values))).toString()
+
+    @Test fun restoreReconcilesClosedCachesThroughAtomicTransactionAndRemainsIdempotent() {
+        val local = closed("local", 30_000L, 40_000L) + ("legacy_recovery_receipt" to "local-proof")
+        val remote = closed("remote", 10_000L, 20_000L) + ("legacy_recovery_receipt" to "remote-proof")
+        assertTrue(V2PreferenceValues.replace(V2RuntimeAccountScope.preferences(context, runtime), local))
+        val result = V2BackupManager.restoreFromJson(context, backup(remote))
+        assertTrue(result.exceptionOrNull()?.stackTraceToString(), result.isSuccess)
+        val saved = V2RuntimeAccountScope.preferences(context, runtime).all
+        assertEquals(local - "history", saved.filterKeys { it != "history" && it != "restored_legacy_provenance" })
+        assertEquals(2, JSONArray(saved["history"] as String).length())
+        assertEquals("remote-proof", JSONArray(saved["restored_legacy_provenance"] as String).getString(0))
+        assertFalse(java.io.File(context.noBackupFilesDir, "agkgmg_restore_transaction_v1.json").exists())
+        assertTrue(V2BackupManager.restoreFromJson(context, backup(remote)).isSuccess)
+        assertEquals(saved, V2RuntimeAccountScope.preferences(context, runtime).all)
+        assertEquals(2, V2RuntimeStore.allSessions(context).size)
+    }
+
+    @Test fun restoreReplacesOnlyProvenClosedCacheAndPreservesOpenPauseAndPlanning() {
+        val local = closed("local", 1_000L, 2_000L)
+        assertTrue(V2PreferenceValues.replace(V2RuntimeAccountScope.preferences(context, runtime), local))
+        assertTrue(V2BackupManager.restoreFromJson(context, backup()).isSuccess)
+        val saved = V2RuntimeAccountScope.preferences(context, runtime).all
+        assertEquals("current", saved["session_id"])
+        assertEquals(90_000L, saved["expected_end"])
+        assertEquals(20_000L, saved["pause_start"])
+        assertEquals(false, saved["pause_paid"])
+        assertEquals(local["history"], saved["history"])
+        assertTrue(V2BackupManager.restoreFromJson(context, backup()).isSuccess)
+        assertEquals(saved, V2RuntimeAccountScope.preferences(context, runtime).all)
+    }
+
+    @Test fun restoreRejectsOverlappingClosedArchivesWithoutReplacingLocalCurrent() {
+        val local = closed("local", 10_000L, 20_000L)
+        assertTrue(V2PreferenceValues.replace(V2RuntimeAccountScope.preferences(context, runtime), local))
+        assertTrue(V2BackupManager.restoreFromJson(context, backup(closed("remote", 15_000L, 25_000L))).isFailure)
+        assertEquals(local, V2RuntimeAccountScope.preferences(context, runtime).all)
+    }
 }
