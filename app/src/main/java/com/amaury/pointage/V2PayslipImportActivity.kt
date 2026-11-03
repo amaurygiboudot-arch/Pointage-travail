@@ -14,7 +14,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.CompanyAgreementDocumentReaderV2
-import com.amaury.pointage.v2.PayslipObservedValuesStoreV2
+import com.amaury.pointage.v2.PayslipImportStoreV2
 import com.amaury.pointage.v2.ProvidentRelaySourceStoreV2
 import com.amaury.pointage.v2.V2PayslipStore
 import com.amaury.pointage.v2.V2RightsStore
@@ -37,6 +37,9 @@ class V2PayslipImportActivity : SalaryAccountActivity() {
         const val EXTRA_COMPANY_NAME = "company_name"
         const val EXTRA_SOURCE_URI = "source_uri"
         const val EXTRA_SOURCE_MIME = "source_mime"
+        const val EXTRA_DRAFT_ID = "payslip_draft_id"
+        const val EXTRA_RECORD_ID = "payslip_record_id"
+        private const val STATE_COMPLETED = "payslip_import_completed"
     }
     private val companyId by lazy { intent.getStringExtra(EXTRA_COMPANY_ID).orEmpty() }
     private val companyName by lazy { intent.getStringExtra(EXTRA_COMPANY_NAME).orEmpty() }
@@ -44,15 +47,68 @@ class V2PayslipImportActivity : SalaryAccountActivity() {
     private var status: TextView? = null
     private var profileDraft: PayslipProfileDraftV2? = null
     private var detectedPeriod: PayslipPeriodParserV2.Period? = null
+    private var importDraft: PayslipImportStoreV2.Draft? = null
+    private var persistForm: (() -> Boolean)? = null
+    private var importCompleted = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (!accountReady()) return
+        if (savedInstanceState?.getBoolean(STATE_COMPLETED) == true) { finish(); return }
+        val draftId = savedInstanceState?.getString(EXTRA_DRAFT_ID) ?: intent.getStringExtra(EXTRA_DRAFT_ID)
+        if (draftId != null) {
+            val draft = PayslipImportStoreV2.load(this, companyId, draftId)
+            if (draft == null) showImportUnavailable() else showConfirmedDraft(draft)
+            return
+        }
+        val recordId = intent.getStringExtra(EXTRA_RECORD_ID)
+        if (recordId != null) {
+            // The store resolves the exact existing record; an absent/foreign ID never becomes a new import.
+            val draft = PayslipImportStoreV2.create(this, companyId, "", null, recordId)
+            if (draft == null) showImportUnavailable() else showConfirmedDraft(draft)
+            return
+        }
         val existing = intent.getStringExtra(EXTRA_SOURCE_URI)?.takeIf { it.isNotBlank() }?.let(Uri::parse)
         if (existing != null) {
             inspectDocument(existing, intent.getStringExtra(EXTRA_SOURCE_MIME) ?: contentResolver.getType(existing))
             return
         }
+        offerPendingImports()
+    }
+
+    private fun offerPendingImports() {
+        if (!accountReady()) return
+        val pending = PayslipImportStoreV2.read(this, companyId)
+        if (!pending.reliable) { showImportUnavailable(); return }
+        if (pending.drafts.isEmpty()) { chooseDocument(); return }
+        val drafts = pending.drafts
+        val labels = drafts.map { draft ->
+            val date = Calendar.getInstance(Locale.FRANCE).apply { set(draft.year, draft.month, 1) }
+            "Bulletin — ${SimpleDateFormat("MMMM yyyy", Locale.FRANCE).format(date.time)}"
+        }
+        SalaryAccountUi.dialog(this)
+            .setTitle("Imports à terminer")
+            .setItems(labels.toTypedArray()) { _, which ->
+                if (accountReady()) showConfirmedDraft(drafts[which])
+            }
+            .setNeutralButton("NOUVEAU BULLETIN") { _, _ -> chooseDocument() }
+            .setNegativeButton("FERMER") { _, _ -> finish() }
+            .setOnCancelListener { finish() }
+            .show()
+    }
+
+    private fun showImportUnavailable() {
+        if (!accountReady()) return
+        SalaryAccountUi.dialog(this)
+            .setTitle("Reprise indisponible")
+            .setMessage("Ce bulletin ou sa saisie ne peut pas être repris dans cette entreprise. Les données existantes sont conservées. Rouvre l’espace Salaire pour vérifier le bulletin.")
+            .setPositiveButton("FERMER") { _, _ -> finish() }
+            .setOnCancelListener { finish() }
+            .show()
+    }
+
+    private fun chooseDocument() {
+        if (!accountReady()) return
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
@@ -255,37 +311,63 @@ class V2PayslipImportActivity : SalaryAccountActivity() {
         mime: String?,
         parsed: PayslipDocumentParserV2.Result?
     ) {
-        fun amountField(label: String, candidate: PayslipDocumentParserV2.Candidate? = null) = EditText(this).apply {
+        if (!accountReady()) return
+        val created = PayslipImportStoreV2.create(this, companyId, uri.toString(), mime)
+        if (created == null) { showImportUnavailable(); return }
+        val candidates = parsed?.confirmedCandidates().orEmpty()
+        val selected = detectedPeriod
+        val prepared = created.copy(
+            year = selected?.year ?: created.year,
+            month = selected?.monthZeroBased ?: created.month,
+            rawFields = candidates.mapNotNull { (key, candidate) ->
+                candidate.amount?.takeIf { candidate.highConfidence }?.let {
+                    key to String.format(Locale.FRANCE, "%.2f", it)
+                }
+            }.toMap(),
+            proposedValues = candidates.mapNotNull { (key, candidate) -> candidate.amount?.let { key to it } }.toMap(),
+            proposedEvidence = candidates.mapNotNull { (key, candidate) -> candidate.sourceLabel?.let { key to it.take(300) } }.toMap()
+        )
+        // A failed draft write must not publish a bulletin or discard the proposed form.
+        showConfirmedDraft(PayslipImportStoreV2.save(this, prepared) ?: prepared, parsed)
+    }
+
+    private fun showConfirmedDraft(draft: PayslipImportStoreV2.Draft, parsed: PayslipDocumentParserV2.Result? = null) {
+        if (!accountReady()) return
+        importDraft = draft
+        fun amountField(label: String, key: String) = EditText(this).apply {
             hint = label
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             isSingleLine = true
-            if (candidate?.highConfidence == true) candidate.amount?.let { setText(String.format(Locale.FRANCE, "%.2f", it)) }
+            filters = arrayOf(android.text.InputFilter.LengthFilter(256))
+            setText(draft.rawFields[key].orEmpty())
         }
 
         val month = Calendar.getInstance(Locale.FRANCE).apply { set(Calendar.DAY_OF_MONTH, 1) }
-        detectedPeriod?.let { month.set(Calendar.YEAR, it.year); month.set(Calendar.MONTH, it.monthZeroBased) }
+        month.set(Calendar.YEAR, draft.year)
+        month.set(Calendar.MONTH, draft.month)
+        // Loading a draft restores data, never a previous authorization to publish it.
         var periodConfirmed = false
         val monthButton = Button(this).apply {
             text = "Choisir la période du bulletin — requis"
             isAllCaps = false
             setBackgroundResource(R.drawable.hp_panel)
         }
-        val gross = amountField("Brut du bulletin (€) — requis", parsed?.gross)
-        val netBeforeTax = amountField("Net à payer avant PAS (€)", parsed?.netBeforeTax)
-        val netTaxable = amountField("Net imposable / fiscal (€)", parsed?.netTaxable)
-        val overtime = amountField("Heures supplémentaires — montant brut (€)", parsed?.overtimeGross)
-        val premiums = amountField("Primes / majorations — montant brut (€)", parsed?.premiumsGross)
-        val baskets = amountField("Paniers / indemnités repas (€)", parsed?.mealBaskets)
-        val mutual = amountField("Mutuelle — part salariale (€)", parsed?.mutualEmployee)
-        val provident = amountField("Prévoyance — part salariale (€)", parsed?.providentEmployee)
+        val gross = amountField("Brut du bulletin (€) — requis", PayslipDocumentParserV2.KEY_GROSS)
+        val netBeforeTax = amountField("Net à payer avant PAS (€)", PayslipDocumentParserV2.KEY_NET_BEFORE_TAX)
+        val netTaxable = amountField("Net imposable / fiscal (€)", PayslipDocumentParserV2.KEY_NET_TAXABLE)
+        val overtime = amountField("Heures supplémentaires — montant brut (€)", PayslipDocumentParserV2.KEY_OVERTIME_GROSS)
+        val premiums = amountField("Primes / majorations — montant brut (€)", PayslipDocumentParserV2.KEY_PREMIUMS_GROSS)
+        val baskets = amountField("Paniers / indemnités repas (€)", PayslipDocumentParserV2.KEY_MEAL_BASKETS)
+        val mutual = amountField("Mutuelle — part salariale (€)", PayslipDocumentParserV2.KEY_MUTUAL_EMPLOYEE)
+        val provident = amountField("Prévoyance — part salariale (€)", PayslipDocumentParserV2.KEY_PROVIDENT_EMPLOYEE)
         val complementaryRetirement = amountField(
             "Retraite complémentaire / Agirc-Arrco — part salariale totale (€)",
-            parsed?.complementaryRetirementEmployee
+            PayslipDocumentParserV2.KEY_COMPLEMENTARY_RETIREMENT_EMPLOYEE
         )
 
         val info = TextView(this).apply {
             text = buildString {
-                append("Lecture locale du bulletin. Vérifie les valeurs avant validation : seules les valeurs confirmées sont enregistrées.")
+                append("Vérifie les valeurs et confirme la période avant d’enregistrer. « Plus tard » conserve ta saisie sur cet appareil pour la reprendre dans cette entreprise.")
                 parsed?.confirmedCandidates()?.forEach { (key, candidate) ->
                     if (candidate.highConfidence && !candidate.sourceLabel.isNullOrBlank()) {
                         append("\n\n").append(key).append(" — source lue : ").append(candidate.sourceLabel)
@@ -347,23 +429,78 @@ class V2PayslipImportActivity : SalaryAccountActivity() {
                     .setNegativeButton("ANNULER", null).show()
             } else chooseMonth(month, monthButton) { periodConfirmed = true }
         }
+        val keyedFields = linkedMapOf(
+            PayslipDocumentParserV2.KEY_GROSS to gross,
+            PayslipDocumentParserV2.KEY_NET_BEFORE_TAX to netBeforeTax,
+            PayslipDocumentParserV2.KEY_NET_TAXABLE to netTaxable,
+            PayslipDocumentParserV2.KEY_OVERTIME_GROSS to overtime,
+            PayslipDocumentParserV2.KEY_PREMIUMS_GROSS to premiums,
+            PayslipDocumentParserV2.KEY_MEAL_BASKETS to baskets,
+            PayslipDocumentParserV2.KEY_MUTUAL_EMPLOYEE to mutual,
+            PayslipDocumentParserV2.KEY_PROVIDENT_EMPLOYEE to provident,
+            PayslipDocumentParserV2.KEY_COMPLEMENTARY_RETIREMENT_EMPLOYEE to complementaryRetirement
+        )
+        val feedback = TextView(this).apply { textSize = 13f; setPadding(0, dp(8), 0, dp(8)) }
+        box.addView(feedback)
+        persistForm = saveForm@{
+            if (!accountReady()) return@saveForm false
+            val current = importDraft ?: return@saveForm false
+            val changed = current.copy(
+                year = month.get(Calendar.YEAR), month = month.get(Calendar.MONTH),
+                periodConfirmed = periodConfirmed,
+                rawFields = keyedFields.mapValues { it.value.text.toString() }
+            )
+            val saved = PayslipImportStoreV2.save(this, changed)
+            importDraft = saved ?: changed
+            if (saved == null) feedback.text = "La saisie n’a pas pu être sauvegardée. Garde cet écran ouvert et réessaie ; les données existantes sont conservées."
+            saved != null
+        }
         val title = if (companyName.isBlank()) "Contrôle du bulletin" else "Bulletin — $companyName"
         val dialog = SalaryAccountUi.dialog(this)
             .setTitle(title)
             .setView(scroll)
             .setPositiveButton("ENREGISTRER", null)
-            .setNegativeButton("ANNULER") { _, _ -> finish() }
-            .setOnCancelListener { finish() }
+            .setNegativeButton("PLUS TARD", null)
+            .setNeutralButton("ABANDONNER", null)
+            .setCancelable(false)
             .create()
+        fun closeForLater() {
+            if (persistForm?.invoke() == true) {
+                persistForm = null
+                dialog.dismiss()
+                finish()
+            }
+        }
+        dialog.setOnKeyListener { _, keyCode, event ->
+            if (keyCode == android.view.KeyEvent.KEYCODE_BACK) {
+                if (event.action == android.view.KeyEvent.ACTION_UP) closeForLater()
+                true
+            } else false
+        }
         dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener { closeForLater() }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                if (!accountReady()) return@setOnClickListener
+                SalaryAccountUi.dialog(this).setTitle("Abandonner cette saisie ?")
+                    .setMessage("Seule cette saisie en attente sera supprimée. Un bulletin déjà enregistré et son document seront conservés.")
+                    .setNegativeButton("GARDER", null)
+                    .setPositiveButton("ABANDONNER") { _, _ ->
+                        val current = importDraft
+                        if (accountReady() && current != null && PayslipImportStoreV2.discard(this, current)) {
+                            persistForm = null
+                            importDraft = null
+                            dialog.dismiss()
+                            finish()
+                        } else feedback.text = "La saisie n’a pas pu être supprimée. Elle reste conservée."
+                    }.show()
+            }
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 if (!accountReady()) return@setOnClickListener
                 if (!periodConfirmed) {
                     Toast.makeText(this, "Choisis explicitement la période inscrite sur le bulletin", Toast.LENGTH_LONG).show()
                     return@setOnClickListener
                 }
-                val amountFields = listOf(gross, netBeforeTax, netTaxable, overtime, premiums, baskets, mutual, provident, complementaryRetirement)
-                val invalidField = amountFields.firstOrNull { !PayslipImportConfirmationPolicyV2.isOptionalAmountValid(it.text.toString()) }
+                val invalidField = keyedFields.values.firstOrNull { !PayslipImportConfirmationPolicyV2.isOptionalAmountValid(it.text.toString()) }
                 if (invalidField != null) {
                     invalidField.error = "Montant invalide : corrige-le ou laisse le champ vide"
                     invalidField.requestFocus()
@@ -374,55 +511,29 @@ class V2PayslipImportActivity : SalaryAccountActivity() {
                     gross.error = "Montant brut requis"
                     return@setOnClickListener
                 }
-                val fields = linkedMapOf(
-                    PayslipDocumentParserV2.KEY_GROSS to grossValue,
-                    PayslipDocumentParserV2.KEY_NET_BEFORE_TAX to parseAmount(netBeforeTax.text.toString()),
-                    PayslipDocumentParserV2.KEY_NET_TAXABLE to parseAmount(netTaxable.text.toString()),
-                    PayslipDocumentParserV2.KEY_OVERTIME_GROSS to parseAmount(overtime.text.toString()),
-                    PayslipDocumentParserV2.KEY_PREMIUMS_GROSS to parseAmount(premiums.text.toString()),
-                    PayslipDocumentParserV2.KEY_MEAL_BASKETS to parseAmount(baskets.text.toString()),
-                    PayslipDocumentParserV2.KEY_MUTUAL_EMPLOYEE to parseAmount(mutual.text.toString()),
-                    PayslipDocumentParserV2.KEY_PROVIDENT_EMPLOYEE to parseAmount(provident.text.toString()),
-                    PayslipDocumentParserV2.KEY_COMPLEMENTARY_RETIREMENT_EMPLOYEE to parseAmount(complementaryRetirement.text.toString())
-                )
-                if (fields.values.filterNotNull().any { it < 0.0 || !it.isFinite() }) {
-                    Toast.makeText(this, "Un montant du bulletin est invalide", Toast.LENGTH_LONG).show()
-                    return@setOnClickListener
+                if (persistForm?.invoke() != true) return@setOnClickListener
+                val current = importDraft ?: return@setOnClickListener
+                val result = PayslipImportStoreV2.commit(this, current)
+                if (!accountReady()) return@setOnClickListener
+                if (result.status == PayslipImportStoreV2.Status.SUCCESS) {
+                    importCompleted = true
+                    persistForm = null
+                    importDraft = null
+                    Toast.makeText(this, "Bulletin importé • valeurs confirmées enregistrées", Toast.LENGTH_LONG).show()
+                    dialog.dismiss()
+                    finish()
+                } else {
+                    val message = when (result.status) {
+                        PayslipImportStoreV2.Status.CONFLICT -> "Ce bulletin ou cette saisie a changé. Rouvre-le depuis l’espace Salaire avant de reprendre ; aucune valeur existante n’a été remplacée."
+                        PayslipImportStoreV2.Status.INVALID_INPUT -> "Vérifie les montants et confirme la période du bulletin."
+                        else -> if (current.originalRecord != null)
+                            "Le bulletin déjà enregistré est conservé, mais l’enregistrement de ses détails n’a pas pu être confirmé. Ta saisie reste disponible ici et dans les imports à terminer."
+                        else "Import bloqué : l’enregistrement des valeurs n’a pas pu être confirmé. Ta saisie reste disponible ici et dans les imports à terminer. Les données existantes sont conservées."
+                    }
+                    feedback.text = message
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).text = "RÉESSAYER"
                 }
-                val confirmed = fields.mapNotNull { (key, value) -> value?.let { key to it } }.toMap()
-                val record = V2PayslipStore.add(
-                    this,
-                    month.get(Calendar.YEAR),
-                    month.get(Calendar.MONTH),
-                    uri,
-                    mime,
-                    grossValue,
-                    confirmed[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX],
-                    true,
-                    companyId
-                )
-                if (record == null) {
-                    Toast.makeText(
-                        this,
-                        "Import bloqué : le stockage local des bulletins est illisible ou n'a pas pu être enregistré. Les données existantes sont conservées.",
-                        Toast.LENGTH_LONG
-                    ).show()
-                    return@setOnClickListener
-                }
-                val evidence = parsed?.confirmedCandidates().orEmpty().mapNotNull { (key, candidate) ->
-                    val confirmedValue = confirmed[key]
-                    if (confirmedValue != null && candidate.amount == confirmedValue) candidate.sourceLabel?.let { key to it } else null
-                }.toMap()
-                val observedSaved = PayslipObservedValuesStoreV2.put(this, record.id, confirmed, evidence)
-                Toast.makeText(
-                    this,
-                    if (observedSaved) "Bulletin importé • valeurs confirmées enregistrées"
-                    else "Document et brut enregistrés, mais les valeurs détaillées n’ont pas pu être sauvegardées. Vérifie le bulletin avant toute comparaison.",
-                    Toast.LENGTH_LONG
-                ).show()
-                dialog.setOnCancelListener(null)
-                dialog.dismiss()
-                finish()
             }
         }
         dialog.show()
@@ -432,13 +543,33 @@ class V2PayslipImportActivity : SalaryAccountActivity() {
         val labels = ArrayList<String>(); val months = ArrayList<Calendar>(); val format = SimpleDateFormat("MMMM yyyy", Locale.FRANCE)
         val cursor = Calendar.getInstance(Locale.FRANCE).apply { set(Calendar.DAY_OF_MONTH, 1) }
         repeat(36) { months += cursor.clone() as Calendar; labels += format.format(cursor.time).replaceFirstChar { it.uppercase() }; cursor.add(Calendar.MONTH, -1) }
+        // A resumed historical bulletin must keep its period selectable beyond the recent-month list.
+        if (months.none { it.get(Calendar.YEAR) == selected.get(Calendar.YEAR) && it.get(Calendar.MONTH) == selected.get(Calendar.MONTH) }) {
+            months.add(0, selected.clone() as Calendar)
+            labels.add(0, format.format(selected.time).replaceFirstChar { it.uppercase() })
+        }
         SalaryAccountUi.dialog(this).setTitle("Période du bulletin").setItems(labels.toTypedArray()) { _, which -> selected.timeInMillis = months[which].timeInMillis; button.text = labels[which]; onConfirmed() }.setNegativeButton("Annuler", null).show()
     }
 
     private fun parseAmount(raw: String): Double? = PayslipImportConfirmationPolicyV2.parseAmount(raw)
     private fun dp(v:Int)=(v*resources.displayMetrics.density).toInt()
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        if (accountReady()) persistForm?.invoke()
+        importDraft?.id?.let { outState.putString(EXTRA_DRAFT_ID, it) }
+        outState.putBoolean(STATE_COMPLETED, importCompleted)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onPause() {
+        if (accountReady()) persistForm?.invoke()
+        super.onPause()
+    }
+
     override fun onSalaryAccountInvalidated() {
+        // Do not flush an old form into a newly authenticated session.
+        persistForm = null
+        importDraft = null
         executor.shutdownNow()
         profileDraft = null
         detectedPeriod = null
@@ -447,6 +578,8 @@ class V2PayslipImportActivity : SalaryAccountActivity() {
     }
 
     override fun onDestroy() {
+        persistForm = null
+        importDraft = null
         executor.shutdownNow()
         super.onDestroy()
     }

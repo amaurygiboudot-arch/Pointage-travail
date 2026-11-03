@@ -33,8 +33,8 @@ import java.util.UUID
 
 /** Stockage local des bulletins. Chaque nouveau bulletin peut être rattaché à une entreprise. */
 object V2PayslipStore {
- private const val PREFS="horatrack_v2_payslips"
- private const val KEY_ITEMS="items"
+ internal const val PREFS="horatrack_v2_payslips"
+ internal const val KEY_ITEMS="items"
  private const val STORAGE_WARNING="Bulletins réels : stockage local illisible ou incohérent ; aucune base IJSS ni comparaison n'est considérée fiable avant vérification."
 
  data class Record(
@@ -101,8 +101,9 @@ object V2PayslipStore {
   require(net==null || net.isFinite()&&net>=0.0){"Net du bulletin invalide"}
   require(!confirmedByUser || gross!=null || net!=null){"Bulletin confirmé sans montant"}
 
+  return PayslipImportStoreV2.withStorageAccess(context, { null }) {
   val stored=readResult(context)
-  if(!stored.reliable)return null
+  if(!stored.reliable)return@withStorageAccess null
   val record=Record(
    id=UUID.randomUUID().toString(),
    year=year,
@@ -117,7 +118,8 @@ object V2PayslipStore {
    companyId=companyId
   )
   val updated=stored.records+record
-  return record.takeIf{saveRecords(context,updated)}
+  record.takeIf{saveRecords(context,updated)}
+  }
  }
 
  /**
@@ -349,15 +351,17 @@ object V2PayslipStore {
  }
 
  fun remove(context:Context,id:String):Boolean{
-        val context = SalaryAccountScope.bindContext(context)
-  if(id.isBlank())return false
-  val stored=readResult(context)
-  if(!stored.reliable)return false
-  if(stored.records.none{it.id==id})return false
-  val kept=stored.records.filterNot{it.id==id}
-  if(!saveRecords(context,kept))return false
-  PayslipObservedValuesStoreV2.remove(context,id)
-  return true
+  val context = SalaryAccountScope.bindContext(context)
+  return PayslipImportStoreV2.withStorageAccess(context, { false }) {
+   if(id.isBlank())return@withStorageAccess false
+   val stored=readResult(context)
+   if(!stored.reliable)return@withStorageAccess false
+   if(stored.records.none{it.id==id})return@withStorageAccess false
+   val kept=stored.records.filterNot{it.id==id}
+   if(!saveRecords(context,kept))return@withStorageAccess false
+   PayslipObservedValuesStoreV2.remove(context,id)
+   true
+  }
  }
 
  fun comparison(context:Context,record:Record):PayslipComparisonV2?{
@@ -480,14 +484,19 @@ object V2PayslipStore {
 
  private fun saveRecords(context:Context,records:List<Record>):Boolean{
         val context = SalaryAccountScope.bindContext(context)
-  if(records.groupingBy{it.id}.eachCount().any{it.value>1})return false
-  if(records.any{!isValidRecord(it)})return false
-  val array=JSONArray()
-  records.sortedBy{it.importedAtMs}.forEach{array.put(toJson(it))}
+  val encoded = encodeRecords(records) ?: return false
   return runCatching{
    SalaryAccountScope.preferences(context, PREFS)
-    .edit().putString(KEY_ITEMS,array.toString()).commit()
+    .edit().putString(KEY_ITEMS,encoded).commit()
   }.getOrDefault(false)
+ }
+
+ internal fun encodeRecords(records:List<Record>):String? {
+  if(records.groupingBy{it.id}.eachCount().any{it.value>1})return null
+  if(records.any{!isValidRecord(it)})return null
+  val array=JSONArray()
+  records.sortedBy{it.importedAtMs}.forEach{array.put(toJson(it))}
+  return array.toString()
  }
 
  internal fun decodeRecords(raw:String):ReadResult{
