@@ -28,7 +28,8 @@ let package = Package(
         .testTarget(
             name: "SalaryV2ContractTests",
             dependencies: ["SalaryV2Contract", "RuntimeV2Contract"],
-            path: "HPTravailTests"
+            path: "HPTravailTests",
+            resources: [.process("Fixtures")]
         ),
         .testTarget(
             name: "RuntimeV2ContractTests",

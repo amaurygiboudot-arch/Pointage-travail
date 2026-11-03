@@ -168,31 +168,14 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
 
     func testNonDeductibleProvidentShareIsNotSubtractedTwiceFromCashNet() {
         let result = EmployeeNetProjectionV2.calculate(input())
-        let expectedCashDeductions = 42.0 + 18.0
-        let statutoryRounded = result.statutory.lines.reduce(0) {
-            $0 + (($1.employeeAmount * 100).rounded() / 100)
-        }
-        let retirementRounded = result.complementaryRetirement.lines.reduce(0) {
-            $0 + (($1.employeeAmount * 100).rounded() / 100)
-        }
-        let expected = 3_000 -
-            statutoryRounded -
-            retirementRounded -
-            expectedCashDeductions
-
         XCTAssertEqual(result.companyCashDeductions.deductions.reduce(0) { $0 + $1.amount }, 60, accuracy: 0.001)
-        XCTAssertEqual(result.knownNetBeforeIncomeTax, expected, accuracy: 0.001)
-        XCTAssertEqual(result.netBeforeIncomeTax ?? -1, expected, accuracy: 0.001)
+        XCTAssertEqual(result.knownNetBeforeIncomeTax, 2313.62, accuracy: 0.0001)
+        XCTAssertEqual(result.netBeforeIncomeTax ?? -1, 2313.62, accuracy: 0.0001)
     }
 
     func testNonDeductibleProvidentShareIsReintegratedOnlyIntoTaxableNet() {
         let result = EmployeeNetProjectionV2.calculate(input())
-        let nonDeductibleCsgCrds = result.statutory.lines
-            .filter { $0.id == "csg_taxable" || $0.id == "crds" }
-            .reduce(0) { $0 + $1.employeeAmount }
-        let expectedTaxable = result.knownNetBeforeIncomeTax + nonDeductibleCsgCrds + 8 + 4
-
-        XCTAssertEqual(result.netTaxable ?? -1, expectedTaxable, accuracy: 0.001)
+        XCTAssertEqual(result.netTaxable ?? -1, 2411.45, accuracy: 0.0001)
     }
 
     func testMissingTaxOnlyDataKeepsBeforeTaxNetButBlocksTaxableNet() {
@@ -264,44 +247,19 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
 
     func testCanonicalNetUsesCentRoundedContributionLines() {
         let result = EmployeeNetProjectionV2.calculate(input())
-        let statutoryRounded = result.statutory.lines.reduce(0) {
-            $0 + (($1.employeeAmount * 100).rounded() / 100)
-        }
-        let retirementRounded = result.complementaryRetirement.lines.reduce(0) {
-            $0 + (($1.employeeAmount * 100).rounded() / 100)
-        }
-        let directRounded = result.companyCashDeductions.deductions.reduce(0) {
-            $0 + (($1.amount * 100).rounded() / 100)
-        }
-        let expected = max(0, 3_000 - statutoryRounded - retirementRounded - directRounded)
-
-        XCTAssertEqual(result.knownNetBeforeIncomeTax, expected, accuracy: 0.0001)
-        XCTAssertEqual(result.netBeforeIncomeTax ?? -1, expected, accuracy: 0.0001)
+        XCTAssertEqual(result.statutory.employeeDeductions, 506.08, accuracy: 0.0001)
+        XCTAssertEqual(result.complementaryRetirement.employeeDeductions, 120.30, accuracy: 0.0001)
+        XCTAssertEqual(result.knownNetBeforeIncomeTax, 2313.62, accuracy: 0.0001)
+        XCTAssertEqual(result.netBeforeIncomeTax ?? -1, 2313.62, accuracy: 0.0001)
     }
 
     func testTaxableNetKeepsNegativeUnclampedPreTaxBalance() {
         let result = EmployeeNetProjectionV2.calculate(
             input(cashGross: 0, benefits: benefits(total: 1_000))
         )
-        let statutoryRounded = result.statutory.lines.reduce(0) {
-            $0 + (($1.employeeAmount * 100).rounded() / 100)
-        }
-        let retirementRounded = result.complementaryRetirement.lines.reduce(0) {
-            $0 + (($1.employeeAmount * 100).rounded() / 100)
-        }
-        let directRounded = result.companyCashDeductions.deductions.reduce(0) {
-            $0 + (($1.amount * 100).rounded() / 100)
-        }
-        let rawBeforeTax = -statutoryRounded - retirementRounded - directRounded
-        let nonDeductibleCsgCrds = result.statutory.lines
-            .filter { $0.id == "csg_taxable" || $0.id == "crds" }
-            .reduce(0) { $0 + $1.employeeAmount }
-        let expectedTaxable = max(0, rawBeforeTax + 1_000 + nonDeductibleCsgCrds + 8 + 4)
-
         XCTAssertEqual(result.knownNetBeforeIncomeTax, 0, accuracy: 0.0001)
-        XCTAssertEqual(result.netTaxable ?? -1, expectedTaxable, accuracy: 0.0001)
+        XCTAssertEqual(result.netTaxable ?? -1, 771.27, accuracy: 0.0001)
     }
-
 
     func testConfirmedIncomeTaxRatePublishesTaxAndNetAfterTax() {
         let rate = CompanyIncomeTaxRateResolverV2.Snapshot(
@@ -313,14 +271,8 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
             warnings: []
         )
         let result = EmployeeNetProjectionV2.calculate(input(incomeTaxRate: rate))
-        let expectedTax = ((result.netTaxable! * 0.032) * 100).rounded() / 100
-
-        XCTAssertEqual(result.incomeTax ?? -1, expectedTax, accuracy: 0.0001)
-        XCTAssertEqual(
-            result.netAfterIncomeTax ?? -1,
-            max(0, result.knownNetBeforeIncomeTax - expectedTax),
-            accuracy: 0.0001
-        )
+        XCTAssertEqual(result.incomeTax ?? -1, 77.17, accuracy: 0.0001)
+        XCTAssertEqual(result.netAfterIncomeTax ?? -1, 2236.45, accuracy: 0.0001)
     }
 
     func testConfirmedIncomeTaxRateReachesPresentationAdapter() {
