@@ -53,6 +53,7 @@ import kotlin.math.roundToInt
 /** Passerelle unique entre les écrans Salaire et PayrollEngineV2. */
 object V2SalaryAdapter {
  data class TierDuration(val label:String,val durationMs:Long,val multiplier:Double)
+ /** totalWorkedMs is exact tracked paid time; regularMs and tiers are the quantities valued by payroll. */
  data class Result(val regularMs:Long,val overtimeTiers:List<TierDuration>,val totalWorkedMs:Long,val regularGross:Double,val overtimeGross:Double,val premiumsGross:Double,val monthlyEstimatedGross:Double,val monthlyGrossReliable:Boolean,val nightMs:Long,val saturdayMs:Long,val sundayMs:Long,val complementaryMinutes:Int,val completedSessions:Int,val warnings:List<String>,val mealBasketCount:Int=0,val mealBasketAmount:Double?=null,val mealBasketTotal:Double?=null,val publicHolidayMs:Long=0L,val conventionMinimumMonthlyGross:Double?=null,val conventionClassificationLabel:String?=null,val seniorityPremiumGross:Double?=null,val paidTimeReliable:Boolean=monthlyGrossReliable,val unpaidPauseMs:Long?=null,val grossBeforeMayFirstReliable:Boolean=false)
  data class FullTimeRegularReference(val minutes:Int?,val reliable:Boolean)
 
@@ -266,7 +267,8 @@ object V2SalaryAdapter {
    if(premium.publicHoliday.resolution.considered.isNotEmpty())warnings+=premium.publicHoliday.warnings
   }
   val baseMonthlyGrossReliable=grossAssessment.exactMonthlyGrossAvailable&&absenceImpact?.requiresPayrollReview!=true&&paidTimeReliable
-  data class W(var paid:Int=0,var night:Int=0,var sat:Int=0,var sun:Int=0,var holiday:Int=0)
+  // Keep source precision across fragments; each ISO week/category has its own minute boundary.
+  data class W(var paidMs:Long=0L,var nightMs:Long=0L,var satMs:Long=0L,var sunMs:Long=0L,var holidayMs:Long=0L)
   val weeks=linkedMapOf<Pair<Int,Int>,W>()
   val historical=ruleHistory?.allVersions(convention.idcc)?.isNotEmpty()==true
   val nightRule=collectivePremiumSnapshot?.night?.takeIf{it.resolved}?.selectedRule
@@ -280,17 +282,16 @@ object V2SalaryAdapter {
   var collectiveCumulReviewRequired=false
   selected.forEach{s->
    PaidWorkAllocationV2.splitByIsoWeek(s,monthStart,monthEnd).forEach{slice->
-    val paidMinutes=(slice.paidMs/60000L).toInt()
     val w=weeks.getOrPut(slice.weekYear to slice.weekOfYear){W()}
-    w.paid+=paidMinutes
+    w.paidMs+=slice.paidMs
     val night=nightRule?.let{r->NightPremiumPolicyV2.paidOverlap(s,slice.startMs,slice.endMs,r)}?:0L
-    w.night+=(night/60000L).toInt();nightMs+=night
+    w.nightMs+=night;nightMs+=night
     val sat=dayPaidOverlap(s,slice.startMs,slice.endMs,Calendar.SATURDAY)
     val sun=dayPaidOverlap(s,slice.startMs,slice.endMs,Calendar.SUNDAY)
     val holiday=PublicHolidayPremiumPolicyV2.paidOverlap(s,slice.startMs,slice.endMs,genericHolidayDates)
     val mayFirst=PublicHolidayPremiumPolicyV2.paidOverlap(s,slice.startMs,slice.endMs,mayFirstDates)
     val unresolved=PublicHolidayPremiumPolicyV2.paidOverlap(s,slice.startMs,slice.endMs,unresolvedHolidayDates)
-    w.sat+=(sat/60000L).toInt();w.sun+=(sun/60000L).toInt();w.holiday+=(holiday/60000L).toInt()
+    w.satMs+=sat;w.sunMs+=sun;w.holidayMs+=holiday
     satMs+=sat;sunMs+=sun;holidayMs+=holiday;mayFirstMs+=mayFirst;unresolvedHolidayMs+=unresolved
     val activePremiumKinds=listOf(
      nightRule!=null&&night>0L,
@@ -301,6 +302,14 @@ object V2SalaryAdapter {
     if(activePremiumKinds>1)collectiveCumulReviewRequired=true
    }
   }
+  // The payroll engine still consumes whole minutes, after all fragments have been accumulated.
+  // Do not carry remainders between weeks, categories or months. The tracked total stays exact.
+  val totalWorkedMs=weeks.values.sumOf{it.paidMs}
+  val payrollWeeks=weeks.values.map{w->PayrollWeekV2(
+   paidMinutes=(w.paidMs/60000L).toInt(),nightMinutes=(w.nightMs/60000L).toInt(),
+   saturdayMinutes=(w.satMs/60000L).toInt(),sundayMinutes=(w.sunMs/60000L).toInt(),
+   publicHolidayMinutes=(w.holidayMs/60000L).toInt()
+  )}
   if(publicHolidayScope!=null&&!publicHolidayScope.complete&&collectivePremiumSnapshot?.publicHoliday?.resolution?.considered?.isNotEmpty()==true){
    publicHolidayScope.warning?.let(warnings::add)
    warnings+="Jours fériés : calendrier territorial non exhaustif ; la majoration générique reste bloquée."
@@ -309,7 +318,7 @@ object V2SalaryAdapter {
   if(unresolvedHolidayMs>0L)warnings+="Jour férié territorial potentiel travaillé : le périmètre local n'est pas suffisamment confirmé pour valoriser automatiquement ces minutes."
 
   if(contract.type==ContractTypeV2.FORFAIT_HOURS||contract.type==ContractTypeV2.FORFAIT_DAYS){
-   val worked=PayrollEngineV2.calculate(contract,weeks.values.map{PayrollWeekV2(it.paid,it.night,it.sat,it.sun,it.holiday)},PayrollRulesV2())
+   val worked=PayrollEngineV2.calculate(contract,payrollWeeks,PayrollRulesV2())
    val contractualMonthlyMinutes=when(contract.type){
     ContractTypeV2.FORFAIT_HOURS->when(contract.forfaitHoursPeriod){ForfaitHoursPeriodV2.WEEK->contract.forfaitHours?.times(52.0/12.0)?.times(60.0);ForfaitHoursPeriodV2.MONTH->contract.forfaitHours?.times(60.0);ForfaitHoursPeriodV2.YEAR->contract.forfaitHours?.div(12.0)?.times(60.0);null->null}
     else->null
@@ -322,7 +331,7 @@ object V2SalaryAdapter {
    if(selected.isEmpty())warnings+="Aucune session pointée sur la période : la rémunération forfaitaire contractuelle reste une base théorique ; les absences enregistrées sont contrôlées séparément."
    val holidayReliable=holidayMs==0L&&mayFirstMs==0L&&unresolvedHolidayMs==0L
    return Result(
-    regularMs=contractualMonthlyMinutes?.toLong()?.times(60000L)?:0L,overtimeTiers=emptyList(),totalWorkedMs=weeks.values.sumOf{it.paid}.toLong()*60000L,
+    regularMs=contractualMonthlyMinutes?.toLong()?.times(60000L)?:0L,overtimeTiers=emptyList(),totalWorkedMs=totalWorkedMs,
     regularGross=worked.regularGross,overtimeGross=0.0,premiumsGross=worked.premiumsGross+worked.fixedPremiumsGross,monthlyEstimatedGross=worked.grossEstimate,
     monthlyGrossReliable=baseMonthlyGrossReliable&&holidayReliable,nightMs=nightMs,saturdayMs=satMs,sundayMs=sunMs,complementaryMinutes=0,completedSessions=selected.size,
     warnings=warnings+worked.traces+premiumSourceTraces(collectivePremiumSnapshot,true),publicHolidayMs=holidayMs,paidTimeReliable=paidTimeReliable,unpaidPauseMs=paidWorkScope.unpaidPauseMs?.takeIf{paidTimeReliable}
@@ -374,11 +383,11 @@ object V2SalaryAdapter {
   }
   val effectiveRules=if(!arbitratedOvertime.isNullOrEmpty())baseRules.copy(overtimeTiers=arbitratedOvertime)else baseRules
   val payrollRules=if(isPartTime||isFullTime)effectiveRules.copy(overtimeTiers=emptyList()) else effectiveRules
-  val genericOvertimeCoverageReliable=!isGenericHourly||OvertimeCoverageV2.areWeeksFullyCovered(regularLimit,weeks.values.map{it.paid},payrollRules.overtimeTiers)
+  val genericOvertimeCoverageReliable=!isGenericHourly||OvertimeCoverageV2.areWeeksFullyCovered(regularLimit,payrollWeeks.map{it.paidMinutes},payrollRules.overtimeTiers)
   if(!genericOvertimeCoverageReliable)warnings+="Heures supplémentaires : certaines minutes au-delà du seuil hebdomadaire ne sont couvertes par aucun palier confirmé ou les paliers se chevauchent ; aucune majoration n'est inventée pour ces minutes et le brut reste à confirmer."
-  val worked=PayrollEngineV2.calculate(contract.copy(grossHourlyRate=rate),weeks.values.map{PayrollWeekV2(it.paid,it.night,it.sat,it.sun,it.holiday)},payrollRules)
+  val worked=PayrollEngineV2.calculate(contract.copy(grossHourlyRate=rate),payrollWeeks,payrollRules)
 
-  val complementary=if(isPartTime)weeks.values.map{PartTimeComplementaryHoursV2.calculateWeek(regularLimit,it.paid,rate,confirmedSchedule=hr?.complementarySchedule?.takeIf{it.applies(date.withDayOfMonth(date.lengthOfMonth()).toEpochDay(),regularLimit)},referenceEpochDay=date.toEpochDay())}else emptyList()
+  val complementary=if(isPartTime)payrollWeeks.map{PartTimeComplementaryHoursV2.calculateWeek(regularLimit,it.paidMinutes,rate,confirmedSchedule=hr?.complementarySchedule?.takeIf{it.applies(date.withDayOfMonth(date.lengthOfMonth()).toEpochDay(),regularLimit)},referenceEpochDay=date.toEpochDay())}else emptyList()
   val complementaryMinutes=complementary.sumOf{it.complementaryMinutes}
   val complementaryGross=complementary.sumOf{it.grossToAdd}
   val provisionalComplementaryRateUsed=isPartTime&&complementary.any{it.complementaryMinutes>0&&!it.confirmedScheduleUsed}
@@ -387,7 +396,7 @@ object V2SalaryAdapter {
 
   val fullTime=if(isFullTime){
    val contractual=contract.contractualWeeklyMinutes?:regularLimit
-   FullTimeStructuralOvertimeV2.calculate(contractualWeeklyMinutes=contractual,regularWeeklyLimit=regularLimit,paidWeeks=weeks.values.map{it.paid},grossHourlyRate=rate,overtimeTiers=effectiveRules.overtimeTiers)
+   FullTimeStructuralOvertimeV2.calculate(contractualWeeklyMinutes=contractual,regularWeeklyLimit=regularLimit,paidWeeks=payrollWeeks.map{it.paidMinutes},grossHourlyRate=rate,overtimeTiers=effectiveRules.overtimeTiers)
   }else null
   fullTime?.let{ft->
    warnings+=ft.warnings
@@ -417,7 +426,7 @@ object V2SalaryAdapter {
   if(baseGross!=null){if(isFullTime)warnings+="Salaire de base mensualisé : durée légale/référence + éventuelles heures structurelles majorées ; les pointages ajoutent seulement les dépassements du contrat." else warnings+="Salaire de base mensualisé : ${String.format(Locale.FRANCE,"%.2f",monthlyMinutes!!/60.0)} h × ${String.format(Locale.FRANCE,"%.2f",rate)} € ; pointages utilisés pour les éléments variables."}
   if(selected.isEmpty())warnings+="Aucune session pointée : base mensualisée théorique conservée ; les absences enregistrées sont contrôlées séparément."
 
-  var regular=0;val tm=LongArray(payrollRules.overtimeTiers.size);weeks.values.forEach{w->regular+=minOf(w.paid,regularLimit);payrollRules.overtimeTiers.forEachIndexed{i,t->tm[i]+=(minOf(w.paid,t.toMinutes?:Int.MAX_VALUE)-maxOf(regularLimit,t.fromMinutes)).coerceAtLeast(0)}}
+  var regular=0;val tm=LongArray(payrollRules.overtimeTiers.size);payrollWeeks.forEach{w->regular+=minOf(w.paidMinutes,regularLimit);payrollRules.overtimeTiers.forEachIndexed{i,t->tm[i]+=(minOf(w.paidMinutes,t.toMinutes?:Int.MAX_VALUE)-maxOf(regularLimit,t.fromMinutes)).coerceAtLeast(0)}}
   val displayedTiers=when{
    isPartTime->complementary.flatMap{it.tiers}.groupBy{it.label to it.multiplier}.map{(key,values)->TierDuration(key.first,values.sumOf{it.minutes}.toLong()*60000L,key.second)}
    isFullTime->buildList{fullTime?.structuralTiers?.forEach{t->add(TierDuration("Heures sup. structurelles +${((t.multiplier-1.0)*100).roundToInt()} %",(t.minutes*60000.0).toLong(),t.multiplier))};fullTime?.variableTiers?.forEach{t->add(TierDuration("Heures sup. variables +${((t.multiplier-1.0)*100).roundToInt()} %",(t.minutes*60000.0).toLong(),t.multiplier))}}
@@ -428,7 +437,7 @@ object V2SalaryAdapter {
   val overtimeGross=when{isFullTime->(fullTime?.structuralOvertimeGross?:0.0)+(fullTime?.variableOvertimeGross?:0.0);isPartTime->complementaryGross;else->worked.overtimeGross}
   val traces=worked.traces.filterNot{(isPartTime||isFullTime)&&it.startsWith("Aucune majoration d'heures supplémentaires")}
   return Result(
-   regularMs=regularMs,overtimeTiers=displayedTiers,totalWorkedMs=weeks.values.sumOf{it.paid}.toLong()*60000L,regularGross=regularGross,overtimeGross=overtimeGross,
+   regularMs=regularMs,overtimeTiers=displayedTiers,totalWorkedMs=totalWorkedMs,regularGross=regularGross,overtimeGross=overtimeGross,
    premiumsGross=worked.premiumsGross,monthlyEstimatedGross=gross,monthlyGrossReliable=monthlyGrossReliable,grossBeforeMayFirstReliable=grossBeforeMayFirstReliable,nightMs=nightMs,saturdayMs=satMs,sundayMs=sunMs,
    complementaryMinutes=complementaryMinutes,completedSessions=selected.size,warnings=warnings+traces+listOfNotNull(snap?.let{"Règles historiques ${it.versionId} — source ${it.sourceId}"})+premiumSourceTraces(collectivePremiumSnapshot,false),publicHolidayMs=holidayMs,paidTimeReliable=paidTimeReliable,unpaidPauseMs=paidWorkScope.unpaidPauseMs?.takeIf{paidTimeReliable}
   )
