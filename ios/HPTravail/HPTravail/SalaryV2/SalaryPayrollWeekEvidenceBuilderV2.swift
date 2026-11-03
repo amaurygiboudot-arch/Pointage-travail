@@ -112,7 +112,7 @@ enum SalaryPayrollWeekEvidenceBuilderV2 {
                 && potentiallyTouches($0, start: month.start, end: month.end)
         }
 
-        var premiumByWeek: [WeekKey: PremiumMinutes] = [:]
+        var premiumByWeek: [WeekKey: PremiumDurations] = [:]
         for paidWeek in paidWork.weeks {
             let key = WeekKey(
                 year: paidWeek.yearForWeekOfYear,
@@ -127,7 +127,9 @@ enum SalaryPayrollWeekEvidenceBuilderV2 {
             let rangeEnd = min(rawWeek.end, month.end)
             guard rangeEnd > rangeStart else { continue }
 
-            var values = PremiumMinutes()
+            // Keep the source seconds until each ISO week/category has been summed.
+            // A session boundary must not discard a premium's remaining seconds.
+            var values = PremiumDurations()
 
             for session in relevantSessions where potentiallyTouches(
                 session,
@@ -142,7 +144,7 @@ enum SalaryPayrollWeekEvidenceBuilderV2 {
                         rule: nightRule,
                         calendar: calendar
                     )
-                    values.night += floorMinutes(night.paidDuration)
+                    values.night += night.paidDuration
                     premiumReliable = premiumReliable && night.reliable
                     warnings.append(contentsOf: night.warnings)
                 }
@@ -154,7 +156,7 @@ enum SalaryPayrollWeekEvidenceBuilderV2 {
                     weekday: 7,
                     calendar: calendar
                 )
-                values.saturday += floorMinutes(saturday.paidDuration)
+                values.saturday += saturday.paidDuration
                 premiumReliable = premiumReliable && saturday.reliable
                 warnings.append(contentsOf: saturday.warnings)
 
@@ -165,7 +167,7 @@ enum SalaryPayrollWeekEvidenceBuilderV2 {
                     weekday: 1,
                     calendar: calendar
                 )
-                values.sunday += floorMinutes(sunday.paidDuration)
+                values.sunday += sunday.paidDuration
                 premiumReliable = premiumReliable && sunday.reliable
                 warnings.append(contentsOf: sunday.warnings)
 
@@ -177,7 +179,7 @@ enum SalaryPayrollWeekEvidenceBuilderV2 {
                         holidayDates: genericHolidays,
                         calendar: calendar
                     )
-                    values.publicHoliday += floorMinutes(holiday.paidDuration)
+                    values.publicHoliday += holiday.paidDuration
                     premiumReliable = premiumReliable && holiday.reliable
                     warnings.append(contentsOf: holiday.warnings)
                 }
@@ -236,7 +238,7 @@ enum SalaryPayrollWeekEvidenceBuilderV2 {
 
     private static func result(
         from paidWork: SalaryPaidWorkAggregationV2,
-        premiumByWeek: [WeekKey: PremiumMinutes],
+        premiumByWeek: [WeekKey: PremiumDurations],
         paidTimeReliable: Bool,
         premiumReliable: Bool,
         payrollRulesReliable: Bool,
@@ -248,13 +250,13 @@ enum SalaryPayrollWeekEvidenceBuilderV2 {
                     year: paidWeek.yearForWeekOfYear,
                     week: paidWeek.weekOfYear
                 )
-            ] ?? PremiumMinutes()
+            ] ?? PremiumDurations()
             return PayrollWeekV2(
                 paidMinutes: paidWeek.paidMinutes,
-                nightMinutes: values.night,
-                saturdayMinutes: values.saturday,
-                sundayMinutes: values.sunday,
-                publicHolidayMinutes: values.publicHoliday
+                nightMinutes: floorMinutes(values.night),
+                saturdayMinutes: floorMinutes(values.saturday),
+                sundayMinutes: floorMinutes(values.sunday),
+                publicHolidayMinutes: floorMinutes(values.publicHoliday)
             )
         }
         let evidence = PayrollInputEvidenceV2(
@@ -440,11 +442,11 @@ enum SalaryPayrollWeekEvidenceBuilderV2 {
         return values.filter { seen.insert($0).inserted }
     }
 
-    private struct PremiumMinutes {
-        var night = 0
-        var saturday = 0
-        var sunday = 0
-        var publicHoliday = 0
+    private struct PremiumDurations {
+        var night: TimeInterval = 0
+        var saturday: TimeInterval = 0
+        var sunday: TimeInterval = 0
+        var publicHoliday: TimeInterval = 0
     }
 
     private struct WeekKey: Hashable {

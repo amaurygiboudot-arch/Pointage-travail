@@ -11,7 +11,7 @@ import kotlin.math.min
  * effectif d'au moins 50 salariés. L'applicabilité de la contribution formation peut elle aussi
  * dépendre de la situation du salarié (ex. exonération confirmée).
  *
- * HoraTrack exige donc ces faits explicitement au lieu de les déduire silencieusement.
+ * AGKGMG exige donc ces faits explicitement au lieu de les déduire silencieusement.
  */
 object EmployerWorkforceContributionsV2 {
     enum class Band { UNDER_11, FROM_11_TO_49, AT_LEAST_50 }

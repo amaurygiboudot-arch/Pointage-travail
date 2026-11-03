@@ -44,20 +44,17 @@ enum EmployeeNetProjectionV2 {
         let periodMatches = input.year == input.period.year &&
             input.ceiling.period.year == input.period.year &&
             input.ceiling.period.month == input.period.month
-        let validCashGross = input.cashGross.isFinite && input.cashGross >= 0
-        let safeCashGross = validCashGross ? input.cashGross : 0
-        let validBenefits = input.benefits.totalGross.isFinite && input.benefits.totalGross >= 0
-        let benefitsGross = validBenefits ? input.benefits.totalGross : 0
-        let contributionGross = safeCashGross + benefitsGross
-        let grossReliable = input.upstreamGrossReliable &&
-            validCashGross &&
-            input.benefits.reliable &&
-            validBenefits &&
-            contributionGross.isFinite
+        let cashCents = nonNegativeCents(input.cashGross)
+        let benefitsCents = nonNegativeCents(input.benefits.totalGross)
+        let safeCashGross = cashCents.flatMap(PayrollMoneyV2.amount) ?? 0
+        let contributionCents = sumPresent([cashCents, benefitsCents])
+        let contributionGross = contributionCents.flatMap(PayrollMoneyV2.amount) ?? 0
+        let grossReliable = input.upstreamGrossReliable && input.benefits.reliable &&
+            cashCents != nil && benefitsCents != nil && contributionCents != nil
 
-        let employerProtectionCsgCrdsBase = confirmedSnapshotAmount(
+        let employerProtectionCsgCrdsBase = confirmedSnapshotCents(
             input.companyDeductions[.employerProtectionCsgCrdsBase]
-        )
+        ).flatMap(PayrollMoneyV2.amount)
         let statutory = SocialContributionCatalogV2.estimateEmployeeDeductions(
             gross: contributionGross,
             year: input.year,
@@ -77,13 +74,20 @@ enum EmployeeNetProjectionV2 {
             period: input.period
         )
 
-        // Les lignes de paie sont des montants monétaires : on arrondit chaque ligne au centime
-        // avant d'assembler les totaux, plutôt que d'arrondir uniquement le résultat final.
-        let statutoryTotal = statutory.lines.reduce(0) { $0 + roundedCurrency($1.employeeAmount) }
-        let retirementTotal = retirement.lines.reduce(0) { $0 + roundedCurrency($1.employeeAmount) }
-        let directTotal = direct.deductions.reduce(0) { $0 + roundedCurrency($1.amount) }
-        let rawBeforeTax = safeCashGross - statutoryTotal - retirementTotal - directTotal
-        let knownBeforeTax = max(0, rawBeforeTax)
+        // Convention de projection : chaque ligne salariée est arrondie au centime, puis
+        // additionnée. Le produit est décimal ; aucun produit Double n'est arrondi après coup.
+        let statutoryCents = statutory.lines.map { PayrollMoneyV2.contribution(base: $0.baseAmount, rate: $0.rate) }
+        let retirementCents = retirement.lines.map { PayrollMoneyV2.contribution(base: $0.baseAmount, rate: $0.employeeRate) }
+        let directCents = direct.deductions.map { nonNegativeCents($0.amount) }
+        let statutoryTotal = sumPresent(statutoryCents)
+        let retirementTotal = sumPresent(retirementCents)
+        let directTotal = sumPresent(directCents)
+        let rawBeforeCents = sumPresent([
+            cashCents, statutoryTotal.map { -$0 }, retirementTotal.map { -$0 }, directTotal.map { -$0 }
+        ])
+        let beforeCents = rawBeforeCents.map { max(0, $0) }
+        let knownBeforeTax = beforeCents.flatMap(PayrollMoneyV2.amount) ?? 0
+        let monetaryComplete = contributionCents != nil && rawBeforeCents != nil
 
         let normalizedStatus = input.professionalStatus?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -99,10 +103,11 @@ enum EmployeeNetProjectionV2 {
         if !periodMatches { blockers.append("plafond SS ou année de barème hors période de paie") }
         if !supportedNationalTables { blockers.append("barèmes nationaux non intégrés pour \(input.year)") }
         if !input.upstreamGrossReliable { blockers.append("brut salarial amont incomplet") }
-        if !validCashGross { blockers.append("brut en espèces invalide") }
-        if !input.benefits.reliable || !validBenefits {
+        if cashCents == nil { blockers.append("brut en espèces invalide ou non représentable au centime") }
+        if !input.benefits.reliable || benefitsCents == nil {
             blockers.append("avantages en nature du mois non confirmés")
         }
+        if !monetaryComplete { blockers.append("calcul monétaire non représentable au centime ou dépassement arithmétique") }
         if !input.ceiling.complete { blockers.append("plafond de Sécurité sociale incomplet") }
         if input.alsaceMoselleLocalRegime == nil { blockers.append("affiliation Alsace-Moselle à confirmer") }
         if employerProtectionCsgCrdsBase == nil {
@@ -117,39 +122,33 @@ enum EmployeeNetProjectionV2 {
         let beforeTaxComplete = supportedNationalTables &&
             periodMatches &&
             grossReliable &&
+            monetaryComplete &&
             input.ceiling.complete &&
             statutoryInputsComplete &&
             direct.confirmedEmployeeDeductionsComplete &&
             statusComplete &&
             aniComplete
 
-        let employerProtectionTaxable = confirmedSnapshotAmount(
+        let employerProtectionTaxable = confirmedSnapshotCents(
             input.companyDeductions[.employerProtectionTaxable]
         )
-        let employeeProvidentNonDeductible = confirmedSnapshotAmount(
+        let employeeProvidentNonDeductible = confirmedSnapshotCents(
             input.companyDeductions[.employeeProvidentNonDeductible]
         )
         let taxInputsComplete = employerProtectionTaxable != nil && employeeProvidentNonDeductible != nil
-
-        let nonDeductibleCsgCrds = statutory.lines
-            .filter { $0.id == "csg_taxable" || $0.id == "crds" }
-            .reduce(0) { $0 + $1.employeeAmount }
-
-        let taxable: Double?
-        if beforeTaxComplete,
-           let employerProtectionTaxable,
-           let employeeProvidentNonDeductible {
-            taxable = max(
-                0,
-                rawBeforeTax +
-                    benefitsGross +
-                    nonDeductibleCsgCrds +
-                    employerProtectionTaxable +
-                    employeeProvidentNonDeductible
-            )
-        } else {
-            taxable = nil
-        }
+        // La seule valeur « transport salarié » ne décrit pas son régime fiscal.
+        let transportTaxKnown = input.companyDeductions[.transportEmployee].amount == 0
+        let nonDeductibleCsgCrds = sumPresent(zip(statutory.lines, statutoryCents).compactMap { line, cents in
+            line.id == "csg_taxable" || line.id == "crds" ? .some(cents) : nil
+        })
+        let rawTaxableCents = sumPresent([
+            rawBeforeCents, benefitsCents, nonDeductibleCsgCrds,
+            employerProtectionTaxable, employeeProvidentNonDeductible
+        ])
+        let taxableCents: Int64? = beforeTaxComplete && taxInputsComplete && transportTaxKnown
+            ? rawTaxableCents.flatMap { $0 >= 0 ? $0 : nil }
+            : nil
+        let taxable = taxableCents.flatMap(PayrollMoneyV2.amount)
 
         var warnings = input.benefits.warnings +
             input.ceiling.warnings +
@@ -176,46 +175,32 @@ enum EmployeeNetProjectionV2 {
             )
         }
 
-        let taxRate = input.incomeTaxRate
-        let incomeTax: Double?
-        let netAfterIncomeTax: Double?
-        if let taxable,
-           taxable.isFinite,
-           let rateSnapshot = taxRate,
-           rateSnapshot.reliable,
-           let rate = rateSnapshot.rate,
-           rate.isFinite,
-           rate >= 0,
-           rate <= 1,
-           beforeTaxComplete {
-            let calculatedTax = roundedCurrency(taxable * rate)
-            if calculatedTax.isFinite {
-                incomeTax = calculatedTax
-                netAfterIncomeTax = max(0, knownBeforeTax - calculatedTax)
-            } else {
-                incomeTax = nil
-                netAfterIncomeTax = nil
+        if beforeTaxComplete, let rawBeforeCents, rawBeforeCents < 0 {
+            warnings.append("Solde en espèces négatif : les retenues dépassent le brut en espèces ; le montant disponible est ramené à zéro, mais une dette ou régularisation reste à confirmer.")
+        }
+        if beforeTaxComplete && !transportTaxKnown {
+            warnings.append("Net imposable incomplet : régime fiscal de la retenue transport positive à confirmer ; aucun traitement déductible n'est présumé.")
+        }
+        if beforeTaxComplete && taxInputsComplete {
+            if let rawTaxableCents, rawTaxableCents < 0 {
+                warnings.append("Net imposable négatif : régularisation fiscale non couverte, à confirmer ; aucun zéro fiscal fiable n'est publié.")
+            } else if rawTaxableCents == nil {
+                warnings.append("Net imposable incomplet : calcul monétaire non représentable au centime ou dépassement arithmétique.")
             }
-        } else {
-            incomeTax = nil
-            netAfterIncomeTax = nil
         }
-        let usableTaxRate = taxRate.flatMap { snapshot -> Double? in
-            guard snapshot.reliable,
-                  let rate = snapshot.rate,
-                  rate.isFinite,
-                  rate >= 0,
-                  rate <= 1 else { return nil }
-            return rate
-        }
-        if taxable != nil && usableTaxRate == nil {
-            warnings.append("PAS : taux personnel daté et confirmé indisponible ou invalide ; aucun net après impôt n'est affiché.")
-        }
-        warnings.append(contentsOf: taxRate?.warnings ?? [])
+
+        let withholding = EmployeeWithholdingProjectionV2.calculate(
+            netBeforeIncomeTax: beforeTaxComplete ? knownBeforeTax : nil,
+            netTaxable: taxable,
+            incomeTaxRate: input.incomeTaxRate
+        )
+        warnings.append(contentsOf: withholding.warnings)
 
         let traces = unique(
             direct.traces + [
-                "Brut social : brut en espèces + avantages en nature confirmés.",
+                "Brut social : brut en espèces + avantages en nature confirmés, normalisés au centime.",
+                "Convention de projection : lignes salariales arrondies au centime HALF_UP avant totalisation ; les mêmes centimes CSG/CRDS sont réintégrés au fiscal.",
+                "PAS individuel : produit décimal arrondi au centime le plus proche, demi-centime supérieur (CGI annexe III, article 39 C).",
                 "Net avant impôt : brut en espèces - cotisations légales - retraite complémentaire - retenues entreprise réellement prélevées.",
                 "Part salariale de prévoyance non déductible : réintégrée au net imposable sans seconde retenue sur le net en espèces."
             ]
@@ -225,35 +210,86 @@ enum EmployeeNetProjectionV2 {
             cashGross: safeCashGross,
             contributionGross: contributionGross,
             grossReliable: grossReliable,
-            statutory: statutory,
-            complementaryRetirement: retirement,
-            companyCashDeductions: direct,
+            statutory: monetaryStatutory(statutory, cents: statutoryCents, total: statutoryTotal),
+            complementaryRetirement: monetaryRetirement(retirement, cents: retirementCents, total: retirementTotal),
+            companyCashDeductions: monetaryDirect(direct, cents: directCents),
             knownNetBeforeIncomeTax: knownBeforeTax,
             netBeforeIncomeTax: beforeTaxComplete ? knownBeforeTax : nil,
             netTaxable: taxable,
-            incomeTax: incomeTax,
-            netAfterIncomeTax: netAfterIncomeTax,
+            incomeTax: withholding.incomeTax,
+            netAfterIncomeTax: withholding.netAfterIncomeTax,
             netBeforeIncomeTaxComplete: beforeTaxComplete,
-            netTaxableComplete: beforeTaxComplete && taxInputsComplete,
+            netTaxableComplete: taxable != nil,
             warnings: unique(warnings),
             traces: traces
         )
     }
 
-    private static func roundedCurrency(_ value: Double) -> Double {
-        (value * 100).rounded() / 100
+    private static func nonNegativeCents(_ value: Double) -> Int64? {
+        value >= 0 ? PayrollMoneyV2.cents(value) : nil
     }
 
-    private static func confirmedNonNegative(_ value: Double?) -> Double? {
-        guard let value, value.isFinite, value >= 0 else { return nil }
-        return value
-    }
-
-    private static func confirmedSnapshotAmount(
+    private static func confirmedSnapshotCents(
         _ value: CompanyEmployeeDeductionResolverV2.Value
-    ) -> Double? {
+    ) -> Int64? {
         guard value.reliable, let amount = value.amount else { return nil }
-        return confirmedNonNegative(amount)
+        return nonNegativeCents(amount)
+    }
+
+    private static func sumPresent(_ values: [Int64?]) -> Int64? {
+        let known = values.compactMap { $0 }
+        return known.count == values.count ? PayrollMoneyV2.sum(known) : nil
+    }
+
+    // Les détails exposés par la projection correspondent exactement aux retenues soustraites.
+    // Les catalogues bruts et les contributions patronales gardent leur contrat existant.
+    private static func monetaryStatutory(
+        _ estimate: SocialContributionCatalogV2.Estimate, cents: [Int64?], total: Int64?
+    ) -> SocialContributionCatalogV2.Estimate {
+        guard let total, let amount = PayrollMoneyV2.amount(total),
+              cents.allSatisfy({ $0 != nil }) else { return estimate }
+        let lines = zip(estimate.lines, cents).map { line, value in
+            SocialContributionCatalogV2.Line(
+                id: line.id, label: line.label, baseAmount: line.baseAmount, rate: line.rate,
+                employeeAmount: PayrollMoneyV2.amount(value!)!, source: line.source,
+                employerRate: line.employerRate, employerAmount: line.employerAmount
+            )
+        }
+        let before = PayrollMoneyV2.cents(estimate.gross)
+            .flatMap { PayrollMoneyV2.sum([$0, -total]) }
+            .flatMap { PayrollMoneyV2.amount(max(0, $0)) } ?? 0
+        return .init(gross: estimate.gross, employeeDeductions: amount, netBeforeIncomeTax: before,
+                     lines: lines, warnings: estimate.warnings, employerContributions: estimate.employerContributions)
+    }
+
+    private static func monetaryRetirement(
+        _ estimate: ComplementaryRetirementCatalogV2.Estimate, cents: [Int64?], total: Int64?
+    ) -> ComplementaryRetirementCatalogV2.Estimate {
+        guard let total, let amount = PayrollMoneyV2.amount(total),
+              cents.allSatisfy({ $0 != nil }) else { return estimate }
+        let lines = zip(estimate.lines, cents).map { line, value in
+            ComplementaryRetirementCatalogV2.Line(
+                id: line.id, label: line.label, baseAmount: line.baseAmount,
+                employeeRate: line.employeeRate, employeeAmount: PayrollMoneyV2.amount(value!)!,
+                source: line.source, employerRate: line.employerRate, employerAmount: line.employerAmount
+            )
+        }
+        return .init(lines: lines, employeeDeductions: amount, warnings: estimate.warnings,
+                     employerContributions: estimate.employerContributions)
+    }
+
+    private static func monetaryDirect(
+        _ result: CompanyEmployeeDeductionPayrollBridgeV2.Result, cents: [Int64?]
+    ) -> CompanyEmployeeDeductionPayrollBridgeV2.Result {
+        guard cents.allSatisfy({ $0 != nil }) else { return result }
+        return .init(
+            deductions: zip(result.deductions, cents).map { deduction, value in
+                .init(id: deduction.id, label: deduction.label, amount: PayrollMoneyV2.amount(value!)!,
+                      recurring: deduction.recurring)
+            },
+            confirmedEmployeeDeductionsComplete: result.confirmedEmployeeDeductionsComplete,
+            warnings: result.warnings, traces: result.traces
+        )
     }
 
     private static func unique(_ values: [String]) -> [String] {

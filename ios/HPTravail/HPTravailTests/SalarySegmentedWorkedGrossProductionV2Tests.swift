@@ -5,6 +5,28 @@ import XCTest
 #endif
 
 final class SalarySegmentedWorkedGrossProductionV2Tests: XCTestCase {
+    func testDetailedProductionPreservesEveryCanonicalBreakdown() throws {
+        let f = try fixture()
+        let production = SalarySegmentedWorkedGrossProductionV2.calculateDetailed(
+            contracts: f.contracts, rules: f.rules, prorationSource: f.proration,
+            source: f.source, premiums: f.premiums, now: f.now)
+        let direct = SalarySegmentedWorkedVariableGrossSourceV2.calculate(
+            contracts: f.contracts, rules: f.rules, sliceEvidence: production.evidence.slices)
+        XCTAssertTrue(production.reliable)
+        XCTAssertFalse(direct.breakdowns.isEmpty)
+        XCTAssertEqual(production.variables.breakdowns.count, direct.breakdowns.count)
+        for (actual, expected) in zip(production.variables.breakdowns, direct.breakdowns) {
+            XCTAssertEqual(actual.versionId, expected.versionId)
+            XCTAssertEqual(actual.startEpochDay, expected.startEpochDay)
+            XCTAssertEqual(actual.endEpochDay, expected.endEpochDay)
+            XCTAssertEqual(actual.overtimeGross, expected.overtimeGross)
+            XCTAssertEqual(actual.complementaryGross, expected.complementaryGross)
+            XCTAssertEqual(actual.premiumGross, expected.premiumGross)
+            XCTAssertEqual(actual.variableOvertimeMinutes, expected.variableOvertimeMinutes)
+            XCTAssertEqual(actual.complementaryMinutes, expected.complementaryMinutes)
+        }
+    }
+
     func testTwoProvenContractSegmentsReachB20WithExplicitZeroVariables() throws {
         let f = try fixture()
         let result = SalarySegmentedWorkedGrossProductionV2.calculate(
@@ -51,7 +73,8 @@ final class SalarySegmentedWorkedGrossProductionV2Tests: XCTestCase {
 
         XCTAssertTrue(result.reliable)
         XCTAssertEqual(result.evidence.contributingSessionIds.count, 6)
-        XCTAssertEqual(result.evidence.slices.first?.weeks.map { $0.week.paidMinutes }, [43, 2019])
+        // Keep sub-minute paid time from separate sessions before flooring the week.
+        XCTAssertEqual(result.evidence.slices.first?.weeks.map { $0.week.paidMinutes }, [43, 2021])
         XCTAssertEqual(result.evidence.slices.first?.weeks.first?.week.sundayMinutes, 43)
         XCTAssertEqual(try XCTUnwrap(result.variables.pieces.first).variableGross, 0, accuracy: 0)
         XCTAssertEqual(try XCTUnwrap(result.base.baseGross), try XCTUnwrap(result.workedGross), accuracy: 0.0001)
