@@ -126,27 +126,12 @@ enum SalaryWorkspaceResolverV2 {
         let socialGross = SalaryReferenceContractV2.socialGross(reference)
         let netBeforeIncomeTax = SalaryReferenceContractV2.beforeIncomeTax(reference)
         let netTaxable = SalaryReferenceContractV2.taxable(reference)
-        var warnings = reference.warnings
-        var incomeTax: Double?
-        var netAfterIncomeTax: Double?
-        if let beforeTax = netBeforeIncomeTax,
-           let taxable = netTaxable,
-           taxable.isFinite,
-           let rateSnapshot = incomeTaxRate,
-           rateSnapshot.reliable,
-           let rate = rateSnapshot.rate,
-           rate.isFinite,
-           (0...1).contains(rate) {
-            let calculatedTax = ((taxable * rate) * 100).rounded() / 100
-            if calculatedTax.isFinite {
-                incomeTax = calculatedTax
-                netAfterIncomeTax = max(0, beforeTax - calculatedTax)
-            }
-        }
-        if netTaxable != nil && netAfterIncomeTax == nil {
-            warnings.append("PAS : taux personnel daté et confirmé indisponible ou invalide ; net après impôt masqué.")
-        }
-        warnings.append(contentsOf: incomeTaxRate?.warnings ?? [])
+        let withholding = EmployeeWithholdingProjectionV2.calculate(
+            netBeforeIncomeTax: netBeforeIncomeTax,
+            netTaxable: netTaxable,
+            incomeTaxRate: incomeTaxRate
+        )
+        var warnings = reference.warnings + withholding.warnings
 
         if socialGross == nil && !warnings.contains(where: { $0.hasPrefix("Brut social :") }) {
             warnings.append(
@@ -165,8 +150,8 @@ enum SalaryWorkspaceResolverV2 {
             socialGross: socialGross,
             netBeforeIncomeTax: netBeforeIncomeTax,
             netTaxable: netTaxable,
-            incomeTax: incomeTax,
-            netAfterIncomeTax: netAfterIncomeTax,
+            incomeTax: withholding.incomeTax,
+            netAfterIncomeTax: withholding.netAfterIncomeTax,
             warnings: unique(warnings)
         )
     }

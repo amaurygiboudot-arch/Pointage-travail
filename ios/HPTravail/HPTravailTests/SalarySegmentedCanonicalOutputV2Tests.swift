@@ -146,7 +146,72 @@ final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
         XCTAssertTrue(result.warnings.contains(SalarySegmentedCanonicalOutputAssemblerV2.netProofWarning))
     }
 
-    private func projectionInput(cashGross: Double) -> EmployeeNetProjectionV2.Input {
+    func testCanonicalOutputAcceptsCashHalfCentNormalizedByNetProjection() {
+        let worked = fixtureWorked()
+        let cash = cash(worked, 3000.005)
+        let projected = projectedNet(cash)
+        let result = SalarySegmentedCanonicalOutputAssemblerV2.assemble(
+            period: YearMonthV2(year: 2026, month: 4)!, worked: worked, cash: cash, net: projected
+        )
+        XCTAssertTrue(result.cashGrossReliable)
+        XCTAssertTrue(result.netBeforeIncomeTaxComplete)
+        XCTAssertEqual(result.netBeforeIncomeTax ?? -1, 2313.63, accuracy: 0.000000001)
+        XCTAssertEqual(result.netTaxable ?? -1, 2411.46, accuracy: 0.000000001)
+        XCTAssertFalse(result.warnings.contains(SalarySegmentedCanonicalOutputAssemblerV2.netProofWarning))
+    }
+
+    func testCanonicalOutputKeepsBenefitHalfCentThroughWorkspace() {
+        let worked = fixtureWorked()
+        let cash = cash(worked, 3000)
+        let result = SalarySegmentedCanonicalOutputAssemblerV2.assemble(
+            period: YearMonthV2(year: 2026, month: 4)!, worked: worked, cash: cash,
+            net: projectedNet(cash, benefitsGross: 10.005)
+        )
+        XCTAssertTrue(result.netBeforeIncomeTaxComplete)
+        XCTAssertEqual(result.netBeforeIncomeTax ?? -1, 2311.54, accuracy: 0.000000001)
+        XCTAssertEqual(result.netTaxable ?? -1, 2419.66, accuracy: 0.000000001)
+        let workspace = SalaryWorkspaceResolverV2.resolve(
+            period: YearMonthV2(year: 2026, month: 4)!, segmented: result
+        )
+        XCTAssertTrue(workspace.sourceReady)
+        XCTAssertEqual(workspace.socialGross ?? -1, 3010.01, accuracy: 0.000000001)
+        XCTAssertEqual(workspace.netBeforeIncomeTax ?? -1, 2311.54, accuracy: 0.000000001)
+    }
+
+    func testCanonicalOutputStillRejectsDifferentNormalizedCashCent() {
+        let worked = fixtureWorked()
+        let cash = cash(worked, 3000.005)
+        let projection = EmployeeNetProjectionV2.calculate(projectionInput(cashGross: 3000.004))
+        let inconsistent = SalarySegmentedCashGrossNetProjectionResultV2(
+            cash: cash, projection: projection, cashGrossReliable: true,
+            netBeforeIncomeTaxComplete: true, warnings: projection.warnings
+        )
+        let result = SalarySegmentedCanonicalOutputAssemblerV2.assemble(
+            period: YearMonthV2(year: 2026, month: 4)!, worked: worked, cash: cash, net: inconsistent
+        )
+        XCTAssertTrue(result.cashGrossReliable)
+        XCTAssertFalse(result.netBeforeIncomeTaxComplete)
+        XCTAssertNil(result.netBeforeIncomeTax)
+        XCTAssertNil(result.netTaxable)
+        XCTAssertTrue(result.warnings.contains(SalarySegmentedCanonicalOutputAssemblerV2.netProofWarning))
+    }
+
+    private func projectedNet(
+        _ cash: SalarySegmentedCashGrossAssemblyResultV2, benefitsGross: Double = 0
+    ) -> SalarySegmentedCashGrossNetProjectionResultV2 {
+        let input = projectionInput(cashGross: cash.cashGross!, benefitsGross: benefitsGross)
+        return SalarySegmentedCashGrossNetProjectionV2.project(
+            cash: cash,
+            context: .init(benefits: input.benefits, year: input.year, ceiling: input.ceiling,
+                           alsaceMoselleLocalRegime: input.alsaceMoselleLocalRegime,
+                           professionalStatus: input.professionalStatus,
+                           protectionCategory: input.protectionCategory,
+                           companyDeductions: input.companyDeductions, period: input.period,
+                           incomeTaxRate: input.incomeTaxRate)
+        )
+    }
+
+    private func projectionInput(cashGross: Double, benefitsGross: Double = 0) -> EmployeeNetProjectionV2.Input {
         let period = CompanyEmployeeDeductionResolverV2.YearMonth(year: 2026, month: 4)!
         let kinds: [(String, CompanyEmployeeDeductionResolverV2.Kind, Double)] = [
             ("mutual", .mutualEmployee, 42),
@@ -166,7 +231,7 @@ final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
         return .init(
             cashGross: cashGross,
             upstreamGrossReliable: true,
-            benefits: .init(applied: [], totalGross: 0, reliable: true, warnings: []),
+            benefits: .init(applied: [], totalGross: benefitsGross, reliable: true, warnings: []),
             year: 2026,
             ceiling: SocialSecurityCeilingV2.calculate(
                 .init(period: YearMonthV2(year: 2026, month: 4)!,
