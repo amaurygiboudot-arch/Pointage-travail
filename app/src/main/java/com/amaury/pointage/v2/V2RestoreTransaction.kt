@@ -64,6 +64,20 @@ object V2RestoreTransaction {
             else block()
         }
 
+    /** A diagnostic must not roll back PREPARED or clean up COMMITTED while merely reading. */
+    internal fun <T> withReadOnlySnapshot(context: Context, scope: String, unavailable: () -> T, block: () -> T): T =
+        synchronized(monitor) {
+            fun blocked(): Boolean {
+                val file = journal(context).baseFile
+                return V2RuntimeAccountScope.fileName("scope", scope) == null || publishing ||
+                    file.exists() || File(file.path + ".bak").exists() || File(file.path + ".new").exists()
+            }
+            if (blocked()) unavailable() else {
+                val result = block()
+                if (blocked()) unavailable() else result
+            }
+        }
+
     /** Device settings may be read before authentication, but never during a partial restore. */
     fun <T> withSharedAccess(context: Context, unavailable: () -> T, block: () -> T): T =
         synchronized(monitor) {

@@ -92,13 +92,73 @@ enum WorkSessionStorageResolutionV2: Equatable {
 
 /** Lecture fail-closed du journal de pointage iOS. */
 enum WorkSessionPersistenceV2 {
-    static func read(_ data: Data?) -> WorkSessionsReadV2 {
-        guard let data else { return .missing }
-        guard let sessions = try? JSONDecoder().decode([WorkSession].self, from: data),
-              isStructurallyValid(sessions) else {
-            return .corrupt
+    enum IssueCode: String {
+        case invalidJSON, missingField, invalidType, invalidValue, duplicateIdentity
+        case multipleOpenSessions, multipleOpenPauses, invalidTime, unqualifiedPause, overlap, invalidSegment, invalidGPSProvenance
+    }
+    enum Field: String {
+        case id, entry, exit, pauses, employerId, placeLabel, closureOrigin, departureObservedAt, segments
+        case gpsEntryEventId, gpsExitEventId, gpsZoneId, gpsConfigurationFingerprint, gpsAccountScope, gpsHomeExclusionConfigured
+        case start, end, paid, kind, confirmed
+    }
+    enum PathPart: Equatable {
+        case field(Field), index(Int)
+        var text: String {
+            switch self {
+            case .field(let field): return field.rawValue
+            case .index(let index): return "[\(index + 1)]"
+            }
         }
-        return .valid(sessions)
+    }
+    struct Issue: Equatable {
+        let code: IssueCode
+        let path: [PathPart]
+        var otherPath: [PathPart]? = nil
+    }
+    struct Inspection {
+        let result: WorkSessionsReadV2
+        let issue: Issue?
+    }
+
+    static func read(_ data: Data?) -> WorkSessionsReadV2 {
+        inspect(data).result
+    }
+
+    /// The same decoder and validator serve persistence and the ephemeral recovery consultation.
+    /// Decoder descriptions and arbitrary JSON keys never leave this boundary.
+    static func inspect(_ data: Data?, historicalUnpaidCompatibility: Bool = false) -> Inspection {
+        guard let data else { return Inspection(result: .missing, issue: nil) }
+        var sessions: [WorkSession]
+        do { sessions = try JSONDecoder().decode([WorkSession].self, from: data) }
+        catch {
+            let code: IssueCode
+            let path: [CodingKey]
+            switch error {
+            case DecodingError.keyNotFound(let key, let context): code = .missingField; path = context.codingPath + [key]
+            case DecodingError.typeMismatch(_, let context): code = .invalidType; path = context.codingPath
+            case DecodingError.valueNotFound(_, let context): code = .invalidValue; path = context.codingPath
+            case DecodingError.dataCorrupted(let context):
+                code = context.codingPath.isEmpty ? .invalidJSON : .invalidValue; path = context.codingPath
+            default: code = .invalidJSON; path = []
+            }
+            let safePath: [PathPart] = path.compactMap {
+                if let index = $0.intValue, index >= 0 { return .index(index) }
+                return Field(rawValue: $0.stringValue).map { .field($0) }
+            }
+            return Inspection(result: .corrupt, issue: Issue(code: code, path: safePath))
+        }
+        if historicalUnpaidCompatibility {
+            for sessionIndex in sessions.indices {
+                for pauseIndex in sessions[sessionIndex].pauses.indices {
+                    if sessions[sessionIndex].pauses[pauseIndex].end != nil,
+                       sessions[sessionIndex].pauses[pauseIndex].paid == nil {
+                        sessions[sessionIndex].pauses[pauseIndex].paid = false
+                    }
+                }
+            }
+        }
+        if let issue = structuralIssue(sessions) { return Inspection(result: .corrupt, issue: issue) }
+        return Inspection(result: .valid(sessions), issue: nil)
     }
 
     /** Un candidat invalide ne doit jamais remplacer le dernier journal valide. */
@@ -135,95 +195,103 @@ enum WorkSessionPersistenceV2 {
     }
 
     private static func readHistoricalUnpaidCompatibility(_ data: Data?) -> WorkSessionsReadV2 {
-        guard let data else { return .missing }
-        guard var sessions = try? JSONDecoder().decode([WorkSession].self, from: data) else {
-            return .corrupt
-        }
-
-        for sessionIndex in sessions.indices {
-            for pauseIndex in sessions[sessionIndex].pauses.indices {
-                if sessions[sessionIndex].pauses[pauseIndex].end != nil,
-                   sessions[sessionIndex].pauses[pauseIndex].paid == nil {
-                    sessions[sessionIndex].pauses[pauseIndex].paid = false
-                }
-            }
-        }
-
-        guard isStructurallyValid(sessions) else { return .corrupt }
-        return .valid(sessions)
+        inspect(data, historicalUnpaidCompatibility: true).result
     }
 
     static func isStructurallyValid(_ sessions: [WorkSession]) -> Bool {
-        guard Set(sessions.map(\.id)).count == sessions.count else { return false }
-        guard sessions.filter({ $0.exit == nil }).count <= 1 else { return false }
+        structuralIssue(sessions) == nil
+    }
 
-        for session in sessions {
-            guard session.entry.timeIntervalSinceReferenceDate.isFinite else { return false }
-            if let exit = session.exit, !exit.timeIntervalSinceReferenceDate.isFinite { return false }
-            if let exit = session.exit, exit <= session.entry { return false }
-            if Set(session.pauses.map(\.id)).count != session.pauses.count { return false }
-            if session.pauses.filter({ $0.end == nil }).count > 1 { return false }
+    static func structuralIssue(_ sessions: [WorkSession]) -> Issue? {
+        var identities: [UUID: Int] = [:]
+        for (index, session) in sessions.enumerated() {
+            if let previous = identities.updateValue(index, forKey: session.id) {
+                return Issue(code: .duplicateIdentity, path: [.index(previous), .field(.id)], otherPath: [.index(index), .field(.id)])
+            }
+        }
+        let open = sessions.indices.filter { sessions[$0].exit == nil }
+        if open.count > 1 {
+            return Issue(code: .multipleOpenSessions, path: [.index(open[0]), .field(.exit)], otherPath: [.index(open[1]), .field(.exit)])
+        }
+        for (sessionIndex, session) in sessions.enumerated() {
+            let row: [PathPart] = [.index(sessionIndex)]
+            func issue(_ code: IssueCode, _ path: [PathPart], other: [PathPart]? = nil) -> Issue {
+                Issue(code: code, path: row + path, otherPath: other.map { row + $0 })
+            }
+            guard session.entry.timeIntervalSinceReferenceDate.isFinite else { return issue(.invalidTime, [.field(.entry)]) }
+            if let exit = session.exit, !exit.timeIntervalSinceReferenceDate.isFinite { return issue(.invalidTime, [.field(.exit)]) }
+            if let exit = session.exit, exit <= session.entry { return issue(.invalidTime, [.field(.exit)]) }
+            var pauseIDs: [UUID: Int] = [:]
+            for (index, pause) in session.pauses.enumerated() {
+                if let previous = pauseIDs.updateValue(index, forKey: pause.id) {
+                    return issue(.duplicateIdentity, [.field(.pauses), .index(previous), .field(.id)], other: [.field(.pauses), .index(index), .field(.id)])
+                }
+            }
+            let openPauses = session.pauses.indices.filter { session.pauses[$0].end == nil }
+            if openPauses.count > 1 {
+                return issue(.multipleOpenPauses, [.field(.pauses), .index(openPauses[0]), .field(.end)], other: [.field(.pauses), .index(openPauses[1]), .field(.end)])
+            }
             if let segments = session.segments {
-                guard !segments.isEmpty else { return false }
+                guard !segments.isEmpty else { return issue(.invalidSegment, [.field(.segments)]) }
                 var cursor = session.entry
                 for (index, segment) in segments.enumerated() {
-                    guard segment.start.timeIntervalSinceReferenceDate.isFinite,
-                          segment.start == cursor,
-                          segment.kind != .toConfirm || !segment.confirmed else { return false }
+                    let path: [PathPart] = [.field(.segments), .index(index)]
+                    guard segment.start.timeIntervalSinceReferenceDate.isFinite, segment.start == cursor else { return issue(.invalidSegment, path + [.field(.start)]) }
+                    guard segment.kind != .toConfirm || !segment.confirmed else { return issue(.invalidSegment, path + [.field(.confirmed)]) }
                     if let end = segment.end {
                         guard end.timeIntervalSinceReferenceDate.isFinite, end > segment.start,
-                              session.exit.map({ end <= $0 }) ?? true else { return false }
+                              session.exit.map({ end <= $0 }) ?? true else { return issue(.invalidSegment, path + [.field(.end)]) }
                         cursor = end
                     } else {
-                        guard session.exit == nil, index == segments.count - 1 else { return false }
+                        guard session.exit == nil, index == segments.count - 1 else { return issue(.invalidSegment, path + [.field(.end)]) }
                     }
                 }
-                if let exit = session.exit, cursor != exit { return false }
+                if let exit = session.exit, cursor != exit { return issue(.invalidSegment, [.field(.segments), .index(segments.count - 1), .field(.end)]) }
             }
             if let eventId = session.gpsEntryEventId {
-                guard eventId == session.id, session.gpsZoneId != nil,
-                      session.gpsConfigurationFingerprint?.isEmpty == false,
-                      session.gpsAccountScope?.isEmpty == false,
-                      session.employerId?.isEmpty == false, session.segments != nil else { return false }
+                guard eventId == session.id else { return issue(.invalidGPSProvenance, [.field(.gpsEntryEventId)]) }
+                guard session.gpsZoneId != nil else { return issue(.invalidGPSProvenance, [.field(.gpsZoneId)]) }
+                guard session.gpsConfigurationFingerprint?.isEmpty == false else { return issue(.invalidGPSProvenance, [.field(.gpsConfigurationFingerprint)]) }
+                guard session.gpsAccountScope?.isEmpty == false else { return issue(.invalidGPSProvenance, [.field(.gpsAccountScope)]) }
+                guard session.employerId?.isEmpty == false else { return issue(.invalidGPSProvenance, [.field(.employerId)]) }
+                guard session.segments != nil else { return issue(.invalidGPSProvenance, [.field(.segments)]) }
             }
             if session.gpsExitEventId != nil {
-                guard session.exit != nil, session.departureObservedAt == session.exit,
-                      session.closureOrigin == "AUTOMATIC", session.segments != nil else { return false }
+                guard session.exit != nil else { return issue(.invalidGPSProvenance, [.field(.exit)]) }
+                guard session.departureObservedAt == session.exit else { return issue(.invalidGPSProvenance, [.field(.departureObservedAt)]) }
+                guard session.closureOrigin == "AUTOMATIC" else { return issue(.invalidGPSProvenance, [.field(.closureOrigin)]) }
+                guard session.segments != nil else { return issue(.invalidGPSProvenance, [.field(.segments)]) }
             }
-
-            for pause in session.pauses {
-                guard pause.start.timeIntervalSinceReferenceDate.isFinite,
-                      pause.start >= session.entry else { return false }
+            for (index, pause) in session.pauses.enumerated() {
+                let path: [PathPart] = [.field(.pauses), .index(index)]
+                guard pause.start.timeIntervalSinceReferenceDate.isFinite, pause.start >= session.entry else { return issue(.invalidTime, path + [.field(.start)]) }
                 if let end = pause.end {
-                    guard end.timeIntervalSinceReferenceDate.isFinite,
-                          end > pause.start else { return false }
-                    guard pause.paid != nil else { return false }
-                    if let exit = session.exit, end > exit { return false }
-                } else if session.exit != nil {
-                    return false
-                }
+                    guard end.timeIntervalSinceReferenceDate.isFinite, end > pause.start else { return issue(.invalidTime, path + [.field(.end)]) }
+                    guard pause.paid != nil else { return issue(.unqualifiedPause, path + [.field(.paid)]) }
+                    if let exit = session.exit, end > exit { return issue(.invalidTime, path + [.field(.end)]) }
+                } else if session.exit != nil { return issue(.invalidTime, path + [.field(.end)]) }
             }
-
-            let orderedPauses = session.pauses.sorted { $0.start < $1.start }
+            let orderedPauses = session.pauses.indices.sorted { session.pauses[$0].start < session.pauses[$1].start }
             if orderedPauses.count > 1 {
                 for index in 1..<orderedPauses.count {
-                    let previousEnd = orderedPauses[index - 1].end ?? .distantFuture
-                    if orderedPauses[index].start < previousEnd { return false }
+                    let previous = orderedPauses[index - 1], current = orderedPauses[index]
+                    let previousEnd = session.pauses[previous].end ?? .distantFuture
+                    if session.pauses[current].start < previousEnd {
+                        return issue(.overlap, [.field(.pauses), .index(previous), .field(.end)], other: [.field(.pauses), .index(current), .field(.start)])
+                    }
                 }
             }
         }
         for firstIndex in sessions.indices {
             for secondIndex in sessions.indices where secondIndex > firstIndex {
-                let first = sessions[firstIndex]
-                let second = sessions[secondIndex]
-                let firstEnd = first.exit ?? .distantFuture
-                let secondEnd = second.exit ?? .distantFuture
+                let first = sessions[firstIndex], second = sessions[secondIndex]
+                let firstEnd = first.exit ?? .distantFuture, secondEnd = second.exit ?? .distantFuture
                 if first.entry < secondEnd && second.entry < firstEnd {
-                    return false
+                    return Issue(code: .overlap, path: [.index(firstIndex), .field(.entry)], otherPath: [.index(secondIndex), .field(.entry)])
                 }
             }
         }
-        return true
+        return nil
     }
 }
 

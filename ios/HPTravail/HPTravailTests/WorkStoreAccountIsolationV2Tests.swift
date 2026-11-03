@@ -136,5 +136,29 @@ final class WorkStoreAccountIsolationV2Tests: XCTestCase {
         XCTAssertEqual(defaults.data(forKey: WorkSessionStorageV2.primaryKey), bytes)
     }
 
+    func testRecoveryConsultationInvalidatesAcrossAccountRoundTripAndReloadWithoutWriting() throws {
+        let suite = "workstore-consultation-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(Data("invalid private journal".utf8), forKey: WorkSessionStorageV2.primaryKey)
+        var account: String? = "uid:A"
+        var generation: UInt64 = 1
+        let store = WorkStoreV2(defaults: defaults, authenticationGenerationProvider: { generation }, accountProvider: { account })
+        let before = defaults.dictionaryRepresentation() as NSDictionary
+        let consent = try store.beginRecoveryDiagnostic()
+        XCTAssertThrowsError(try store.consultRecoveryDiagnostic(consent, ownershipDeclared: false))
+        XCTAssertEqual(try store.consultRecoveryDiagnostic(consent, ownershipDeclared: true).stage, .primaryV2)
+        account = "uid:B"; generation += 1
+        account = "uid:A"; generation += 1 // No intermediate rendering or reload is needed.
+        XCTAssertFalse(store.recoveryDiagnosticIsCurrent(consent))
+        XCTAssertThrowsError(try store.consultRecoveryDiagnostic(consent, ownershipDeclared: true))
+        let refreshed = try store.beginRecoveryDiagnostic()
+        store.reloadAccount()
+        XCTAssertFalse(store.recoveryDiagnosticIsCurrent(refreshed))
+        XCTAssertEqual(defaults.dictionaryRepresentation() as NSDictionary, before)
+        account = nil; generation += 1
+        XCTAssertThrowsError(try store.beginRecoveryDiagnostic())
+    }
+
 }
 #endif

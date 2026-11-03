@@ -4,6 +4,60 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class V2LegacyJournalRecoveryTest {
+    @Test fun diagnosticInstrumentationPreservesDifferentLegacyAndRuntimeTypeRules() {
+        val numericHistory = mapOf("history" to """[{"id":"numeric","realEntry":"1000","realExit":"2000","pauses":[],"extra":"preserved"}]""")
+        val trace = LegacyJournalDiagnosticV2.Trace()
+        trace.register(numericHistory, LegacyJournalDiagnosticV2.Source.V2)
+        assertTrue(V2LegacyJournalRecovery.validSource(numericHistory, trace))
+        assertNull(trace.issue)
+        val floating = org.json.JSONArray(numericHistory["history"]!!)
+        floating.getJSONObject(0).put("realExit", 2000.0)
+        assertTrue(V2RuntimeHistoryGuardV2.inspect(floating).reliable)
+        assertEquals(V2LegacyJournalRecovery.merge(emptyMap<String, Any>(), numericHistory),
+            V2LegacyJournalRecovery.merge(emptyMap<String, Any>(), numericHistory, trace))
+        val current = current() + ("real_entry" to "1000")
+        assertFalse(V2LegacyJournalRecovery.validSource(current))
+        assertFalse(V2LegacyJournalRecovery.validSource(current, LegacyJournalDiagnosticV2.Trace()))
+        val legacy = """[{"arrivalTime":"1000","exitTime":2000,"pauses":[]}]"""
+        assertNull(V2LegacyJournalRecovery.convertLegacy(legacy))
+        assertNull(V2LegacyJournalRecovery.convertLegacy(legacy, LegacyJournalDiagnosticV2.Trace()))
+    }
+
+    @Test fun diagnosticKeepsCurrentArchiveSubsetComparisonAndAdjacentIntervals() {
+        val current = current() + mapOf("real_exit" to 2000L,
+            "history" to """[{"id":"one","realEntry":1000,"realExit":2000,"countedEntry":1000,"timeBasis":"REAL_FACTS","pauses":[],"extra":"preserved"}]""")
+        assertTrue(V2LegacyJournalRecovery.validSource(current))
+        assertTrue(V2LegacyJournalRecovery.validSource(current, LegacyJournalDiagnosticV2.Trace()))
+        val first = history("a", 1000, 2000)
+        val second = history("b", 2000, 3000)
+        assertEquals(V2LegacyJournalRecovery.merge(first, second),
+            V2LegacyJournalRecovery.merge(first, second, LegacyJournalDiagnosticV2.Trace()))
+    }
+
+    @Test fun diagnosticLocatesArchivePauseSegmentAndCurrentPaidFieldWithoutChangingRejection() {
+        fun issue(values: Map<String, *>): LegacyJournalDiagnosticV2.Issue {
+            val trace = LegacyJournalDiagnosticV2.Trace()
+            trace.register(values, LegacyJournalDiagnosticV2.Source.V2)
+            assertFalse(V2LegacyJournalRecovery.validSource(values))
+            assertFalse(V2LegacyJournalRecovery.validSource(values, trace))
+            return trace.issue!!
+        }
+        val unreadable = issue(mapOf("history" to "not-json"))
+        assertEquals("history", unreadable.field)
+        assertFalse(unreadable.first.current)
+        assertEquals(LegacyJournalDiagnosticV2.Stage.V2, unreadable.stage)
+        val pause = issue(mapOf("history" to """[{"id":"one","realEntry":1000,"realExit":4000,"pauses":[{"start":2000,"end":3000,"source":"GPS"}]}]"""))
+        assertEquals("paid", pause.field)
+        assertEquals(1, pause.first.row); assertEquals(1, pause.first.pause)
+        assertEquals(LegacyJournalDiagnosticV2.Code.PAUSE_UNQUALIFIED, pause.code)
+        val segment = issue(mapOf("history" to """[{"id":"one","realEntry":1000,"realExit":4000,"pauses":[],"workSegments":[{"start":1000,"end":4000,"kind":"invalid-private-value","status":"CONFIRMED"}]}]"""))
+        assertEquals("kind", segment.field); assertEquals(1, segment.first.segment)
+        assertFalse(segment.render().contains("invalid-private-value"))
+        val current = issue(current() + mapOf("pause_start" to 2000L, "pause_source" to "GPS", "pause_paid" to "false"))
+        assertEquals("pause_paid", current.field)
+        assertTrue(current.first.current)
+    }
+
     private fun history(id: String, start: Long, end: Long) = mapOf("history" to
         """[{"id":"$id","realEntry":$start,"countedEntry":$start,"realExit":$end,"countedExit":$end,"employerId":null,"pauses":[]}]""")
 

@@ -53,6 +53,37 @@ final class WorkStoreV2: ObservableObject {
         WorkSessionAccountStorageV2.hasUnassignedHistory(defaults: defaults)
     }
 
+    private var recoveryDiagnosticGeneration: UInt64 = 0
+    private var observedDiagnosticAuthGeneration: UInt64?
+    private var observedDiagnosticAccount: String?
+    private let authenticationGenerationProvider: () -> UInt64
+
+    private func recoveryDiagnosticContext() -> (String?, UInt64) {
+        let account = accountProvider(), generation = authenticationGenerationProvider()
+        if generation != observedDiagnosticAuthGeneration || account != observedDiagnosticAccount {
+            recoveryDiagnosticGeneration &+= 1
+            observedDiagnosticAuthGeneration = generation
+            observedDiagnosticAccount = account
+        }
+        return (account, recoveryDiagnosticGeneration)
+    }
+
+    func beginRecoveryDiagnostic() throws -> WorkSessionAccountStorageV2.DiagnosticConsent {
+        let context = recoveryDiagnosticContext()
+        return try WorkSessionAccountStorageV2.diagnosticConsent(account: context.0, generation: context.1, defaults: defaults)
+    }
+
+    func recoveryDiagnosticIsCurrent(_ consent: WorkSessionAccountStorageV2.DiagnosticConsent) -> Bool {
+        let context = recoveryDiagnosticContext()
+        return WorkSessionAccountStorageV2.diagnosticIsCurrent(consent, account: context.0, generation: context.1, defaults: defaults)
+    }
+
+    func consultRecoveryDiagnostic(_ consent: WorkSessionAccountStorageV2.DiagnosticConsent,
+                                   ownershipDeclared: Bool) throws -> WorkSessionAccountStorageV2.RecoveryDiagnostic {
+        try WorkSessionAccountStorageV2.recoveryDiagnostic(consent, ownershipDeclared: ownershipDeclared,
+            contextProvider: recoveryDiagnosticContext, defaults: defaults)
+    }
+
     func recoveryPreview() throws -> WorkSessionAccountStorageV2.RecoveryPreview {
         try WorkSessionAccountStorageV2.recoveryPreview(account: accountProvider(), defaults: defaults)
     }
@@ -83,10 +114,12 @@ final class WorkStoreV2: ObservableObject {
     private let diagnosticRoot: URL
 
     init(defaults: UserDefaults = .standard, diagnosticRoot: URL = DailyDiagnosticV2.directory,
+         authenticationGenerationProvider: @escaping () -> UInt64 = { SalaryAccountSessionV2.capture().generation },
          accountProvider: @escaping () -> String?) {
         self.defaults = defaults
         self.diagnosticRoot = diagnosticRoot
         self.accountProvider = accountProvider
+        self.authenticationGenerationProvider = authenticationGenerationProvider
         reloadAccount()
     }
 
@@ -534,6 +567,7 @@ final class WorkStoreV2: ObservableObject {
     }
 
     func reloadAccount() {
+        recoveryDiagnosticGeneration &+= 1
         let nextAccount = WorkSessionAccountStorageV2.scope(accountProvider())
         if nextAccount != loadedAccount { cachedGpsHistory = nil }
         loadedSessions = []

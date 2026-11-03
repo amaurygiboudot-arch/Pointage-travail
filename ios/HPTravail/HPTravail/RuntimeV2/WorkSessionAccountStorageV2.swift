@@ -88,6 +88,186 @@ enum WorkSessionAccountStorageV2 {
         }
     }
 
+    enum DiagnosticStage: String {
+        case primaryV2, legacyV1, accountV2, historicalMerge, accountMerge, context, complete
+        var label: String {
+            switch self {
+            case .primaryV2: return "lecture de l’ancien V2"
+            case .legacyV1: return "lecture de l’ancien V1 (compatibilité iOS)"
+            case .accountV2: return "lecture du journal du compte"
+            case .historicalMerge: return "rapprochement des anciens journaux"
+            case .accountMerge: return "rapprochement avec le compte"
+            case .context: return "vérification du contexte"
+            case .complete: return "contrôle terminé"
+            }
+        }
+    }
+    enum DiagnosticSource: String {
+        case primaryV2, legacyV1, accountV2
+        var label: String {
+            switch self {
+            case .primaryV2: return "Ancien V2"
+            case .legacyV1: return "Ancien V1"
+            case .accountV2: return "Journal du compte"
+            }
+        }
+    }
+    struct DiagnosticReference: Equatable {
+        let source: DiagnosticSource
+        let path: [WorkSessionPersistenceV2.PathPart]
+        var text: String {
+            guard case .index(let index) = path.first else { return source.label + (path.isEmpty ? "" : " : " + path.map(\.text).joined(separator: ".")) }
+            return source.label + ", pointage n° \(index + 1)" + (path.count > 1 ? " : " + path.dropFirst().map(\.text).joined(separator: ".") : "")
+        }
+    }
+    enum DiagnosticReason: Equatable {
+        case validation(WorkSessionPersistenceV2.IssueCode)
+        case identityConflict, unreadableStorage, signedInRequired, missing, unreadable, conflict, changed, reserved, unverifiable, eligible
+        var label: String {
+            switch self {
+            case .validation(let issue):
+                switch issue {
+                case .invalidJSON: return "JSON illisible"
+                case .missingField: return "champ obligatoire absent"
+                case .invalidType: return "type de champ invalide"
+                case .invalidValue: return "valeur de champ invalide"
+                case .duplicateIdentity: return "identifiant répété"
+                case .multipleOpenSessions: return "plusieurs pointages ouverts"
+                case .multipleOpenPauses: return "plusieurs pauses ouvertes"
+                case .invalidTime: return "horaires incohérents"
+                case .unqualifiedPause: return "pause terminée sans statut payé"
+                case .overlap: return "périodes qui se chevauchent"
+                case .invalidSegment: return "segment incohérent"
+                case .invalidGPSProvenance: return "origine GPS incohérente"
+                }
+            case .identityConflict: return "même identifiant, contenu différent"
+            case .unreadableStorage, .unreadable: return "source ou reçu illisible"
+            case .signedInRequired: return "connexion au compte nécessaire"
+            case .missing: return "aucun ancien journal"
+            case .conflict: return "journaux incompatibles"
+            case .changed: return "contexte modifié"
+            case .reserved: return "journal réservé à un autre compte"
+            case .unverifiable: return "contrôle non vérifiable"
+            case .eligible: return "aucun blocage détecté"
+            }
+        }
+        var code: String {
+            switch self {
+            case .validation(let code): return code.rawValue
+            case .identityConflict: return "identityConflict"
+            case .unreadableStorage: return "unreadableStorage"
+            case .signedInRequired: return "signedInRequired"
+            case .missing: return "missing"
+            case .unreadable: return "unreadable"
+            case .conflict: return "conflict"
+            case .changed: return "changed"
+            case .reserved: return "reserved"
+            case .unverifiable: return "unverifiable"
+            case .eligible: return "eligible"
+            }
+        }
+    }
+    struct RecoveryDiagnostic: Equatable {
+        let stage: DiagnosticStage
+        let reason: DiagnosticReason
+        var code: String { reason.code }
+        let references: [DiagnosticReference]
+        var text: String {
+            if stage == .complete { return "Contrôle terminé : aucun blocage détecté. Aucun pointage transféré." }
+            let location = references.map(\.text).joined(separator: " ; ")
+            return "Étape : \(stage.label). Motif : \(reason.label) (\(code))." + (location.isEmpty ? "" : "\n" + location) +
+                "\nContrôle interrompu à cette étape ; les étapes suivantes n’ont pas été vérifiées. Aucun pointage transféré."
+        }
+    }
+    fileprivate enum StoredValue: Equatable {
+        case missing, data(Data), unreadable(String)
+        init(_ object: Any?) {
+            guard let object else { self = .missing; return }
+            if let data = object as? Data { self = .data(data); return }
+            // Hash the property-list value, including its type; never render it.
+            let bytes = try? PropertyListSerialization.data(fromPropertyList: object, format: .binary, options: 0)
+            self = .unreadable(bytes.map { digest($0) } ?? UUID().uuidString)
+        }
+        var data: Data? { if case .data(let data) = self { return data }; return nil }
+        var exists: Bool { self != .missing }
+    }
+    fileprivate struct RecoveryInputs: Equatable {
+        let primary: StoredValue
+        let legacy: StoredValue
+        let destination: StoredValue
+        let recovery: StoredValue
+    }
+    struct DiagnosticConsent {
+        fileprivate let account: String
+        fileprivate let generation: UInt64
+        fileprivate let inputs: RecoveryInputs
+    }
+    private final class RecoveryTrace {
+        var references: [UUID: DiagnosticReference] = [:]
+        var report: RecoveryDiagnostic?
+        func reject(_ stage: DiagnosticStage, _ reason: DiagnosticReason, _ references: [DiagnosticReference] = []) {
+            if report == nil { report = RecoveryDiagnostic(stage: stage, reason: reason, references: references) }
+        }
+        func reject(_ stage: DiagnosticStage, _ issue: WorkSessionPersistenceV2.Issue,
+                    reference: ([WorkSessionPersistenceV2.PathPart]) -> DiagnosticReference) {
+            reject(stage, .validation(issue.code), [issue.path, issue.otherPath].compactMap { $0 }.map(reference))
+        }
+    }
+    private static func inputs(account: String, defaults: UserDefaults) -> RecoveryInputs {
+        RecoveryInputs(primary: StoredValue(defaults.object(forKey: WorkSessionStorageV2.primaryKey)),
+            legacy: StoredValue(defaults.object(forKey: WorkSessionStorageV2.legacyKey)),
+            destination: StoredValue(defaults.object(forKey: key(account: account)!)),
+            recovery: StoredValue(defaults.object(forKey: recoveryKey)))
+    }
+
+    /// Captures bytes only. Detailed decoding starts only after the separate ownership declaration.
+    static func diagnosticConsent(account: String?, generation: UInt64, defaults: UserDefaults) throws -> DiagnosticConsent {
+        lock.lock(); defer { lock.unlock() }
+        guard let account, account.hasPrefix("uid:"), account.count > 4 else { throw RecoveryError.signedInRequired }
+        return DiagnosticConsent(account: account, generation: generation, inputs: inputs(account: account, defaults: defaults))
+    }
+
+    static func diagnosticIsCurrent(_ consent: DiagnosticConsent, account: String?, generation: UInt64, defaults: UserDefaults) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return consent.account == account && consent.generation == generation &&
+            consent.inputs == inputs(account: consent.account, defaults: defaults)
+    }
+
+    static func recoveryDiagnostic(_ consent: DiagnosticConsent, ownershipDeclared: Bool,
+                                   contextProvider: () -> (String?, UInt64), defaults: UserDefaults) throws -> RecoveryDiagnostic {
+        lock.lock(); defer { lock.unlock() }
+        let context = contextProvider()
+        guard ownershipDeclared, diagnosticIsCurrent(consent, account: context.0, generation: context.1, defaults: defaults) else { throw RecoveryError.changed }
+        // A foreign reservation never grants access to the historical details.
+        if consent.inputs.recovery.exists {
+            // Read ownership before decoding any journal embedded in a receipt.
+            struct Owner: Decodable { let owner: String }
+            guard let bytes = consent.inputs.recovery.data,
+                  let owner = try? JSONDecoder().decode(Owner.self, from: bytes) else { throw RecoveryError.corrupt }
+            guard owner.owner == consent.account else { throw RecoveryError.reserved }
+            guard receipt(bytes) != nil else { throw RecoveryError.corrupt }
+        }
+        let trace = RecoveryTrace()
+        do { _ = try recoveryPreview(account: consent.account, inputs: consent.inputs, trace: trace) }
+        catch let error as RecoveryError { trace.reject(.context, contextCode(error)) }
+        catch { trace.reject(.context, .unverifiable) }
+        let checked = contextProvider()
+        guard diagnosticIsCurrent(consent, account: checked.0, generation: checked.1, defaults: defaults) else { throw RecoveryError.changed }
+        return trace.report ?? RecoveryDiagnostic(stage: .complete, reason: .eligible, references: [])
+    }
+
+    private static func contextCode(_ error: RecoveryError) -> DiagnosticReason {
+        switch error {
+        case .signedInRequired: return .signedInRequired
+        case .missing: return .missing
+        case .corrupt: return .unreadable
+        case .conflict: return .conflict
+        case .changed: return .changed
+        case .reserved: return .reserved
+        case .persistence: return .unverifiable
+        }
+    }
+
     private struct SourceBytes: Codable { let primary: Data?; let legacy: Data? }
     private struct RecoveryReceipt: Codable, Equatable {
         let version: Int
@@ -108,33 +288,61 @@ enum WorkSessionAccountStorageV2 {
     }
 
     private static func source(_ defaults: UserDefaults) throws -> (String, [WorkSession]) {
-        let primary = defaults.data(forKey: WorkSessionStorageV2.primaryKey)
-        let legacy = defaults.data(forKey: WorkSessionStorageV2.legacyKey)
+        try source(RecoveryInputs(primary: StoredValue(defaults.object(forKey: WorkSessionStorageV2.primaryKey)),
+            legacy: StoredValue(defaults.object(forKey: WorkSessionStorageV2.legacyKey)), destination: .missing, recovery: .missing))
+    }
+
+    private static func source(_ inputs: RecoveryInputs, trace: RecoveryTrace? = nil) throws -> (String, [WorkSession]) {
+        let primary = inputs.primary.data, legacy = inputs.legacy.data
         guard primary != nil || legacy != nil else {
-            if defaults.object(forKey: WorkSessionStorageV2.primaryKey) != nil || defaults.object(forKey: WorkSessionStorageV2.legacyKey) != nil { throw RecoveryError.corrupt }
+            if inputs.primary.exists || inputs.legacy.exists {
+                let source: DiagnosticSource = inputs.primary.exists ? .primaryV2 : .legacyV1
+                trace?.reject(source == .primaryV2 ? .primaryV2 : .legacyV1, .unreadableStorage, [.init(source: source, path: [])])
+                throw RecoveryError.corrupt
+            }
             throw RecoveryError.missing
         }
-        guard defaults.object(forKey: WorkSessionStorageV2.primaryKey) == nil || primary != nil,
-              defaults.object(forKey: WorkSessionStorageV2.legacyKey) == nil || legacy != nil else { throw RecoveryError.corrupt }
+        guard !inputs.primary.exists || primary != nil else {
+            trace?.reject(.primaryV2, .unreadableStorage, [.init(source: .primaryV2, path: [])]); throw RecoveryError.corrupt
+        }
+        guard !inputs.legacy.exists || legacy != nil else {
+            trace?.reject(.legacyV1, .unreadableStorage, [.init(source: .legacyV1, path: [])]); throw RecoveryError.corrupt
+        }
         let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
         let hash = digest(try encoder.encode(SourceBytes(primary: primary, legacy: legacy)))
-        // Both sources must be accounted for. A valid V2 journal does not prove that
-        // all V1 records were migrated. Divergent identities or overlaps need review.
         var historical: [WorkSession] = []
         if let primary {
-            guard case .valid(let decoded) = WorkSessionPersistenceV2.read(primary) else { throw RecoveryError.corrupt }
-            historical = decoded
+            historical = try decoded(primary, source: .primaryV2, trace: trace)
+            trace?.references = references(historical, source: .primaryV2)
         }
         if let legacy {
-            guard case .valid(let decoded) = WorkSessionPersistenceV2.readLegacy(legacy) else { throw RecoveryError.corrupt }
-            historical = try merged(decoded, historical)
+            let decoded = try decoded(legacy, source: .legacyV1, trace: trace)
+            historical = try merged(decoded, historical, stage: .historicalMerge,
+                historicalReferences: references(decoded, source: .legacyV1), currentReferences: trace?.references ?? [:], trace: trace)
         }
         return (hash, historical.sorted { $0.entry < $1.entry })
     }
 
+    private static func references(_ sessions: [WorkSession], source: DiagnosticSource) -> [UUID: DiagnosticReference] {
+        Dictionary(uniqueKeysWithValues: sessions.enumerated().map { ($0.element.id, DiagnosticReference(source: source, path: [.index($0.offset)])) })
+    }
+
+    private static func decoded(_ data: Data, source: DiagnosticSource, trace: RecoveryTrace?) throws -> [WorkSession] {
+        let inspection = WorkSessionPersistenceV2.inspect(data, historicalUnpaidCompatibility: source == .legacyV1)
+        if let issue = inspection.issue {
+            let stage: DiagnosticStage = source == .primaryV2 ? .primaryV2 : source == .legacyV1 ? .legacyV1 : .accountV2
+            trace?.reject(stage, issue) { DiagnosticReference(source: source, path: $0) }
+        }
+        guard case .valid(let sessions) = inspection.result else { throw RecoveryError.corrupt }
+        return sessions
+    }
+
     private static func receipt(_ defaults: UserDefaults) -> RecoveryReceipt? {
-        guard let data = defaults.data(forKey: recoveryKey),
-              let value = try? JSONDecoder().decode(RecoveryReceipt.self, from: data),
+        receipt(defaults.data(forKey: recoveryKey))
+    }
+
+    private static func receipt(_ data: Data?) -> RecoveryReceipt? {
+        guard let data, let value = try? JSONDecoder().decode(RecoveryReceipt.self, from: data),
               value.version == 1, value.owner.hasPrefix("uid:"), value.owner.count > 4,
               value.ownershipBasis == "explicit_user_declaration_all_records",
               value.declaredAt.timeIntervalSinceReferenceDate.isFinite,
@@ -179,36 +387,61 @@ enum WorkSessionAccountStorageV2 {
         catch { return .corrupt }
     }
 
-    private static func merged(_ historical: [WorkSession], _ current: [WorkSession]) throws -> [WorkSession] {
+    private static func merged(_ historical: [WorkSession], _ current: [WorkSession],
+                               stage: DiagnosticStage = .accountMerge,
+                               historicalReferences: [UUID: DiagnosticReference] = [:],
+                               currentReferences: [UUID: DiagnosticReference] = [:], trace: RecoveryTrace? = nil) throws -> [WorkSession] {
         var merged = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+        var provenance = currentReferences
         for session in historical {
-            if let existing = merged[session.id], existing != session { throw RecoveryError.conflict }
+            if let existing = merged[session.id], existing != session {
+                trace?.reject(stage, .identityConflict, [historicalReferences[session.id], provenance[session.id]].compactMap { $0 }.map {
+                    DiagnosticReference(source: $0.source, path: $0.path + [.field(.id)])
+                })
+                throw RecoveryError.conflict
+            }
             merged[session.id] = session
+            provenance[session.id] = historicalReferences[session.id]
         }
         let result = merged.values.sorted { $0.entry < $1.entry }
-        guard WorkSessionPersistenceV2.isStructurallyValid(result) else { throw RecoveryError.conflict }
+        if let issue = WorkSessionPersistenceV2.structuralIssue(result) {
+            if let trace {
+                let mapped = [issue.path, issue.otherPath].compactMap { $0 }.compactMap { path -> DiagnosticReference? in
+                    guard case .index(let index) = path.first, result.indices.contains(index),
+                          let original = provenance[result[index].id] else { return nil }
+                    return DiagnosticReference(source: original.source, path: original.path + path.dropFirst())
+                }
+                trace.reject(stage, .validation(issue.code), mapped)
+            }
+            throw RecoveryError.conflict
+        }
+        trace?.references = provenance
         return result
     }
 
     static func recoveryPreview(account: String?, defaults: UserDefaults) throws -> RecoveryPreview {
         lock.lock(); defer { lock.unlock() }
         guard let account, account.hasPrefix("uid:"), account.count > 4 else { throw RecoveryError.signedInRequired }
-        let original = try source(defaults)
-        guard let accountKey = key(account: account) else { throw RecoveryError.signedInRequired }
-        let destinationHash = digest(defaults.data(forKey: accountKey))
-        if defaults.object(forKey: recoveryKey) != nil {
-            guard let value = receipt(defaults) else { throw RecoveryError.corrupt }
+        return try recoveryPreview(account: account, inputs: inputs(account: account, defaults: defaults))
+    }
+
+    private static func recoveryPreview(account: String, inputs: RecoveryInputs, trace: RecoveryTrace? = nil) throws -> RecoveryPreview {
+        let original = try source(inputs, trace: trace)
+        let destinationHash = digest(inputs.destination.data)
+        if inputs.recovery.exists {
+            guard let value = receipt(inputs.recovery.data) else { throw RecoveryError.corrupt }
             guard value.owner == account else { throw RecoveryError.reserved }
             guard !value.complete else { throw RecoveryError.changed }
             guard value.sourceDigest == original.0, value.destinationDigest == destinationHash else { throw RecoveryError.changed }
         }
         let current: [WorkSession]
-        switch readOriginalAccount(account: account, defaults: defaults) {
-        case .missing: current = []
-        case .valid(let sessions): current = sessions
-        case .corrupt: throw RecoveryError.corrupt
+        if !inputs.destination.exists { current = [] }
+        else if let data = inputs.destination.data { current = try decoded(data, source: .accountV2, trace: trace) }
+        else {
+            trace?.reject(.accountV2, .unreadableStorage, [.init(source: .accountV2, path: [])]); throw RecoveryError.corrupt
         }
-        _ = try merged(original.1, current)
+        _ = try merged(original.1, current, historicalReferences: trace?.references ?? [:],
+            currentReferences: references(current, source: .accountV2), trace: trace)
         return RecoveryPreview(account: account, sourceDigest: original.0, destinationDigest: destinationHash,
             historicalCount: original.1.count, firstEntry: original.1.map(\.entry).min(),
             lastEntry: original.1.map(\.entry).max(), containsOpenSession: original.1.contains { $0.exit == nil })

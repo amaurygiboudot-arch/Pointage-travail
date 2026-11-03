@@ -38,6 +38,7 @@ struct ContentView: View {
     @State private var recoveryPreview: WorkSessionAccountStorageV2.RecoveryPreview?
     @State private var showRecoveryConfirmation = false
     @State private var recoveryFeedback: String?
+    @State private var showRecoveryDiagnostic = false
     @State private var settingsPage: SettingsPage?
 
     private enum SettingsPage: String {
@@ -85,6 +86,12 @@ struct ContentView: View {
             if recoveryPreview != nil {
                 Text("Compte : \(authManager.user?.email ?? authManager.user?.uid ?? "indisponible").\n\nConfirme uniquement si TOUS les pointages de l’ancien journal de cet appareil t’appartiennent. Si cet appareil a été partagé ou si tu as un doute, annule. Cette déclaration vient de toi ; Firebase ne vérifie pas la propriété de cet historique. Les originaux restent conservés.")
             }
+        }
+        .sheet(isPresented: $showRecoveryDiagnostic) {
+            RecoveryDiagnosticSheetV2().environmentObject(store)
+        }
+        .onChange(of: authManager.salaryAccountGeneration) { _ in
+            showRecoveryDiagnostic = false
         }
         .sheet(isPresented: $showManualEntry) {
             ManualEntrySheetV2()
@@ -146,6 +153,7 @@ struct ContentView: View {
         .onChange(of: authManager.user?.uid) { _ in
             recoveryFeedback = nil
             recoveryPreview = nil
+            showRecoveryDiagnostic = false
             qualificationTarget = nil
             qualificationAccount = nil
             qualificationFeedback = nil
@@ -214,6 +222,8 @@ struct ContentView: View {
                             } catch { recoveryFeedback = error.localizedDescription }
                         }
                         .disabled(!authManager.isSignedIn)
+                        Button("Comprendre le blocage de l’ancien journal") { showRecoveryDiagnostic = true }
+                            .disabled(!authManager.isSignedIn)
                         if !authManager.isSignedIn {
                             Text("Connecte-toi pour déclarer la propriété de l’ancien journal.").font(.footnote)
                         }
@@ -1133,4 +1143,58 @@ private struct ManualEntrySheetV2: View {
         }
         dismiss()
     }
+}
+
+/// A separate consultation: no recovery action, receipt, export or persistent cache.
+private struct RecoveryDiagnosticSheetV2: View {
+    @EnvironmentObject private var store: WorkStoreV2
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var consent: WorkSessionAccountStorageV2.DiagnosticConsent?
+    @State private var ownershipDeclared = false
+    @State private var report: WorkSessionAccountStorageV2.RecoveryDiagnostic?
+    @State private var feedback: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let consent, store.recoveryDiagnosticIsCurrent(consent) {
+                    if let report {
+                        Text(report.text)
+                    } else {
+                        Text("Confirme uniquement si TOUS les pointages de l’ancien journal de cet appareil t’appartiennent. Si cet appareil a été partagé ou si tu as un doute, ferme cet écran. Cette déclaration vient de toi ; Firebase ne vérifie pas la propriété de cet historique. Cette consultation ne transfère aucun pointage.")
+                        Toggle("Tous ces pointages m’appartiennent", isOn: $ownershipDeclared)
+                        Button("Consulter le diagnostic local") {
+                            do { report = try store.consultRecoveryDiagnostic(consent, ownershipDeclared: ownershipDeclared) }
+                            catch { invalidate(error.localizedDescription) }
+                        }
+                        .disabled(!ownershipDeclared)
+                    }
+                } else if feedback == nil {
+                    Text("Le contexte a changé. Ferme cet écran puis ouvre une nouvelle consultation.")
+                }
+                if let feedback { Text(feedback) }
+            }
+            .navigationTitle("Comprendre le blocage")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fermer") { clear(); dismiss() } } }
+        }
+        .onAppear {
+            do { consent = try store.beginRecoveryDiagnostic() }
+            catch { invalidate(error.localizedDescription) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in checkContext() }
+        .onChange(of: scenePhase) { phase in
+            if phase != .active { invalidate("Consultation fermée. Ouvre une nouvelle consultation pour vérifier le contexte.") }
+            else { checkContext() }
+        }
+        .onDisappear { clear() }
+    }
+
+    private func checkContext() {
+        if let consent, !store.recoveryDiagnosticIsCurrent(consent) {
+            invalidate("Le compte ou les journaux ont changé. Ouvre une nouvelle consultation.")
+        }
+    }
+    private func clear() { report = nil; consent = nil; ownershipDeclared = false }
+    private func invalidate(_ message: String) { clear(); feedback = message }
 }

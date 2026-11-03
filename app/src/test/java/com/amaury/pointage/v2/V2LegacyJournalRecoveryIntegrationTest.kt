@@ -16,6 +16,9 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
+import java.io.File
+import org.json.JSONArray
+import org.json.JSONObject
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class,
@@ -117,6 +120,115 @@ class V2LegacyJournalRecoveryIntegrationTest {
         account("a")
         V2RuntimeAccountScope.preferences(context, "horatrack_v2_test_runtime").edit().putString("history", "[]").commit()
         assertFalse(V2LegacyJournalRecovery.confirm(context, preview, true).success)
+    }
+
+    @Test fun diagnosticExplainsRefusedConversionOnlyAfterDeclarationWithoutAnyWrite() {
+        file("pointage").edit().putString("data", """[{"arrivalTime":3000,"exitTime":6000,"pauses":[{"start":4000,"end":5000}]}]""").commit()
+        assertFalse(V2LegacyJournalRecovery.preview(context)!!.eligible)
+        val before = files.mapValues { it.value.all }.filterValues { it.isNotEmpty() }
+        val commits = files.values.sumOf { it.commits }
+        val session = V2LegacyJournalRecovery.beginDiagnostic(context)!!
+        assertFalse(V2LegacyJournalRecovery.diagnose(context, session, false).contains("PAUSE_UNQUALIFIED"))
+        repeat(2) {
+            val report = V2LegacyJournalRecovery.diagnose(context, session, true)
+            assertTrue(report, report.contains("PAUSE_UNQUALIFIED"))
+            assertTrue(report.contains("Ancien journal V1 · pointage n° 1 · pause n° 1"))
+            assertTrue(report.contains("Champ : paid"))
+        }
+        assertEquals(before, files.mapValues { it.value.all }.filterValues { it.isNotEmpty() })
+        assertEquals(commits, files.values.sumOf { it.commits })
+        files.values.forEach { it.restart() }
+        assertEquals(before, files.mapValues { it.value.all }.filterValues { it.isNotEmpty() })
+    }
+
+    @Test fun diagnosticLeaseCannotReviveAfterAccountRoundTripOrSessionInvalidation() {
+        val first = V2LegacyJournalRecovery.beginDiagnostic(context)!!
+        account("b"); SalaryAccountScope.capture()
+        account("a"); SalaryAccountScope.capture()
+        assertFalse(V2LegacyJournalRecovery.diagnosticCurrent(context, first))
+        assertTrue(V2LegacyJournalRecovery.diagnose(context, first, true).contains("indisponible"))
+        val second = V2LegacyJournalRecovery.beginDiagnostic(context)!!
+        SalaryAccountScope.invalidateSession()
+        assertFalse(V2LegacyJournalRecovery.diagnosticCurrent(context, second))
+        assertTrue(file("horatrack_v2_legacy_recovery_claim").all.isEmpty())
+    }
+
+    @Test fun changedDiagnosticSnapshotAndForeignReservationCannotExposeDetails() {
+        val first = V2LegacyJournalRecovery.beginDiagnostic(context)!!
+        file("pointage").edit().putString("data", "not-json-sensitive@example.test").commit()
+        assertTrue(V2LegacyJournalRecovery.diagnose(context, first, true).contains("indisponible"))
+        val second = V2LegacyJournalRecovery.beginDiagnostic(context)!!
+        file(V2RuntimeAccountScope.fileName("horatrack_v2_test_runtime", "uid:a")!!).edit().putString("history", "[]").commit()
+        assertFalse(V2LegacyJournalRecovery.diagnosticCurrent(context, second))
+        file("horatrack_v2_legacy_recovery_claim").edit().putString("owner", "uid:b").commit()
+        assertNull(V2LegacyJournalRecovery.beginDiagnostic(context))
+        account(null)
+        assertNull(V2LegacyJournalRecovery.beginDiagnostic(context))
+    }
+
+    @Test fun diagnosticPreservesOriginalProvenanceAcrossLegacyMergeAndDestinationConflict() {
+        file("pointage").edit().putString("data", """[{"id":"v1","arrivalTime":3000,"exitTime":5000,"pauses":[]}]""").commit()
+        file(V2RuntimeAccountScope.fileName("horatrack_v2_test_runtime", "uid:a")!!).edit()
+            .putString("history", """[{"id":"account","realEntry":4000,"realExit":6000,"pauses":[]}]""").commit()
+        val before = files.mapValues { it.value.all }.filterValues { it.isNotEmpty() }
+        val commits = files.values.sumOf { it.commits }
+        val session = V2LegacyJournalRecovery.beginDiagnostic(context)!!
+        val report = V2LegacyJournalRecovery.diagnose(context, session, true)
+        assertTrue(report, report.contains("OVERLAP"))
+        assertTrue(report, report.contains("Ancien journal V1 · pointage n° 1"))
+        assertTrue(report, report.contains("Journal du compte · pointage n° 1"))
+        assertEquals(before, files.mapValues { it.value.all }.filterValues { it.isNotEmpty() })
+        assertEquals(commits, files.values.sumOf { it.commits })
+    }
+
+    @Test fun diagnosticIdentityConflictDoesNotPublishIdentifiersValuesOrUnknownFields() {
+        file("pointage").edit().putString("data", """[{"id":"old","arrivalTime":1000,"exitTime":2100,"pauses":[],"placeLabel":"sensitive@example.test 48.123,2.456"}]""").commit()
+        val report = V2LegacyJournalRecovery.diagnose(context, V2LegacyJournalRecovery.beginDiagnostic(context)!!, true)
+        assertTrue(report, report.contains("IDENTITY_CONFLICT"))
+        assertTrue(report.contains("Ancien journal V1 · pointage n° 1"))
+        assertTrue(report.contains("Ancien journal V2 · pointage n° 1"))
+        assertFalse(report.contains("old")); assertFalse(report.contains("sensitive@")); assertFalse(report.contains("48.123"))
+        file("pointage").edit().putString("data", """[{"arrivalTime":1000,"secret@example.test":"48.123,2.456"}]""").commit()
+        val unknown = V2LegacyJournalRecovery.diagnose(context, V2LegacyJournalRecovery.beginDiagnostic(context)!!, true)
+        assertTrue(unknown.contains("UNSUPPORTED_FIELD"))
+        assertFalse(unknown.contains("secret@")); assertFalse(unknown.contains("48.123"))
+    }
+
+    @Test fun diagnosticDoesNotRecoverOrDeletePreparedCommittedOrAtomicBackupJournals() {
+        val physical = V2RuntimeAccountScope.fileName("horatrack_v2_test_runtime", "uid:a")!!
+        val after = mapOf("history" to "[]")
+        val beforeRestore = mapOf("history" to """[{"id":"before","realEntry":4000,"realExit":5000,"pauses":[]}]""")
+        file(physical).edit().putString("history", "[]").commit()
+        for (state in listOf("PREPARED", "COMMITTED")) for (suffix in listOf("", ".bak", ".new")) {
+            val session = V2LegacyJournalRecovery.beginDiagnostic(context)!!
+            val journal = File(context.noBackupFilesDir, "agkgmg_restore_transaction_v1.json$suffix")
+            val record = JSONObject().put("version", 1).put("scope", "uid:a").put("state", state)
+                .put("entries", JSONArray().put(JSONObject().put("logical", "horatrack_v2_test_runtime")
+                    .put("physical", physical).put("before", V2PreferenceValues.encode(beforeRestore))
+                    .put("after", V2PreferenceValues.encode(after))))
+            val bytes = record.toString().toByteArray(Charsets.UTF_8)
+            journal.writeBytes(bytes)
+            try {
+                val before = files.mapValues { it.value.all }.filterValues { it.isNotEmpty() }
+                val commits = files.values.sumOf { it.commits }
+                assertNull("$state$suffix", V2LegacyJournalRecovery.beginDiagnostic(context))
+                assertFalse(V2LegacyJournalRecovery.diagnosticCurrent(context, session))
+                assertTrue(V2LegacyJournalRecovery.diagnose(context, session, true).contains("indisponible"))
+                assertArrayEquals(bytes, journal.readBytes())
+                assertEquals(before, files.mapValues { it.value.all }.filterValues { it.isNotEmpty() })
+                assertEquals(commits, files.values.sumOf { it.commits })
+            } finally { journal.delete() }
+        }
+    }
+
+    @Test fun eligibleDiagnosticDoesNotAssignOrReserveTheJournal() {
+        val before = files.mapValues { it.value.all }.filterValues { it.isNotEmpty() }
+        val commits = files.values.sumOf { it.commits }
+        val session = V2LegacyJournalRecovery.beginDiagnostic(context)!!
+        assertTrue(V2LegacyJournalRecovery.diagnose(context, session, true).contains("Aucun conflit détecté"))
+        assertTrue(V2RuntimeAccountScope.hasUnassignedHistory(context))
+        assertEquals(before, files.mapValues { it.value.all }.filterValues { it.isNotEmpty() })
+        assertEquals(commits, files.values.sumOf { it.commits })
     }
     private class FaultPreferences : SharedPreferences {
         private var memory = mutableMapOf<String, Any>()
