@@ -13,11 +13,11 @@ import org.json.JSONObject
  */
 object PayslipObservedValuesStoreV2 {
     private const val PREFS = "horatrack_v2_payslips"
-    private const val KEY = "observed_values_v2"
+    internal const val KEY = "observed_values_v2"
     private const val STORAGE_WARNING =
         "Valeurs observées des bulletins : stockage local illisible ou incohérent ; la comparaison automatique est bloquée."
 
-    private val allowedKeys = setOf(
+    internal val allowedKeys = setOf(
         PayslipDocumentParserV2.KEY_GROSS,
         PayslipDocumentParserV2.KEY_NET_BEFORE_TAX,
         PayslipDocumentParserV2.KEY_NET_TAXABLE,
@@ -106,14 +106,15 @@ object PayslipObservedValuesStoreV2 {
 
     fun put(context: Context, recordId: String, values: Map<String, Double>, evidence: Map<String, String> = emptyMap()): Boolean {
         val context = SalaryAccountScope.bindContext(context)
-        if (recordId.isBlank()) return false
-        if (values.any { (key, value) -> key !in allowedKeys || !value.isFinite() || value < 0.0 }) return false
-
-        val stored = readResult(context)
-        if (!stored.reliable) return false
-        val updated = stored.valuesByRecord.toMutableMap()
-        if (values.isEmpty()) updated.remove(recordId) else updated[recordId] = values.toMap()
-        return saveWithEvidence(context, updated, recordId, evidence.filterKeys { it in values })
+        return PayslipImportStoreV2.withStorageAccess(context, { false }) {
+            if (recordId.isBlank()) return@withStorageAccess false
+            if (values.any { (key, value) -> key !in allowedKeys || !value.isFinite() || value < 0.0 }) return@withStorageAccess false
+            val stored = readResult(context)
+            if (!stored.reliable) return@withStorageAccess false
+            val updated = stored.valuesByRecord.toMutableMap()
+            if (values.isEmpty()) updated.remove(recordId) else updated[recordId] = values.toMap()
+            saveWithEvidence(context, updated, recordId, evidence.filterKeys { it in values })
+        }
     }
 
     /** Valeurs actuellement autorisées à entrer dans la comparaison automatique. */
@@ -139,12 +140,14 @@ object PayslipObservedValuesStoreV2 {
 
     fun remove(context: Context, recordId: String): Boolean {
         val context = SalaryAccountScope.bindContext(context)
-        if (recordId.isBlank()) return false
-        val stored = readResult(context)
-        if (!stored.reliable) return false
-        if (recordId !in stored.valuesByRecord) return true
-        val updated = stored.valuesByRecord.toMutableMap().apply { remove(recordId) }
-        return saveWithEvidence(context, updated, recordId, emptyMap())
+        return PayslipImportStoreV2.withStorageAccess(context, { false }) {
+            if (recordId.isBlank()) return@withStorageAccess false
+            val stored = readResult(context)
+            if (!stored.reliable) return@withStorageAccess false
+            if (recordId !in stored.valuesByRecord) return@withStorageAccess true
+            val updated = stored.valuesByRecord.toMutableMap().apply { remove(recordId) }
+            saveWithEvidence(context, updated, recordId, emptyMap())
+        }
     }
 
     private fun saveWithEvidence(context: Context, values: Map<String, Map<String, Double>>, recordId: String, evidence: Map<String, String>): Boolean {
@@ -168,22 +171,50 @@ object PayslipObservedValuesStoreV2 {
 
     private fun save(context: Context, valuesByRecord: Map<String, Map<String, Double>>, evidenceJson: String): Boolean {
         val context = SalaryAccountScope.bindContext(context)
+        val encoded = encodeValues(valuesByRecord) ?: return false
+        return runCatching {
+            SalaryAccountScope.preferences(context, PREFS)
+                .edit().putString(KEY, encoded).putString("observed_evidence_v2", evidenceJson).commit()
+        }.getOrDefault(false)
+    }
+
+    internal fun encodeValues(valuesByRecord: Map<String, Map<String, Double>>): String? {
         if (valuesByRecord.any { (recordId, values) ->
                 recordId.isBlank() || values.isEmpty() ||
                     values.any { (key, value) -> key !in allowedKeys || !value.isFinite() || value < 0.0 }
-            }) return false
-
+            }) return null
         val root = JSONObject()
         valuesByRecord.toSortedMap().forEach { (recordId, values) ->
             val item = JSONObject()
             values.toSortedMap().forEach { (key, value) -> item.put(key, value) }
             root.put(recordId, item)
         }
-        return runCatching {
-            SalaryAccountScope.preferences(context, PREFS)
-                .edit().putString(KEY, root.toString()).putString("observed_evidence_v2", evidenceJson).commit()
-        }.getOrDefault(false)
+        return root.toString()
     }
+
+    internal fun decodeEvidence(raw: String): Map<String, Map<String, String>>? = runCatching {
+        val root = JSONObject(raw)
+        buildMap {
+            for (recordId in root.keys()) {
+                require(recordId.isNotBlank() && recordId == recordId.trim())
+                val item = root.getJSONObject(recordId)
+                put(recordId, buildMap {
+                    for (key in item.keys()) {
+                        require(key in allowedKeys)
+                        val excerpt = item.get(key) as? String ?: error("Invalid excerpt")
+                        require(excerpt.length <= 300)
+                        put(key, excerpt)
+                    }
+                })
+            }
+        }
+    }.getOrNull()
+
+    internal fun encodeEvidence(evidence: Map<String, Map<String, String>>): String = JSONObject().apply {
+        evidence.toSortedMap().forEach { (id, values) ->
+            put(id, JSONObject().apply { values.toSortedMap().forEach { (key, value) -> put(key, value) } })
+        }
+    }.toString()
 
     private fun corruptResult() = ReadResult(emptyMap(), false, listOf(STORAGE_WARNING))
 }

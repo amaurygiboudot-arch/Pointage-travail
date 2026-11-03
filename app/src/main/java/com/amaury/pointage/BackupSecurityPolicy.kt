@@ -79,6 +79,7 @@ object BackupPreferenceKeyPolicy {
         if (!BackupSecurityPolicy.canTransferPreferenceFile(fileName)) return false
         if (!GpsPresenceStateKeysV2.isTransferablePreferenceKey(fileName, normalizedKey)) return false
 
+        if (fileName == "horatrack_v2_payslips" && normalizedKey == "import_drafts_v2") return false
         if (fileName == "appearance_settings" && normalizedKey in appearanceDeviceLocalKeys) return false
         if (fileName == "navigation_state" && normalizedKey == "active_tab") return false
         if (fileName == "smart_setup") {
