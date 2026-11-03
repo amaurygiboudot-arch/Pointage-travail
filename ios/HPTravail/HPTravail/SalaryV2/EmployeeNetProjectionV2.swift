@@ -189,34 +189,12 @@ enum EmployeeNetProjectionV2 {
             }
         }
 
-        let taxRate = input.incomeTaxRate
-        let usableTaxRate = taxRate.flatMap { snapshot -> Double? in
-            guard snapshot.reliable,
-                  let rate = snapshot.rate,
-                  rate.isFinite,
-                  rate >= 0,
-                  rate <= 1 else { return nil }
-            return rate
-        }
-        var incomeTax: Double?
-        var netAfterIncomeTax: Double?
-        if let taxableCents, let rate = usableTaxRate, let beforeCents {
-            if let calculatedTax = PayrollMoneyV2.tax(baseCents: taxableCents, rate: rate) {
-                if calculatedTax <= beforeCents,
-                   let afterCents = PayrollMoneyV2.sum([beforeCents, -calculatedTax]) {
-                    incomeTax = PayrollMoneyV2.amount(calculatedTax)
-                    netAfterIncomeTax = PayrollMoneyV2.amount(afterCents)
-                } else {
-                    warnings.append("PAS supérieur aux espèces disponibles : traitement du prélèvement par l'employeur à confirmer ; PAS et net après impôt incomplets.")
-                }
-            } else {
-                warnings.append("PAS incomplet : calcul monétaire non représentable au centime ou dépassement arithmétique.")
-            }
-        }
-        if taxable != nil && usableTaxRate == nil {
-            warnings.append("PAS : taux personnel daté et confirmé indisponible ou invalide ; aucun net après impôt n'est affiché.")
-        }
-        warnings.append(contentsOf: taxRate?.warnings ?? [])
+        let withholding = EmployeeWithholdingProjectionV2.calculate(
+            netBeforeIncomeTax: beforeTaxComplete ? knownBeforeTax : nil,
+            netTaxable: taxable,
+            incomeTaxRate: input.incomeTaxRate
+        )
+        warnings.append(contentsOf: withholding.warnings)
 
         let traces = unique(
             direct.traces + [
@@ -238,8 +216,8 @@ enum EmployeeNetProjectionV2 {
             knownNetBeforeIncomeTax: knownBeforeTax,
             netBeforeIncomeTax: beforeTaxComplete ? knownBeforeTax : nil,
             netTaxable: taxable,
-            incomeTax: incomeTax,
-            netAfterIncomeTax: netAfterIncomeTax,
+            incomeTax: withholding.incomeTax,
+            netAfterIncomeTax: withholding.netAfterIncomeTax,
             netBeforeIncomeTaxComplete: beforeTaxComplete,
             netTaxableComplete: taxable != nil,
             warnings: unique(warnings),

@@ -94,7 +94,7 @@ class EmployeeNetParityFixtureV2Test(private val id: String, private val input: 
             val root = JSONObject(fixture.readText())
             assertEquals(1, root.getInt("schemaVersion"))
             val cases = root.getJSONArray("cases")
-            assertEquals(35, root.getInt("caseCount"))
+            assertEquals(36, root.getInt("caseCount"))
             assertEquals(root.getInt("caseCount"), cases.length())
             val ids = mutableSetOf<String>()
             return (0 until cases.length()).map { index ->

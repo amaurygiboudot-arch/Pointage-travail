@@ -48,7 +48,7 @@ final class EmployeeNetProjectionParityV2Tests: XCTestCase {
     func testSharedCorpusHasExpectedVersionAndUniqueCases() throws {
         let corpus = try loadCorpus()
         XCTAssertEqual(corpus.schemaVersion, 1)
-        XCTAssertEqual(corpus.caseCount, 35)
+        XCTAssertEqual(corpus.caseCount, 36)
         XCTAssertEqual(corpus.cases.count, corpus.caseCount)
         XCTAssertEqual(Set(corpus.cases.map(\.id)).count, corpus.caseCount)
     }
@@ -86,6 +86,42 @@ final class EmployeeNetProjectionParityV2Tests: XCTestCase {
             let reference = monthlyReference(fixture)
             assertAmount(SalaryReferenceContractV2.beforeIncomeTax(reference), fixture.expected.beforeCents, fixture.id)
             assertAmount(SalaryReferenceContractV2.taxable(reference), fixture.expected.taxableCents, fixture.id)
+        }
+    }
+
+    func testSharedDecimalOracleReachesMonthlyWorkspaceWithoutLocalFallback() throws {
+        for fixture in try loadCorpus().cases {
+            let source = input(fixture)
+            let workspace = SalaryWorkspaceResolverV2.resolve(
+                period: YearMonthV2(year: fixture.year, month: fixture.month)!,
+                reference: monthlyReference(fixture), incomeTaxRate: source.incomeTaxRate
+            )
+            assertAmount(workspace.netBeforeIncomeTax, fixture.expected.beforeCents, fixture.id + " workspace before")
+            assertAmount(workspace.netTaxable, fixture.expected.taxableCents, fixture.id + " workspace taxable")
+            assertAmount(workspace.incomeTax, fixture.expected.pasCents, fixture.id + " workspace PAS")
+            assertAmount(workspace.netAfterIncomeTax, fixture.expected.afterCents, fixture.id + " workspace after")
+        }
+    }
+
+    func testMonthlyWorkspaceUsesCurrentConfirmedRateAndNeverReusesAnOlderPas() throws {
+        let fixture = try XCTUnwrap(loadCorpus().cases.first { $0.id == "historical_3000" })
+        let reference = monthlyReference(fixture)
+        var rates: [CompanyIncomeTaxRateResolverV2.Snapshot?] = [nil]
+        rates.append(.init(rate: 0.032, ratePercent: 3.2, source: "Période non couverte",
+                           hasDatedRecords: true, reliable: false, warnings: ["Taux du mois à confirmer"]))
+        for invalid in [Double.nan, .infinity, -.infinity, -0.1, 1.1] {
+            rates.append(.init(rate: invalid, ratePercent: invalid * 100, source: "Snapshot invalide",
+                               hasDatedRecords: true, reliable: true, warnings: []))
+        }
+        for rate in rates {
+            let workspace = SalaryWorkspaceResolverV2.resolve(
+                period: YearMonthV2(year: fixture.year, month: fixture.month)!,
+                reference: reference, incomeTaxRate: rate
+            )
+            assertAmount(workspace.netBeforeIncomeTax, 231362, "current rate unavailable")
+            XCTAssertNil(workspace.incomeTax)
+            XCTAssertNil(workspace.netAfterIncomeTax)
+            XCTAssertTrue(workspace.warnings.contains { $0.contains("taux personnel") })
         }
     }
 

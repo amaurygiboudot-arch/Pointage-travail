@@ -3,7 +3,7 @@
   "contract": "HT-017, projection ordinaire 2026, centimes HALF_UP par ligne ; PAS effectif incomplet si traitement employeur inconnu",
   "completeFieldMeans": "expected.complete vérifie uniquement netBeforeIncomeTaxComplete, jamais une paie ou un fiscal globalement complets",
   "provenance": "Calcul decimal Python indépendant, aucun moteur produit importé. Taux des catalogues 2026 existants ; données synthétiques, pas validation de bulletin réel.",
-  "caseCount": 35,
+  "caseCount": 36,
   "cases": [
     {
       "id": "historical_3000",
@@ -926,6 +926,34 @@
         "taxableCents": 82,
         "pasCents": 21,
         "afterCents": 59,
+        "complete": true
+      }
+    },
+    {
+      "id": "pas_binary_half_cent",
+      "year": 2026,
+      "month": 4,
+      "contractType": "FULL_TIME",
+      "weeklyMinutes": 2100,
+      "complementaryMinutes": 0,
+      "professionalStatus": "NON_CADRE",
+      "alsaceMoselle": false,
+      "cashGross": 100,
+      "benefitsGross": 0,
+      "benefitsReliable": true,
+      "upstreamReliable": true,
+      "mutual": 53.01,
+      "provident": 0,
+      "transport": 0,
+      "employerTaxable": 0,
+      "employeeNonDeductible": 0,
+      "employerCsgBase": 0,
+      "rate": 0.005,
+      "expected": {
+        "beforeCents": 2615,
+        "taxableCents": 2900,
+        "pasCents": 15,
+        "afterCents": 2600,
         "complete": true
       }
     },
