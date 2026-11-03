@@ -84,7 +84,10 @@ class V2PayslipImportActivity : SalaryAccountActivity() {
         val drafts = pending.drafts
         val labels = drafts.map { draft ->
             val date = Calendar.getInstance(Locale.FRANCE).apply { set(draft.year, draft.month, 1) }
-            "Bulletin — ${SimpleDateFormat("MMMM yyyy", Locale.FRANCE).format(date.time)}"
+            val gross = draft.rawFields[PayslipDocumentParserV2.KEY_GROSS]?.let(::parseAmount)
+                ?.let { String.format(Locale.FRANCE, "%.2f €", it) } ?: "à vérifier"
+            val started = SimpleDateFormat("dd/MM/yyyy à HH:mm:ss", Locale.FRANCE).format(java.util.Date(draft.createdAtMs))
+            "Bulletin — ${SimpleDateFormat("MMMM yyyy", Locale.FRANCE).format(date.time)}\nBrut saisi : $gross • saisie du $started"
         }
         SalaryAccountUi.dialog(this)
             .setTitle("Imports à terminer")
@@ -440,8 +443,17 @@ class V2PayslipImportActivity : SalaryAccountActivity() {
             PayslipDocumentParserV2.KEY_PROVIDENT_EMPLOYEE to provident,
             PayslipDocumentParserV2.KEY_COMPLEMENTARY_RETIREMENT_EMPLOYEE to complementaryRetirement
         )
-        val feedback = TextView(this).apply { textSize = 13f; setPadding(0, dp(8), 0, dp(8)) }
+        val feedback = TextView(this).apply {
+            textSize = 13f
+            setPadding(0, dp(8), 0, dp(8))
+            accessibilityLiveRegion = android.view.View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
         box.addView(feedback)
+        fun showFeedback(message: String) {
+            feedback.text = message
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            scroll.post { if (accountReady()) scroll.smoothScrollTo(0, feedback.bottom) }
+        }
         persistForm = saveForm@{
             if (!accountReady()) return@saveForm false
             val current = importDraft ?: return@saveForm false
@@ -452,7 +464,7 @@ class V2PayslipImportActivity : SalaryAccountActivity() {
             )
             val saved = PayslipImportStoreV2.save(this, changed)
             importDraft = saved ?: changed
-            if (saved == null) feedback.text = "La saisie n’a pas pu être sauvegardée. Garde cet écran ouvert et réessaie ; les données existantes sont conservées."
+            if (saved == null) showFeedback("La saisie n’a pas pu être sauvegardée. Garde cet écran ouvert et réessaie ; les données existantes sont conservées.")
             saved != null
         }
         val title = if (companyName.isBlank()) "Contrôle du bulletin" else "Bulletin — $companyName"
@@ -491,7 +503,7 @@ class V2PayslipImportActivity : SalaryAccountActivity() {
                             importDraft = null
                             dialog.dismiss()
                             finish()
-                        } else feedback.text = "La saisie n’a pas pu être supprimée. Elle reste conservée."
+                        } else showFeedback("La saisie n’a pas pu être supprimée. Elle reste conservée.")
                     }.show()
             }
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -530,8 +542,7 @@ class V2PayslipImportActivity : SalaryAccountActivity() {
                             "Le bulletin déjà enregistré est conservé, mais l’enregistrement de ses détails n’a pas pu être confirmé. Ta saisie reste disponible ici et dans les imports à terminer."
                         else "Import bloqué : l’enregistrement des valeurs n’a pas pu être confirmé. Ta saisie reste disponible ici et dans les imports à terminer. Les données existantes sont conservées."
                     }
-                    feedback.text = message
-                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                    showFeedback(message)
                     dialog.getButton(AlertDialog.BUTTON_POSITIVE).text = "RÉESSAYER"
                 }
             }

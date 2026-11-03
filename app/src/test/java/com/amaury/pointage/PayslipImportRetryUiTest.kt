@@ -103,7 +103,7 @@ class PayslipImportRetryUiTest {
         val controller = Robolectric.buildActivity(V2PayslipImportActivity::class.java, intent)
         controller.get().setTheme(R.style.Theme_PointageTravail)
         controllers += controller
-        controller.setup(state)
+        if (state == null) controller.setup() else controller.setup(state)
         idle()
         return controller
     }
@@ -405,7 +405,7 @@ class PayslipImportRetryUiTest {
     }
 
     @Test fun correctingAnOcrProposalDoesNotRetainItsOriginalExcerptAsEvidence() {
-        val parsed = PayslipDocumentParserV2.parse("Salaire brut 2000,00\nNet à payer avant impôt sur le revenu 1550,00")
+        val parsed = PayslipDocumentParserV2.parse("Total brut 2 000,00 €\nNet à payer avant impôt sur le revenu 1 550,00 €")
         assertTrue(parsed.gross.highConfidence)
         assertEquals(2000.0, parsed.gross.amount!!, 0.0)
         assertNotNull(parsed.gross.sourceLabel)
