@@ -80,7 +80,7 @@ class DailyDiagnosticStoreV2Test {
         val before = com.amaury.pointage.v2.V2RuntimeReader.current(context).snapshot
         assertTrue(DailyDiagnosticStoreV2.setEnabled(context, scope, true))
         val observedAt = System.currentTimeMillis()
-        val machineReasons = listOf("GPS_ENTRY_OBSERVATION_CORRUPT", "SITE_JOURNEY_WRITE_REFUSED")
+        val machineReasons = listOf("GPS_ENTRY_OBSERVATION_CORRUPT", "GPS_ENTRY_NOT_COMMITTED", "SITE_JOURNEY_WRITE_REFUSED")
         val privateDetails = listOf("person@example.test", "48.1234,2.5678", "SITE_PRIVATE_ALICE")
         for (code in machineReasons + privateDetails) {
             DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.GPS_REASON, observedAtMs = observedAt,
