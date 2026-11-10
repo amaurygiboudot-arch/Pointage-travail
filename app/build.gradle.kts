@@ -124,7 +124,7 @@ dependencies {
     testImplementation("org.mockito:mockito-core:5.14.2")
     // Android fournit org.json à l'exécution, mais les tests JVM utilisent android.jar où
     // JSONObject/JSONArray sont des stubs. Cette dépendance donne l'implémentation réelle aux tests.
-    testImplementation("org.json:json:20240303")
+    testImplementation("org.json:json:20260719")
 }
 
 kotlin { jvmToolchain(17) }
