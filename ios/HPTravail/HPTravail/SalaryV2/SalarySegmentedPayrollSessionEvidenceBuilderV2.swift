@@ -143,7 +143,7 @@ enum SalarySegmentedPayrollSessionEvidenceBuilderV2 {
                     holidayDates.formUnion(holidays)
                     dedicatedDates.insert(mayFirst)
                 }
-                var totals = [Int](repeating: 0, count: 5)
+                var totalsSeconds = [TimeInterval](repeating: 0, count: 5)
                 for session in selected {
                     let full = SalaryPaidOverlapPolicyV2.paidOverlap(session: session, rangeStart: from, rangeEnd: to)
                     let inside = SalaryPaidOverlapPolicyV2.paidOverlap(session: session,
@@ -171,13 +171,16 @@ enum SalarySegmentedPayrollSessionEvidenceBuilderV2 {
                     warnings += values.flatMap(\.warnings)
                     for index in values.indices {
                         let value = values[index]
-                        guard value.reliable, let minutes = wholeMinutes(value.paidDuration) else { return blocked(ruleWarning) }
-                        let added = totals[index].addingReportingOverflow(minutes)
-                        guard !added.overflow, added.partialValue <= Int(Int32.max) else { return blocked(calendarWarning) }
-                        totals[index] = added.partialValue
+                        guard value.reliable, value.paidDuration.isFinite, value.paidDuration >= 0 else {
+                            return blocked(ruleWarning)
+                        }
+                        totalsSeconds[index] += value.paidDuration
+                        guard totalsSeconds[index].isFinite else { return blocked(calendarWarning) }
                     }
                     if !usedIds.contains(session.id) { usedIds.append(session.id) }
                 }
+                let totals = totalsSeconds.compactMap(wholeMinutes)
+                guard totals.count == 5 else { return blocked(calendarWarning) }
                 weeks.append(.init(yearForWeekOfYear: weekYear, weekOfYear: weekNumber,
                     week: PayrollWeekV2(paidMinutes: totals[0], nightMinutes: totals[1],
                         saturdayMinutes: totals[2], sundayMinutes: totals[3], publicHolidayMinutes: totals[4]),

@@ -6,6 +6,15 @@ struct PaidPauseFactV2: Equatable {
     let paid: Bool?
 }
 
+enum PaidWorkSegmentKindV2: Equatable { case work, intervention, paidTravel, onCall, personalTravel, nonWork, toConfirm }
+
+struct PaidWorkSegmentFactV2: Equatable {
+    let start: Date
+    let end: Date?
+    let kind: PaidWorkSegmentKindV2
+    let confirmed: Bool
+}
+
 struct PaidTimeAssessmentV2: Equatable {
     let paidDuration: TimeInterval
     let unpaidPauseDuration: TimeInterval
@@ -20,7 +29,9 @@ enum PaidTimePolicyV2 {
         sessionStart: Date,
         sessionEnd: Date?,
         pauses: [PaidPauseFactV2],
-        until now: Date = Date()
+        until now: Date = Date(),
+        segments: [PaidWorkSegmentFactV2] = [],
+        enforcePauseSessionBounds: Bool = true
     ) -> PaidTimeAssessmentV2 {
         let effectiveEnd = sessionEnd ?? now
         guard effectiveEnd > sessionStart else {
@@ -33,18 +44,53 @@ enum PaidTimePolicyV2 {
         }
 
         var unresolved = 0
+        var eligible: [(Date, Date)] = []
+        if segments.isEmpty {
+            eligible = [(sessionStart, effectiveEnd)]
+        } else {
+            var cursor = sessionStart
+            for segment in segments.sorted(by: { $0.start < $1.start }) {
+                guard segment.confirmed, segment.kind != .toConfirm,
+                      let finish = segment.end, segment.start == cursor,
+                      finish > segment.start, finish <= effectiveEnd else {
+                    unresolved += 1
+                    break
+                }
+                switch segment.kind {
+                case .work, .intervention, .paidTravel:
+                    eligible.append((segment.start, finish))
+                case .onCall:
+                    unresolved += 1 // Standby compensation must be assessed separately.
+                case .personalTravel, .nonWork, .toConfirm:
+                    break
+                }
+                cursor = finish
+            }
+            if cursor != effectiveEnd { unresolved += 1 }
+        }
         var unpaidIntervals: [(Date, Date)] = []
         var paidIntervals: [(Date, Date)] = []
 
         for pause in pauses {
+            if sessionEnd != nil && pause.end == nil {
+                unresolved += 1
+                continue // A closed session cannot contain an open confirmed pause.
+            }
             let pauseEnd = pause.end ?? now
             let start = max(pause.start, sessionStart)
             let end = min(pauseEnd, effectiveEnd)
 
             if pauseEnd <= pause.start {
-                if pause.start < effectiveEnd && pauseEnd > sessionStart {
-                    unresolved += 1
-                }
+                unresolved += 1
+                continue
+            }
+            // Direct/full-session assessment rejects pauses outside recorded work.
+            // Callers distributing a validated session across weeks may opt out here.
+            if enforcePauseSessionBounds &&
+                (!pause.start.timeIntervalSince1970.isFinite ||
+                 !pauseEnd.timeIntervalSince1970.isFinite ||
+                 pause.start < sessionStart || pauseEnd > effectiveEnd) {
+                unresolved += 1
                 continue
             }
             guard end > start else { continue }
@@ -62,14 +108,27 @@ enum PaidTimePolicyV2 {
 
         let mergedUnpaid = merge(unpaidIntervals)
         let mergedPaid = merge(paidIntervals)
-        let unpaid = duration(mergedUnpaid)
-        let paidPause = max(0, duration(mergedPaid) - overlapDuration(mergedPaid, mergedUnpaid))
-        let span = effectiveEnd.timeIntervalSince(sessionStart)
-
+        if overlapDuration(mergedPaid, mergedUnpaid) > 0 {
+            unresolved += 1
+        }
+        let workedSpan = duration(eligible)
+        let unpaid = eligible.reduce(0) { total, period in
+            total + overlapDuration([period], mergedUnpaid)
+        }
+        let paidPause = eligible.reduce(0) { total, period in
+            total + overlapDuration([period], mergedPaid)
+        } - eligible.reduce(0) { total, period in
+            let clipped = mergedPaid.compactMap { pause -> (Date, Date)? in
+                let a = max(period.0, pause.0)
+                let b = min(period.1, pause.1)
+                return b > a ? (a, b) : nil
+            }
+            return total + overlapDuration(clipped, mergedUnpaid)
+        }
         return PaidTimeAssessmentV2(
-            paidDuration: max(0, span - unpaid),
+            paidDuration: max(0, workedSpan - unpaid),
             unpaidPauseDuration: unpaid,
-            paidPauseDuration: min(paidPause, max(0, span - unpaid)),
+            paidPauseDuration: min(max(0, paidPause), max(0, workedSpan - unpaid)),
             unresolvedPauseCount: unresolved
         )
     }

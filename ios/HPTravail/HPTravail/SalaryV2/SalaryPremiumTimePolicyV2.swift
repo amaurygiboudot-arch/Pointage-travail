@@ -67,7 +67,8 @@ enum SalaryPaidOverlapPolicyV2 {
             sessionStart: start,
             sessionEnd: end,
             pauses: pauses,
-            until: end
+            until: end,
+            enforcePauseSessionBounds: false // Full-session geometry checked above.
         )
         guard assessment.paidDuration.isFinite else {
             return blocked([invalidSessionWarning])

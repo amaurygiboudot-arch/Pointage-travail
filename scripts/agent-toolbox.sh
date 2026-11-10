@@ -18,7 +18,8 @@ Commandes:
   functions-tests    Tests Firebase Functions
   update-architecture Vérification architecture de mise à jour
   ios-build          Build simulateur iOS (macOS uniquement)
-  ios-tests          Tests Swift iOS (macOS uniquement)
+  ios-tests          SwiftPM + XCTest simulateur iOS (macOS uniquement)
+                     IOS_TEST_DESTINATION permet de choisir la destination Xcode
   codex-config       Validation configuration multi-agents Codex
   agent-route        Déterminer les spécialistes requis pour un diff Git
   agent-review       Lancer la revue multi-agents Codex et publier la preuve PR
@@ -75,7 +76,45 @@ run_ios_build() {
 
 run_ios_tests() {
   require_macos
-  (cd ios/HPTravail && swift test)
+  (
+    cd ios/HPTravail
+    swift test
+    command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
+    xcodegen generate
+    local destination="${IOS_TEST_DESTINATION:-}"
+    if [ -z "$destination" ]; then
+      # Prefer the newest installed available iOS runtime; UUID breaks device ties.
+      local simulator_id
+      simulator_id="$(xcrun simctl list devices available --json | python3 -c '
+import json, re, sys
+candidates = []
+for runtime, devices in json.load(sys.stdin)["devices"].items():
+    match = re.fullmatch(r"com\.apple\.CoreSimulator\.SimRuntime\.iOS-(\d+(?:-\d+)*)", runtime)
+    if not match:
+        continue
+    version = tuple(int(part) for part in match[1].split("-"))
+    if version < (16,):
+        continue
+    for device in devices:
+        if device.get("isAvailable") and (
+            "iPhone" in device.get("deviceTypeIdentifier", "")
+            or device.get("name", "").startswith("iPhone")):
+            candidates.append((version, device["udid"]))
+if not candidates:
+    sys.exit("Aucun simulateur iPhone iOS >= 16 disponible. Installer un runtime dans Xcode.")
+print(sorted(candidates, key=lambda item: (item[0], item[1]), reverse=True)[0][1])
+')"
+      destination="platform=iOS Simulator,id=$simulator_id"
+    fi
+    echo "Tests XCTest sur : $destination"
+    xcodebuild \
+      -project HPTravail.xcodeproj \
+      -scheme HPTravail \
+      -configuration Debug \
+      -destination "$destination" \
+      CODE_SIGNING_ALLOWED=NO \
+      test
+  )
 }
 
 run_codex_config() {

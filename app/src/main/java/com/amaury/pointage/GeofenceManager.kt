@@ -116,6 +116,14 @@ internal fun isCurrentStoredGeofenceRegistrationV2(
     !registeredFingerprint.isNullOrEmpty() &&
     registeredFingerprint == currentFingerprint
 
+/** A normal app resume must not drop known GPS presence or interrupt live geofences. */
+internal fun shouldKeepGeofenceRegistrationOnResumeV2(
+    enabled: Boolean,
+    hasPermissions: Boolean,
+    locationEnabled: Boolean,
+    registrationCurrent: Boolean
+): Boolean = enabled && hasPermissions && locationEnabled && registrationCurrent
+
 object GeofenceManager {
     private const val GPS_PREFS = "gps_settings"
     private const val LAST_GOOD_ZONES = "zones_last_good"
@@ -155,6 +163,10 @@ object GeofenceManager {
             .putBoolean(GpsPresenceStateKeysV2.REGISTRATION_VALID, false)
             .remove(GpsPresenceStateKeysV2.REGISTRATION_FINGERPRINT)
             .commit()
+
+    /** Service error: request re-registration at the next safe opening; retain GPS evidence. */
+    internal fun markRegistrationUnavailable(context: Context): Boolean =
+        invalidateStoredRegistration(context)
 
     private fun validateStoredRegistration(
         prefs: android.content.SharedPreferences,
@@ -393,6 +405,31 @@ object GeofenceManager {
         onResult = onResult
     )
 
+    /**
+     * Un identifiant de geofence inconnu ne démontre ni une sortie, ni un
+     * changement de lieu. Réinstaller les geofences Android sans supprimer
+     * les observations GPS existantes : elles restent qualifiées par les
+     * contrôles de contexte et de configuration au prochain événement.
+     */
+    fun resyncStoredZonesPreservingPresence(
+        context: Context,
+        onResult: (Boolean, String) -> Unit = { _, _ -> }
+    ) {
+        // En cas d'interruption entre retrait et nouvel enregistrement,
+        // l'ouverture suivante doit retenter. Seul le reçu d'inscription
+        // est invalidé ; ni la présence ni les preuves GPS ne sont effacées.
+        if (!markRegistrationUnavailable(context)) {
+            onResult(false, "Impossible d'invalider l'inscription des zones GPS")
+            return
+        }
+        enqueueStoredZonesReconciliation(
+            context,
+            clearBusinessState = false,
+            clearPresenceState = false,
+            onResult = onResult
+        )
+    }
+
     private fun enqueueStoredZonesReconciliation(
         context: Context,
         clearBusinessState: Boolean,
@@ -427,7 +464,10 @@ object GeofenceManager {
         val prefs = app.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
         val presenceCleared = if (clearPresenceState) {
             val presenceEditor = prefs.edit()
-            GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach(presenceEditor::remove)
+            GpsPresenceStateKeysV2.EPHEMERAL_KEYS
+                .filterNot { !clearBusinessState && it in setOf(GpsExitDeliveryV2.KEY,
+                    GpsReturnObservationV2.KEY, GpsReturnObservationV2.QUALIFICATION_KEY) }
+                .forEach(presenceEditor::remove)
             presenceEditor.commit()
         } else {
             true
@@ -638,7 +678,7 @@ object GeofenceManager {
             .remove("active_zones")
             .remove("entry_resolution_pending")
             .remove("entry_resolution_token")
-            .remove("pending_exit_zones")
+            .remove("pending_exit_zones").remove("pending_exit_observations")
             .apply()
 
         return restoredZones

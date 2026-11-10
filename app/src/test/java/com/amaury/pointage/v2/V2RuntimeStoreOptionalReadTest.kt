@@ -6,6 +6,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class V2RuntimeStoreOptionalReadTest {
+    @Test fun `missing entry with residual current facts is corruption rather than empty runtime`() {
+        listOf("session_id", "employer_id", "company_slot", "counted_entry", "real_exit",
+            "counted_exit", "expected_end", "time_basis", "pause_start", "pause_source",
+            "pause_paid", "pauses", "place_id", "place_label").forEach { key ->
+            assertTrue(key, V2RuntimeStore.hasOrphanedCurrentSession(mapOf(key to null)))
+        }
+        assertFalse(V2RuntimeStore.hasOrphanedCurrentSession(emptyMap<String, Any>()))
+        assertFalse(V2RuntimeStore.hasOrphanedCurrentSession(mapOf("history" to "[]")))
+        assertFalse(V2RuntimeStore.hasOrphanedCurrentSession(mapOf("real_entry" to 123L, "session_id" to "id")))
+    }
+
     @Test
     fun `champ temporel optionnel absent reste valide et inconnu`() {
         val result = V2RuntimeStore.optionalStrictPositive(emptyMap<String, Any?>(), "optional_time")

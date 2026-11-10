@@ -25,6 +25,41 @@ final class SalarySegmentedPayrollSessionEvidenceBuilderV2Tests: XCTestCase {
         let canonical = SalaryPaidOverlapPolicyV2.paidOverlap(session: s, rangeStart: date(4, 0), rangeEnd: date(11, 0))
         XCTAssertEqual(proof.slices.first?.weeks.first?.week.paidMinutes, Int(floor(canonical.paidDuration / 60)))
     }
+
+    func testSecondsFromSeparateSessionsAreAddedBeforeConvertingToPayrollMinutes() throws {
+        let firstStart = date(4, 8)
+        let firstEnd = firstStart.addingTimeInterval(4 * 3600 + 30)
+        let secondStart = date(4, 13)
+        let secondEnd = secondStart.addingTimeInterval(4 * 3600 + 30)
+        let sessions = [
+            SalarySessionFactV2(id: "s1", entry: firstStart, exit: firstEnd, employerId: "company", pauses: []),
+            SalarySessionFactV2(id: "s2", entry: secondStart, exit: secondEnd, employerId: "company", pauses: [])
+        ]
+        let proof = try fixture(sessions).build()
+        XCTAssertTrue(proof.reliable)
+        XCTAssertEqual(proof.slices.first?.weeks.first?.week.paidMinutes, 481)
+    }
+
+    func testSecondsInSaturdayPremiumAreAddedBeforeConvertingToPayrollMinutes() throws {
+        let sessions = [
+            sessionWithSeconds("s1", day: 9, startHour: 8, endHour: 12),
+            sessionWithSeconds("s2", day: 9, startHour: 13, endHour: 17)
+        ]
+        let proof = try fixture(sessions).build()
+        XCTAssertTrue(proof.reliable)
+        XCTAssertEqual(proof.slices.first?.weeks.first?.week.paidMinutes, 481)
+        XCTAssertEqual(proof.slices.first?.weeks.first?.week.saturdayMinutes, 481)
+    }
+
+    func testSecondsDoNotCarryAcrossPayrollWeeks() throws {
+        let sessions = [
+            sessionWithSeconds("s1", day: 4, startHour: 8, endHour: 12),
+            sessionWithSeconds("s2", day: 11, startHour: 8, endHour: 12)
+        ]
+        let proof = try fixture(sessions, start: 4, end: 17).build()
+        XCTAssertTrue(proof.reliable)
+        XCTAssertEqual(proof.slices.first?.weeks.map(\.week.paidMinutes), [240, 240])
+    }
     func testUnknownPauseDoesNotBecomeUnpaidOrZero() throws {
         assertBlocked(try fixture([session("s", 4, 8, 4, 16, pauses: [
             PaidPauseFactV2(start: date(4, 12), end: date(4, 12, 30), paid: nil)])]))
@@ -221,6 +256,11 @@ final class SalarySegmentedPayrollSessionEvidenceBuilderV2Tests: XCTestCase {
     private func session(_ id: String, _ day: Int64, _ hour: Int, _ endDay: Int64, _ endHour: Int,
                          zone: String = "UTC", employer: String? = "company", pauses: [PaidPauseFactV2] = []) -> SalarySessionFactV2 {
         .init(id: id, entry: date(day, hour, zone: zone), exit: date(endDay, endHour, zone: zone), employerId: employer, pauses: pauses)
+    }
+    private func sessionWithSeconds(_ id: String, day: Int64, startHour: Int, endHour: Int) -> SalarySessionFactV2 {
+        let start = date(day, startHour)
+        let end = date(day, endHour).addingTimeInterval(30)
+        return .init(id: id, entry: start, exit: end, employerId: "company", pauses: [])
     }
     private func date(_ day: Int64, _ hour: Int, _ minute: Int = 0, zone: String = "UTC") -> Date {
         var utc = Calendar(identifier: .gregorian); utc.timeZone = TimeZone(secondsFromGMT: 0)!

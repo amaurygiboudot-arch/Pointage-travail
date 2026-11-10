@@ -132,16 +132,36 @@ enum GpsPendingKindV2: String, Codable {
     case departure
 }
 
+struct GpsZoneExitObservationV2: Codable, Equatable {
+    var zoneId: UUID
+    var occurredAt: Date
+    var continuingZoneIds: [UUID]? = nil
+}
+
 struct GpsPendingEventV2: Codable, Equatable, Identifiable {
     let id: UUID
     var kind: GpsPendingKindV2
     var zoneIds: [UUID]
     var occurredAt: Date
     var expectedSessionId: UUID? = nil
+    var exitObservations: [GpsZoneExitObservationV2]? = nil
+    var verifiedDepartureZoneId: UUID? = nil
+    // Only newly observed departures may confirm a timestamp; old prompts stay inert.
+    var departureEvidenceVersion: Int? = nil
+    var expectedSessionEntry: Date? = nil
+}
+
+enum GpsEventConfirmationV2 {
+    static func isCurrent(_ event: GpsPendingEventV2, pendingEvents: [GpsPendingEventV2]) -> Bool {
+        // Compare all evidence, not just its ID: an arrival can gain or lose zones
+        // while its dialog is visible, and a queued departure can be assigned a session.
+        pendingEvents.first == event
+    }
 }
 
 enum GpsPresenceTransitionV2 {
     static let maximumPendingEventCount = 32
+    static let maximumExitObservationCount = 320
 
     enum Transition {
         case enter
@@ -154,13 +174,17 @@ enum GpsPresenceTransitionV2 {
         var pendingEvents: [GpsPendingEventV2]
         var confirmedSessionId: UUID?
         var eventQueueOverflowed: Bool
+        var confirmedZoneId: UUID? = nil
+        var pendingExitObservations: [GpsZoneExitObservationV2]? = nil
     }
 
     static func plan(
         state: State,
         zoneId: UUID,
         transition: Transition,
-        occurredAt: Date
+        occurredAt: Date,
+        allowsSameZoneReturn: Bool = true,
+        verifiedOverlappingWorksiteReturn: Bool = false
     ) -> State {
         var next = state
         switch transition {
@@ -177,15 +201,22 @@ enum GpsPresenceTransitionV2 {
                    let pending = next.pendingEvents.last,
                    pending.kind == .departure,
                    pending.expectedSessionId == confirmedSessionId,
-                   pending.zoneIds.contains(zoneId) {
+                   ((allowsSameZoneReturn && pending.zoneIds.contains(zoneId)) ||
+                    (verifiedOverlappingWorksiteReturn &&
+                     occurredAt.timeIntervalSince(pending.occurredAt) <=
+                         GpsOverlappingWorkZoneContinuityV2.maximumGap)) {
                     guard occurredAt >= pending.occurredAt else { return state }
                     // Tant que la même session reste ouverte, revenir dans une zone qui avait
                     // déclenché la demande de départ invalide cette demande de fin de journée.
                     // La durée d'absence ne transforme pas un ancien EXIT non confirmé en vérité.
                     next.pendingEvents.removeLast()
+                    if next.confirmedZoneId != nil {
+                        next.confirmedZoneId = zoneId
+                    }
                 } else {
                     // Nouvelle visite : son départ éventuel ne doit pas être attribué à la session précédente.
                     next.confirmedSessionId = nil
+                    next.confirmedZoneId = nil
                     appendEvent(GpsPendingEventV2(
                         id: UUID(),
                         kind: .arrival,
@@ -202,8 +233,22 @@ enum GpsPresenceTransitionV2 {
 
         case .exit:
             guard next.activeZoneIds.contains(zoneId) else { return state }
+            let observations = next.pendingExitObservations ?? []
+            guard observations.count < maximumExitObservationCount else {
+                next.eventQueueOverflowed = true
+                return next
+            }
+            guard occurredAt.timeIntervalSinceReferenceDate.isFinite,
+                  observations.last.map({ $0.occurredAt <= occurredAt }) ?? true else { return state }
             next.activeZoneIds.remove(zoneId)
             next.pendingExitZoneIds.insert(zoneId)
+            // Keep earlier episodes: a later re-entry into B must not replace
+            // the exit of B that was continuously connected to the source A.
+            let updatedObservations = observations + [.init(
+                zoneId: zoneId, occurredAt: occurredAt,
+                continuingZoneIds: next.activeZoneIds.sorted { $0.uuidString < $1.uuidString }
+            )]
+            next.pendingExitObservations = updatedObservations
 
             if next.activeZoneIds.isEmpty {
                 appendEvent(GpsPendingEventV2(
@@ -213,30 +258,43 @@ enum GpsPresenceTransitionV2 {
                         $0.uuidString < $1.uuidString
                     },
                     occurredAt: occurredAt,
-                    expectedSessionId: next.confirmedSessionId
+                    expectedSessionId: next.confirmedSessionId,
+                    exitObservations: updatedObservations
                 ), to: &next)
                 next.pendingExitZoneIds.removeAll()
-            } else if var pending = next.pendingEvents.last, pending.kind == .arrival {
-                pending.zoneIds = pending.zoneIds.filter(next.activeZoneIds.contains)
-                if pending.zoneIds.isEmpty {
-                    next.pendingEvents.removeLast()
-                } else {
-                    next.pendingEvents[next.pendingEvents.count - 1] = pending
-                }
+                next.pendingExitObservations = nil
             }
+            // A deferred arrival describes the visit, not only the zones still
+            // active now. Keep its original candidates so the selected worksite
+            // can resolve the matching exit after all callbacks have arrived.
         }
         return next
     }
 
     static func reconcileSession(state: State, openSessionId: UUID?) -> State {
-        guard state.confirmedSessionId != openSessionId else { return state }
-        var next = state
-        let staleSessionId = next.confirmedSessionId
+        var next = arbitrateDepartures(state: state)
+        // A later visit can already have cleared confirmedSessionId. Cleanup must
+        // therefore use each observation's session identity, even for nil == nil.
+        next.pendingEvents.removeAll {
+            $0.kind == .departure && $0.expectedSessionId != nil && $0.expectedSessionId != openSessionId
+        }
+        guard next.confirmedSessionId != openSessionId else { return next }
         next.confirmedSessionId = nil
-        if let staleSessionId {
-            next.pendingEvents.removeAll {
-                $0.kind == .departure && $0.expectedSessionId == staleSessionId
+        next.confirmedZoneId = nil
+        return next
+    }
+
+    /// A subsequent physical visit invalidates an earlier departure observation.
+    /// Remove it from the canonical queue before projecting an arrival into UI;
+    /// never close the old session or invent a replacement departure timestamp.
+    static func arbitrateDepartures(state: State) -> State {
+        var next = state
+        next.pendingEvents = state.pendingEvents.enumerated().compactMap { index, event in
+            if event.kind == .departure,
+               state.pendingEvents.dropFirst(index + 1).contains(where: { $0.kind == .arrival }) {
+                return nil
             }
+            return event
         }
         return next
     }
@@ -257,17 +315,38 @@ struct GpsPersistedStateV2: Codable, Equatable {
     var pendingEvents: [GpsPendingEventV2]
     var confirmedSessionId: UUID?
     var eventQueueOverflowed: Bool
+    var confirmedZoneId: UUID? = nil
+    var pendingExitObservations: [GpsZoneExitObservationV2]? = nil
+    var accountScope: String? = nil
 }
 
 /// Effets des confirmations explicites ; l'événement a été retiré de la file par le gestionnaire.
 enum GpsVisitConfirmationV2 {
-    static func arrival(state: inout GpsPersistedStateV2, event: GpsPendingEventV2, sessionId: UUID) -> Bool {
-        guard event.kind == .arrival else { return false }
+    static func arrival(
+        state: inout GpsPersistedStateV2,
+        event: GpsPendingEventV2,
+        sessionId: UUID,
+        zoneId: UUID,
+        configuredZones: [GpsZoneV2]
+    ) -> Bool {
+        guard event.kind == .arrival, event.zoneIds.contains(zoneId),
+              GpsZoneConfigurationV2.isValid(configuredZones),
+              configuredZones.contains(where: { $0.id == zoneId && $0.kind == .worksite }) else { return false }
         state.confirmedSessionId = sessionId
+        state.confirmedZoneId = zoneId
         if let nextDeparture = state.pendingEvents.firstIndex(where: {
             $0.kind == .departure && $0.expectedSessionId == nil
         }) {
             state.pendingEvents[nextDeparture].expectedSessionId = sessionId
+            state.pendingEvents[nextDeparture] = GpsDepartureTimeEvidenceV2.resolving(
+                state.pendingEvents[nextDeparture], sourceZoneId: zoneId,
+                configuredZones: configuredZones
+            )
+            if state.pendingEvents.dropFirst(nextDeparture + 1).contains(where: { $0.kind == .arrival }) {
+                // Later physical visits must not inherit an earlier deferred confirmation.
+                state.confirmedSessionId = nil
+                state.confirmedZoneId = nil
+            }
         }
         return true
     }
@@ -277,6 +356,7 @@ enum GpsVisitConfirmationV2 {
               event.expectedSessionId == sessionId,
               state.confirmedSessionId == nil || state.confirmedSessionId == sessionId else { return false }
         state.confirmedSessionId = nil
+        state.confirmedZoneId = nil
         return true
     }
 }
@@ -297,7 +377,8 @@ enum GpsStateValidationV2 {
     static func startupState(
         read: GpsStateReadV2,
         expectedFingerprint: String,
-        configuredZoneIds: Set<UUID>
+        configuredZoneIds: Set<UUID>,
+        expectedAccountScope: String? = nil
     ) -> GpsStartupStateV2 {
         switch read {
         case .missing:
@@ -305,12 +386,26 @@ enum GpsStateValidationV2 {
         case .corrupt:
             return .suspend(nil)
         case .valid(let state):
+            if let expectedAccountScope, state.accountScope != expectedAccountScope {
+                // Legacy or other-account GPS prompts remain readable only as non-actionable history.
+                return .suspend(nil)
+            }
             guard state.fingerprint == expectedFingerprint,
                   state.activeZoneIds.isSubset(of: configuredZoneIds),
                   state.pendingExitZoneIds.isSubset(of: configuredZoneIds),
                   state.activeZoneIds.isDisjoint(with: state.pendingExitZoneIds),
+                  state.confirmedZoneId.map({ configuredZoneIds.contains($0) && state.confirmedSessionId != nil }) ?? true,
+                  GpsDepartureTimeEvidenceV2.observationsAreValid(
+                      state.pendingExitObservations, zoneIds: state.pendingExitZoneIds.union(state.activeZoneIds)
+                  ),
                   state.pendingEvents.allSatisfy({ event in
-                      Set(event.zoneIds).isSubset(of: configuredZoneIds)
+                      Set(event.zoneIds).isSubset(of: configuredZoneIds) &&
+                          GpsDepartureTimeEvidenceV2.observationsAreValid(
+                              event.exitObservations, zoneIds: Set(event.zoneIds)
+                          ) &&
+                          (event.verifiedDepartureZoneId.map {
+                              event.kind == .departure && event.expectedSessionId != nil && event.zoneIds.contains($0)
+                          } ?? true)
                   }),
                   zip(state.pendingEvents, state.pendingEvents.dropFirst()).allSatisfy({ pair in
                       pair.0.occurredAt <= pair.1.occurredAt
@@ -340,10 +435,14 @@ enum GpsStateStoreV2 {
         return .valid(state)
     }
 
-    static func write(_ state: GpsPersistedStateV2, defaults: UserDefaults) -> Bool {
+    static func scopedKey(account: String) -> String {
+        key + ".account." + Data(account.utf8).base64EncodedString()
+    }
+
+    static func write(_ state: GpsPersistedStateV2, defaults: UserDefaults, storageKey: String = key) -> Bool {
         guard let data = try? JSONEncoder().encode(state) else { return false }
-        defaults.set(data, forKey: key)
-        return read(defaults.data(forKey: key)) == .valid(state)
+        defaults.set(data, forKey: storageKey)
+        return read(defaults.data(forKey: storageKey)) == .valid(state)
     }
 
     static func clear(defaults: UserDefaults) {

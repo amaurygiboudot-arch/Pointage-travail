@@ -22,6 +22,7 @@ import com.amaury.pointage.v2.engine.GpsTransitionV2
 import com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2
 import com.amaury.pointage.v2.model.SessionStatusV2
 import com.google.android.gms.location.Geofence
+import com.google.android.gms.location.GeofenceStatusCodes
 import com.google.android.gms.location.GeofencingEvent
 import org.json.JSONObject
 import java.util.UUID
@@ -32,18 +33,40 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
+        val observedAtMs = System.currentTimeMillis()
         val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("enabled", false)) return
+        if (!prefs.getBoolean("enabled", false)) {
+            DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.GPS_DISABLED, observedAtMs)
+            return
+        }
 
         val event = GeofencingEvent.fromIntent(intent) ?: return
-        if (event.hasError()) return
+        if (event.hasError()) {
+            DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.GEOFENCE_ERROR, observedAtMs)
+            // GMS cannot restore geofences after GEOFENCE_NOT_AVAILABLE. Invalidate only
+            // the registration receipt: never erase durable exit/return evidence here.
+            if (event.errorCode == GeofenceStatusCodes.GEOFENCE_NOT_AVAILABLE &&
+                GeofenceManager.markRegistrationUnavailable(context)
+            ) {
+                // Re-register in the existing asynchronous receiver path. This preserves
+                // the durable departure outbox and keeps the UI closed in the background.
+                finishAfterGpsReconciliation(context, configurationChanged = false)
+            }
+            return
+        }
 
         val triggeredIds = event.triggeringGeofences?.map { it.requestId }.orEmpty()
         if (triggeredIds.isEmpty()) return
+        DailyDiagnosticStoreV2.record(context, when (event.geofenceTransition) {
+            Geofence.GEOFENCE_TRANSITION_ENTER -> DailyDiagnosticKindV2.GEOFENCE_ENTER
+            Geofence.GEOFENCE_TRANSITION_EXIT -> DailyDiagnosticKindV2.GEOFENCE_EXIT
+            else -> DailyDiagnosticKindV2.GEOFENCE_OTHER
+        }, observedAtMs, value = triggeredIds.size.toLong())
 
         val stored = readPersistedGpsZones(prefs)
         val canonicalZones = (stored as? GpsZonesReadResult.Valid)?.zones
         if (canonicalZones == null) {
+            DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.GPS_CONFIG_UNREADABLE, observedAtMs)
             // Absent/corrompu != vide. Aucun ancien geofence de la plateforme ne doit
             // pouvoir fabriquer un événement métier à partir d'un état non prouvé.
             finishAfterGpsReconciliation(context, configurationChanged = true)
@@ -51,6 +74,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         }
 
         if (!GeofenceManager.isStoredRegistrationCurrent(context)) {
+            DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.GPS_REGISTRATION_STALE, observedAtMs)
             // Le verrou d'empreinte protège aussi les zones candidates : une ancienne
             // géométrie ne doit ni pointer ni alimenter un apprentissage de présence.
             finishAfterGpsReconciliation(
@@ -77,14 +101,15 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
         val zonesById = canonicalZones.associateBy { it.id }
         if (regularIds.any { it !in zonesById }) {
+            DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.GPS_ZONE_UNKNOWN, observedAtMs)
             // Un requestId inconnu est un geofence Android périmé, pas une zone de travail.
             // On refuse l'événement et on resynchronise la plateforme avec la configuration
             // canonique actuelle afin que le stale geofence ne puisse plus se représenter.
-            clearZonePresenceState(prefs)
+            // Un identifiant inconnu ne prouve aucune sortie : conserver la présence.
             if (canonicalZones.isEmpty()) {
                 finishAfterGpsReconciliation(context, configurationChanged = true)
             } else {
-                finishAfterGpsReconciliation(context, configurationChanged = false)
+                finishAfterGpsReconciliation(context, configurationChanged = false, preservePresence = true)
             }
             return
         }
@@ -94,6 +119,8 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             Geofence.GEOFENCE_TRANSITION_EXIT -> GpsTransitionV2.EXIT
             else -> return
         }
+        // Recover a prior departure before an ENTER can cancel it as a verified return.
+        GpsExitDeliveryV2.replay(context, allowReturnAcknowledgement = transition != GpsTransitionV2.ENTER)
         val activeZones = prefs.getStringSet(GpsPresenceStateKeysV2.ACTIVE_ZONES, emptySet())
             ?.filterTo(mutableSetOf()) { it in zonesById }
             ?: mutableSetOf()
@@ -101,6 +128,34 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             .getStringSet(GpsPresenceStateKeysV2.PENDING_EXIT_ZONES, emptySet())
             ?.filterTo(mutableSetOf()) { it in zonesById }
             ?: mutableSetOf()
+        val observationContext = GpsExitDeliveryV2.observationContext(context)
+        val savedObservationContext = runCatching {
+            prefs.getString(GpsExitDeliveryV2.OBSERVATION_CONTEXT_KEY, null)
+        }.getOrNull()
+        val previousObservations = GpsExitObservationV2.inContext(
+            readExitObservations(prefs).filterKeys { it in pendingExitZones },
+            savedObservationContext, observationContext
+        )
+        val exitObservations = GpsExitObservationV2.advance(
+            previous = previousObservations,
+            activeZoneIds = activeZones,
+            triggeredZoneIds = regularIds,
+            transition = transition,
+            observedAtMs = observedAtMs
+        ) { first, second ->
+            GpsOverlappingWorkZoneContinuityV2.hasEquivalentWorkGeometry(
+                zonesById[first], zonesById[second]
+            )
+        }
+        val returnObservations = GpsReturnObservationV2.observe(
+            previous = GpsReturnObservationV2.decode(runCatching {
+                prefs.getStringSet(GpsReturnObservationV2.KEY, emptySet())?.toSet().orEmpty()
+            }.getOrDefault(emptySet())),
+            knownZoneIds = zonesById.keys,
+            enteredZoneIds = if (transition == GpsTransitionV2.ENTER) regularIds.toSet() - activeZones else emptySet(),
+            atMs = observedAtMs,
+            context = observationContext
+        ).values.map { it.encode() }.toSet()
         val plan = GpsActiveZoneTransitionV2.plan(
             activeZoneIds = activeZones,
             triggeredZoneIds = regularIds,
@@ -112,6 +167,14 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             pendingExitZoneIds = pendingExitZones
         )
 
+        // Use the existing complete batch arbitration. A compatible B must not hide a
+        // contradictory C, including separate ENTER callbacks within the timer window.
+        val returnQualification = if (transition == GpsTransitionV2.ENTER || plan.entryResolutionPending) {
+            val selected = chooseEntryZone(context, prefs, plan.activeZoneIds.sorted(), zonesById)
+            selected?.let { GpsReturnObservationV2.Qualification(it.zone.id,
+                observedAtMs + if (transition == GpsTransitionV2.ENTER) ENTRY_BATCH_WINDOW_MS else 0L).encode() }
+        } else runCatching { prefs.getString(GpsReturnObservationV2.QUALIFICATION_KEY, null) }.getOrNull()
+
         when (val action = plan.action) {
             GpsActiveZoneTransitionV2.Action.None -> {
                 if (GpsActiveZoneTransitionV2.needsDeferredEntryResolution(plan)) {
@@ -122,14 +185,22 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                         prefs,
                         zonesById,
                         plan.activeZoneIds,
-                        plan.pendingExitZoneIds
+                        plan.pendingExitZoneIds,
+                        exitObservations,
+                        observationContext = observationContext,
+                        returnObservations = returnObservations,
+                        returnQualification = returnQualification
                     )
                 } else {
                     persistZonePresenceState(
                         prefs,
                         plan.activeZoneIds,
                         plan.entryResolutionPending,
-                        plan.pendingExitZoneIds
+                        plan.pendingExitZoneIds,
+                        exitObservations,
+                        observationContext = observationContext,
+                        returnObservations = returnObservations,
+                        returnQualification = returnQualification
                     )
                 }
             }
@@ -141,7 +212,11 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                         prefs,
                         zonesById,
                         plan.activeZoneIds,
-                        pendingExitZoneIds = plan.pendingExitZoneIds
+                        pendingExitZoneIds = plan.pendingExitZoneIds,
+                        exitObservations = exitObservations,
+                        observationContext = observationContext,
+                        returnObservations = returnObservations,
+                        returnQualification = returnQualification
                     )
                 } else {
                     resolveEntryNow(
@@ -150,34 +225,71 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                         zoneIds = action.zoneIds,
                         zonesById = zonesById,
                         activeZoneIds = plan.activeZoneIds,
-                        pendingExitZoneIds = plan.pendingExitZoneIds
+                        pendingExitZoneIds = plan.pendingExitZoneIds,
+                        exitObservations = exitObservations,
+                        observationContext = observationContext,
+                        returnObservations = returnObservations,
+                        returnQualification = returnQualification
                     )
                 }
             }
 
             is GpsActiveZoneTransitionV2.Action.ResolveExit -> {
                 val choice = chooseExitZone(context, action.zoneIds, zonesById)
+                val exitAtMs = choice?.let { selected ->
+                    GpsExitObservationV2.resolveExitAtMs(
+                        selectedZoneId = selected.id,
+                        exitedZoneIds = action.zoneIds.toSet(),
+                        observations = exitObservations,
+                        resolutionAtMs = observedAtMs
+                    ) { first, second ->
+                        GpsOverlappingWorkZoneContinuityV2.hasEquivalentWorkGeometry(
+                            zonesById[first], zonesById[second]
+                        )
+                    }
+                }
+                val delivery = if (choice != null && exitAtMs != null) {
+                    GpsExitDeliveryV2.prepare(context, GpsTriggeredZoneSelectionV2.event(
+                        zoneId = choice.id,
+                        pointType = GpsTriggeredZoneSelectionV2.pointType(choice),
+                        transition = GpsTransitionV2.EXIT,
+                        atMs = exitAtMs
+                    ), observationContext, lastObservedAtMs = observedAtMs, episodeZoneIds = action.zoneIds.toSet())
+                } else null
+                // Without a proven session/account, retain observations as unknown. A later
+                // session may not appropriate them by filling in the missing binding.
+                val runtime = V2RuntimeReader.current(context, observedAtMs)
+                val invalidatedByClosedSession = runtime.reliable &&
+                    runtime.snapshot.session?.status != SessionStatusV2.OPEN
                 val stateSaved = persistZonePresenceState(
                     prefs,
                     plan.activeZoneIds,
                     entryResolutionPending = false,
-                    pendingExitZoneIds = plan.pendingExitZoneIds
+                    pendingExitZoneIds = if (delivery != null || invalidatedByClosedSession)
+                        plan.pendingExitZoneIds else action.zoneIds.toSet(),
+                    exitObservations = exitObservations,
+                    delivery = delivery,
+                    observationContext = observationContext,
+                    returnObservations = returnObservations,
+                    returnQualification = returnQualification
                 )
-                if (stateSaved && choice != null &&
+                if (stateSaved && delivery != null &&
                     HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)
                 ) {
-                    dispatchExit(context, choice, System.currentTimeMillis())
+                    GpsExitDeliveryV2.replay(context)
                 }
             }
         }
         updateWidgets(context)
     }
 
-    private fun finishAfterGpsReconciliation(context: Context, configurationChanged: Boolean) {
+    private fun finishAfterGpsReconciliation(context: Context, configurationChanged: Boolean, preservePresence: Boolean = false) {
         val pendingResult = goAsync()
         val callback: (Boolean, String) -> Unit = { _, _ -> pendingResult.finish() }
         if (configurationChanged) {
             GeofenceManager.reconfigureStoredZones(context, callback)
+        } else if (preservePresence) {
+            GeofenceManager.resyncStoredZonesPreservingPresence(context, callback)
         } else {
             GeofenceManager.resyncStoredZones(context, callback)
         }
@@ -272,7 +384,22 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun dispatchEntry(context: Context, zone: StoredGpsZone, now: Long) {
+    private fun dispatchEntry(
+        context: Context,
+        zone: StoredGpsZone,
+        now: Long,
+        zonesById: Map<String, StoredGpsZone>
+    ): GpsWorkStateCoordinatorV2.Outcome {
+        val previous = GpsWorkStateCoordinatorV2.pending(context)
+            ?.takeIf { it.kind == GpsWorkStateCoordinatorV2.Pending.Kind.EXIT_WORKSITE }
+        val overlappingReturn = previous?.let {
+            GpsOverlappingWorkZoneContinuityV2.isProvenSameWorksite(
+                exited = zonesById[it.placeId],
+                entered = zone,
+                exitAtMs = it.atMs,
+                entryAtMs = now
+            )
+        } ?: false
         val event = GpsTriggeredZoneSelectionV2.event(
             zoneId = zone.id,
             pointType = GpsTriggeredZoneSelectionV2.pointType(zone),
@@ -280,7 +407,10 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             atMs = now
         )
         val decision = HoraTrackV2.gps.ingest(event)
-        val outcome = GpsWorkStateCoordinatorV2.route(context, event, decision)
+        val outcome = GpsWorkStateCoordinatorV2.route(
+            context, event, decision,
+            verifiedOverlappingWorksiteReturn = overlappingReturn
+        )
         if (outcome.action == GpsWorkStateCoordinatorV2.Action.ENTRY_STARTED ||
             outcome.action == GpsWorkStateCoordinatorV2.Action.RETURNED_TO_POSTE
         ) {
@@ -289,6 +419,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 showArrivalContactNotification(context, zone)
             }
         }
+        return outcome
     }
 
     private fun scheduleEntryResolution(
@@ -296,7 +427,11 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         prefs: android.content.SharedPreferences,
         zonesById: Map<String, StoredGpsZone>,
         activeZoneIds: Set<String>,
-        pendingExitZoneIds: Set<String>
+        pendingExitZoneIds: Set<String>,
+        exitObservations: Map<String, GpsExitObservationV2.Observation>,
+        observationContext: String? = runCatching { prefs.getString(GpsExitDeliveryV2.OBSERVATION_CONTEXT_KEY, null) }.getOrNull(),
+        returnObservations: Set<String>? = null,
+        returnQualification: String? = null
     ) {
         val token = UUID.randomUUID().toString()
         if (!persistZonePresenceState(
@@ -304,6 +439,10 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 activeZoneIds,
                 entryResolutionPending = true,
                 pendingExitZoneIds = pendingExitZoneIds,
+                exitObservations = exitObservations,
+                observationContext = observationContext,
+                returnObservations = returnObservations,
+                returnQualification = returnQualification,
                 entryResolutionToken = token
             )
         ) return
@@ -331,12 +470,14 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                     .getStringSet(GpsPresenceStateKeysV2.PENDING_EXIT_ZONES, emptySet())
                     ?.filterTo(mutableSetOf()) { it in zonesById }
                     ?: mutableSetOf()
+                val exitObservations = readExitObservations(prefs)
                 if (activeZoneIds.isEmpty()) {
                     persistZonePresenceState(
                         prefs,
                         emptySet(),
                         entryResolutionPending = false,
-                        pendingExitZoneIds = emptySet()
+                        pendingExitZoneIds = emptySet(),
+                        exitObservations = emptyMap()
                     )
                 } else {
                     resolveEntryNow(
@@ -345,7 +486,8 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                         zoneIds = activeZoneIds.sorted(),
                         zonesById = zonesById,
                         activeZoneIds = activeZoneIds,
-                        pendingExitZoneIds = pendingExitZoneIds
+                        pendingExitZoneIds = pendingExitZoneIds,
+                        exitObservations = exitObservations
                     )
                 }
                 updateWidgets(app)
@@ -361,7 +503,11 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         zoneIds: List<String>,
         zonesById: Map<String, StoredGpsZone>,
         activeZoneIds: Set<String>,
-        pendingExitZoneIds: Set<String>
+        pendingExitZoneIds: Set<String>,
+        exitObservations: Map<String, GpsExitObservationV2.Observation>,
+        observationContext: String? = runCatching { prefs.getString(GpsExitDeliveryV2.OBSERVATION_CONTEXT_KEY, null) }.getOrNull(),
+        returnObservations: Set<String>? = null,
+        returnQualification: String? = null
     ) {
         val resolutionAtMs = System.currentTimeMillis()
         val v2GpsActive = HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)
@@ -370,7 +516,11 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 prefs,
                 activeZoneIds,
                 entryResolutionPending = true,
-                pendingExitZoneIds = pendingExitZoneIds
+                pendingExitZoneIds = pendingExitZoneIds,
+                exitObservations = exitObservations,
+                observationContext = observationContext,
+                returnObservations = returnObservations,
+                returnQualification = returnQualification
             )
             return
         }
@@ -378,30 +528,59 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         val employerReady = choice != null &&
             (!v2GpsActive ||
                 applyZoneEmployer(context, choice.employerResolution))
-        val remainsPending = !employerReady
-        val stateSaved = persistZonePresenceState(
+        // L'enregistrement de la présence GPS ne constitue pas une entrée de
+        // travail. Le marqueur de reprise reste actif jusqu'à un reçu runtime.
+        val requiresEntryWrite = employerReady && v2GpsActive
+        if (!persistZonePresenceState(
+                prefs,
+                activeZoneIds,
+                entryResolutionPending = !employerReady || requiresEntryWrite,
+                pendingExitZoneIds = pendingExitZoneIds,
+                exitObservations = exitObservations,
+                observationContext = observationContext,
+                returnObservations = returnObservations,
+                returnQualification = returnQualification
+            )) return
+        if (!requiresEntryWrite) return
+
+        // Une entrée GPS résolue tardivement prend l'heure de résolution, jamais
+        // celle d'un franchissement dont l'heure exacte n'a pas été prouvée.
+        val selectedZone = checkNotNull(choice).zone
+        val outcome = dispatchEntry(context, selectedZone, resolutionAtMs, zonesById)
+        val readback = V2RuntimeReader.current(context, resolutionAtMs)
+        val session = readback.snapshot.session
+        val sameEmployerOpen = readback.reliable &&
+            outcome.action == GpsWorkStateCoordinatorV2.Action.NO_CHANGE &&
+            outcome.reason == "Session V2 déjà ouverte" &&
+            session?.status == SessionStatusV2.OPEN && session.realExitMs == null &&
+            session.realArrivalMs != null && session.realArrivalMs <= resolutionAtMs &&
+            !selectedZone.companyId.isNullOrBlank() &&
+            session.employerId == selectedZone.companyId
+
+        if (!GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(
+                employerReady = employerReady,
+                gpsEnabled = v2GpsActive,
+                action = outcome.action,
+                existingSessionVerified = sameEmployerOpen
+            )) {
+            DailyDiagnosticStoreV2.record(
+                context, DailyDiagnosticKindV2.GPS_REASON,
+                resolutionAtMs, "GPS_ENTRY_NOT_COMMITTED"
+            )
+            return // Ne jamais effacer le marqueur sur un échec d'écriture.
+        }
+        // La session est déjà sauvegardée : acquitter seulement la résolution
+        // GPS. Si ce commit échoue, une nouvelle lecture protège les doublons.
+        persistZonePresenceState(
             prefs,
             activeZoneIds,
-            remainsPending,
-            pendingExitZoneIds
+            entryResolutionPending = false,
+            pendingExitZoneIds = pendingExitZoneIds,
+            exitObservations = exitObservations,
+            observationContext = observationContext,
+            returnObservations = returnObservations,
+            returnQualification = returnQualification
         )
-        if (stateSaved && employerReady && v2GpsActive) {
-            // Une résolution différée est horodatée maintenant, jamais au premier ENTER ambigu.
-            dispatchEntry(context, checkNotNull(choice).zone, resolutionAtMs)
-        }
-    }
-
-    private fun dispatchExit(context: Context, zone: StoredGpsZone, now: Long) {
-        val event = GpsTriggeredZoneSelectionV2.event(
-            zoneId = zone.id,
-            pointType = GpsTriggeredZoneSelectionV2.pointType(zone),
-            transition = GpsTransitionV2.EXIT,
-            atMs = now
-        )
-        val decision = HoraTrackV2.gps.ingest(event)
-        // La sortie GPS crée une demande de confirmation ; elle ne clôt pas la session ici.
-        // Le lieu courant est donc conservé jusqu'à la confirmation ou au prochain pointage.
-        GpsWorkStateCoordinatorV2.route(context, event, decision)
     }
 
     private fun persistZonePresenceState(
@@ -409,17 +588,32 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         activeZoneIds: Set<String>,
         entryResolutionPending: Boolean,
         pendingExitZoneIds: Set<String>,
-        entryResolutionToken: String? = null
+        exitObservations: Map<String, GpsExitObservationV2.Observation>,
+        entryResolutionToken: String? = null,
+        delivery: GpsExitDeliveryRecordV2? = null,
+        observationContext: String? = runCatching { prefs.getString(GpsExitDeliveryV2.OBSERVATION_CONTEXT_KEY, null) }.getOrNull(),
+        returnObservations: Set<String>? = null,
+        returnQualification: String? = null
     ): Boolean {
         val editor = prefs.edit()
             .putStringSet(GpsPresenceStateKeysV2.ACTIVE_ZONES, activeZoneIds.toSet())
         if (pendingExitZoneIds.isEmpty()) {
             editor.remove(GpsPresenceStateKeysV2.PENDING_EXIT_ZONES)
+            editor.remove(GpsPresenceStateKeysV2.PENDING_EXIT_OBSERVATIONS)
+            editor.remove(GpsExitDeliveryV2.OBSERVATION_CONTEXT_KEY)
         } else {
             editor.putStringSet(
                 GpsPresenceStateKeysV2.PENDING_EXIT_ZONES,
                 pendingExitZoneIds.toSet()
             )
+            editor.putStringSet(
+                GpsPresenceStateKeysV2.PENDING_EXIT_OBSERVATIONS,
+                GpsExitObservationV2.encode(exitObservations.filterKeys { it in pendingExitZoneIds })
+            )
+        }
+        if (pendingExitZoneIds.isNotEmpty()) {
+            if (observationContext == null) editor.remove(GpsExitDeliveryV2.OBSERVATION_CONTEXT_KEY)
+            else editor.putString(GpsExitDeliveryV2.OBSERVATION_CONTEXT_KEY, observationContext)
         }
         if (entryResolutionPending) {
             editor.putBoolean(GpsPresenceStateKeysV2.ENTRY_RESOLUTION_PENDING, true)
@@ -435,14 +629,20 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             editor.remove(GpsPresenceStateKeysV2.ENTRY_RESOLUTION_PENDING)
             editor.remove(GpsPresenceStateKeysV2.ENTRY_RESOLUTION_TOKEN)
         }
-        return editor.commit()
+        if (returnObservations != null) {
+            editor.putStringSet(GpsReturnObservationV2.KEY, returnObservations)
+            if (returnQualification == null) editor.remove(GpsReturnObservationV2.QUALIFICATION_KEY)
+            else editor.putString(GpsReturnObservationV2.QUALIFICATION_KEY, returnQualification)
+        }
+        return GpsExitDeliveryV2.commitPresence(prefs, editor, delivery)
     }
 
-    private fun clearZonePresenceState(prefs: android.content.SharedPreferences) {
-        val editor = prefs.edit()
-        GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach { editor.remove(it) }
-        editor.commit()
-    }
+    private fun readExitObservations(prefs: android.content.SharedPreferences):
+        Map<String, GpsExitObservationV2.Observation> = GpsExitObservationV2.decode(
+            runCatching {
+                prefs.getStringSet(GpsPresenceStateKeysV2.PENDING_EXIT_OBSERVATIONS, emptySet())
+            }.getOrNull()
+        )
 
     private fun applyZoneEmployer(
         context: Context,

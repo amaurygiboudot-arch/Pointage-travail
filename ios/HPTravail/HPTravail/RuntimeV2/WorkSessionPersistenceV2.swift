@@ -11,6 +11,9 @@ public struct WorkSession: Codable, Equatable, Identifiable {
     public var pauses: [PausePeriod]
     public var employerId: String? = nil
     public var placeLabel: String? = nil
+    /// Fact provenance, independent of optional diagnostics and payroll classification.
+    public var closureOrigin: String? = nil
+    public var departureObservedAt: Date? = nil
 
     public init(
         id: UUID,

@@ -2,6 +2,8 @@ import Combine
 import CoreLocation
 import CoreMotion
 import Foundation
+import FirebaseAuth
+import FirebaseCore
 import UIKit
 
 struct CelestialTrackingStateV2 {
@@ -64,6 +66,23 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     /// remains the result of an explicit one-shot request used by pointage and
     /// zone creation; continuous celestial tracking must not overwrite it.
     private var celestialLocation: CLLocation?
+
+    private var gpsAccountScope: String? {
+        guard FirebaseApp.app() != nil else { return nil }
+        let uid = Auth.auth().currentUser?.uid.trimmingCharacters(in: .whitespacesAndNewlines)
+        return uid.flatMap { $0.isEmpty ? nil : "uid:\($0)" } ?? "guest"
+    }
+    private var gpsStateKey: String {
+        GpsStateStoreV2.scopedKey(account: gpsAccountScope ?? "unavailable")
+    }
+
+    /// Read-only status: departure observations are never a confirmation dialog.
+    var isOutsideAwaitingReview: Bool {
+        guard case .valid(let state) = GpsStateStoreV2.read(defaults.data(forKey: gpsStateKey)),
+              state.accountScope == gpsAccountScope else { return false }
+        return state.pendingEvents.contains { $0.kind == .departure }
+    }
+
     private var celestialTrackingActive = false
 
     @Published private(set) var authorizationStatus: CLAuthorizationStatus
@@ -261,10 +280,24 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         zones.first { $0.id == id }
     }
 
+    /// Re-read persisted evidence before a dialog callback writes paid-time history.
+    /// Its captured event may have been cancelled or replaced by another GPS callback.
+    func isCurrentPendingEvent(_ event: GpsPendingEventV2) -> Bool {
+        guard let fingerprint = GpsZoneConfigurationV2.fingerprint(
+            enabled: automaticEnabled,
+            zones: zones
+        ), let state = validatedState(fingerprint: fingerprint) else { return false }
+        return GpsEventConfirmationV2.isCurrent(event, pendingEvents: state.pendingEvents)
+    }
+
+    func hasVerifiedDepartureTime(_ event: GpsPendingEventV2) -> Bool {
+        isCurrentPendingEvent(event) && GpsDepartureTimeEvidenceV2.isVerified(event, configuredZones: zones)
+    }
+
     @discardableResult
     func clearPendingEvent() -> Bool {
         guard case .valid(var state) = GpsStateStoreV2.read(
-            defaults.data(forKey: GpsStateStoreV2.key)
+            defaults.data(forKey: gpsStateKey)
         ) else {
             pendingEvent = nil
             return false
@@ -277,8 +310,9 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         if state.pendingEvents.count < GpsPresenceTransitionV2.maximumPendingEventCount {
             state.eventQueueOverflowed = false
         }
-        if GpsStateStoreV2.write(state, defaults: defaults) {
-            pendingEvent = state.pendingEvents.first
+        if GpsStateStoreV2.write(state, defaults: defaults, storageKey: gpsStateKey) {
+            try? DailyDiagnosticV2.append(.gpsConfirmationDismissed, account: gpsAccountScope)
+            pendingEvent = state.pendingEvents.first.flatMap { $0.kind == .arrival ? $0 : nil }
             return true
         }
         suspendRegistration(message: "État GPS non fiable — automatisme suspendu")
@@ -286,21 +320,33 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     @discardableResult
-    func confirmArrival(eventId: UUID, sessionId: UUID) -> Bool {
-        updateStateForCompletedEvent(
+    func confirmArrival(eventId: UUID, sessionId: UUID, zoneId: UUID) -> Bool {
+        let result = updateStateForCompletedEvent(
             eventId: eventId,
             alreadyCompleted: { state in
-                state.confirmedSessionId == sessionId
+                state.confirmedSessionId == sessionId && state.confirmedZoneId == zoneId
                     && !state.pendingEvents.contains(where: { $0.id == eventId })
             }
         ) { state, event in
-            GpsVisitConfirmationV2.arrival(state: &state, event: event, sessionId: sessionId)
+            guard GpsVisitConfirmationV2.arrival(state: &state, event: event, sessionId: sessionId,
+                                                 zoneId: zoneId, configuredZones: zones) else { return false }
+            if let account = state.accountScope,
+               case .valid(let sessions) = WorkSessionAccountStorageV2.read(account: account, defaults: defaults),
+               let session = sessions.first(where: { $0.id == sessionId && $0.exit == nil }) {
+                for index in state.pendingEvents.indices where state.pendingEvents[index].departureEvidenceVersion == 1 &&
+                    state.pendingEvents[index].expectedSessionId == sessionId {
+                    state.pendingEvents[index].expectedSessionEntry = session.entry
+                }
+            }
+            return true
         }
+        try? DailyDiagnosticV2.append(.gpsConfirmationRequested, account: gpsAccountScope, detail: result ? 1 : 0, sessionId: sessionId)
+        return result
     }
 
     @discardableResult
     func confirmDeparture(eventId: UUID, sessionId: UUID) -> Bool {
-        updateStateForCompletedEvent(
+        let result = updateStateForCompletedEvent(
             eventId: eventId,
             alreadyCompleted: { state in
                 state.confirmedSessionId != sessionId
@@ -309,6 +355,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         ) { state, event in
             GpsVisitConfirmationV2.departure(state: &state, event: event, sessionId: sessionId)
         }
+        try? DailyDiagnosticV2.append(.gpsConfirmationRequested, account: gpsAccountScope, detail: result ? 1 : 0, sessionId: sessionId)
+        return result
     }
 
     @discardableResult
@@ -324,20 +372,33 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             statusMessage = "État GPS à vérifier"
             return false
         }
-        let reconciled = GpsPresenceTransitionV2.reconcileSession(
+        var reconciled = GpsPresenceTransitionV2.reconcileSession(
             state: transitionState(from: stored),
             openSessionId: openSessionId
         )
+        if reconciled.confirmedSessionId == nil, reconciled.activeZoneIds.count == 1,
+           let zoneId = reconciled.activeZoneIds.first,
+           let zone = zones.first(where: { $0.id == zoneId }),
+           let account = stored.accountScope,
+           case .valid(let sessions) = WorkSessionAccountStorageV2.read(account: account, defaults: defaults),
+           let session = sessions.first(where: { $0.id == openSessionId && $0.exit == nil }),
+           zone.employerId == session.employerId,
+           !reconciled.pendingEvents.contains(where: { $0.kind == .departure }) {
+            reconciled.confirmedSessionId = session.id
+            reconciled.confirmedZoneId = zoneId
+            reconciled.pendingEvents.removeAll { $0.kind == .arrival && $0.zoneIds == [zoneId] }
+        }
         guard reconciled != transitionState(from: stored) else {
-            pendingEvent = stored.pendingEvents.first
+            pendingEvent = stored.pendingEvents.first.flatMap { $0.kind == .arrival ? $0 : nil }
             return true
         }
-        let persisted = persistedState(from: reconciled, fingerprint: fingerprint)
-        guard GpsStateStoreV2.write(persisted, defaults: defaults) else {
+        let persisted = persistedState(from: reconciled, fingerprint: fingerprint, accountScope: stored.accountScope)
+        guard GpsStateStoreV2.write(persisted, defaults: defaults, storageKey: gpsStateKey) else {
+            try? DailyDiagnosticV2.append(.gpsPersistenceFailed, account: gpsAccountScope)
             suspendRegistration(message: "État GPS non fiable — automatisme suspendu")
             return false
         }
-        pendingEvent = persisted.pendingEvents.first
+        pendingEvent = persisted.pendingEvents.first.flatMap { $0.kind == .arrival ? $0 : nil }
         return true
     }
 
@@ -362,7 +423,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         let resetSucceeded = GpsZoneConfigurationV2.read(
             defaults.data(forKey: GpsZoneConfigurationV2.zonesKey)
         ) == .missing
-            && GpsStateStoreV2.read(defaults.data(forKey: GpsStateStoreV2.key)) == .missing
+            && GpsStateStoreV2.read(defaults.data(forKey: gpsStateKey)) == .missing
             && !defaults.bool(forKey: GpsZoneConfigurationV2.enabledKey)
         configurationReliable = resetSucceeded
         statusMessage = resetSucceeded
@@ -371,6 +432,32 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     func reloadAndReconcile(configurationChanged: Bool = false) {
+        // Returning to an account cannot prove that no return occurred while another
+        // account owned monitoring. Keep its journal, invalidate only departure evidence.
+        let accountMarker = "horatrack_gps_monitoring_account_v2"
+        if let previous = defaults.string(forKey: accountMarker), previous != gpsAccountScope,
+           case .valid(var resumed) = GpsStateStoreV2.read(defaults.data(forKey: gpsStateKey)) {
+            resumed.pendingEvents.removeAll { $0.kind == .departure }
+            resumed.pendingExitZoneIds.removeAll()
+            resumed.pendingExitObservations = nil
+            guard GpsStateStoreV2.write(resumed, defaults: defaults, storageKey: gpsStateKey) else {
+                suspendRegistration(message: "État GPS à vérifier — changement de compte")
+                return
+            }
+        }
+        defaults.set(gpsAccountScope ?? "unavailable", forKey: accountMarker)
+        if defaults.object(forKey: gpsStateKey) == nil, let account = gpsAccountScope,
+           case .valid(var legacy) = GpsStateStoreV2.read(defaults.data(forKey: GpsStateStoreV2.key)),
+           legacy.accountScope == account {
+            legacy.pendingEvents.removeAll { $0.kind == .departure }
+            legacy.pendingExitZoneIds.removeAll()
+            legacy.pendingExitObservations = nil
+            guard GpsStateStoreV2.write(legacy, defaults: defaults, storageKey: gpsStateKey) else {
+                suspendRegistration(message: "État GPS à vérifier — migration non enregistrée")
+                return
+            }
+        }
+        pendingEvent = nil
         automaticEnabled = defaults.bool(forKey: GpsZoneConfigurationV2.enabledKey)
         switch GpsZoneConfigurationV2.read(
             defaults.data(forKey: GpsZoneConfigurationV2.zonesKey)
@@ -396,8 +483,13 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             enabled: automaticEnabled,
             zones: zones
         )
+        if fingerprint != nil && gpsAccountScope == nil {
+            suspendRegistration(message: "Compte Firebase indisponible — pointage GPS suspendu")
+            pendingEvent = nil
+            return
+        }
         if configurationChanged {
-            GpsStateStoreV2.clear(defaults: defaults)
+            defaults.removeObject(forKey: gpsStateKey)
             pendingEvent = nil
         } else if let suspensionMessage = restoreState(expectedFingerprint: fingerprint) {
             suspendRegistration(message: suspensionMessage)
@@ -426,6 +518,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        try? DailyDiagnosticV2.append(.gpsAuthorizationChanged, account: gpsAccountScope, detail: Int(manager.authorizationStatus.rawValue))
         authorizationStatus = manager.authorizationStatus
         if locationRequestPending,
            (authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways) {
@@ -629,6 +722,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        try? DailyDiagnosticV2.append(.gpsFailure, account: gpsAccountScope)
         locationRequestPending = false
         if (error as? CLError)?.code == .denied {
             reloadAndReconcile()
@@ -685,7 +779,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         let monitoredIdentifiers = Set(monitored.map(\.identifier))
         let state = validatedState(fingerprint: fingerprint)
         if let state, state.eventQueueOverflowed {
-            pendingEvent = state.pendingEvents.first
+            pendingEvent = state.pendingEvents.first.flatMap { $0.kind == .arrival ? $0 : nil }
             suspendRegistration(
                 message: "Trop d'événements GPS à confirmer — automatisme suspendu"
             )
@@ -717,9 +811,10 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             pendingExitZoneIds: [],
             pendingEvents: [],
             confirmedSessionId: nil,
-            eventQueueOverflowed: false
+            eventQueueOverflowed: false,
+            accountScope: gpsAccountScope
         )
-        guard GpsStateStoreV2.write(reconciledState, defaults: defaults) else {
+        guard GpsStateStoreV2.write(reconciledState, defaults: defaults, storageKey: gpsStateKey) else {
             statusMessage = "Impossible d'enregistrer l'état GPS"
             return
         }
@@ -728,7 +823,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             statusMessage = "Trop d'événements GPS à confirmer — automatisme suspendu"
             return
         }
-        pendingEvent = reconciledState.pendingEvents.first
+        pendingEvent = reconciledState.pendingEvents.first.flatMap { $0.kind == .arrival ? $0 : nil }
 
         let registrationId = UUID()
         let expectedIdentifiers = Set(automaticZones.map {
@@ -770,7 +865,9 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         transition: GpsPresenceTransitionV2.Transition,
         occurredAt: Date
     ) {
-        guard registrationFingerprintInFlight == nil, !registrationSuspended else { return }
+        guard registrationFingerprintInFlight == nil, !registrationSuspended else {
+            return
+        }
         guard configurationReliable,
               automaticEnabled,
               manager.authorizationStatus == .authorizedAlways,
@@ -793,19 +890,40 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             return
         }
 
-        let next = GpsPresenceTransitionV2.plan(
+        // Only attribute callbacks after validating registration identity AND account ownership.
+        let diagnosticTransition: Int
+        switch transition { case .enter: diagnosticTransition = 1; case .exit: diagnosticTransition = 2 }
+        try? DailyDiagnosticV2.append(.gpsRegionCallback, account: stored.accountScope,
+            detail: diagnosticTransition, zoneId: zoneId, sessionId: stored.confirmedSessionId, now: occurredAt)
+        let next = GpsPresenceTransitionV2.arbitrateDepartures(state: GpsConfiguredPresenceTransitionV2.plan(
             state: transitionState(from: stored),
+            configuredZones: zones,
             zoneId: zoneId,
             transition: transition,
             occurredAt: occurredAt
-        )
-        let persisted = persistedState(from: next, fingerprint: fingerprint)
-        guard persisted != stored else { return }
-        guard GpsStateStoreV2.write(persisted, defaults: defaults) else {
+        ))
+        var persisted = persistedState(from: next, fingerprint: fingerprint, accountScope: stored.accountScope)
+        for index in persisted.pendingEvents.indices where
+            persisted.pendingEvents[index].kind == .departure &&
+            !stored.pendingEvents.contains(where: { $0.id == persisted.pendingEvents[index].id }) {
+            persisted.pendingEvents[index].departureEvidenceVersion = 1
+            if let account = stored.accountScope,
+               case .valid(let sessions) = WorkSessionAccountStorageV2.read(account: account, defaults: defaults),
+               let session = sessions.first(where: { $0.id == persisted.pendingEvents[index].expectedSessionId && $0.exit == nil }) {
+                persisted.pendingEvents[index].expectedSessionEntry = session.entry
+            }
+        }
+        guard persisted != stored else {
+            try? DailyDiagnosticV2.append(.gpsTransitionUnchanged, account: gpsAccountScope)
+            return
+        }
+        guard GpsStateStoreV2.write(persisted, defaults: defaults, storageKey: gpsStateKey) else {
+            try? DailyDiagnosticV2.append(.gpsPersistenceFailed, account: gpsAccountScope)
             suspendRegistration(message: "État GPS non fiable — automatisme suspendu")
             return
         }
-        pendingEvent = next.pendingEvents.first
+        try? DailyDiagnosticV2.append(.gpsTransitionSaved, account: gpsAccountScope, detail: next.pendingEvents.count, zoneId: zoneId, sessionId: stored.confirmedSessionId)
+        pendingEvent = next.pendingEvents.first.flatMap { $0.kind == .arrival ? $0 : nil }
         if next.eventQueueOverflowed {
             suspendRegistration(
                 message: "Trop d'événements GPS à confirmer — automatisme suspendu"
@@ -818,20 +936,24 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             pendingEvent = nil
             return nil
         }
+        guard let accountScope = gpsAccountScope else {
+            return "Compte Firebase indisponible — pointage GPS suspendu"
+        }
         let startup = GpsStateValidationV2.startupState(
-            read: GpsStateStoreV2.read(defaults.data(forKey: GpsStateStoreV2.key)),
+            read: GpsStateStoreV2.read(defaults.data(forKey: gpsStateKey)),
             expectedFingerprint: expectedFingerprint,
-            configuredZoneIds: GpsZoneConfigurationV2.automaticZoneIds(zones)
+            configuredZoneIds: GpsZoneConfigurationV2.automaticZoneIds(zones),
+            expectedAccountScope: accountScope
         )
         switch startup {
         case .resume(let state):
-            pendingEvent = state.pendingEvents.first
+            pendingEvent = state.pendingEvents.first.flatMap { $0.kind == .arrival ? $0 : nil }
             return nil
         case .initialize:
             pendingEvent = nil
             return nil
         case .suspend(let state):
-            pendingEvent = state?.pendingEvents.first
+            pendingEvent = state?.pendingEvents.first.flatMap { $0.kind == .arrival ? $0 : nil }
             if state?.eventQueueOverflowed == true {
                 return "Trop d'événements GPS à confirmer — automatisme suspendu"
             }
@@ -841,7 +963,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
     private func validatedState(fingerprint: String) -> GpsPersistedStateV2? {
         guard case .valid(let state) = GpsStateStoreV2.read(
-            defaults.data(forKey: GpsStateStoreV2.key)
+            defaults.data(forKey: gpsStateKey)
         ), state.fingerprint == fingerprint else {
             return nil
         }
@@ -850,10 +972,12 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     private func isValid(state: GpsPersistedStateV2, fingerprint: String) -> Bool {
-        GpsStateValidationV2.startupState(
+        guard let accountScope = gpsAccountScope else { return false }
+        return GpsStateValidationV2.startupState(
             read: .valid(state),
             expectedFingerprint: fingerprint,
-            configuredZoneIds: GpsZoneConfigurationV2.automaticZoneIds(zones)
+            configuredZoneIds: GpsZoneConfigurationV2.automaticZoneIds(zones),
+            expectedAccountScope: gpsAccountScope
         ) == .resume(state)
     }
 
@@ -871,7 +995,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             guard var state = validatedState(fingerprint: fingerprint) else { break }
             guard let index = state.pendingEvents.firstIndex(where: { $0.id == eventId }) else {
                 if alreadyCompleted(state) {
-                    pendingEvent = state.pendingEvents.first
+                    pendingEvent = state.pendingEvents.first.flatMap { $0.kind == .arrival ? $0 : nil }
                     return true
                 }
                 break
@@ -879,8 +1003,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             let event = state.pendingEvents[index]
             state.pendingEvents.remove(at: index)
             guard mutate(&state, event) else { return false }
-            if GpsStateStoreV2.write(state, defaults: defaults) {
-                pendingEvent = state.pendingEvents.first
+            if GpsStateStoreV2.write(state, defaults: defaults, storageKey: gpsStateKey) {
+                pendingEvent = state.pendingEvents.first.flatMap { $0.kind == .arrival ? $0 : nil }
                 return true
             }
         }
@@ -910,7 +1034,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         clearRegistrationMarkers()
         clearInFlightRegistration()
         if clearBusinessState {
-            GpsStateStoreV2.clear(defaults: defaults)
+            defaults.removeObject(forKey: gpsStateKey)
             pendingEvent = nil
         }
     }
@@ -921,13 +1045,16 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             pendingExitZoneIds: state.pendingExitZoneIds,
             pendingEvents: state.pendingEvents,
             confirmedSessionId: state.confirmedSessionId,
-            eventQueueOverflowed: state.eventQueueOverflowed
+            eventQueueOverflowed: state.eventQueueOverflowed,
+            confirmedZoneId: state.confirmedZoneId,
+            pendingExitObservations: state.pendingExitObservations
         )
     }
 
     private func persistedState(
         from state: GpsPresenceTransitionV2.State,
-        fingerprint: String
+        fingerprint: String,
+        accountScope: String?
     ) -> GpsPersistedStateV2 {
         .init(
             fingerprint: fingerprint,
@@ -935,7 +1062,10 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             pendingExitZoneIds: state.pendingExitZoneIds,
             pendingEvents: state.pendingEvents,
             confirmedSessionId: state.confirmedSessionId,
-            eventQueueOverflowed: state.eventQueueOverflowed
+            eventQueueOverflowed: state.eventQueueOverflowed,
+            confirmedZoneId: state.confirmedZoneId,
+            pendingExitObservations: state.pendingExitObservations,
+            accountScope: accountScope
         )
     }
 
