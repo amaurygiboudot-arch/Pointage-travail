@@ -234,7 +234,7 @@ class MainActivity : Activity() {
             }
             val message = when {
                 ok -> "Entrée enregistrée"
-                HoraTrackV2.ENABLED && !V2RuntimeReader.current(this).reliable -> "Pointage bloqué : données HoraTrack à vérifier"
+                HoraTrackV2.ENABLED && !V2RuntimeReader.current(this).reliable -> "Pointage bloqué : données AGKGMG à vérifier"
                 else -> "Une entrée est déjà en cours"
             }
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
@@ -244,20 +244,23 @@ class MainActivity : Activity() {
         exitButton?.setOnClickListener {
             animateClick(exitButton)
             val ok = if (HoraTrackV2.ENABLED) {
-                V2RuntimeStore.exit(this)
+                V2RuntimeStore.userExit(this, origin = ClosureOriginV2.MANUAL)
             } else {
                 V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.POINTAGE)
                 PointageStore.exit(this)
             }
             val message = when {
                 ok -> "Sortie enregistrée"
-                HoraTrackV2.ENABLED && !V2RuntimeReader.current(this).reliable -> "Pointage bloqué : données HoraTrack à vérifier"
+                HoraTrackV2.ENABLED && !V2RuntimeReader.current(this).reliable -> "Pointage bloqué : données AGKGMG à vérifier"
                 else -> "Aucune entrée en cours"
             }
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
             if (ok) refreshScreen()
         }
 
+        findViewById<View>(R.id.reviewPointageButton)?.setOnClickListener {
+            GpsPointageReviewDialogV2.show(this)
+        }
         locationPermissionButton?.setOnClickListener { animateClick(locationPermissionButton); requestLocationAccess() }
         chooseReportMonthButton?.setOnClickListener { animateClick(chooseReportMonthButton); showReportMonthDialog() }
         generateMonthlyPdfButton?.setOnClickListener { animateClick(generateMonthlyPdfButton); requestMonthlyPdfPreview() }
@@ -287,6 +290,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        DailyDiagnosticStoreV2.record(this, DailyDiagnosticKindV2.APP_OPENED)
         if (HoraTrackV2.ENABLED) V2RuntimeStore.bind(this)
         gpsRegistrationConfirmed = false
         gpsRegistrationError = null
@@ -378,7 +382,7 @@ class MainActivity : Activity() {
                 V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
                 MonthlyPdfReport.write(this, PointageStore.load(this), pendingPdfYear, pendingPdfMonth, output)
             }
-            BillingPdfGate.require(this, file, "HoraTrack_${pendingPdfYear}_${pendingPdfMonth + 1}.pdf", onDenied = {
+            BillingPdfGate.require(this, file, "AGKGMG_${pendingPdfYear}_${pendingPdfMonth + 1}.pdf", onDenied = {
                 runCatching { android.provider.DocumentsContract.deleteDocument(contentResolver, uri) }
             }) { authorizedFile ->
                 runCatching {
@@ -408,6 +412,7 @@ class MainActivity : Activity() {
     }
 
     private fun showHomeTab() {
+        updateDepartureObservationStatus()
         setCelestialHomeBackground(true)
         persistActiveTab("home")
         setActiveTab(tabHome)
@@ -664,13 +669,14 @@ class MainActivity : Activity() {
         updatingGpsSwitch = true; autoGpsSwitch.isChecked = false; updatingGpsSwitch = false
         gpsPrefs.edit().putBoolean("enabled", false)
             .remove("active_zones").remove("entry_resolution_pending")
-            .remove("entry_resolution_token").remove("pending_exit_zones").apply()
+            .remove("entry_resolution_token").remove("pending_exit_zones").remove("pending_exit_observations").apply()
         GeofenceManager.reconfigureStoredZones(this)
         gpsStatusText.text = message
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
     private fun tryRestoreGeofence() {
+        GeofenceManager.observeMonitoringAvailability(this)
         if (!gpsPrefs.getBoolean("enabled", false) || !GeofenceManager.hasRequiredPermissions(this)) return
         when (val stored = readPersistedGpsZones(gpsPrefs)) {
             GpsZonesReadResult.Missing -> {
@@ -686,8 +692,21 @@ class MainActivity : Activity() {
                     disableAutomaticGps("Aucune zone GPS valide enregistrée")
                     return
                 }
-                // Reopening the app only reconciles Android's registrations. It must
-                // not discard a business event (for example an EXIT awaiting confirmation).
+                // A successful registration is retained by Google Play services across
+                // ordinary app process death. Never clear the current GPS presence on resume.
+                // BootReceiver and stale configuration still trigger a full resync.
+                if (shouldKeepGeofenceRegistrationOnResumeV2(
+                        enabled = gpsPrefs.getBoolean("enabled", false),
+                        hasPermissions = GeofenceManager.hasRequiredPermissions(this),
+                        locationEnabled = DeviceLocationAvailability.isEnabled(this),
+                        registrationCurrent = GeofenceManager.isStoredRegistrationCurrent(this)
+                    )) {
+                    GeofenceBroadcastReceiver.replayPendingEntry(this)
+                    com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2.resolveObservedDeparture(this)
+                    showGpsReconciliationResult(true, "Zones GPS déjà synchronisées")
+                    return
+                }
+                // Only a missing/stale registration takes the destructive platform resync path.
                 GeofenceManager.resyncStoredZones(this) { success, message ->
                     runOnUiThread {
                         showGpsReconciliationResult(success, message)
@@ -697,7 +716,20 @@ class MainActivity : Activity() {
         }
     }
 
+    /** A separate non-blocking banner preserves permission/registration error messages. */
+    private fun updateDepartureObservationStatus() {
+        val banner = findViewById<TextView>(R.id.departureObservationStatus) ?: return
+        val observation = if (HoraTrackV2.ENABLED)
+            com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2.pendingForOpenSession(this)
+                ?.takeIf { it.kind == com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2.Pending.Kind.EXIT_WORKSITE }
+            else null
+        banner.visibility = if (observation == null) View.GONE else View.VISIBLE
+        banner.text = if (observation == null) "" else
+            "Hors site / \u00e0 v\u00e9rifier depuis ${java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(Date(observation.atMs))}. Session ouverte."
+    }
+
     private fun updateGpsStatus() {
+        updateDepartureObservationStatus()
         val precisePermission =
             checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val backgroundPermission =
@@ -711,7 +743,9 @@ class MainActivity : Activity() {
             systemLocationEnabled = systemLocationEnabled,
             registrationCurrent = gpsRegistrationConfirmed &&
                 GeofenceManager.isStoredRegistrationCurrent(this),
-            registrationError = gpsRegistrationError
+            registrationError = gpsRegistrationError ?: if (GpsEntryRecoveryV2.read(gpsPrefs) == null)
+                "Observation d’arrivée GPS illisible — données conservées, vérification nécessaire"
+                else null
         )
         val openSystemSettings = shouldOpenSystemLocationSettings(
             enabled = autoGpsSwitch.isChecked,
@@ -749,11 +783,12 @@ class MainActivity : Activity() {
     }
 
     private fun refreshScreen() {
+        updateDepartureObservationStatus()
         if (HoraTrackV2.ENABLED) {
             val read = V2RuntimeReader.current(this)
             if (!read.reliable) {
                 statusCard.text = "STATUT ACTUEL\n⚠ DONNÉES À VÉRIFIER"
-                historyText.text = "Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
+                historyText.text = "Historique AGKGMG indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
                 return
             }
             val session = read.snapshot.session
@@ -782,7 +817,7 @@ class MainActivity : Activity() {
         val now = System.currentTimeMillis()
         val read = V2RuntimeReader.allSessions(this, now)
         if (!read.reliable) {
-            return "Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
+            return "Historique AGKGMG indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
         }
 
         val employerNames = buildV2EmployerNames()
@@ -858,7 +893,7 @@ class MainActivity : Activity() {
 
     private fun buildLegacyAnalyticsText(): String {
         V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.ANALYTICS)
-        return "Analyses historiques désactivées lorsque HoraTrack est actif."
+        return "Analyses historiques désactivées lorsque AGKGMG est actif."
     }
 
     private fun formatDuration(ms: Long): String {

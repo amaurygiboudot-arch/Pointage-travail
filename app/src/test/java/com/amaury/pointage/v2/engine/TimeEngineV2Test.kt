@@ -4,6 +4,11 @@ import com.amaury.pointage.v2.model.DecisionStatusV2
 import com.amaury.pointage.v2.model.EventSourceV2
 import com.amaury.pointage.v2.model.PauseV2
 import com.amaury.pointage.v2.model.SessionStatusV2
+import com.amaury.pointage.v2.model.TimeBasisV2
+import com.amaury.pointage.v2.model.TravelClassificationV2
+import com.amaury.pointage.v2.model.TravelV2
+import com.amaury.pointage.v2.model.WorkSegmentKindV2
+import com.amaury.pointage.v2.model.WorkSegmentV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -19,11 +24,59 @@ class TimeEngineV2Test {
     private val morningBase = at(6, 0)
 
     @Test
-    fun `entree respecte trente minutes avec dix minutes de grace`() {
+    fun personalTravelOverConfirmedWorkMakesSessionUnreliable() {
+        val session = closedSession(baseMs = dayBase).copy(
+            timeBasis = TimeBasisV2.REAL_FACTS,
+            travels = listOf(
+                TravelV2(
+                    startMs = dayBase + 3 * 60 * minute,
+                    endMs = dayBase + 4 * 60 * minute,
+                    employerBeforeId = null,
+                    employerAfterId = null,
+                    classification = TravelClassificationV2.PERSONAL,
+                ),
+            ),
+            workSegments = listOf(
+                WorkSegmentV2(
+                    startMs = dayBase,
+                    endMs = dayBase + 8 * 60 * minute,
+                    kind = WorkSegmentKindV2.WORK,
+                ),
+            ),
+        )
+
+        val result = DefaultTimeEngineV2.calculate(session)
+
+        assertFalse(result.reliable)
+    }
+
+    @Test
+    fun paidTravelContradictingPersonalTravelSegmentMakesSessionUnreliable() {
+        val session = closedSession(baseMs = dayBase).copy(
+            timeBasis = TimeBasisV2.REAL_FACTS,
+            travels = listOf(
+                TravelV2(
+                    startMs = dayBase + 4 * 60 * minute,
+                    endMs = dayBase + 8 * 60 * minute,
+                    employerBeforeId = null,
+                    employerAfterId = null,
+                    classification = TravelClassificationV2.PAID,
+                ),
+            ),
+            workSegments = listOf(
+                WorkSegmentV2(startMs = dayBase, endMs = dayBase + 4 * 60 * minute, kind = WorkSegmentKindV2.WORK),
+                WorkSegmentV2(startMs = dayBase + 4 * 60 * minute, endMs = dayBase + 8 * 60 * minute, kind = WorkSegmentKindV2.PERSONAL_TRAVEL),
+            ),
+        )
+        assertFalse(DefaultTimeEngineV2.calculate(session).reliable)
+    }
+
+    @Test
+    fun `nouvelle entree preserve chaque minute reelle sans grille`() {
         assertEquals(morningBase, DefaultTimeEngineV2.countedEntryFromRealArrival(at(6, 0)))
-        assertEquals(morningBase, DefaultTimeEngineV2.countedEntryFromRealArrival(at(6, 10)))
-        assertEquals(at(6, 30), DefaultTimeEngineV2.countedEntryFromRealArrival(at(6, 11)))
-        assertEquals(at(6, 30), DefaultTimeEngineV2.countedEntryFromRealArrival(at(6, 28)))
+        assertEquals(at(6, 10), DefaultTimeEngineV2.countedEntryFromRealArrival(at(6, 10)))
+        assertEquals(at(6, 11), DefaultTimeEngineV2.countedEntryFromRealArrival(at(6, 11)))
+        assertEquals(at(6, 28), DefaultTimeEngineV2.countedEntryFromRealArrival(at(6, 28)))
     }
 
     @Test
@@ -34,10 +87,25 @@ class TimeEngineV2Test {
     }
 
     @Test
-    fun `sortie jusque vingt minutes apres reste heure prevue puis devient reelle`() {
+    fun `entree factuelle a six heures quinze ne doit jamais subir la reparation historique`() {
+        val real = at(6, 15)
+        assertEquals(real, WorkTimePolicyV2.repairKnownCountedEntry(real, real))
+        val session = closedSession(baseMs = real).copy(timeBasis = TimeBasisV2.REAL_FACTS)
+        val time = DefaultTimeEngineV2.calculate(session)
+        val allocated = PaidWorkAllocationV2.paidOverlapResult(
+            session, real, real + 8 * 60 * minute
+        )
+        assertEquals(8 * 60 * minute, time.paidWorkMs)
+        assertTrue(time.reliable)
+        assertEquals(time.paidWorkMs, allocated.paidMs)
+        assertTrue(allocated.reliable)
+    }
+
+    @Test
+    fun `nouvelle sortie conserve heure reelle meme dans ancienne tolerance`() {
         val expected = at(13, 0)
         assertEquals(expected, DefaultTimeEngineV2.countedExitFromRealExit(expected, expected))
-        assertEquals(expected, DefaultTimeEngineV2.countedExitFromRealExit(at(13, 20), expected))
+        assertEquals(at(13, 20), DefaultTimeEngineV2.countedExitFromRealExit(at(13, 20), expected))
         assertEquals(at(13, 21), DefaultTimeEngineV2.countedExitFromRealExit(at(13, 21), expected))
         assertEquals(at(15, 0), DefaultTimeEngineV2.countedExitFromRealExit(at(15, 0), expected))
     }
@@ -231,8 +299,10 @@ class TimeEngineV2Test {
 
         val excessive = closedSession(baseMs = dayBase, legacyFixedUnpaidPauseMs = 12 * 60 * minute)
         val excessiveResult = DefaultTimeEngineV2.calculate(excessive)
-        assertEquals(8 * 60 * minute, excessiveResult.unpaidPauseMs)
-        assertEquals(0L, excessiveResult.paidWorkMs)
+        // Une valeur historique impossible n'efface pas 8 h d'activité en silence.
+        assertEquals(0L, excessiveResult.unpaidPauseMs)
+        assertEquals(8 * 60 * minute, excessiveResult.paidWorkMs)
+        assertFalse(excessiveResult.reliable)
     }
 
     private fun closedSession(

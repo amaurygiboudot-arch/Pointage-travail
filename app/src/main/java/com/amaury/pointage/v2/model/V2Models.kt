@@ -1,6 +1,6 @@
 package com.amaury.pointage.v2.model
 
-/** Modèles centraux du moteur HoraTrack V2. Aucun lien avec PointageStore. */
+/** Modèles centraux du moteur AGKGMG V2. Aucun lien avec PointageStore. */
 data class WorkSessionV2(
     val id: String,
     val employerId: String?,
@@ -15,7 +15,15 @@ data class WorkSessionV2(
     val placeId: String? = null,
     val placeLabel: String? = null,
     /** Déduction fixe importée de l'ancien moteur. Utilisée uniquement pour préserver les historiques. */
-    val legacyFixedUnpaidPauseMs: Long = 0L
+    val legacyFixedUnpaidPauseMs: Long = 0L,
+    /** Missing in historical records: old counted times remain unverified until qualified. */
+    val timeBasis: TimeBasisV2 = TimeBasisV2.LEGACY_UNVERIFIED,
+    /** Optional exhaustive activity breakdown (not inferred from GPS). */
+    val workSegments: List<WorkSegmentV2> = emptyList(),
+    /** Explicit action provenance, absent for historical records. */
+    val closureOrigin: String? = null,
+    /** GPS evidence actually used for closure; never inferred for historical sessions. */
+    val departureObservedAtMs: Long? = null
 )
 
 data class PauseV2(val startMs:Long,val endMs:Long?,val paid:Boolean?,val source:EventSourceV2,val status:DecisionStatusV2=DecisionStatusV2.CONFIRMED)
@@ -50,7 +58,7 @@ data class DeductionV2(val id:String,val label:String,val amount:Double,val recu
  * providentTreatment concerne uniquement une prestation de prévoyance financée par l'employeur
  * qui CHEVAUCHE la période de maintien. Le relais conventionnel après maintien est traité à part.
  * Les trois champs providentRelay* servent uniquement à contrôler un décompte réel sur une même
- * période/base ; HoraTrack ne reconstruit pas seul une périodisation de la prestation assureur.
+ * période/base ; AGKGMG ne reconstruit pas seul une périodisation de la prestation assureur.
  */
 data class AbsenceV2(
     val id:String,
@@ -87,3 +95,16 @@ enum class AbsenceSalaryTreatmentV2 { FULLY_MAINTAINED, PARTIALLY_MAINTAINED, UN
 enum class AbsenceSubrogationV2 { YES, NO, TO_CONFIRM }
 enum class AbsenceProvidentTreatmentV2 { TO_CONFIRM, NONE_CONFIRMED, NET_AMOUNT_CONFIRMED }
 enum class DiscrepancyStatusV2 { TO_VERIFY, CONFIRMED, SET_ASIDE, EXPLAINED, RESOLVED }
+
+
+/** Old counted timestamps are retained, never silently promoted to verified paid work. */
+enum class TimeBasisV2 { REAL_FACTS, LEGACY_UNVERIFIED }
+
+/** Segmented work, on-call standby and travel must be classified from explicit facts. */
+data class WorkSegmentV2(
+    val startMs: Long,
+    val endMs: Long?,
+    val kind: WorkSegmentKindV2,
+    val status: DecisionStatusV2 = DecisionStatusV2.CONFIRMED
+)
+enum class WorkSegmentKindV2 { WORK, INTERVENTION, PAID_TRAVEL, ON_CALL, PERSONAL_TRAVEL, NON_WORK, TO_CONFIRM }

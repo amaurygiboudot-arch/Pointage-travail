@@ -15,7 +15,7 @@ class SalaryPayslipPhotoActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val values = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, "HoraTrack_bulletin_${System.currentTimeMillis()}.jpg")
+            put(MediaStore.Images.Media.DISPLAY_NAME, "AGKGMG_bulletin_${System.currentTimeMillis()}.jpg")
             put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
         }
         photoUri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)

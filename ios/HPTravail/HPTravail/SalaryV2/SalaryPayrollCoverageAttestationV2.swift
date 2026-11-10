@@ -84,6 +84,15 @@ enum SalaryPayrollCoverageAttestationPolicyV2 {
                 append(pause.end.map(bits) ?? "", to: &canonical)
                 append(pause.paid.map { String($0) } ?? "", to: &canonical)
             }
+            // Preserve old hashes for unchanged historical sessions, but invalidate evidence
+            // whenever the recorded presence is qualified differently.
+            for segment in session.segments {
+                append("work-segment", to: &canonical)
+                append(bits(segment.start), to: &canonical)
+                append(segment.end.map(bits) ?? "", to: &canonical)
+                append(segment.kind.rawValue, to: &canonical)
+                append(String(segment.confirmed), to: &canonical)
+            }
             append("end-session", to: &canonical)
         }
 

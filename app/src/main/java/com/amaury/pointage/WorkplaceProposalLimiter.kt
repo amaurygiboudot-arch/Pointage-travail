@@ -6,7 +6,7 @@ import android.content.Context
 /**
  * Évite que la détection intelligente devienne intrusive.
  * Une proposition de lieu de travail ne peut être affichée que deux fois maximum
- * pour une même zone candidate. Après la deuxième tentative, HoraTrack n'insiste plus.
+ * pour une même zone candidate. Après la deuxième tentative, AGKGMG n'insiste plus.
  */
 object WorkplaceProposalLimiter {
     private const val PREFS = "smart_setup"

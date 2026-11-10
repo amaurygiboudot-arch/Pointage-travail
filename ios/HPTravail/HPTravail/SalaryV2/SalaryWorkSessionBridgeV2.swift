@@ -34,10 +34,26 @@ enum SalaryWorkSessionBridgeV2 {
                             end: pause.end,
                             paid: pause.paid
                         )
-                    }
+                    },
+                    segments: paidSegments(for: session)
                 )
             },
             reliable: storageReliable
         )
+    }
+
+    static func paidSegments(for session: WorkSession) -> [PaidWorkSegmentFactV2] {
+        guard let segments = session.segments else { return [] }
+        // nil denotes the historical/manual contract. An explicitly empty list is incomplete.
+        guard !segments.isEmpty else {
+            return [.init(start: session.entry, end: session.exit, kind: .toConfirm, confirmed: false)]
+        }
+        return segments.map {
+            PaidWorkSegmentFactV2(
+                start: $0.start, end: $0.end,
+                kind: PaidWorkSegmentKindV2(rawValue: $0.kind.rawValue) ?? .toConfirm,
+                confirmed: $0.confirmed
+            )
+        }
     }
 }

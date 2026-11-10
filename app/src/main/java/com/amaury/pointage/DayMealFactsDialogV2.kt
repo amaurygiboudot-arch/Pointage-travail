@@ -99,7 +99,7 @@ object DayMealFactsDialogV2 {
                 .setTitle("Faits repas par journée")
                 .setMessage(
                     "Le journal local contient ${loaded.malformedCount} fait(s) illisible(s). " +
-                        "HoraTrack refuse de le réécrire pour ne pas effacer une information potentiellement bloquante."
+                        "AGKGMG refuse de le réécrire pour ne pas effacer une information potentiellement bloquante."
                 )
                 .setPositiveButton("FERMER", null)
                 .show()
@@ -110,7 +110,7 @@ object DayMealFactsDialogV2 {
         if (!runtime.reliable) {
             AlertDialog.Builder(context)
                 .setTitle("Faits repas par journée")
-                .setMessage("Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(runtime.warnings)}")
+                .setMessage("Historique AGKGMG indisponible.\n${V2RuntimeReader.warningText(runtime.warnings)}")
                 .setPositiveButton("FERMER", null)
                 .show()
             return
@@ -146,7 +146,7 @@ object DayMealFactsDialogV2 {
             AlertDialog.Builder(context)
                 .setTitle("Faits repas par journée")
                 .setMessage(
-                    "Le stockage des entreprises doit être vérifié. HoraTrack refuse d’ouvrir cet éditeur " +
+                    "Le stockage des entreprises doit être vérifié. AGKGMG refuse d’ouvrir cet éditeur " +
                         "pour éviter d’associer des faits repas à la mauvaise entreprise."
                 )
                 .setPositiveButton("FERMER", null)
@@ -195,7 +195,7 @@ object DayMealFactsDialogV2 {
         body.addView(TextView(context).apply {
             text = "Un fait JOURNÉE doit être vrai pour toutes les sessions de cette entreprise rattachées à cette date. " +
                 "Si une réponse varie dans la journée, laisse « Pas de fait journée » et renseigne la session concernée. " +
-                "Les faits SESSION restent prioritaires sur les faits JOURNÉE. HoraTrack ne déduit aucune réponse du GPS, du chantier, de l'heure ou du poste."
+                "Les faits SESSION restent prioritaires sur les faits JOURNÉE. AGKGMG ne déduit aucune réponse du GPS, du chantier, de l'heure ou du poste."
             textSize = 12f
             setPadding(0, 0, 0, dp(context, 8))
         })

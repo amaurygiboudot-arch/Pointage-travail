@@ -19,7 +19,7 @@ object SmartWorkplaceTestHarness {
         val zones = readPersistedGpsZones(gps).toMutableJsonArrayOrNull()
             ?: return "Configuration GPS illisible. La simulation n'a rien modifié."
 
-        // Réutilise d'abord une vraie zone candidate si HoraTrack en a déjà appris une.
+        // Réutilise d'abord une vraie zone candidate si AGKGMG en a déjà appris une.
         var zoneId = ""
         var address = ""
         var companySlot = 1

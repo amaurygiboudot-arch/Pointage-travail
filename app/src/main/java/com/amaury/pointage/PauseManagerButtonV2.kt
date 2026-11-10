@@ -222,7 +222,7 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
             listBox.removeAllViews()
             if (!sourceReliable) {
                 listBox.addView(TextView(context).apply {
-                    text = "Pauses indisponibles : les données HoraTrack doivent être vérifiées avant toute modification."
+                    text = "Pauses indisponibles : les données AGKGMG doivent être vérifiées avant toute modification."
                     textSize = 14f
                     setTextColor(hintColor)
                     setPadding(0, dp(10), 0, dp(10))
@@ -297,7 +297,7 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
         cancelButton.setOnClickListener { dialog.dismiss() }
         saveButton.setOnClickListener {
             if (!sourceReliable) {
-                Toast.makeText(context, "Impossible d'enregistrer tant que les données HoraTrack ne sont pas fiables.", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "Impossible d'enregistrer tant que les données AGKGMG ne sont pas fiables.", Toast.LENGTH_LONG).show()
                 return@setOnClickListener
             }
             val (start, end) = dayBounds()

@@ -61,7 +61,7 @@ class SalaryCompanyDetailsView(
     private fun showConvention() {
         showingAgreements = false
         removeAllViews()
-        addView(text("CONVENTION COLLECTIVE — KALI\n\nHoraTrack vérifie la convention correspondant exactement à l’IDCC de cette entreprise. Cette vérification n’applique encore aucune règle au calcul."))
+        addView(text("CONVENTION COLLECTIVE — KALI\n\nAGKGMG vérifie la convention correspondant exactement à l’IDCC de cette entreprise. Cette vérification n’applique encore aucune règle au calcul."))
         val expectedIdcc = OfficialConventionCatalogParserV2.normalizeIdcc(company.idcc)
         if (expectedIdcc == null) {
             addView(text("État : IDCC non renseigné ou invalide."))
@@ -107,7 +107,7 @@ class SalaryCompanyDetailsView(
                 connection.connectTimeout = 10_000
                 connection.readTimeout = 15_000
                 connection.setRequestProperty("Accept", "application/json")
-                connection.setRequestProperty("User-Agent", "HoraTrack-Android")
+                connection.setRequestProperty("User-Agent", "AGKGMG-Android")
                 val response = try {
                     val status = connection.responseCode
                     val stream = if (status in 200..299) connection.inputStream else connection.errorStream
@@ -184,7 +184,7 @@ class SalaryCompanyDetailsView(
                 val companySaved = SalaryCompanyStore.upsert(context, updated)
                 val sourceSaved = OfficialConventionResultStoreV2.save(context, company.id, verified)
                 if (!officialRemembered || !companySaved || !sourceSaved) {
-                    Toast.makeText(context, "KALI a répondu, mais HoraTrack n’a pas pu conserver toute la vérification.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "KALI a répondu, mais AGKGMG n’a pas pu conserver toute la vérification.", Toast.LENGTH_LONG).show()
                     return@addOnSuccessListener
                 }
                 val reread = rereadConfirmed(updated)
@@ -220,7 +220,7 @@ class SalaryCompanyDetailsView(
         showingAgreements = true
         agreementRevision = SalaryCompanyStore.prefs(context, company.id).getLong("company_agreement_import_revision", 0L)
         removeAllViews()
-        addView(text("ACCORDS D’ENTREPRISE\n\nHoraTrack recherche d’abord les accords accessibles dans les sources officielles. Un accord trouvé ou importé n’est jamais appliqué au calcul tant que ses règles et sa période d’application ne sont pas validées."))
+        addView(text("ACCORDS D’ENTREPRISE\n\nAGKGMG recherche d’abord les accords accessibles dans les sources officielles. Un accord trouvé ou importé n’est jamais appliqué au calcul tant que ses règles et sa période d’application ne sont pas validées."))
 
         val agreementState = CompanyAgreementStoreV2.read(context, company.id)
         val ruleState = CompanyAgreementRuleStoreV2.read(context, company.id)
