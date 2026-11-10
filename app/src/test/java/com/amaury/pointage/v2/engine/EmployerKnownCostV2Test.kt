@@ -4,13 +4,12 @@ import com.amaury.pointage.v2.model.ContractTypeV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.LocalDate
 
 class EmployerKnownCostV2Test {
-    @Test
-    fun `known employer subtotal never masquerades as complete employer cost`() {
-        val company = CompanyPayrollOverridesV2.Snapshot(
+    private fun company() = CompanyPayrollOverridesV2.Snapshot(
             companyId = "company",
             idcc = null,
             referenceDate = LocalDate.of(2026, 1, 31),
@@ -31,10 +30,14 @@ class EmployerKnownCostV2Test {
             protectionCategory = PlasturgieProtectionCategoryV2.classify(null, LocalDate.of(2026, 1, 31), null),
             warnings = emptyList(),
             alsaceMoselleLocalRegime = false,
-            atMpEmployerRate = 0.02,
-            benefitsInKindGross = 0.0,
-            employerMobilityRate = 0.01
+            atMpEmployerRate = 0.02, atMpEmployerSource = "Fixture AT/MP",
+            benefitsInKindReliable = true, benefitsInKindGross = 0.0,
+            employerMobilityRate = 0.01, employerMobilitySource = "Fixture mobilité"
         )
+
+    @Test
+    fun `known employer subtotal never masquerades as complete employer cost`() {
+        val company = company()
 
         val result = NetSalaryEngineV2.calculate(2500.0, 2026, company)
         val expected = result.statutoryEmployerContributions +
@@ -44,9 +47,78 @@ class EmployerKnownCostV2Test {
             (result.employerAtMpContribution ?: 0.0) +
             (result.employerMobilityContribution ?: 0.0)
 
-        assertEquals(expected, result.knownEmployerContributions, 0.001)
-        assertTrue(result.knownEmployerContributions > 0.0)
+        assertEquals(expected, result.knownEmployerContributions!!, 0.001)
+        // ANI is still TO_CONFIRM in this fixture: only the APEC applicability is unknown.
+        // The proven Agirc T1 (118.00) and CEG (32.25) must not disappear from a partial subtotal.
+        assertEquals(ProtectionCategoryV2.AniCategory.TO_CONFIRM, company.verifiedProtectionCategory.aniCategory)
+        val retirement = result.employerProjection!!.lines.single {
+            it.family == EmployerContributionProjectionV2.Family.COMPLEMENTARY_RETIREMENT
+        }
+        assertEquals(EmployerContributionProjectionV2.State.KNOWN, retirement.state)
+        assertEquals(15025L, retirement.amountCents)
+        assertTrue(result.employerProjection!!.warnings.any {
+            it.contains("couverture partielle") && (it.contains("APEC") || it.contains("ANI"))
+        })
+        assertEquals(499.65, result.knownEmployerContributions!!, 0.001)
+        assertTrue(result.knownEmployerContributions!! > 0.0)
         assertFalse(result.employerCostComplete)
         assertTrue(result.employerCostWarnings.any { it.contains("aucun total complet", ignoreCase = true) })
+        assertTrue(result.employerCostWarnings.any { it.contains("part patronale de mutuelle") })
+        assertTrue(result.employerCostWarnings.any { it.contains("réductions/exonérations du mois à confirmer") })
+        val zeroConfirmed = NetSalaryEngineV2.calculate(2500.0, 2026, company.copy(
+            employerReductionAmount = 0.0,
+            employerReductionSource = "Bulletin vérifié janvier 2026"
+        ))
+        assertFalse(zeroConfirmed.employerCostWarnings.any { it.contains("réductions/exonérations du mois à confirmer") })
+        assertFalse(zeroConfirmed.employerCostComplete)
+        assertEquals(result.netBeforeIncomeTax, zeroConfirmed.netBeforeIncomeTax, 0.0)
+        assertEquals(result.netTaxable, zeroConfirmed.netTaxable)
+        assertEquals(result.incomeTax, zeroConfirmed.incomeTax)
+        assertEquals(result.netAfterIncomeTax, zeroConfirmed.netAfterIncomeTax)
+        assertEquals(result.complete, zeroConfirmed.complete)
+        assertEquals(result.grossReliable, zeroConfirmed.grossReliable)
+        assertEquals(result.warnings, zeroConfirmed.warnings)
+        assertTrue(zeroConfirmed.employerProjection!!.warnings.any {
+            it.contains("couverture partielle") && (it.contains("APEC") || it.contains("ANI"))
+        })
+        assertEquals(zeroConfirmed.knownEmployerContributions!!, zeroConfirmed.knownEmployerContributionsAfterReductions!!, 0.001)
+    }
+
+    @Test fun `one cent excessive reduction is rejected without a zero clamp`() {
+        val before = NetSalaryEngineV2.calculate(2500.0, 2026, company())
+        val cents = before.employerProjection!!.knownSubtotalBeforeReductionsCents!!
+        val tooMuch = NetSalaryEngineV2.calculate(2500.0, 2026, company().copy(
+            employerReductionAmount = PayrollMoneyV2.amount(cents + 1), employerReductionSource = "Fixture DSN"))
+        assertEquals(before.knownEmployerContributions, tooMuch.knownEmployerContributions)
+        assertNull(tooMuch.knownEmployerContributionsAfterReductions)
+        assertFalse(tooMuch.employerProjection!!.monetaryReliable)
+        assertEquals(before.netBeforeIncomeTax, tooMuch.netBeforeIncomeTax, 0.0)
+        assertEquals(before.netTaxable, tooMuch.netTaxable)
+        assertEquals(before.incomeTax, tooMuch.incomeTax)
+        assertEquals(before.netAfterIncomeTax, tooMuch.netAfterIncomeTax)
+        assertEquals(before.complete, tooMuch.complete)
+    }
+
+    @Test fun `unproven company period or gross exposes no employer subtotal`() {
+        for (snapshot in listOf(company().copy(companyId = ""),
+            company().copy(referenceDate = LocalDate.of(2027, 1, 31)),
+            company().copy(benefitsInKindReliable = false))) {
+            val result = NetSalaryEngineV2.calculate(2500.0, 2026, snapshot)
+            assertNull(result.knownEmployerContributions)
+            assertNull(result.knownEmployerContributionsAfterReductions)
+            assertFalse(result.employerProjection!!.context.valid)
+        }
+    }
+
+    @Test fun `unknown company provenance and invalid supplied rate cannot certify known amounts`() {
+        val missing = NetSalaryEngineV2.calculate(2500.0, 2026, company().copy(atMpEmployerSource = null))
+        assertEquals(EmployerContributionProjectionV2.State.INVALID,
+            missing.employerProjection!!.lines.single { it.family == EmployerContributionProjectionV2.Family.AT_MP }.state)
+        val invalid = NetSalaryEngineV2.calculate(2500.0, 2026, company().copy(atMpEmployerRate = Double.NaN))
+        assertNull(invalid.knownEmployerContributions)
+        assertEquals(EmployerContributionProjectionV2.State.INVALID,
+            invalid.employerProjection!!.lines.single { it.family == EmployerContributionProjectionV2.Family.AT_MP }.state)
+        assertEquals(missing.netBeforeIncomeTax, invalid.netBeforeIncomeTax, 0.0)
+        assertEquals(missing.netAfterIncomeTax, invalid.netAfterIncomeTax)
     }
 }

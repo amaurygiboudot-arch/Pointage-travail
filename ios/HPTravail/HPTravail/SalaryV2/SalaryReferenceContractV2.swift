@@ -319,6 +319,8 @@ struct SalaryReferenceContractV2 {
     let complete: Bool
     let warnings: [String]
     let benefitsInKindDeduction: Double
+    var employerContributions: EmployerContributionProjectionV2.Result? = nil
+    var employerWarnings: [String] = []
 
     static func build(
         cashGross: Double,

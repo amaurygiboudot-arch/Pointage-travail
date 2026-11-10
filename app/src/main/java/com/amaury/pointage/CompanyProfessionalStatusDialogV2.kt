@@ -43,7 +43,7 @@ object CompanyProfessionalStatusDialogV2 {
 
         if (!stored.reliable) {
             box.addView(TextView(context).apply {
-                text = "⚠ Stockage des versions de statut incohérent. Les cotisations liées au statut restent à confirmer et HoraTrack ne réutilise pas l'ancien statut sans date.\n• " +
+                text = "⚠ Stockage des versions de statut incohérent. Les cotisations liées au statut restent à confirmer et AGKGMG ne réutilise pas l'ancien statut sans date.\n• " +
                     stored.warnings.joinToString("\n• ")
                 textSize = 12f
                 setPadding(0, 0, 0, dp(context, 8))
@@ -84,7 +84,7 @@ object CompanyProfessionalStatusDialogV2 {
             }
         }, rowParams(context))
 
-        listDialog = AlertDialog.Builder(context)
+        listDialog = SalaryAccountUi.dialog(context)
             .setTitle("Statut professionnel — versions datées")
             .setView(ScrollView(context).apply { addView(box) })
             .setNegativeButton("FERMER", null)
@@ -133,7 +133,7 @@ object CompanyProfessionalStatusDialogV2 {
             source.setText(record.source)
         }
 
-        val builder = AlertDialog.Builder(context)
+        val builder = SalaryAccountUi.dialog(context)
             .setTitle(if (existing == null) "Ajouter un statut professionnel" else "Modifier le statut professionnel")
             .setView(ScrollView(context).apply { addView(box) })
             .setPositiveButton("CONFIRMER CETTE VERSION DATÉE", null)

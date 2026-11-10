@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.app.AlertDialog
 import android.content.Context
 import android.text.InputType
@@ -72,7 +74,7 @@ object CompanyEmployerReductionDialogV2 {
             },rowParams(context))
         }
         box.addView(Button(context).apply{isAllCaps=false;text="AJOUTER / CONFIRMER UN TOTAL MANUEL";setOnClickListener{listDialog?.dismiss();showEditor(context,companyId,null)}},rowParams(context))
-        listDialog=AlertDialog.Builder(context).setTitle("Réductions / exonérations employeur").setView(box).setNegativeButton("FERMER",null).create()
+        listDialog=SalaryAccountUi.dialog(context).setTitle("Réductions / exonérations employeur").setView(box).setNegativeButton("FERMER",null).create()
         listDialog.show()
     }
 
@@ -86,7 +88,7 @@ object CompanyEmployerReductionDialogV2 {
         existing?.let{
             month.setText(it.month.format(monthFormatter));amount.setText(String.format(Locale.FRANCE,"%.2f",it.totalReductionAmount));source.setText(it.source);note.setText(it.note)
         }
-        val builder=AlertDialog.Builder(context).setTitle(if(existing==null)"Confirmer un mois" else "Modifier le mois").setView(box).setPositiveButton("ENREGISTRER",null).setNegativeButton("ANNULER",null)
+        val builder=SalaryAccountUi.dialog(context).setTitle(if(existing==null)"Confirmer un mois" else "Modifier le mois").setView(box).setPositiveButton("ENREGISTRER",null).setNegativeButton("ANNULER",null)
         if(existing!=null)builder.setNeutralButton("SUPPRIMER",null)
         val dialog=builder.create()
         dialog.setOnShowListener{
@@ -113,7 +115,7 @@ object CompanyEmployerReductionDialogV2 {
         append("\n").append(r.source);if(r.note.isNotBlank())append(" • ").append(r.note)
     }
     private fun selectedPayrollMonth(context:Context):YearMonth{
-        val ms=context.getSharedPreferences("navigation_state",Context.MODE_PRIVATE).getLong("report_month_ms",-1L)
+        val ms=RestoreGuardedPreferences.open(context, "navigation_state", Context.MODE_PRIVATE).getLong("report_month_ms",-1L)
         val calendar=Calendar.getInstance(Locale.FRANCE)
         if(ms>0L)calendar.timeInMillis=ms
         return YearMonth.of(calendar.get(Calendar.YEAR),calendar.get(Calendar.MONTH)+1)

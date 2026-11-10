@@ -29,7 +29,7 @@ object CompanyWorkforceContributionDialogV2 {
             setPadding(dp(context, 16), dp(context, 8), dp(context, 16), dp(context, 8))
         }
         box.addView(TextView(context).apply {
-            text = "Choisis la tranche d'effectif social confirmée pour la période. HoraTrack utilise cette donnée uniquement pour les contributions employeur FNAL et formation professionnelle."
+            text = "Choisis la tranche d'effectif social confirmée pour la période. AGKGMG utilise cette donnée uniquement pour les contributions employeur FNAL et formation professionnelle."
             textSize = 13f
             setPadding(0, 0, 0, dp(context, 8))
         })
@@ -65,7 +65,7 @@ object CompanyWorkforceContributionDialogV2 {
             }
         }, rowParams(context))
 
-        listDialog = AlertDialog.Builder(context)
+        listDialog = SalaryAccountUi.dialog(context)
             .setTitle("Effectif employeur — FNAL / formation")
             .setView(box)
             .setNegativeButton("FERMER", null)
@@ -112,7 +112,7 @@ object CompanyWorkforceContributionDialogV2 {
             source.setText(record.source)
         }
 
-        val builder = AlertDialog.Builder(context)
+        val builder = SalaryAccountUi.dialog(context)
             .setTitle(if (existing == null) "Ajouter une tranche d'effectif" else "Modifier la tranche d'effectif")
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)

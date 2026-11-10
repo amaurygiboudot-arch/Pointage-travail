@@ -35,17 +35,25 @@ object CompanyEmployerReductionStoreV2 {
     }
 
     fun read(context: Context, companyId: String): ReadResult {
-        val id = companyId.trim()
-        if (id.isBlank()) return unavailableReadResult(id)
-        return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
-            readConfirmedCompany(context, company.id)
-        } ?: unavailableReadResult(id)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(records = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            val id = companyId.trim()
+            if (id.isBlank()) return unavailableReadResult(id)
+            return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
+                readConfirmedCompany(context, company.id)
+            } ?: unavailableReadResult(id)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     fun list(context: Context, companyId: String): List<EmployerReductionAdjustmentV2.Record> =
         read(context, companyId).records
 
     fun save(context: Context, companyId: String, record: EmployerReductionAdjustmentV2.Record): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val id = companyId.trim()
         if (id.isBlank()) return false
         return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
@@ -60,6 +68,7 @@ object CompanyEmployerReductionStoreV2 {
     }
 
     fun remove(context: Context, companyId: String, id: String): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val companyIdNormalized = companyId.trim()
         if (companyIdNormalized.isBlank()) return false
         return SalaryCompanyStore.withConfirmedCompany(context, companyIdNormalized) { company ->
@@ -79,6 +88,7 @@ object CompanyEmployerReductionStoreV2 {
         companyId: String,
         month: YearMonth
     ): EmployerReductionAdjustmentV2.Snapshot {
+        val context = SalaryAccountScope.bindContext(context)
         val id = companyId.trim()
         if (id.isBlank()) {
             return blockedAutomatic(
@@ -99,6 +109,7 @@ object CompanyEmployerReductionStoreV2 {
         company: SalaryCompanyStore.Company,
         month: YearMonth
     ): EmployerReductionAdjustmentV2.Snapshot {
+        val context = SalaryAccountScope.bindContext(context)
         val stored = readConfirmedCompany(context, company.id)
         if (!stored.reliable) {
             return EmployerReductionAdjustmentV2.Snapshot(
@@ -230,9 +241,16 @@ object CompanyEmployerReductionStoreV2 {
     }
 
     private fun readConfirmedCompany(context: Context, companyId: String): ReadResult {
-        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
-            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
-        return decode(raw)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(records = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
+                ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+            return decode(raw)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     private fun writeConfirmedCompany(
@@ -240,6 +258,7 @@ object CompanyEmployerReductionStoreV2 {
         companyId: String,
         items: List<EmployerReductionAdjustmentV2.Record>
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val array = JSONArray()
         items.forEach { array.put(toJson(it)) }
         return SalaryCompanyStore.prefs(context, companyId)

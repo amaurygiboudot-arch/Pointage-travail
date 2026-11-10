@@ -4,6 +4,48 @@ import XCTest
 #endif
 
 final class SalarySegmentedPayrollSessionEvidenceBuilderV2Tests: XCTestCase {
+    func testSaturdaySundayPremiumsAreDisjointWithoutCumulPolicy() throws {
+        let rules = PayrollRulesV2(weeklyRegularMinutes: 2100,
+            overtimeTiers: [OvertimeTierV2(fromMinutes: 2100, toMinutes: nil, multiplier: 1.25)],
+            saturdayMultiplier: 1.25, sundayMultiplier: 1.5)
+        let f = try fixture([session("sat", 9, 8, 9, 14), session("sun", 10, 8, 10, 14)], payrollRules: rules)
+        XCTAssertTrue(f.calculate().reliable)
+        XCTAssertEqual(try XCTUnwrap(f.calculate().pieces.first).variableGross, 45, accuracy: 0.001)
+    }
+
+    func testOverlappingNightSundayBlocksAndDailySeparatedPremiumsStayProven() throws {
+        let rule = payrollRules(night: 1.25, sunday: 1.5)
+        let night = NightPremiumRuleV2(startMinute: 22 * 60, endMinute: 6 * 60, multiplier: 1.25)
+        let overlapping = try fixture([session("sun-night", 10, 0, 10, 6)], payrollRules: rule, night: night)
+        assertBlocked(overlapping)
+        XCTAssertTrue(overlapping.build().warnings.contains(SalarySegmentedWorkedVariableGrossSourceV2.cumulWarning))
+        let separated = try fixture([session("mon-night", 4, 0, 4, 6), session("sun-day", 10, 8, 10, 14)],
+            payrollRules: rule, night: night)
+        let proof = separated.build()
+        XCTAssertTrue(proof.reliable)
+        XCTAssertTrue(separated.calculate().reliable)
+        let slices = proof.slices.map { slice in
+            SalarySegmentedPayrollSliceEvidenceV2(startEpochDay: slice.startEpochDay, endEpochDay: slice.endEpochDay,
+                contractVersionId: slice.contractVersionId, ruleVersionId: slice.ruleVersionId,
+                weeks: slice.weeks.map { week in
+                    var value = week; value.temporalPremiumsNonOverlappingProven = false; return value
+                }, evidence: slice.evidence, warnings: slice.warnings)
+        }
+        let unknown = SalarySegmentedWorkedVariableGrossSourceV2.calculate(contracts: separated.contracts,
+            rules: separated.convention, sliceEvidence: slices)
+        XCTAssertFalse(unknown.reliable)
+        XCTAssertTrue(unknown.warnings.contains(SalarySegmentedWorkedVariableGrossSourceV2.cumulWarning))
+    }
+
+    func testSingleSundayPremiumRemainsReliableAndOvertimeCumulRequiresProof() throws {
+        let single = try fixture([session("sunday", 10, 8, 10, 16)], payrollRules: payrollRules(sunday: 1.5))
+        XCTAssertTrue(single.calculate().reliable)
+        let sessions = (4...8).map { session("s\($0)", Int64($0), 8, Int64($0), 16) } + [session("sunday", 10, 8, 10, 10)]
+        let overtime = try fixture(sessions, payrollRules: payrollRules(sunday: 1.5))
+        XCTAssertFalse(overtime.calculate().reliable)
+        XCTAssertTrue(overtime.calculate().warnings.contains(SalarySegmentedWorkedVariableGrossSourceV2.cumulWarning))
+    }
+
     func testRealV2SessionsReachB21WithoutMonthlyBaseDuplication() throws {
         let f = try fixture((4...8).map { session("s\($0)", Int64($0), 8, Int64($0), 16) })
         let proof = f.build()
@@ -24,6 +66,41 @@ final class SalarySegmentedPayrollSessionEvidenceBuilderV2Tests: XCTestCase {
         XCTAssertEqual(proof.slices.first?.weeks.first?.week.paidMinutes, 450)
         let canonical = SalaryPaidOverlapPolicyV2.paidOverlap(session: s, rangeStart: date(4, 0), rangeEnd: date(11, 0))
         XCTAssertEqual(proof.slices.first?.weeks.first?.week.paidMinutes, Int(floor(canonical.paidDuration / 60)))
+    }
+
+    func testSecondsFromSeparateSessionsAreAddedBeforeConvertingToPayrollMinutes() throws {
+        let firstStart = date(4, 8)
+        let firstEnd = firstStart.addingTimeInterval(4 * 3600 + 30)
+        let secondStart = date(4, 13)
+        let secondEnd = secondStart.addingTimeInterval(4 * 3600 + 30)
+        let sessions = [
+            SalarySessionFactV2(id: "s1", entry: firstStart, exit: firstEnd, employerId: "company", pauses: []),
+            SalarySessionFactV2(id: "s2", entry: secondStart, exit: secondEnd, employerId: "company", pauses: [])
+        ]
+        let proof = try fixture(sessions).build()
+        XCTAssertTrue(proof.reliable)
+        XCTAssertEqual(proof.slices.first?.weeks.first?.week.paidMinutes, 481)
+    }
+
+    func testSecondsInSaturdayPremiumAreAddedBeforeConvertingToPayrollMinutes() throws {
+        let sessions = [
+            sessionWithSeconds("s1", day: 9, startHour: 8, endHour: 12),
+            sessionWithSeconds("s2", day: 9, startHour: 13, endHour: 17)
+        ]
+        let proof = try fixture(sessions).build()
+        XCTAssertTrue(proof.reliable)
+        XCTAssertEqual(proof.slices.first?.weeks.first?.week.paidMinutes, 481)
+        XCTAssertEqual(proof.slices.first?.weeks.first?.week.saturdayMinutes, 481)
+    }
+
+    func testSecondsDoNotCarryAcrossPayrollWeeks() throws {
+        let sessions = [
+            sessionWithSeconds("s1", day: 4, startHour: 8, endHour: 12),
+            sessionWithSeconds("s2", day: 11, startHour: 8, endHour: 12)
+        ]
+        let proof = try fixture(sessions, start: 4, end: 17).build()
+        XCTAssertTrue(proof.reliable)
+        XCTAssertEqual(proof.slices.first?.weeks.map(\.week.paidMinutes), [240, 240])
     }
     func testUnknownPauseDoesNotBecomeUnpaidOrZero() throws {
         assertBlocked(try fixture([session("s", 4, 8, 4, 16, pauses: [
@@ -221,6 +298,11 @@ final class SalarySegmentedPayrollSessionEvidenceBuilderV2Tests: XCTestCase {
     private func session(_ id: String, _ day: Int64, _ hour: Int, _ endDay: Int64, _ endHour: Int,
                          zone: String = "UTC", employer: String? = "company", pauses: [PaidPauseFactV2] = []) -> SalarySessionFactV2 {
         .init(id: id, entry: date(day, hour, zone: zone), exit: date(endDay, endHour, zone: zone), employerId: employer, pauses: pauses)
+    }
+    private func sessionWithSeconds(_ id: String, day: Int64, startHour: Int, endHour: Int) -> SalarySessionFactV2 {
+        let start = date(day, startHour)
+        let end = date(day, endHour).addingTimeInterval(30)
+        return .init(id: id, entry: start, exit: end, employerId: "company", pauses: [])
     }
     private func date(_ day: Int64, _ hour: Int, _ minute: Int = 0, zone: String = "UTC") -> Date {
         var utc = Calendar(identifier: .gregorian); utc.timeZone = TimeZone(secondsFromGMT: 0)!

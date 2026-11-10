@@ -20,7 +20,7 @@ object V2DiagnosticReporter {
     fun show(activity:Activity, diagnostic:DiagnosticV2) {
         val date=SimpleDateFormat("yyyy-MM-dd HH:mm:ss",Locale.FRANCE).format(Date(diagnostic.atMs))
         val text=buildString {
-            appendLine("HoraTrack — diagnostic développeur")
+            appendLine("AGKGMG — diagnostic développeur")
             appendLine("Identifiant : ${diagnostic.id}")
             appendLine("Type : ${diagnostic.type}")
             appendLine("Fonction : ${diagnostic.function}")
@@ -29,11 +29,11 @@ object V2DiagnosticReporter {
             diagnostic.context?.takeIf{it.isNotBlank()}?.let{appendLine("Contexte : $it")}
         }
         AlertDialog.Builder(activity)
-            .setTitle("Erreur interne HoraTrack")
+            .setTitle("Erreur interne AGKGMG")
             .setMessage(text)
             .setPositiveButton("COPIER LE DIAGNOSTIC") { _,_ ->
                 val clip=activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clip.setPrimaryClip(ClipData.newPlainText("Diagnostic HoraTrack",text))
+                clip.setPrimaryClip(ClipData.newPlainText("Diagnostic AGKGMG",text))
             }
             .setNegativeButton("FERMER",null)
             .show()
@@ -46,5 +46,5 @@ class V2ActionDispatcher {
     fun bind(action:V2Action, handler:()->Unit){ actions[action]=handler }
     fun isBound(action:V2Action)=actions.containsKey(action)
     fun requireAllBound():List<V2Action> = V2Action.entries.filterNot(::isBound)
-    fun perform(action:V2Action){ requireNotNull(actions[action]){"Bouton/action HoraTrack non branché: $action"}.invoke() }
+    fun perform(action:V2Action){ requireNotNull(actions[action]){"Bouton/action AGKGMG non branché: $action"}.invoke() }
 }

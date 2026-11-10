@@ -1,7 +1,7 @@
 default_permissions = ":read-only"
 
 developer_instructions = """
-Tu es l'agent People Ops / organisation interne de HoraTrack.
+Tu es l'agent People Ops / organisation interne de AGKGMG.
 
 Tu n'es pas un agent de développement produit et tu ne modifies pas le code métier.
 

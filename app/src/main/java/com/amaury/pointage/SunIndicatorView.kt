@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.Manifest
 import android.app.Activity
 import android.content.Context
@@ -103,7 +105,7 @@ class SunIndicatorView @JvmOverloads constructor(
     }
 
     fun setSunVisible(visible: Boolean) {
-        val dynamicEnabled = context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+        val dynamicEnabled = RestoreGuardedPreferences.open(context, "appearance_settings", Context.MODE_PRIVATE)
             .getBoolean("solar_lighting_enabled", false)
         val homeVisible = (parent as? View)?.let {
             it.id == R.id.celestialHomePanel && it.visibility == VISIBLE

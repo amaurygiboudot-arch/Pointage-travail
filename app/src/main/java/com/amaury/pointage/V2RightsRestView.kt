@@ -31,10 +31,10 @@ import java.util.Locale
 import java.util.UUID
 
 class V2RightsRestView @JvmOverloads constructor(
-    context: Context,
+    hostContext: Context,
     attrs: AttributeSet? = null,
     private val companyId: String = ""
-) : LinearLayout(context, attrs) {
+) : SalaryAccountLayout(hostContext, attrs) {
 
     companion object {
         const val TAG = "v2_rights_rest"
@@ -78,7 +78,7 @@ class V2RightsRestView @JvmOverloads constructor(
             setPadding(0, dp(18), 0, dp(4))
         })
         addView(TextView(context).apply {
-            text = "HoraTrack distingue la maladie ordinaire, l'accident du travail, l'accident de trajet et la maladie professionnelle. Les IJSS, le maintien employeur, la subrogation et la prévoyance ne sont calculés que lorsqu'une règle correspondant exactement au motif est confirmée."
+            text = "AGKGMG distingue la maladie ordinaire, l'accident du travail, l'accident de trajet et la maladie professionnelle. Les IJSS, le maintien employeur, la subrogation et la prévoyance ne sont calculés que lorsqu'une règle correspondant exactement au motif est confirmée."
             textSize = 12f
             setPadding(0, 0, 0, dp(6))
         })
@@ -323,7 +323,7 @@ class V2RightsRestView @JvmOverloads constructor(
             AbsencePayrollImpactV2.TYPE_PARENTAL,
             AbsencePayrollImpactV2.TYPE_OTHER
         )
-        AlertDialog.Builder(context)
+        SalaryAccountUi.dialog(context)
             .setTitle("Type d’absence")
             .setItems(labels) { _, which ->
                 showAbsencePeriodDialog(types[which], AbsenceSalaryTreatmentV2.TO_CONFIRM, false)
@@ -364,13 +364,13 @@ class V2RightsRestView @JvmOverloads constructor(
             }
         }
         fun pick(initial: LocalDate, onPicked: (LocalDate) -> Unit) {
-            DatePickerDialog(
+            SalaryAccountUi.protect(DatePickerDialog(
                 context,
-                { _, year, month, day -> onPicked(LocalDate.of(year, month + 1, day)) },
+                { _, year, month, day -> if (accountCurrent()) onPicked(LocalDate.of(year, month + 1, day)) },
                 initial.year,
                 initial.monthValue - 1,
                 initial.dayOfMonth
-            ).show()
+            ), context).show()
         }
         startButton.setOnClickListener {
             pick(start) { picked -> start = picked; if (end.isBefore(start)) end = start; updateLabels() }
@@ -385,7 +385,7 @@ class V2RightsRestView @JvmOverloads constructor(
                     AbsenceSalaryTreatmentV2.UNPAID,
                     AbsenceSalaryTreatmentV2.TO_CONFIRM
                 )
-                AlertDialog.Builder(context)
+                SalaryAccountUi.dialog(context)
                     .setTitle("Traitement de l’absence")
                     .setItems(labels) { _, which -> treatment = values[which]; updateLabels() }
                     .setNegativeButton("ANNULER", null)
@@ -396,7 +396,7 @@ class V2RightsRestView @JvmOverloads constructor(
             subrogationButton.setOnClickListener {
                 val labels = arrayOf("Oui — IJSS versées à l'employeur", "Non — IJSS versées au salarié", "À confirmer")
                 val values = arrayOf(AbsenceSubrogationV2.YES, AbsenceSubrogationV2.NO, AbsenceSubrogationV2.TO_CONFIRM)
-                AlertDialog.Builder(context)
+                SalaryAccountUi.dialog(context)
                     .setTitle("Subrogation")
                     .setItems(labels) { _, which -> subrogation = values[which]; updateLabels() }
                     .setNegativeButton("ANNULER", null)
@@ -404,7 +404,7 @@ class V2RightsRestView @JvmOverloads constructor(
             }
             providentButton.setOnClickListener {
                 val labels = arrayOf("À confirmer", "Aucune prestation pendant le maintien", "Montant net confirmé pendant le maintien")
-                AlertDialog.Builder(context)
+                SalaryAccountUi.dialog(context)
                     .setTitle("Prévoyance employeur pendant le maintien")
                     .setItems(labels) { _, which ->
                         when (which) {
@@ -446,7 +446,7 @@ class V2RightsRestView @JvmOverloads constructor(
                 addView(providentButton, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) })
             }
         }
-        val dialog = AlertDialog.Builder(context)
+        val dialog = SalaryAccountUi.dialog(context)
             .setTitle(AbsencePayrollImpactV2.label(type))
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)
@@ -492,7 +492,7 @@ class V2RightsRestView @JvmOverloads constructor(
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             isSingleLine = true
         }
-        val dialog = AlertDialog.Builder(context)
+        val dialog = SalaryAccountUi.dialog(context)
             .setTitle("Prestation prévoyance qui chevauche le maintien")
             .setMessage("Renseigne uniquement le montant NET avant PAS financé par l'employeur et couvrant la même période de maintien. Ne renseigne pas ici le relais de branche après maintien.")
             .setView(input)
@@ -527,7 +527,7 @@ class V2RightsRestView @JvmOverloads constructor(
             orientation = VERTICAL
             setPadding(dp(18), dp(8), dp(18), 0)
             addView(TextView(context).apply {
-                text = "Recopie les 3 montants du même décompte et de la même période. HoraTrack contrôle 60 % brut − prestations SS brutes sans inventer de conversion annuelle ou journalière."
+                text = "Recopie les 3 montants du même décompte et de la même période. AGKGMG contrôle 60 % brut − prestations SS brutes sans inventer de conversion annuelle ou journalière."
                 textSize = 12f
                 setPadding(0, 0, 0, dp(8))
             })
@@ -535,7 +535,7 @@ class V2RightsRestView @JvmOverloads constructor(
             addView(socialSecurity, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) })
             addView(observed, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) })
         }
-        val dialog = AlertDialog.Builder(context)
+        val dialog = SalaryAccountUi.dialog(context)
             .setTitle("Contrôle relais prévoyance")
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)
@@ -598,7 +598,7 @@ class V2RightsRestView @JvmOverloads constructor(
     }
 
     private fun confirmDeleteAbsence(absence: AbsenceV2, start: LocalDate, end: LocalDate) {
-        AlertDialog.Builder(context)
+        SalaryAccountUi.dialog(context)
             .setTitle("Supprimer cette absence ?")
             .setMessage("${AbsencePayrollImpactV2.label(absence.type)}\n${start.format(dateFormat)} → ${end.format(dateFormat)}")
             .setNegativeButton("ANNULER", null)
@@ -638,9 +638,9 @@ class V2RightsRestView @JvmOverloads constructor(
             listOf(label, unit, acquired, available, taken, anticipated, remaining).forEach(::addView)
         }
 
-        val dialog = AlertDialog.Builder(context)
+        val dialog = SalaryAccountUi.dialog(context)
             .setTitle("Compteur de droits")
-            .setMessage("HoraTrack enregistre les valeurs pour cette entreprise. La période de référence reste non renseignée sans source fiable.")
+            .setMessage("AGKGMG enregistre les valeurs pour cette entreprise. La période de référence reste non renseignée sans source fiable.")
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)
             .setNegativeButton("ANNULER", null)

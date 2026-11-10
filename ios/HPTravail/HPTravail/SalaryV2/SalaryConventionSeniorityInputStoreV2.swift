@@ -27,16 +27,19 @@ enum SalaryConventionSeniorityInputStoreV2 {
     private static let key = "salary_convention_seniority_input_v2.records"
     private static let lock = NSLock()
 
-    static func read(companyId: String, defaults: UserDefaults = .standard) -> ReadResult {
-        let id = companyId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !id.isEmpty else {
-            return .init(record: nil, reliable: false, warnings: [storageWarning])
+    static func read(companyId: String, defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults) -> ReadResult {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return SalaryAccountStorageV2.readConsistently(defaults, unavailable: ReadResult(record: nil, reliable: false, warnings: [SalaryAccountStorageV2.warning])) {
+            let id = companyId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !id.isEmpty else {
+                return .init(record: nil, reliable: false, warnings: [storageWarning])
+            }
+            let all = readAll(defaults: defaults)
+            guard all.reliable else {
+                return .init(record: nil, reliable: false, warnings: all.warnings)
+            }
+            return .init(record: all.records.first { $0.companyId == id }, reliable: true, warnings: [])
         }
-        let all = readAll(defaults: defaults)
-        guard all.reliable else {
-            return .init(record: nil, reliable: false, warnings: all.warnings)
-        }
-        return .init(record: all.records.first { $0.companyId == id }, reliable: true, warnings: [])
     }
 
     @discardableResult
@@ -45,9 +48,10 @@ enum SalaryConventionSeniorityInputStoreV2 {
         date: PayrollCivilDateV2,
         source: String,
         checkedAtMs: Int64,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
-        mutate(companyId: companyId, source: source, checkedAtMs: checkedAtMs, defaults: defaults) {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return mutate(companyId: companyId, source: source, checkedAtMs: checkedAtMs, defaults: defaults) {
             current, id, src in
             Record(
                 companyId: id,
@@ -68,8 +72,9 @@ enum SalaryConventionSeniorityInputStoreV2 {
         amount: Double,
         source: String,
         checkedAtMs: Int64,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard amount.isFinite, amount >= 0 else { return false }
         return mutate(companyId: companyId, source: source, checkedAtMs: checkedAtMs, defaults: defaults) {
             current, id, src in
@@ -110,6 +115,7 @@ enum SalaryConventionSeniorityInputStoreV2 {
         defaults: UserDefaults,
         transform: (Record?, String, String) -> Record
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let id = companyId.trimmingCharacters(in: .whitespacesAndNewlines)
         let src = source.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty, !src.isEmpty, checkedAtMs >= 0 else { return false }
@@ -133,6 +139,7 @@ enum SalaryConventionSeniorityInputStoreV2 {
 
     private static func readAll(defaults: UserDefaults)
         -> (records: [Record], reliable: Bool, warnings: [String]) {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard let object = defaults.object(forKey: key) else { return ([], true, []) }
         guard let raw = object as? String else { return ([], false, [storageWarning]) }
         return decode(raw)

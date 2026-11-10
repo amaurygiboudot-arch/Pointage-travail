@@ -25,7 +25,7 @@ enum class CelestialHeadingQualityV2 {
 /**
  * Politique fail-closed du cap céleste.
  *
- * Le seuil de 15° est un choix qualité HoraTrack pour le rendu de l'horloge ;
+ * Le seuil de 15° est un choix qualité AGKGMG pour le rendu de l'horloge ;
  * ce n'est pas un seuil imposé par Android. Une précision numérique absente ne
  * suffit pas à condamner un appareil : certains capteurs ne publient simplement
  * pas cette métadonnée. En revanche un état explicitement UNRELIABLE, une

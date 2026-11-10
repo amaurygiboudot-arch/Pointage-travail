@@ -28,6 +28,8 @@ struct SalarySegmentedCanonicalOutputV2 {
     let cashGrossReliable: Bool
     let netBeforeIncomeTaxComplete: Bool
     let warnings: [String]
+    var employerContributions: EmployerContributionProjectionV2.Result? = nil
+    var employerWarnings: [String] = []
 }
 
 /// Vue canonique commune des résultats déjà produits par B21/B20/cash/net.
@@ -140,9 +142,19 @@ enum SalarySegmentedCanonicalOutputAssemblerV2 {
             net.netBeforeIncomeTaxComplete &&
             projection?.grossReliable == true &&
             projection?.netBeforeIncomeTaxComplete == true &&
-            sameMoney(projection?.cashGross, reliableCashGross) &&
+            sameMonetaryProjection(projection?.cashGross, reliableCashGross) &&
             projection?.netBeforeIncomeTax != nil
         if net.netBeforeIncomeTaxComplete && !netComplete { warnings.append(netProofWarning) }
+
+        let employer = projection?.employerContributions
+        let companyIds = worked.variables.pieces.map { $0.companyId.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let employerConsistent = chainConsistent && paidTimeReliable && worked.reliable && reliableCashGross != nil &&
+            projection?.grossReliable == true && sameMonetaryProjection(projection?.cashGross, reliableCashGross) &&
+            piecesMatchPeriod(worked.variables.pieces, period: period) &&
+            piecesMatchEvidence(worked.variables.pieces, slices: worked.evidence.slices) &&
+            !companyIds.isEmpty && companyIds.allSatisfy { !$0.isEmpty && $0 == employer?.context.companyId } &&
+            employer?.matches(companyId: companyIds.first, year: period.year, month: period.month,
+                              gross: projection?.contributionGross) == true
 
         return .init(
             period: period,
@@ -171,8 +183,49 @@ enum SalarySegmentedCanonicalOutputAssemblerV2 {
             workedGrossReliable: reliableWorkedGross != nil,
             cashGrossReliable: reliableCashGross != nil,
             netBeforeIncomeTaxComplete: netComplete,
-            warnings: unique(warnings)
+            warnings: unique(warnings),
+            employerContributions: employerConsistent ? employer : nil,
+            employerWarnings: employerConsistent ? (employer?.warnings ?? []) : ["Cotisations patronales : chaîne entreprise/période/brut non concordante ou non confirmée ; projection indisponible."]
         )
+    }
+
+    /// Contract pieces may contain several dated-rule slices. Require exact contiguous
+    /// coverage, not merely equal gross amounts or identical reliability booleans.
+    private static func piecesMatchEvidence(_ pieces: [SalarySegmentedWorkedVariableGrossPieceV2],
+                                            slices: [SalarySegmentedPayrollSliceEvidenceV2]) -> Bool {
+        guard !pieces.isEmpty, !slices.isEmpty else { return false }
+        var used = Set<Int>()
+        for piece in pieces {
+            let matching = slices.enumerated().filter {
+                $0.element.contractVersionId.trimmingCharacters(in: .whitespacesAndNewlines) == piece.versionId.trimmingCharacters(in: .whitespacesAndNewlines) &&
+                $0.element.startEpochDay >= piece.startEpochDay && $0.element.endEpochDay <= piece.endEpochDay
+            }.sorted { $0.element.startEpochDay < $1.element.startEpochDay }
+            guard !piece.versionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  matching.first?.element.startEpochDay == piece.startEpochDay,
+                  matching.last?.element.endEpochDay == piece.endEpochDay else { return false }
+            var next = piece.startEpochDay
+            for entry in matching {
+                let slice = entry.element
+                guard used.insert(entry.offset).inserted, slice.startEpochDay == next,
+                      slice.endEpochDay >= slice.startEpochDay else { return false }
+                let addition = slice.endEpochDay.addingReportingOverflow(1)
+                guard !addition.overflow else { return false }
+                next = addition.partialValue
+            }
+        }
+        return used.count == slices.count
+    }
+
+    private static func piecesMatchPeriod(_ pieces: [SalarySegmentedWorkedVariableGrossPieceV2], period: YearMonthV2) -> Bool {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard (1...9999).contains(period.year), let start = calendar.date(from: DateComponents(year: period.year, month: period.month, day: 1)),
+              let end = calendar.date(byAdding: .month, value: 1, to: start) else { return false }
+        let first = Int64(start.timeIntervalSince1970 / 86_400)
+        let lastExclusive = Int64(end.timeIntervalSince1970 / 86_400)
+        return !pieces.isEmpty && pieces.allSatisfy {
+            $0.reliable && $0.startEpochDay >= first && $0.endEpochDay >= $0.startEpochDay && $0.endEpochDay < lastExclusive
+        }
     }
 
     private static func sumMinutes(_ values: [Int]) -> Int? {
@@ -199,6 +252,16 @@ enum SalarySegmentedCanonicalOutputAssemblerV2 {
         guard let left, let right,
               finiteNonNegative(left), finiteNonNegative(right) else { return false }
         return abs(left - right) <= 0.005
+    }
+
+    /// La projection nette normalise le brut au centime. Les autres preuves de la chaîne
+    /// restent inchangées ; cette frontière compare les mêmes centimes, sans epsilon flottant.
+    private static func sameMonetaryProjection(_ projected: Double?, _ upstream: Double?) -> Bool {
+        guard let projected, let upstream,
+              finiteNonNegative(projected), finiteNonNegative(upstream),
+              let projectedCents = PayrollMoneyV2.cents(projected),
+              let upstreamCents = PayrollMoneyV2.cents(upstream) else { return false }
+        return projectedCents == upstreamCents
     }
 
     private static func cashEqual(

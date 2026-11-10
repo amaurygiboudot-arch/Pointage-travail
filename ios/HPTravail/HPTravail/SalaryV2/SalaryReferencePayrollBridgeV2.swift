@@ -11,16 +11,26 @@ extension SalaryReferenceContractV2 {
         payroll: PayrollResultV2,
         benefits: CompanyBenefitInKindContractV2.Snapshot,
         projection: EmployeeNetProjectionV2.Result,
-        additionalWarnings: [String] = []
+        additionalWarnings: [String] = [],
+        expectedCompanyId: String? = nil,
+        expectedPeriod: YearMonthV2? = nil
     ) -> SalaryReferenceContractV2 {
-        let tolerance = 0.005
-        let cashGrossMatches = payroll.grossEstimate.isFinite
-            && projection.cashGross.isFinite
-            && abs(payroll.grossEstimate - projection.cashGross) <= tolerance
-        let projectedBenefits = projection.contributionGross - projection.cashGross
-        let benefitsMatch = projectedBenefits.isFinite
-            && benefits.totalGross.isFinite
-            && abs(projectedBenefits - benefits.totalGross) <= tolerance
+        let payrollCashCents = PayrollMoneyV2.cents(payroll.grossEstimate)
+        let projectionCashCents = PayrollMoneyV2.cents(projection.cashGross)
+        let cashGrossMatches = payroll.grossEstimate >= 0 && payrollCashCents != nil &&
+            payrollCashCents == projectionCashCents
+        let projectedBenefitsCents = PayrollMoneyV2.cents(projection.contributionGross).flatMap { social in
+            projectionCashCents.flatMap { PayrollMoneyV2.sum([social, -$0]) }
+        }
+        let benefitsCents = PayrollMoneyV2.cents(benefits.totalGross)
+        let benefitsMatch = benefits.totalGross >= 0 && projectedBenefitsCents != nil &&
+            projectedBenefitsCents == benefitsCents
+        let monetaryBenefits = CompanyBenefitInKindContractV2.Snapshot(
+            applied: benefits.applied,
+            totalGross: benefitsCents.flatMap(PayrollMoneyV2.amount) ?? benefits.totalGross,
+            reliable: benefits.reliable,
+            warnings: benefits.warnings
+        )
 
         var warnings = additionalWarnings
         if !cashGrossMatches {
@@ -40,8 +50,8 @@ extension SalaryReferenceContractV2 {
         }
 
         let base = build(
-            cashGross: payroll.grossEstimate,
-            benefits: benefits,
+            cashGross: projection.cashGross,
+            benefits: monetaryBenefits,
             netBeforeIncomeTax: projection.netBeforeIncomeTax ?? projection.knownNetBeforeIncomeTax,
             netTaxable: projection.netTaxableComplete ? projection.netTaxable : nil,
             additionalWarnings: uniqueReferenceWarnings(warnings)
@@ -55,7 +65,7 @@ extension SalaryReferenceContractV2 {
         guard grossChainReliable else {
             var blockedWarnings = [
                 "Brut salarial : la chaîne canonique PayrollEngineV2 → EmployeeNetProjectionV2 n'est pas suffisamment confirmée ; la référence sociale reste à confirmer."
-            ] + base.warnings
+            ] + base.warnings + projection.warnings
             blockedWarnings = uniqueReferenceWarnings(blockedWarnings)
             return SalaryReferenceContractV2(
                 gross: base.gross,
@@ -64,11 +74,31 @@ extension SalaryReferenceContractV2 {
                 netTaxable: base.netTaxable,
                 complete: false,
                 warnings: blockedWarnings,
-                benefitsInKindDeduction: base.benefitsInKindDeduction
+                benefitsInKindDeduction: base.benefitsInKindDeduction,
+                employerWarnings: ["Cotisations patronales : brut canonique non confirmé ; projection indisponible."]
             )
         }
 
-        return base
+        let employer = projection.employerContributions.flatMap { value -> EmployerContributionProjectionV2.Result? in
+            guard let period = expectedPeriod,
+                  value.matches(companyId: expectedCompanyId, year: period.year, month: period.month, gross: base.gross) else { return nil }
+            return value
+        }
+
+        // Les diagnostics de projection incluent aussi des réserves informatives de catalogue
+        // et des blocages limités au fiscal/PAS. Ils restent visibles sans invalider un net
+        // avant impôt dont la complétude structurelle a déjà été démontrée ci-dessus.
+        return SalaryReferenceContractV2(
+            gross: base.gross,
+            grossReliable: base.grossReliable,
+            netBeforeIncomeTax: base.netBeforeIncomeTax,
+            netTaxable: base.netTaxable,
+            complete: base.complete,
+            warnings: uniqueReferenceWarnings(base.warnings + projection.warnings),
+            benefitsInKindDeduction: base.benefitsInKindDeduction,
+            employerContributions: employer,
+            employerWarnings: employer?.warnings ?? ["Cotisations patronales : contexte entreprise/période/brut non concordant ou absent ; projection indisponible."]
+        )
     }
 
     /// Compatibilité transitoire pour les anciens tests/appelants qui disposent déjà de valeurs nettes.

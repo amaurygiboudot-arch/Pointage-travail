@@ -9,6 +9,7 @@ object OfficialAgreementResultStoreV2 {
     private const val KEY = "company_agreement_official_search_v2"
 
     fun save(context: Context, companyId: String, siret: String, data: Any?): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val normalizedSiret = siret.filter(Char::isDigit)
         if (normalizedSiret.length != 14) return false
         val payload = JSONObject().apply {

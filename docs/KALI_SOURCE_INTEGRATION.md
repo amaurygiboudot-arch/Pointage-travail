@@ -1,6 +1,6 @@
 # Intégration de la source KALI
 
-Cette intégration permet à HoraTrack de vérifier la convention collective d'une
+Cette intégration permet à AGKGMG de vérifier la convention collective d'une
 entreprise à partir de son IDCC. Elle ne déduit et n'applique encore aucune règle
 de paie issue de la convention.
 
@@ -21,7 +21,7 @@ de paie issue de la convention.
 ## Flux d'une vérification
 
 1. L'utilisateur ouvre l'entreprise puis **Convention collective (KALI)**.
-2. HoraTrack normalise l'IDCC sur quatre chiffres.
+2. AGKGMG normalise l'IDCC sur quatre chiffres.
 3. Le SDK Firebase joint automatiquement l'identité Firebase de l'utilisateur à
    l'appel callable.
 4. La fonction refuse les utilisateurs non authentifiés et toute route hors de
@@ -39,15 +39,15 @@ Ils ne sont ni compilés dans l'APK, ni enregistrés dans les préférences Andr
 ni renvoyés par la fonction. Le jeton OAuth PISTE reste en mémoire dans l'instance
 Firebase et est renouvelé avant son expiration.
 
-Les utilisateurs de HoraTrack n'ont donc pas à créer ou connecter un compte
-PISTE. Ils doivent seulement être connectés à HoraTrack pour que Firebase puisse
+Les utilisateurs d’AGKGMG n'ont donc pas à créer ou connecter un compte
+PISTE. Ils doivent seulement être connectés à AGKGMG pour que Firebase puisse
 authentifier l'appel.
 
 ## Limite volontaire
 
 Une convention trouvée est marquée comme source vérifiée, mais ses majorations,
 dates d'effet, catégories de salariés et règles de cumul restent à analyser et à
-valider avant toute utilisation par le moteur de paie. En attendant, HoraTrack
+valider avant toute utilisation par le moteur de paie. En attendant, AGKGMG
 conserve le régime déjà configuré et affiche cette réserve à l'utilisateur.
 
 ## Vérifications avant livraison

@@ -13,28 +13,32 @@ enum CompanyEmployeeDeductionStoreV2 {
     }
 
     static func read(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults,
         companyId: String
     ) -> ReadResult {
-        let id = companyId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard confirmedCompany(defaults: defaults, companyId: id) else {
-            return companyUnavailableResult()
-        }
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return SalaryAccountStorageV2.readConsistently(defaults, unavailable: ReadResult(records: [], reliable: false, warnings: [SalaryAccountStorageV2.warning])) {
+            let id = companyId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard confirmedCompany(defaults: defaults, companyId: id) else {
+                return companyUnavailableResult()
+            }
 
-        guard let object = defaults.object(forKey: storageKey(id)) else {
-            return ReadResult(records: [], reliable: true, warnings: [])
+            guard let object = defaults.object(forKey: storageKey(id)) else {
+                return ReadResult(records: [], reliable: true, warnings: [])
+            }
+            guard let raw = object as? String else {
+                return ReadResult(records: [], reliable: false, warnings: [storageWarning])
+            }
+            return decode(raw)
         }
-        guard let raw = object as? String else {
-            return ReadResult(records: [], reliable: false, warnings: [storageWarning])
-        }
-        return decode(raw)
     }
 
     static func save(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults,
         companyId: String,
         record: CompanyEmployeeDeductionResolverV2.Record
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let id = companyId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard confirmedCompany(defaults: defaults, companyId: id),
               CompanyEmployeeDeductionResolverV2.valid(record) else {
@@ -54,10 +58,11 @@ enum CompanyEmployeeDeductionStoreV2 {
     }
 
     static func remove(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults,
         companyId: String,
         recordId: String
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let id = companyId.trimmingCharacters(in: .whitespacesAndNewlines)
         let target = recordId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !target.isEmpty, confirmedCompany(defaults: defaults, companyId: id) else {
@@ -74,11 +79,12 @@ enum CompanyEmployeeDeductionStoreV2 {
     }
 
     static func resolve(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults,
         companyId: String,
         period: CompanyEmployeeDeductionResolverV2.YearMonth
     ) -> CompanyEmployeeDeductionResolverV2.Snapshot {
-        resolve(read(defaults: defaults, companyId: companyId), period: period)
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return resolve(read(defaults: defaults, companyId: companyId), period: period)
     }
 
     static func resolve(
@@ -139,6 +145,7 @@ enum CompanyEmployeeDeductionStoreV2 {
         companyId: String,
         records: [CompanyEmployeeDeductionResolverV2.Record]
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard records.allSatisfy(CompanyEmployeeDeductionResolverV2.valid),
               Set(records.map(\.id)).count == records.count else {
             return false
@@ -204,6 +211,7 @@ enum CompanyEmployeeDeductionStoreV2 {
     }
 
     private static func confirmedCompany(defaults: UserDefaults, companyId: String) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard !companyId.isEmpty else { return false }
         let stored = SalaryCompanyStoreV2.readConfirmed(defaults: defaults)
         return SalaryCompanyStoreV2.confirmedCompany(stored, companyId: companyId) != nil

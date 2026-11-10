@@ -14,6 +14,8 @@ struct SalaryWorkspaceSnapshotV2: Equatable {
     let incomeTax: Double?
     let netAfterIncomeTax: Double?
     let warnings: [String]
+    var employerContributions: EmployerContributionProjectionV2.Result? = nil
+    var employerWarnings: [String] = []
 
     var hasReliableGross: Bool { socialGross != nil }
     var hasReliableNet: Bool { netBeforeIncomeTax != nil }
@@ -32,10 +34,11 @@ enum SalaryWorkspaceResolverV2 {
         requiresSegmentedSource: Bool,
         segmented: SalarySegmentedCanonicalOutputV2?,
         reference: SalaryReferenceContractV2?,
-        incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot? = nil
+        incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot? = nil,
+        expectedCompanyId: String? = nil
     ) -> SalaryWorkspaceSnapshotV2 {
         guard requiresSegmentedSource else {
-            return resolve(period: period, reference: reference, incomeTaxRate: incomeTaxRate)
+            return resolve(period: period, reference: reference, incomeTaxRate: incomeTaxRate, expectedCompanyId: expectedCompanyId)
         }
         guard let segmented else {
             return SalaryWorkspaceSnapshotV2(
@@ -49,12 +52,13 @@ enum SalaryWorkspaceResolverV2 {
                 warnings: [segmentedSourceUnavailableWarning]
             )
         }
-        return resolve(period: period, segmented: segmented)
+        return resolve(period: period, segmented: segmented, expectedCompanyId: expectedCompanyId)
     }
 
     static func resolve(
         period: YearMonthV2,
-        segmented: SalarySegmentedCanonicalOutputV2?
+        segmented: SalarySegmentedCanonicalOutputV2?,
+        expectedCompanyId: String? = nil
     ) -> SalaryWorkspaceSnapshotV2 {
         guard let segmented else {
             return SalaryWorkspaceSnapshotV2(
@@ -101,14 +105,21 @@ enum SalaryWorkspaceResolverV2 {
             netTaxable: netComplete ? segmented.netTaxable : nil,
             incomeTax: netComplete ? segmented.incomeTax : nil,
             netAfterIncomeTax: netComplete ? segmented.netAfterIncomeTax : nil,
-            warnings: unique(segmented.warnings)
+            warnings: unique(segmented.warnings),
+            employerContributions: sourceReady ? segmented.employerContributions.flatMap { employer in
+                employer.matches(companyId: expectedCompanyId, year: period.year, month: period.month, gross: socialGross) ? employer : nil
+            } : nil,
+            employerWarnings: segmented.employerContributions?.matches(companyId: expectedCompanyId, year: period.year, month: period.month, gross: socialGross) == true && sourceReady
+                ? segmented.employerWarnings
+                : unique(segmented.employerWarnings + ["Cotisations patronales : contexte de l'entreprise ou du mois sélectionné non concordant ; affichage bloqué."])
         )
     }
 
     static func resolve(
         period: YearMonthV2,
         reference: SalaryReferenceContractV2?,
-        incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot? = nil
+        incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot? = nil,
+        expectedCompanyId: String? = nil
     ) -> SalaryWorkspaceSnapshotV2 {
         guard let reference else {
             return SalaryWorkspaceSnapshotV2(
@@ -126,27 +137,12 @@ enum SalaryWorkspaceResolverV2 {
         let socialGross = SalaryReferenceContractV2.socialGross(reference)
         let netBeforeIncomeTax = SalaryReferenceContractV2.beforeIncomeTax(reference)
         let netTaxable = SalaryReferenceContractV2.taxable(reference)
-        var warnings = reference.warnings
-        var incomeTax: Double?
-        var netAfterIncomeTax: Double?
-        if let beforeTax = netBeforeIncomeTax,
-           let taxable = netTaxable,
-           taxable.isFinite,
-           let rateSnapshot = incomeTaxRate,
-           rateSnapshot.reliable,
-           let rate = rateSnapshot.rate,
-           rate.isFinite,
-           (0...1).contains(rate) {
-            let calculatedTax = ((taxable * rate) * 100).rounded() / 100
-            if calculatedTax.isFinite {
-                incomeTax = calculatedTax
-                netAfterIncomeTax = max(0, beforeTax - calculatedTax)
-            }
-        }
-        if netTaxable != nil && netAfterIncomeTax == nil {
-            warnings.append("PAS : taux personnel daté et confirmé indisponible ou invalide ; net après impôt masqué.")
-        }
-        warnings.append(contentsOf: incomeTaxRate?.warnings ?? [])
+        let withholding = EmployeeWithholdingProjectionV2.calculate(
+            netBeforeIncomeTax: netBeforeIncomeTax,
+            netTaxable: netTaxable,
+            incomeTaxRate: incomeTaxRate
+        )
+        var warnings = reference.warnings + withholding.warnings
 
         if socialGross == nil && !warnings.contains(where: { $0.hasPrefix("Brut social :") }) {
             warnings.append(
@@ -165,9 +161,16 @@ enum SalaryWorkspaceResolverV2 {
             socialGross: socialGross,
             netBeforeIncomeTax: netBeforeIncomeTax,
             netTaxable: netTaxable,
-            incomeTax: incomeTax,
-            netAfterIncomeTax: netAfterIncomeTax,
-            warnings: unique(warnings)
+            incomeTax: withholding.incomeTax,
+            netAfterIncomeTax: withholding.netAfterIncomeTax,
+            warnings: unique(warnings),
+            employerContributions: reference.employerContributions.flatMap { employer in
+                guard employer.matches(companyId: expectedCompanyId, year: period.year, month: period.month, gross: socialGross) else { return nil }
+                return employer
+            },
+            employerWarnings: reference.employerContributions?.matches(companyId: expectedCompanyId, year: period.year, month: period.month, gross: socialGross) == true
+                ? reference.employerWarnings
+                : unique(reference.employerWarnings + ["Cotisations patronales : contexte de l'entreprise ou du mois sélectionné non concordant ; affichage bloqué."])
         )
     }
 

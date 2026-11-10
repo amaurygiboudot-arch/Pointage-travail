@@ -20,7 +20,7 @@ object ContractSegmentPayrollCompatibilityV2 {
     const val EQUIVALENT_VERSIONS_WARNING =
         "Contrat de paie : plusieurs versions datées couvrent le mois mais leurs paramètres de paie sont identiques ; le calcul mensuel unique peut être conservé."
     const val CHANGED_PAYROLL_INPUTS_WARNING =
-        "Contrat de paie : un paramètre de paie change en cours de mois ; HoraTrack conserve le temps payé exact par segment mais ne prorate pas le salaire sans règle de proratisation ou planning confirmé."
+        "Contrat de paie : un paramètre de paie change en cours de mois ; AGKGMG conserve le temps payé exact par segment mais ne prorate pas le salaire sans règle de proratisation ou planning confirmé."
 
     fun resolve(segments: List<EmploymentContractCoverageSegmentV2>): ContractSegmentPayrollCompatibilityResultV2 {
         if (segments.isEmpty()) {

@@ -210,9 +210,9 @@ object CompanyPauseSettingsV2 {
 
 /** Interface V2 des pauses pour une seule entreprise. */
 class CompanyPauseSettingsV2View(
-    context: Context,
+    hostContext: Context,
     private val companyId: String
-) : LinearLayout(context) {
+) : SalaryAccountLayout(hostContext) {
 
     private data class PauseFields(
         val start: EditText,
@@ -340,7 +340,7 @@ class CompanyPauseSettingsV2View(
 
         val p1 = addPauseFields(1)
         val p2 = addPauseFields(2)
-        val dialog = AlertDialog.Builder(context)
+        val dialog = SalaryAccountUi.dialog(context)
             .setView(box)
             .setPositiveButton("Enregistrer", null)
             .setNeutralButton("Tout supprimer", null)
@@ -431,7 +431,7 @@ class CompanyPauseSettingsV2View(
             }
         }, LayoutParams(LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(10) })
 
-        val dialog = AlertDialog.Builder(context)
+        val dialog = SalaryAccountUi.dialog(context)
             .setTitle("Choisir le son de l'alarme")
             .setView(box)
             .setPositiveButton("VALIDER", null)
@@ -455,7 +455,7 @@ class CompanyPauseSettingsV2View(
     }
 
     private fun requestAlarmPermissionsIfNeeded() {
-        val activity = context as? Activity ?: return
+        val activity = SalaryAccountUi.activity(context) ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {

@@ -9,7 +9,7 @@ internal fun companyAgreementMetadataStorageStatusText(
 ): String? = when {
     !stored.reliable -> buildString {
         append("⚠ Stockage des accords ACCO incohérent. ")
-        append("HoraTrack n'affiche aucun accord partiellement récupéré et bloque les modifications tant que les données ne sont pas récupérées.")
+        append("AGKGMG n'affiche aucun accord partiellement récupéré et bloque les modifications tant que les données ne sont pas récupérées.")
         if (stored.warnings.isNotEmpty()) {
             append('\n').append(stored.warnings.distinct().joinToString(" • "))
         }
@@ -28,7 +28,7 @@ internal fun companyAgreementRuleStorageStatusText(
 ): String? = when {
     !stored.reliable -> buildString {
         append("⚠ Stockage des règles ACCO incohérent. ")
-        append("HoraTrack n'affiche ni n'utilise les règles partiellement récupérées tant que les données ne sont pas restaurées.")
+        append("AGKGMG n'affiche ni n'utilise les règles partiellement récupérées tant que les données ne sont pas restaurées.")
         if (stored.warnings.isNotEmpty()) {
             append('\n').append(stored.warnings.distinct().joinToString(" • "))
         }
@@ -51,7 +51,7 @@ internal fun companyAgreementSearchOutcomeText(
     val rejected = rejectedCount.coerceAtLeast(0)
     if (found == 0) return "Recherche terminée — aucun accord vérifié pour ce SIRET."
     if (!persisted) {
-        return "$found accord(s) Légifrance vérifié(s), mais HoraTrack n'a pas pu les enregistrer. L'état local reste À confirmer."
+        return "$found accord(s) Légifrance vérifié(s), mais AGKGMG n'a pas pu les enregistrer. L'état local reste À confirmer."
     }
     return "$found accord(s) Légifrance vérifié(s) pour ce SIRET${if (rejected > 0) " — $rejected candidat(s) écarté(s)" else ""}."
 }

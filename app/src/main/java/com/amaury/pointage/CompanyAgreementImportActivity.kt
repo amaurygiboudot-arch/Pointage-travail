@@ -28,7 +28,7 @@ import java.time.format.ResolverStyle
 import java.util.concurrent.Executors
 
 /** Imports and analyzes a user-provided company agreement without sending its contents to a server. */
-class CompanyAgreementImportActivity : Activity() {
+class CompanyAgreementImportActivity : SalaryAccountActivity() {
     companion object {
         private const val REQUEST_DOCUMENT = 9701
         const val EXTRA_COMPANY_ID = "company_id"
@@ -46,6 +46,7 @@ class CompanyAgreementImportActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!accountReady()) return
         setContentView(progressView())
 
         val companies = SalaryCompanyStore.readConfirmed(this)
@@ -121,6 +122,7 @@ class CompanyAgreementImportActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (!accountReady()) return
         if (requestCode != REQUEST_DOCUMENT) return
         pickerStarted = false
         if (resultCode != RESULT_OK) {
@@ -139,13 +141,18 @@ class CompanyAgreementImportActivity : Activity() {
     private fun readSelectedDocument(uri: Uri) {
         status.text = "Lecture locale du document…"
         executor.execute {
+            if (!accountReady()) return@execute
             try {
                 val result = CompanyAgreementDocumentReaderV2.read(this, uri) { message -> updateStatus(message) }
+                if (!accountReady()) {
+                    CompanyAgreementDocumentStoreV2.discard(result)
+                    return@execute
+                }
                 pendingResult = result
                 if (CompanyAgreementImportPolicyV2.isMeaningfulText(result.extractedText)) {
                     prepareReview(result, result.extractedText)
                 } else {
-                    runOnUiThread { if (!isFinishing && !isDestroyed) askForReadableText(result) }
+                    runOnUiThread { if (accountReady()) askForReadableText(result) }
                 }
             } catch (error: CompanyAgreementDocumentReaderV2.ImportException) {
                 runOnUiThread { showFailure(error.message ?: "Document illisible.") }
@@ -166,7 +173,7 @@ class CompanyAgreementImportActivity : Activity() {
             setText(result.extractedText.take(50_000))
             setSelection(length())
         }
-        val dialog = AlertDialog.Builder(this)
+        val dialog = SalaryAccountUi.dialog(this)
             .setTitle("Texte à confirmer")
             .setMessage("La lecture automatique n’a pas trouvé assez de texte. Le document original restera conservé localement ; colle son texte pour lancer l’analyse, sans envoi sur Internet.")
             .setView(text)
@@ -176,6 +183,7 @@ class CompanyAgreementImportActivity : Activity() {
             .create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                if (!accountReady()) return@setOnClickListener
                 val normalized = CompanyAgreementImportPolicyV2.normalizeExtractedText(text.text.toString())
                 if (!CompanyAgreementImportPolicyV2.isMeaningfulText(normalized)) {
                     text.error = "Colle au moins quelques phrases lisibles de l’accord."
@@ -192,9 +200,10 @@ class CompanyAgreementImportActivity : Activity() {
     private fun prepareReview(result: CompanyAgreementDocumentReaderV2.Result, extractedText: String) {
         updateStatus("Détection locale des règles candidates…")
         executor.execute {
+            if (!accountReady()) return@execute
             val candidates = CompanyAgreementRuleExtractorV2.extract(extractedText)
             runOnUiThread {
-                if (!isFinishing && !isDestroyed) showReview(result, extractedText, candidates)
+                if (accountReady()) showReview(result, extractedText, candidates)
             }
         }
     }
@@ -234,7 +243,7 @@ class CompanyAgreementImportActivity : Activity() {
             append("Document : ${result.displayName}\n")
             result.pageCount?.let { append("Pages analysées : $it\n") }
             append("Règles candidates détectées : ${candidates.size}\n\n")
-            append("Aucune règle ne sera appliquée automatiquement. Chaque règle, valeur et période devra être validée dans HoraTrack.")
+            append("Aucune règle ne sera appliquée automatiquement. Chaque règle, valeur et période devra être validée dans AGKGMG.")
             if (storageNotices.isNotEmpty()) append("\n\n").append(storageNotices.joinToString("\n"))
             if (candidates.isEmpty()) append("\n\nAucun passage exploitable n’a été détecté : conserve l’accord puis vérifie-le manuellement.")
             if (result.truncated) append("\n\nAttention : le texte analysé a atteint la limite de sécurité ; vérifie le document original.")
@@ -253,7 +262,7 @@ class CompanyAgreementImportActivity : Activity() {
             addView(effectiveTo, row())
             addView(preview)
         }
-        val dialog = AlertDialog.Builder(this)
+        val dialog = SalaryAccountUi.dialog(this)
             .setTitle(if (companyName.isBlank()) "Importer l’accord" else "Accord — $companyName")
             .setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("CONSERVER ET ANALYSER", null)
@@ -263,6 +272,7 @@ class CompanyAgreementImportActivity : Activity() {
         dialog.setOnShowListener {
             val save = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
             save.setOnClickListener {
+                if (!accountReady()) return@setOnClickListener
                 val cleanTitle = title.text.toString().replace(Regex("[\\r\\n\\u0000]+"), " ").trim().take(160)
                 if (cleanTitle.length < 3) {
                     title.error = "Titre requis"
@@ -300,6 +310,7 @@ class CompanyAgreementImportActivity : Activity() {
         candidates: List<CompanyAgreementRuleExtractorV2.Candidate>
     ) {
         executor.execute {
+            if (!accountReady()) return@execute
             var persisted: CompanyAgreementDocumentStoreV2.Persisted? = null
             try {
                 val stored = CompanyAgreementDocumentStoreV2.persist(this, companyId, result)
@@ -328,6 +339,7 @@ class CompanyAgreementImportActivity : Activity() {
                 }
                 pendingResult = null
                 runOnUiThread {
+                    if (!accountReady()) return@runOnUiThread
                     dialog.setOnCancelListener(null)
                     dialog.dismiss()
                     Toast.makeText(
@@ -341,6 +353,7 @@ class CompanyAgreementImportActivity : Activity() {
                 }
             } catch (error: CompanyAgreementDocumentReaderV2.ImportException) {
                 runOnUiThread {
+                    if (!accountReady()) return@runOnUiThread
                     dialog.setOnCancelListener(null)
                     dialog.dismiss()
                     showFailure(error.message ?: "Impossible d’enregistrer l’accord.")
@@ -348,6 +361,7 @@ class CompanyAgreementImportActivity : Activity() {
             } catch (_: Throwable) {
                 persisted?.let { CompanyAgreementDocumentStoreV2.rollback(this, it) }
                 runOnUiThread {
+                    if (!accountReady()) return@runOnUiThread
                     dialog.setOnCancelListener(null)
                     dialog.dismiss()
                     showFailure("Impossible d’enregistrer l’accord localement.")
@@ -365,9 +379,9 @@ class CompanyAgreementImportActivity : Activity() {
     }
 
     private fun abortForStorage(message: String) {
-        if (isFinishing || isDestroyed) return
+        if (!accountReady()) return
         status.text = message
-        AlertDialog.Builder(this)
+        SalaryAccountUi.dialog(this)
             .setTitle("Import bloqué")
             .setMessage(message)
             .setPositiveButton("FERMER") { _, _ -> finish() }
@@ -376,14 +390,14 @@ class CompanyAgreementImportActivity : Activity() {
     }
 
     private fun showFailure(message: String) {
-        if (isFinishing || isDestroyed) return
+        if (!accountReady()) return
         SalaryCompanyStore.withConfirmedCompany(this, companyId) { confirmed ->
             SalaryCompanyStore.prefs(this, confirmed.id).edit()
                 .putLong("company_agreement_import_failed_at", System.currentTimeMillis())
                 .commit()
         }
         status.text = message
-        AlertDialog.Builder(this)
+        SalaryAccountUi.dialog(this)
             .setTitle("Import impossible")
             .setMessage(message)
             .setPositiveButton("CHOISIR UN AUTRE DOCUMENT") { _, _ -> launchPicker() }
@@ -394,7 +408,7 @@ class CompanyAgreementImportActivity : Activity() {
 
     private fun updateStatus(message: String) {
         runOnUiThread {
-            if (!isFinishing && !isDestroyed) status.text = message
+            if (accountReady()) status.text = message
         }
     }
 
@@ -408,6 +422,13 @@ class CompanyAgreementImportActivity : Activity() {
 
     private fun row() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(8) }
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+
+    override fun onSalaryAccountInvalidated() {
+        executor.shutdownNow()
+        CompanyAgreementDocumentStoreV2.discard(pendingResult)
+        pendingResult = null
+        super.onSalaryAccountInvalidated()
+    }
 
     override fun onDestroy() {
         executor.shutdownNow()
