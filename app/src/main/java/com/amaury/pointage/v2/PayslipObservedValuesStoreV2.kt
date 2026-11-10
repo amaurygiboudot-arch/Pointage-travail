@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2
 
 import android.content.Context
+import com.amaury.pointage.v2.engine.PayslipEngineV2
 import com.amaury.pointage.v2.engine.PayslipDocumentParserV2
 import org.json.JSONObject
 
@@ -58,7 +59,7 @@ object PayslipObservedValuesStoreV2 {
     }
 
     internal fun decodeValues(raw: String): ReadResult {
-        if (raw.isBlank()) return corruptResult()
+        if (raw.isBlank() || !PayslipMonetaryJsonValidationV2.observed(raw)) return corruptResult()
         return runCatching {
             val root = JSONObject(raw)
             var malformed = false
@@ -83,8 +84,8 @@ object PayslipObservedValuesStoreV2 {
                         malformed = true
                         continue
                     }
-                    val value = (item.opt(key) as? Number)?.toDouble()
-                    if (value == null || !value.isFinite() || value < 0.0) {
+                    val value = (item.opt(key) as? Number)?.let { PayslipEngineV2.parseAmount(it.toString()) }
+                    if (value == null || !PayslipEngineV2.isValidAmount(value)) {
                         malformed = true
                         continue
                     }
@@ -108,7 +109,7 @@ object PayslipObservedValuesStoreV2 {
         val context = SalaryAccountScope.bindContext(context)
         return PayslipImportStoreV2.withStorageAccess(context, { false }) {
             if (recordId.isBlank()) return@withStorageAccess false
-            if (values.any { (key, value) -> key !in allowedKeys || !value.isFinite() || value < 0.0 }) return@withStorageAccess false
+            if (values.any { (key, value) -> key !in allowedKeys || !PayslipEngineV2.isValidAmount(value) }) return@withStorageAccess false
             val stored = readResult(context)
             if (!stored.reliable) return@withStorageAccess false
             val updated = stored.valuesByRecord.toMutableMap()
@@ -181,7 +182,7 @@ object PayslipObservedValuesStoreV2 {
     internal fun encodeValues(valuesByRecord: Map<String, Map<String, Double>>): String? {
         if (valuesByRecord.any { (recordId, values) ->
                 recordId.isBlank() || values.isEmpty() ||
-                    values.any { (key, value) -> key !in allowedKeys || !value.isFinite() || value < 0.0 }
+                    values.any { (key, value) -> key !in allowedKeys || !PayslipEngineV2.isValidAmount(value) }
             }) return null
         val root = JSONObject()
         valuesByRecord.toSortedMap().forEach { (recordId, values) ->

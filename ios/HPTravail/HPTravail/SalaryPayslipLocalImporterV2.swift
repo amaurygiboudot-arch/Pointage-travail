@@ -6,12 +6,13 @@ import ImageIO
 /// Apple on-device recognition; source text is discarded after parsing.
 enum SalaryPayslipLocalImporterV2 {
     enum ImportError: LocalizedError {
-        case unsupported, tooLarge, unreadable
+        case unsupported, tooLarge, unreadable, invalidAmount
         var errorDescription: String? {
             switch self {
             case .unsupported: return "Choisissez un PDF ou une image lisible."
             case .tooLarge: return "Limite : 10 Mo et 10 pages par bulletin."
             case .unreadable: return "Lecture impossible. Saisissez les montants manuellement."
+            case .invalidAmount: return "Un montant du bulletin dépasse la plage prise en charge. Aucun montant importé ; vérifiez le document ou utilisez la saisie manuelle."
             }
         }
     }
@@ -41,7 +42,9 @@ enum SalaryPayslipLocalImporterV2 {
                   let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 2000, kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) else { throw ImportError.unsupported }
             pages = [try recognize(image)]
         }
-        return SalaryPayslipLocalDraftV2(observedAmounts: SalaryPayslipImportParserV2.parse(pages: pages),
+        let amounts = SalaryPayslipImportParserV2.parseChecked(pages: pages)
+        guard !amounts.hasUnrepresentableAmounts else { throw ImportError.invalidAmount }
+        return SalaryPayslipLocalDraftV2(observedAmounts: amounts.proposals,
                                          hourlyRate: SalaryPayslipProfileDraftParserV2.hourlyRate(pages: pages),
                                          period: SalaryPayslipPeriodParserV2.parse(pages: pages))
     }

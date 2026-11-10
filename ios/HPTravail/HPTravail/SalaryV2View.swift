@@ -1239,7 +1239,7 @@ struct SalaryV2View: View {
         guard let id = confirmedObservedCompanyId() else { return }
         let result = SalaryPayslipObservedStoreV2.read(companyId: id, period: salaryStore.selectedPeriod)
         guard result.reliable, let record = result.record else {
-            payslipComparisonFeedback = result.reliable ? "Aucune valeur confirmée pour ce mois." : "Stockage des valeurs observées à vérifier."
+            payslipComparisonFeedback = result.reliable ? "Aucune valeur confirmée pour ce mois." : "Valeurs enregistrées invalides ou hors plage : conservées, mais non utilisables pour la comparaison."
             return
         }
         resetPayslipComparison()
@@ -1278,7 +1278,7 @@ struct SalaryV2View: View {
         guard parsed.allSatisfy(\.valid) else {
             payslipComparisonResult = nil
             payslipComparisonFeedback =
-                "Bulletin : vérifiez les montants saisis. Seuls les nombres positifs ou nuls sont acceptés."
+                "Bulletin : vérifiez les montants saisis. Ils doivent être positifs ou nuls et dans la plage prise en charge."
             return
         }
 
@@ -1295,7 +1295,7 @@ struct SalaryV2View: View {
         ) else {
             payslipComparisonResult = nil
             payslipComparisonFeedback =
-                "Comparaison impossible : aucun champ saisi n'est actuellement comparable à une valeur canonique fiable."
+                "Comparaison impossible : référence ou montant invalide, ou aucun champ commun fiable. Aucune conformité déclarée."
             return
         }
 
@@ -1305,13 +1305,7 @@ struct SalaryV2View: View {
     }
 
     private func parseObservedAmount(_ raw: String) -> (valid: Bool, value: Double?) {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return (true, nil) }
-        let normalized = trimmed.replacingOccurrences(of: ",", with: ".")
-        guard let value = Double(normalized), value.isFinite, value >= 0 else {
-            return (false, nil)
-        }
-        return (true, value)
+        SalaryPayslipAmountV2.parse(raw)
     }
 
     private func clearSalaryPdf() {
@@ -1460,6 +1454,10 @@ struct SalaryV2View: View {
         let operation = SalaryAccountSessionV2.pin(salaryStore.accountLease)
         defer { operation.close() }
         guard importConfirmed, importedPeriodMatchesSelection, salaryStore.selectedCompanyId != nil else { return }
+        guard importProposals.allSatisfy({ SalaryPayslipAmountV2.importedAmount($0.amount) != nil }) else {
+            importFeedback = "Montant importé hors plage : la saisie existante est conservée."
+            return
+        }
         // Replace the comparison draft, never mix it with another bulletin.
         payslipGrossText = ""
         payslipNetBeforeTaxText = ""

@@ -21,11 +21,22 @@ struct SalaryPayslipImportProposalV2: Identifiable {
     let source: String
 }
 enum SalaryPayslipImportParserV2 {
+    struct ParseResult {
+        let proposals: [SalaryPayslipImportProposalV2]
+        let hasUnrepresentableAmounts: Bool
+    }
+
     static func parse(pages: [String]) -> [SalaryPayslipImportProposalV2] {
+        let result = parseChecked(pages: pages)
+        return result.hasUnrepresentableAmounts ? [] : result.proposals
+    }
+
+    static func parseChecked(pages: [String]) -> ParseResult {
+        var hasUnrepresentableAmounts = false
         var blocked = Set<SalaryPayslipImportFieldV2>()
         var candidates: [SalaryPayslipImportFieldV2: [SalaryPayslipImportProposalV2]] = [:]
         let pattern = #"(?<![\d.,])[-+]?\d{1,3}(?:[ \u00a0\u202f]\d{3})*[,.]\d{2}(?!\d)|(?<![\d.,])[-+]?\d+[,.]\d{2}(?!\d)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return ParseResult(proposals: [], hasUnrepresentableAmounts: false) }
         for (page, text) in pages.prefix(10).enumerated() {
             for (lineNumber, original) in text.components(separatedBy: .newlines).enumerated() {
                 let line = original.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "fr_FR"))
@@ -50,13 +61,19 @@ enum SalaryPayslipImportParserV2 {
                 // A table row with bases/rates/cumuls is ambiguous: do not pick a last number.
                 guard matches.count == 1, !line.contains("%") else { blocked.insert(field); continue }
                 let raw = ns.substring(with: matches[0].range).replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "\u{00a0}", with: "").replacingOccurrences(of: "\u{202f}", with: "").replacingOccurrences(of: ",", with: ".")
-                guard let amount = Decimal(string: raw, locale: Locale(identifier: "en_US_POSIX")), amount >= 0 else { blocked.insert(field); continue }
+                guard let amount = Decimal(string: raw, locale: Locale(identifier: "en_US_POSIX")),
+                      SalaryPayslipAmountV2.importedAmount(amount) != nil else {
+                    hasUnrepresentableAmounts = true
+                    blocked.insert(field)
+                    continue
+                }
                 candidates[field, default: []].append(.init(field: field, amount: amount, source: "Page \(page + 1), ligne \(lineNumber + 1) — \(original.prefix(160))"))
             }
         }
-        return SalaryPayslipImportFieldV2.allCases.compactMap { field in
+        let proposals = SalaryPayslipImportFieldV2.allCases.compactMap { field -> SalaryPayslipImportProposalV2? in
             guard !blocked.contains(field), let values = candidates[field], values.count == 1 else { return nil }
             return values[0]
         }
+        return ParseResult(proposals: proposals, hasUnrepresentableAmounts: hasUnrepresentableAmounts)
     }
 }

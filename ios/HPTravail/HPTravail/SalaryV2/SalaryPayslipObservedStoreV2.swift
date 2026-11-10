@@ -9,6 +9,10 @@ enum SalaryPayslipObservedStoreV2 {
         let excerpts: [String: String]
         let confirmedAt: Date
     }
+    // Decode the original numeric tokens before Double can erase an unrepresentable cent.
+    private struct StoredAmounts: Decodable {
+        let amounts: [String: Decimal]
+    }
     struct Result {
         let record: Record?
         let reliable: Bool
@@ -24,7 +28,7 @@ enum SalaryPayslipObservedStoreV2 {
         let allowed = Set(SalaryPayslipFieldV2.allCases.map(\.rawValue))
         return validScope(companyId: record.companyId, period: record.period) &&
             !record.amounts.isEmpty && record.amounts.count <= allowed.count &&
-            record.amounts.allSatisfy { allowed.contains($0.key) && $0.value.isFinite && $0.value >= 0 } &&
+            record.amounts.allSatisfy { allowed.contains($0.key) && SalaryPayslipAmountV2.cents($0.value) != nil } &&
             record.excerpts.allSatisfy { record.amounts[$0.key] != nil && !$0.value.isEmpty && $0.value.count <= 300 } &&
             record.confirmedAt.timeIntervalSince1970.isFinite && record.confirmedAt.timeIntervalSince1970 > 0
     }
@@ -36,6 +40,12 @@ enum SalaryPayslipObservedStoreV2 {
             guard let raw = defaults.object(forKey: key(companyId, period)) else { return Result(record: nil, reliable: true) }
             guard let data = raw as? Data, data.count <= 16_384,
                   let record = try? JSONDecoder().decode(Record.self, from: data), valid(record),
+                  let original = try? JSONDecoder().decode(StoredAmounts.self, from: data),
+                  original.amounts.count == record.amounts.count,
+                  original.amounts.allSatisfy({ key, amount in
+                      guard let value = SalaryPayslipAmountV2.importedAmount(amount) else { return false }
+                      return record.amounts[key] == value
+                  }),
                   record.companyId == companyId, record.period == period else { return Result(record: nil, reliable: false) }
             return Result(record: record, reliable: true)
         }

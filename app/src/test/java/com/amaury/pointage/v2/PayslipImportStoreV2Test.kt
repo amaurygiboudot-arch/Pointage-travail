@@ -293,4 +293,50 @@ class PayslipImportStoreV2Test {
             }
         }
     }
+
+    @Test fun extremeRawInputSurvivesRetryWithoutPublishingOrDuplicating() {
+        val entered = draft().copy(rawFields = mapOf(gross to "100000000000000000,00", net to "1550"))
+        val saved = save(entered)
+        val before = prefs().all.toMap()
+        assertEquals(PayslipImportStoreV2.Status.INVALID_INPUT, PayslipImportStoreV2.commit(context, saved).status)
+        assertEquals(before, prefs().all)
+        val resumed = requireNotNull(PayslipImportStoreV2.load(context, company, saved.id))
+        assertEquals(entered.rawFields, resumed.rawFields)
+        val corrected = save(resumed.copy(rawFields = mapOf(gross to "2000", net to "1550"), periodConfirmed = true))
+        assertEquals(PayslipImportStoreV2.Status.SUCCESS, PayslipImportStoreV2.commit(context, corrected).status)
+        assertEquals(listOf(saved.recordId), V2PayslipStore.all(context).map { it.id })
+    }
+
+    @Test fun legacyExtremeObservedBytesSurviveReadsAndRefusedMutations() {
+        val saved = save(draft())
+        val raw = "{\"old\":{\"Brut\":100000000000000000}}"
+        assertTrue(prefs().edit().putString(PayslipObservedValuesStoreV2.KEY, raw).commit())
+        val before = prefs().all.toMap()
+        assertFalse(PayslipObservedValuesStoreV2.readResult(context).reliable)
+        assertFalse(PayslipObservedValuesStoreV2.put(context, "new", mapOf(gross to 2000.0)))
+        assertEquals(PayslipImportStoreV2.Status.STORAGE_BLOCKED, PayslipImportStoreV2.commit(context, saved).status)
+        assertEquals(before, prefs().all)
+        assertEquals(raw, prefs().getString(PayslipObservedValuesStoreV2.KEY, null))
+    }
+
+
+    @Test fun fabricatedUnrepresentableOriginalCannotThrowDuringDraftEncoding() {
+        val d = draft()
+        val original = V2PayslipStore.Record(d.recordId, d.year, d.month, d.sourceUri, d.sourceMime,
+            1e17, 1550.0, 1.0, true, d.createdAtMs, company)
+        val before = prefs().all.toMap()
+        assertNull(PayslipImportStoreV2.save(context, d.copy(originalRecord = original)))
+        assertNull(PayslipImportStoreV2.save(context, d.copy(originalValues = mapOf(gross to 1e17))))
+        assertEquals(before, prefs().all)
+    }
+
+    @Test fun legacyJsonNearBoundaryIsRejectedBeforeNativeDoubleCoercionAndNotRewritten() {
+        val raw = "{\"old\":{\"Brut\":90071992547409.91}}"
+        assertTrue(prefs().edit().putString(PayslipObservedValuesStoreV2.KEY, raw).commit())
+        val before = prefs().all.toMap()
+        assertFalse(PayslipObservedValuesStoreV2.readResult(context).reliable)
+        assertFalse(PayslipObservedValuesStoreV2.put(context, "new", mapOf(gross to 2000.0)))
+        assertEquals(before, prefs().all)
+        assertEquals(raw, prefs().getString(PayslipObservedValuesStoreV2.KEY, null))
+    }
 }

@@ -141,8 +141,10 @@ object PayslipDocumentParserV2 {
         }
         if (incomplete || rows.isEmpty()) return Candidate(null, 0.0)
         val distinct = rows.distinctBy { it.third }
+        val total = distinct.sumOf { it.first }
+        if (!PayslipEngineV2.isValidAmount(total)) return Candidate(null, 0.0)
         return Candidate(
-            amount = distinct.sumOf { it.first },
+            amount = total,
             confidence = distinct.minOf { it.second }.coerceIn(0.0, 1.0),
             sourceLabel = distinct.joinToString(" • ") { it.third }.take(300)
         )
@@ -228,7 +230,7 @@ object PayslipDocumentParserV2 {
         // OCR can preserve a Unicode minus or accounting parentheses. Neither is a positive amount.
         if (Regex("[-−﹣－–—][\\s\\u00A0\\u202F]*\\d|\\(\\s*[+-]?\\d[\\d ,.\\u00A0]*\\s*€?\\s*\\)").containsMatchIn(raw)) return null
         val regex = Regex(
-            "(?<![\\d/])([+-]?\\d{1,3}(?:[ .\\u00A0]\\d{3})*|[+-]?\\d+)(?:[,.](\\d{2}))?\\s*(€|eur|euros?)?",
+            "(?<![\\d/.,])([+-]?\\d{1,3}(?:[ .\\u00A0]\\d{3})+|[+-]?\\d+)(?:[,.](\\d{2}))?(?![\\d,.])\\s*(€|eur|euros?)?",
             RegexOption.IGNORE_CASE
         )
         val candidates = regex.findAll(raw).mapNotNull { match ->

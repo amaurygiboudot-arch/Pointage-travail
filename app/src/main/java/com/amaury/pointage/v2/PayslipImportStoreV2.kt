@@ -3,6 +3,7 @@ package com.amaury.pointage.v2
 import android.content.Context
 import android.content.SharedPreferences
 import com.amaury.pointage.PayslipImportConfirmationPolicyV2
+import com.amaury.pointage.v2.engine.PayslipEngineV2
 import com.amaury.pointage.v2.engine.PayslipDocumentParserV2
 import org.json.JSONArray
 import org.json.JSONObject
@@ -233,7 +234,8 @@ object PayslipImportStoreV2 {
             first.proposedValues == second.proposedValues && first.proposedEvidence == second.proposedEvidence
 
     private fun validBaseline(draft: Draft): Boolean = draft.storageToken?.let { raw ->
-        runCatching { sameIdentity(decodeDraft(JSONObject(raw), draft.lease), draft) }.getOrDefault(false)
+        PayslipMonetaryJsonValidationV2.singleDraft(raw) &&
+            runCatching { sameIdentity(decodeDraft(JSONObject(raw), draft.lease), draft) }.getOrDefault(false)
     } ?: true
 
     private fun unchanged(canonical: Canonical, draft: Draft): Boolean {
@@ -287,7 +289,7 @@ object PayslipImportStoreV2 {
         val prefs = preferences(context)
         if (!prefs.contains(DRAFTS_KEY)) return@runCatching emptyList()
         val raw = prefs.getString(DRAFTS_KEY, null) ?: return@runCatching null
-        if (raw.length > MAX_JSON) return@runCatching null
+        if (raw.length > MAX_JSON || !PayslipMonetaryJsonValidationV2.drafts(raw)) return@runCatching null
         val root = JSONObject(raw)
         require(root.length() <= MAX_DRAFTS)
         val lease = SalaryAccountScope.lease(context)
@@ -317,9 +319,11 @@ object PayslipImportStoreV2 {
             d.sourceUri.isNotBlank() && d.sourceUri.length <= 8192 && (d.sourceMime?.length ?: 0) <= 256 &&
             d.year in 2000..2200 && d.month in 0..11 && d.createdAtMs >= 0L && d.lease.scope != null &&
             d.rawFields.all { (key, value) -> key in PayslipObservedValuesStoreV2.allowedKeys && value.length <= 256 } &&
-            d.proposedValues.all { (key, value) -> key in PayslipObservedValuesStoreV2.allowedKeys && value.isFinite() && value >= 0.0 } &&
+            d.proposedValues.all { (key, value) -> key in PayslipObservedValuesStoreV2.allowedKeys && PayslipEngineV2.isValidAmount(value) } &&
             d.proposedEvidence.all { (key, value) -> key in PayslipObservedValuesStoreV2.allowedKeys && value.length <= 300 } &&
-            (d.originalRecord == null || (d.originalRecord.id == d.recordId && d.originalRecord.companyId == d.companyId &&
+            (d.originalValues?.all { (key, value) -> key in PayslipObservedValuesStoreV2.allowedKeys && PayslipEngineV2.isValidAmount(value) } != false) &&
+            (d.originalRecord == null || ((d.originalRecord.gross == null || PayslipEngineV2.isValidAmount(d.originalRecord.gross)) &&
+                (d.originalRecord.net == null || PayslipEngineV2.isValidAmount(d.originalRecord.net)) && d.originalRecord.id == d.recordId && d.originalRecord.companyId == d.companyId &&
                 d.originalRecord.sourceUri == d.sourceUri && d.originalRecord.sourceMime == d.sourceMime))
 
     private fun encodeDraft(d: Draft): JSONObject = JSONObject()
@@ -362,6 +366,6 @@ object PayslipImportStoreV2 {
     private fun numberMap(map: Map<String, Double>) = JSONObject().apply { map.toSortedMap().forEach { (k, v) -> put(k, v) } }
     private fun parseStrings(o: JSONObject): Map<String, String> = o.keys().asSequence().associateWith { o.get(it) as String }
     private fun parseNumbers(o: JSONObject): Map<String, Double> = o.keys().asSequence().associateWith {
-        (o.get(it) as Number).toDouble().also { n -> require(n.isFinite() && n >= 0.0) }
+        requireNotNull(PayslipEngineV2.parseAmount((o.get(it) as Number).toString()))
     }
 }

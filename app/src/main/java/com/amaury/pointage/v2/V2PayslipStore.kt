@@ -97,8 +97,8 @@ object V2PayslipStore {
   require(year in 2000..2200){"Année de bulletin invalide"}
   require(month in 0..11){"Mois de bulletin invalide"}
   require(uri.toString().isNotBlank()){"Document du bulletin manquant"}
-  require(gross==null || gross.isFinite()&&gross>=0.0){"Brut du bulletin invalide"}
-  require(net==null || net.isFinite()&&net>=0.0){"Net du bulletin invalide"}
+  require(gross==null || PayslipEngineV2.isValidAmount(gross)){"Brut du bulletin invalide"}
+  require(net==null || PayslipEngineV2.isValidAmount(net)){"Net du bulletin invalide"}
   require(!confirmedByUser || gross!=null || net!=null){"Bulletin confirmé sans montant"}
 
   return PayslipImportStoreV2.withStorageAccess(context, { null }) {
@@ -476,6 +476,8 @@ object V2PayslipStore {
   expected:Map<String,Double>,
   observed:Map<String,Double>
  ):PayslipComparisonV2?{
+  // Validate before intersection: an invalid supplied value must not disappear into conformity.
+  if((expected.values+observed.values).any{!PayslipEngineV2.isValidAmount(it)})return null
   val comparableObserved=observed.filterKeys{it in expected.keys}
   if(comparableObserved.isEmpty())return null
   val comparableExpected=expected.filterKeys{it in comparableObserved.keys}
@@ -500,7 +502,7 @@ object V2PayslipStore {
  }
 
  internal fun decodeRecords(raw:String):ReadResult{
-  if(raw.isBlank())return corruptResult()
+  if(raw.isBlank() || !PayslipMonetaryJsonValidationV2.records(raw))return corruptResult()
   return runCatching{
    val array=JSONArray(raw)
    var malformed=false
@@ -532,8 +534,8 @@ object V2PayslipStore {
   val mime=optionalString(o,"mime")?:if(o.has("mime")&&!o.isNull("mime"))return null else null
   val gross=optionalNumber(o,"gross");if(!gross.valid)return null
   val net=optionalNumber(o,"net");if(!net.valid)return null
-  if(gross.value!=null&&(gross.value<0.0||!gross.value.isFinite()))return null
-  if(net.value!=null&&(net.value<0.0||!net.value.isFinite()))return null
+  if(gross.value!=null&&(!PayslipEngineV2.isValidAmount(gross.value)))return null
+  if(net.value!=null&&(!PayslipEngineV2.isValidAmount(net.value)))return null
 
   val confidence=if(o.has("confidence")){
    val value=(o.opt("confidence") as? Number)?.toDouble()?:return null
@@ -573,8 +575,9 @@ object V2PayslipStore {
 
  private fun optionalNumber(o:JSONObject,key:String):OptionalNumber{
   if(!o.has(key)||o.isNull(key))return OptionalNumber(true,null)
-  val value=(o.opt(key) as? Number)?.toDouble()?:return OptionalNumber(false,null)
-  return OptionalNumber(value.isFinite(),value.takeIf{it.isFinite()})
+  val number=o.opt(key) as? Number?:return OptionalNumber(false,null)
+  val value=PayslipEngineV2.parseAmount(number.toString())?:return OptionalNumber(false,null)
+  return OptionalNumber(true,value)
  }
 
  private fun optionalString(o:JSONObject,key:String):String?{
@@ -587,8 +590,8 @@ object V2PayslipStore {
    r.year in 2000..2200&&
    r.month in 0..11&&
    r.sourceUri.isNotBlank()&&
-   (r.gross==null||r.gross.isFinite()&&r.gross>=0.0)&&
-   (r.net==null||r.net.isFinite()&&r.net>=0.0)&&
+   (r.gross==null||PayslipEngineV2.isValidAmount(r.gross))&&
+   (r.net==null||PayslipEngineV2.isValidAmount(r.net))&&
    r.extractionConfidence.isFinite()&&r.extractionConfidence in 0.0..1.0&&
    r.importedAtMs>=0L&&
    (!r.confirmedByUser||r.gross!=null||r.net!=null)

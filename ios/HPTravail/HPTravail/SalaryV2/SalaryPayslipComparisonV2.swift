@@ -18,12 +18,54 @@ enum SalaryPayslipFieldV2: String, CaseIterable, Hashable {
     }
 }
 
+/// Uses the same decimal HALF_UP and representability boundary as canonical payroll.
+/// This is a technical bound, not a legal limit on a payslip amount.
+enum SalaryPayslipAmountV2 {
+    static func cents(_ value: Double) -> Int64? {
+        guard value >= 0 else { return nil }
+        return PayrollMoneyV2.cents(value)
+    }
+
+    static func valid(_ value: Double?) -> Bool {
+        value.map { cents($0) != nil } ?? true
+    }
+
+    /// Import must preserve the exact proposed cents when crossing Decimal -> Double.
+    static func importedAmount(_ value: Decimal) -> Double? {
+        guard !value.isNaN, value >= 0 else { return nil }
+        // Parse the canonical decimal spelling: NSDecimalNumber.doubleValue can introduce
+        // a different binary neighbour at half-cent values such as 1.005.
+        guard let amount = Double(NSDecimalNumber(decimal: value).stringValue),
+              let cents = cents(amount) else { return nil }
+        var original = value
+        var rounded = Decimal()
+        NSDecimalRound(&rounded, &original, 2, .plain)
+        guard rounded == Decimal(cents) / Decimal(100) else { return nil }
+        return amount
+    }
+
+    static func parse(_ raw: String) -> (valid: Bool, value: Double?) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return (true, nil) }
+        let normalized = trimmed.replacingOccurrences(of: ",", with: ".")
+        guard normalized.count <= 256, let value = Double(normalized), cents(value) != nil,
+              let decimal = Decimal(string: normalized, locale: Locale(identifier: "en_US_POSIX")),
+              importedAmount(decimal) == value else { return (false, nil) }
+        return (true, value)
+    }
+}
+
 struct SalaryPayslipObservedValuesV2: Equatable {
     let socialGross: Double?
     let netBeforeIncomeTax: Double?
     let netTaxable: Double?
     let incomeTax: Double?
     let netAfterIncomeTax: Double?
+
+    var valid: Bool {
+        [socialGross, netBeforeIncomeTax, netTaxable, incomeTax, netAfterIncomeTax]
+            .allSatisfy(SalaryPayslipAmountV2.valid)
+    }
 
     var values: [SalaryPayslipFieldV2: Double] {
         var result: [SalaryPayslipFieldV2: Double] = [:]
@@ -40,7 +82,7 @@ struct SalaryPayslipObservedValuesV2: Equatable {
         _ value: Double?,
         to result: inout [SalaryPayslipFieldV2: Double]
     ) {
-        guard let value, value.isFinite, value >= 0 else { return }
+        guard let value, SalaryPayslipAmountV2.cents(value) != nil else { return }
         result[field] = value
     }
 }
@@ -77,7 +119,10 @@ enum SalaryPayslipComparisonEngineV2 {
     static func expectedValues(
         from snapshot: SalaryWorkspaceSnapshotV2
     ) -> [SalaryPayslipFieldV2: Double]? {
-        guard snapshot.sourceReady else { return nil }
+        guard snapshot.sourceReady,
+              [snapshot.socialGross, snapshot.netBeforeIncomeTax, snapshot.netTaxable,
+               snapshot.incomeTax, snapshot.netAfterIncomeTax].allSatisfy(SalaryPayslipAmountV2.valid)
+        else { return nil }
 
         var result: [SalaryPayslipFieldV2: Double] = [:]
         append(.socialGross, snapshot.socialGross, to: &result)
@@ -93,7 +138,7 @@ enum SalaryPayslipComparisonEngineV2 {
         observed: SalaryPayslipObservedValuesV2,
         tolerance: Double = defaultTolerance
     ) -> SalaryPayslipComparisonResultV2? {
-        guard tolerance.isFinite, tolerance >= 0,
+        guard let toleranceCents = SalaryPayslipAmountV2.cents(tolerance), observed.valid,
               let expected = expectedValues(from: snapshot) else {
             return nil
         }
@@ -104,22 +149,19 @@ enum SalaryPayslipComparisonEngineV2 {
         }
         guard !fields.isEmpty else { return nil }
 
-        let toleranceCents = Int64((tolerance * 100).rounded())
-        let discrepancies = fields.compactMap { field -> SalaryPayslipDiscrepancyV2? in
-            guard let expectedValue = expected[field],
-                  let observedValue = observedValues[field] else {
-                return nil
+        var discrepancies: [SalaryPayslipDiscrepancyV2] = []
+        for field in fields {
+            guard let expectedValue = expected[field], let observedValue = observedValues[field],
+                  let expectedCents = SalaryPayslipAmountV2.cents(expectedValue),
+                  let observedCents = SalaryPayslipAmountV2.cents(observedValue) else { return nil }
+            // Nonnegative cents are bounded by PayrollMoneyV2.maximumCents, so this
+            // ordered subtraction cannot overflow and needs no potentially trapping abs.
+            let difference = max(expectedCents, observedCents) - min(expectedCents, observedCents)
+            if difference > toleranceCents {
+                discrepancies.append(SalaryPayslipDiscrepancyV2(
+                    field: field, expected: expectedValue, observed: observedValue
+                ))
             }
-            let expectedCents = Int64((expectedValue * 100).rounded())
-            let observedCents = Int64((observedValue * 100).rounded())
-            guard abs(expectedCents - observedCents) > toleranceCents else {
-                return nil
-            }
-            return SalaryPayslipDiscrepancyV2(
-                field: field,
-                expected: expectedValue,
-                observed: observedValue
-            )
         }
 
         return SalaryPayslipComparisonResultV2(
@@ -134,7 +176,7 @@ enum SalaryPayslipComparisonEngineV2 {
         _ value: Double?,
         to result: inout [SalaryPayslipFieldV2: Double]
     ) {
-        guard let value, value.isFinite, value >= 0 else { return }
+        guard let value, SalaryPayslipAmountV2.cents(value) != nil else { return }
         result[field] = value
     }
 }

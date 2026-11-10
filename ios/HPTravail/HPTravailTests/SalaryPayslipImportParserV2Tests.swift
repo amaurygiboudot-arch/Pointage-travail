@@ -27,4 +27,22 @@ final class SalaryPayslipImportParserV2Tests: XCTestCase {
     func testDoesNotInventMissingFieldsOrReadNextLine() {
         XCTAssertTrue(SalaryPayslipImportParserV2.parse(pages: ["Total brut\n2 500,00\nNet social 1 900,00"]).isEmpty)
     }
+    func testUnrepresentableRecognizedAmountRejectsWholeDraftInsteadOfPartialSuccess() {
+        for amount in ["100000000000000000,00", "90071992547409,91", "90071992547409,92"] {
+            let pages = ["Total brut \(amount)\nNet imposable 2000,00"]
+            XCTAssertTrue(SalaryPayslipImportParserV2.parseChecked(pages: pages).hasUnrepresentableAmounts)
+            XCTAssertTrue(SalaryPayslipImportParserV2.parse(pages: pages).isEmpty)
+        }
+        XCTAssertFalse(SalaryPayslipImportParserV2.parseChecked(pages: ["Total brut 90071992547409,90"]).hasUnrepresentableAmounts)
+        XCTAssertEqual(SalaryPayslipImportParserV2.parse(pages: ["Total brut 90071992547409,90"]).count, 1)
+    }
+
+    func testUnrelatedAnnualOrAmbiguousNumbersDoNotBecomeMonetaryBoundaryErrors() {
+        let result = SalaryPayslipImportParserV2.parseChecked(pages: [
+            "Cumul total brut 100000000000000000,00\nRéférence 100000000000000000,00\nTotal brut 2500,00\nPrélèvement à la source 100000000000000000,00 5,00% 100,00"
+        ])
+        XCTAssertFalse(result.hasUnrepresentableAmounts)
+        XCTAssertEqual(result.proposals.map(\.field), [.gross])
+    }
+
 }

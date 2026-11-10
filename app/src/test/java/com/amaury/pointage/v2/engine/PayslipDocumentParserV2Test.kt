@@ -133,4 +133,15 @@ class PayslipDocumentParserV2Test {
         assertEquals(1500.0, result.premiumsGross.amount!!, 0.001)
         assertEquals(1010.20, result.netTaxable.amount!!, 0.001)
     }
+
+    @Test fun `extreme OCR total is not offered as a rounded or saturated amount`() {
+        for (token in listOf("100000000000000000,00", "100 000 000 000 000 000,00", "90071992547409,91")) {
+            val result = PayslipDocumentParserV2.parse("Total brut $token €")
+            assertNull(token, result.gross.amount)
+            assertFalse(result.gross.highConfidence)
+        }
+        val aggregate = PayslipDocumentParserV2.parse("Prime ancienneté 25,00 €\nPrime exceptionnelle 100000000000000000,00 €")
+        assertNull(aggregate.premiumsGross.amount)
+        assertFalse(aggregate.premiumsGross.highConfidence)
+    }
 }

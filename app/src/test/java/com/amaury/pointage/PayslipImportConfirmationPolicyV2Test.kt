@@ -17,4 +17,14 @@ class PayslipImportConfirmationPolicyV2Test {
         assertEquals(1234.56, PayslipImportConfirmationPolicyV2.parseAmount("1\u00a0234,56")!!, 0.001)
         assertEquals(0.0, PayslipImportConfirmationPolicyV2.parseAmount("0,00")!!, 0.001)
     }
+
+    @Test fun `extreme finite amounts are invalid not unknown or saturated`() {
+        for (raw in listOf("100000000000000000,00", "1e308", "90071992547409.92", "90071992547409.91", "1e2147483647", "1e-2147483647")) {
+            assertNull(PayslipImportConfirmationPolicyV2.parseAmount(raw))
+            assertFalse(PayslipImportConfirmationPolicyV2.isOptionalAmountValid(raw))
+        }
+        assertEquals(90_071_992_547_409.9, PayslipImportConfirmationPolicyV2.parseAmount("90071992547409.90")!!, 0.0)
+        assertEquals(1.005, PayslipImportConfirmationPolicyV2.parseAmount("1,005")!!, 0.0)
+    }
+
 }
