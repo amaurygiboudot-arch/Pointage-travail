@@ -91,6 +91,7 @@ object ConfirmedCashGrossComponentsBridgeV2 {
                 add(
                     ConfirmedCashGrossComponentV2(
                         id = "seniority-premium",
+                        label = "Prime d’ancienneté",
                         amount = seniorityAmount!!,
                         reliable = true,
                         warnings = seniority.warnings
@@ -102,6 +103,7 @@ object ConfirmedCashGrossComponentsBridgeV2 {
                     add(
                         ConfirmedCashGrossComponentV2(
                             id = "company-premium:${premium.id}",
+                            label = premium.label,
                             amount = premium.grossAmount,
                             reliable = true
                         )

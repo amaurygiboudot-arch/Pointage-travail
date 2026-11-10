@@ -171,6 +171,7 @@ struct PayrollResultV2: Equatable {
     let complementaryMinutes: Int
     let grossReliable: Bool
     let traces: [String]
+    var confirmedPremiums: [PremiumV2] = []
 }
 
 /// Preuve explicite que les nombres transmis au moteur peuvent être utilisés comme base de brut.
@@ -373,7 +374,8 @@ enum PayrollEngineV2 {
             netBeforeUnknownContributions: max(0, gross - deductionsTotal),
             complementaryMinutes: 0,
             grossReliable: overtimeCoverageReliable && evidence.grossInputsReliable,
-            traces: unique(traces + evidence.warnings)
+            traces: unique(traces + evidence.warnings),
+            confirmedPremiums: premiums
         )
     }
 
@@ -432,7 +434,8 @@ enum PayrollEngineV2 {
             netBeforeUnknownContributions: max(0, gross - deductionsTotal),
             complementaryMinutes: 0,
             grossReliable: regularReferenceReliable && !fullTime.provisionalRateUsed && evidence.grossInputsReliable,
-            traces: unique(traces + evidence.warnings)
+            traces: unique(traces + evidence.warnings),
+            confirmedPremiums: premiums
         )
     }
 
@@ -499,7 +502,8 @@ enum PayrollEngineV2 {
             netBeforeUnknownContributions: max(0, gross - deductionsTotal),
             complementaryMinutes: complementaryMinutes,
             grossReliable: !provisionalComplementaryRateUsed && evidence.grossInputsReliable,
-            traces: unique(traces + evidence.warnings)
+            traces: unique(traces + evidence.warnings),
+            confirmedPremiums: premiums
         )
     }
 
@@ -569,7 +573,8 @@ enum PayrollEngineV2 {
             netBeforeUnknownContributions: max(0, gross - deductionsTotal),
             complementaryMinutes: 0,
             grossReliable: evidence.grossInputsReliable,
-            traces: unique(traces + evidence.warnings)
+            traces: unique(traces + evidence.warnings),
+            confirmedPremiums: premiums
         )
     }
 

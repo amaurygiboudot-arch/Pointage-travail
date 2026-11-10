@@ -201,6 +201,7 @@ final class PayrollEngineV2Tests: XCTestCase {
 
         XCTAssertEqual(result.regularGross, 2_500, accuracy: 0.001)
         XCTAssertEqual(result.fixedPremiumsGross, 100, accuracy: 0.001)
+        XCTAssertEqual(result.confirmedPremiums.map(\.label), ["Prime"])
         XCTAssertEqual(result.grossEstimate, 2_600, accuracy: 0.001)
         XCTAssertEqual(result.baskets, 20, accuracy: 0.001)
         XCTAssertEqual(result.netBeforeUnknownContributions, 2_550, accuracy: 0.001)

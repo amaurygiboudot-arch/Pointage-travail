@@ -40,6 +40,12 @@ enum EmployeeNetProjectionV2 {
         let warnings: [String]
         let traces: [String]
         var employerContributions: EmployerContributionProjectionV2.Result? = nil
+        var benefitsInKindGross: Double? = nil
+        // Exact cent values already consumed by the monetary projection; presentation never re-rounds products.
+        var statutoryEmployeeCents: [Int64?] = []
+        var retirementEmployeeCents: [Int64?] = []
+        var statutoryEmployerCents: [Int64?] = []
+        var retirementEmployerCents: [Int64?] = []
     }
 
     static func calculate(_ input: Input) -> Result {
@@ -214,10 +220,11 @@ enum EmployeeNetProjectionV2 {
             companyId: input.companyId, year: input.period.year, month: input.period.month,
             contributionGrossCents: contributionCents, reliable: grossReliable && periodMatches && input.ceiling.complete
         )
+        let statutoryEmployerCents = statutory.lines.map { PayrollMoneyV2.contribution(base: $0.baseAmount, rate: $0.employerRate) }
+        let retirementEmployerCents = retirement.lines.map { PayrollMoneyV2.contribution(base: $0.baseAmount, rate: $0.employerRate) }
         func employerLine(_ family: EmployerContributionProjectionV2.Family,
-                          amounts: [(Double, Double, String)], available: Bool) -> EmployerContributionProjectionV2.Line {
+                          amounts: [(Double, Double, String)], cents: [Int64?], available: Bool) -> EmployerContributionProjectionV2.Line {
             guard available, !amounts.isEmpty else { return .init(family: family, state: .missing, amountCents: nil, source: nil) }
-            let cents = amounts.map { PayrollMoneyV2.contribution(base: $0.0, rate: $0.1) }
             let values = cents.compactMap { $0 }
             let total = values.count == amounts.count ? PayrollMoneyV2.sum(values) : nil
             let source = unique(amounts.map { $0.2 }).joined(separator: " ; ")
@@ -225,9 +232,9 @@ enum EmployeeNetProjectionV2 {
         }
         let employer = EmployerContributionProjectionV2.calculate(context: employerContext, lines: [
             employerLine(.statutory, amounts: statutory.lines.map { ($0.baseAmount, $0.employerRate, $0.source) },
-                         available: supportedNationalTables && input.ceiling.complete),
+                         cents: statutoryEmployerCents, available: supportedNationalTables && input.ceiling.complete),
             employerLine(.complementaryRetirement, amounts: retirement.lines.map { ($0.baseAmount, $0.employerRate, $0.source) },
-                         available: supportedNationalTables && input.ceiling.complete)
+                         cents: retirementEmployerCents, available: supportedNationalTables && input.ceiling.complete)
         ], additionalWarnings: retirement.warnings.map { "Couverture patronale retraite partielle : " + $0 })
 
         return Result(
@@ -246,7 +253,10 @@ enum EmployeeNetProjectionV2 {
             netTaxableComplete: taxable != nil,
             warnings: unique(warnings),
             traces: traces,
-            employerContributions: employer
+            employerContributions: employer,
+            benefitsInKindGross: grossReliable ? benefitsCents.flatMap(PayrollMoneyV2.amount) : nil,
+            statutoryEmployeeCents: statutoryCents, retirementEmployeeCents: retirementCents,
+            statutoryEmployerCents: statutoryEmployerCents, retirementEmployerCents: retirementEmployerCents
         )
     }
 

@@ -54,7 +54,7 @@ import kotlin.math.roundToInt
 object V2SalaryAdapter {
  data class TierDuration(val label:String,val durationMs:Long,val multiplier:Double)
  /** totalWorkedMs is exact tracked paid time; regularMs and tiers are the quantities valued by payroll. */
- data class Result(val regularMs:Long,val overtimeTiers:List<TierDuration>,val totalWorkedMs:Long,val regularGross:Double,val overtimeGross:Double,val premiumsGross:Double,val monthlyEstimatedGross:Double,val monthlyGrossReliable:Boolean,val nightMs:Long,val saturdayMs:Long,val sundayMs:Long,val complementaryMinutes:Int,val completedSessions:Int,val warnings:List<String>,val mealBasketCount:Int=0,val mealBasketAmount:Double?=null,val mealBasketTotal:Double?=null,val publicHolidayMs:Long=0L,val conventionMinimumMonthlyGross:Double?=null,val conventionClassificationLabel:String?=null,val seniorityPremiumGross:Double?=null,val paidTimeReliable:Boolean=monthlyGrossReliable,val unpaidPauseMs:Long?=null,val grossBeforeMayFirstReliable:Boolean=false)
+ data class Result(val regularMs:Long,val overtimeTiers:List<TierDuration>,val totalWorkedMs:Long,val regularGross:Double,val overtimeGross:Double,val premiumsGross:Double,val monthlyEstimatedGross:Double,val monthlyGrossReliable:Boolean,val nightMs:Long,val saturdayMs:Long,val sundayMs:Long,val complementaryMinutes:Int,val completedSessions:Int,val warnings:List<String>,val mealBasketCount:Int=0,val mealBasketAmount:Double?=null,val mealBasketTotal:Double?=null,val publicHolidayMs:Long=0L,val conventionMinimumMonthlyGross:Double?=null,val conventionClassificationLabel:String?=null,val seniorityPremiumGross:Double?=null,val paidTimeReliable:Boolean=monthlyGrossReliable,val unpaidPauseMs:Long?=null,val grossBeforeMayFirstReliable:Boolean=false,val companyPremiumDetails:List<com.amaury.pointage.v2.engine.CompanyPremiumResolverV2.Applied> = emptyList())
  data class FullTimeRegularReference(val minutes:Int?,val reliable:Boolean)
 
  internal fun resolvePositiveHourlyRate(contractRate:Double?,fallbackRate:Double?):Double? =
@@ -141,7 +141,8 @@ object V2SalaryAdapter {
              warnings=(baseCalculated.warnings+conventionMinimum.resolution.warnings+seniority.warnings+companyPremiums.warnings).distinct(),
              conventionMinimumMonthlyGross=conventionMinimum.selectedMonthlyGross,
              conventionClassificationLabel=conventionMinimum.classification.takeIf{!it.isEmpty()}?.label(),
-             seniorityPremiumGross=seniority.monthlyAmount?.takeIf{seniority.reliable}
+             seniorityPremiumGross=seniority.monthlyAmount?.takeIf{seniority.reliable},
+             companyPremiumDetails=companyPremiums.applied.takeIf{companyPremiums.reliable}.orEmpty()
             )
             val meals=MealBasketSalaryBridgeV2.calculate(
              context=context,

@@ -882,15 +882,20 @@ struct SalaryV2View: View {
 
     private var referenceCard: some View {
         VStack(spacing: 12) {
-            amountRow("Brut social estimé", amount: salaryStore.snapshot.socialGross)
-            Divider()
-            amountRow("Net estimé avant impôt", amount: salaryStore.snapshot.netBeforeIncomeTax)
-            Divider()
-            amountRow("Net imposable estimé", amount: salaryStore.snapshot.netTaxable)
-            Divider()
-            amountRow("Prélèvement à la source", amount: salaryStore.snapshot.incomeTax)
-            Divider()
-            amountRow("Net après impôt", amount: salaryStore.snapshot.netAfterIncomeTax)
+            ForEach(SalaryCalculatedPayslipPresentationV2.sections(
+                snapshot: salaryStore.snapshot, companyId: salaryStore.selectedCompanyId
+            )) { section in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(section.title).fontWeight(.semibold)
+                    ForEach(section.rows) { row in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(row.label)
+                            Text(row.value).font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                Divider()
+            }
 
             Divider()
             VStack(alignment: .leading, spacing: 8) {

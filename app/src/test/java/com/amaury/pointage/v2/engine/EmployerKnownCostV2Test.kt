@@ -121,4 +121,50 @@ class EmployerKnownCostV2Test {
         assertEquals(missing.netBeforeIncomeTax, invalid.netBeforeIncomeTax, 0.0)
         assertEquals(missing.netAfterIncomeTax, invalid.netAfterIncomeTax)
     }
+    @Test fun `calculated source lines reach shared screen and PDF detail`() {
+        val result=NetSalaryEngineV2.calculate(2500.0,2026,company())
+        assertTrue(result.contributionDetails.any{it.id.startsWith("statutory:")})
+        assertTrue(result.contributionDetails.any{it.id.startsWith("retirement:")})
+        val rows=CalculatedPayslipDetailsV2.contributions(result,true,result.employerProjection,"company",2026,1)
+        val atMp=rows.single{it.label=="Accidents du travail / maladies professionnelles"}
+        assertEquals("2500,00 €",atMp.base)
+        assertEquals("2,0000 %",atMp.employerRate)
+        assertEquals("50,00 €",atMp.employerAmount)
+        assertEquals("Fixture AT/MP",atMp.source)
+        assertTrue(rows.any{it.source.contains("Agirc-Arrco")&&it.employerAmount!="À confirmer"})
+        val statutory=result.contributionDetails.filter{it.family==EmployerContributionProjectionV2.Family.STATUTORY}
+        assertEquals(result.employerProjection!!.lines.single{it.family==EmployerContributionProjectionV2.Family.STATUTORY}.amountCents,
+            PayrollMoneyV2.sum(statutory.map{PayrollMoneyV2.cents(it.employerAmount!!)!!}))
+        val tables=SalaryExamplePdfV2.presentationSections(listOf(SalaryExamplePdfV2.PdfSection("Details",emptyList(),rows)))
+        assertEquals(rows.map{it.cells()},tables.single().rows)
+        assertFalse(result.employerProjection!!.coverageComplete)
+    }
+
+    @Test fun `retirement detail carries canonical cents at half cent binary boundary`() {
+        val result=NetSalaryEngineV2.calculate(118.75,2026,company())
+        val line=result.contributionDetails.single { it.family==EmployerContributionProjectionV2.Family.COMPLEMENTARY_RETIREMENT && it.employerRate==0.0472 }
+        assertEquals(561L,PayrollMoneyV2.cents(line.employerAmount!!))
+        val rows=CalculatedPayslipDetailsV2.contributions(result,true,result.employerProjection,"company",2026,1)
+        assertEquals("5,61 €",rows.single{it.label==line.label}.employerAmount)
+        val sum=PayrollMoneyV2.sum(result.contributionDetails.filter{it.family==EmployerContributionProjectionV2.Family.COMPLEMENTARY_RETIREMENT}.map{PayrollMoneyV2.cents(it.employerAmount!!)!!})
+        assertEquals(result.employerProjection!!.lines.single{it.family==EmployerContributionProjectionV2.Family.COMPLEMENTARY_RETIREMENT}.amountCents,sum)
+    }
+
+    @Test fun `all checked rate families carry cents used by native projection`() {
+        val configuration=company().copy(alsaceMoselleLocalRegime=true,
+            atMpEmployerRate=.013,employerMobilityRate=.013,
+            employerUnemploymentRate=.013,employerAgsRate=.013,employerUnemploymentAgsSource="Synthetic source",
+            employerApprenticeshipPrincipalRate=.013,employerApprenticeshipBalanceRate=.013,employerApprenticeshipSource="Synthetic source")
+        val result=NetSalaryEngineV2.calculate(115.0,2026,configuration)
+        val alsace=result.contributionDetails.single{it.family==EmployerContributionProjectionV2.Family.STATUTORY&&it.employeeRate==.013}
+        assertEquals(150L,PayrollMoneyV2.cents(alsace.employeeAmount!!))
+        assertEquals(PayrollMoneyV2.cents(result.statutory),PayrollMoneyV2.sum(result.contributionDetails.filter{it.family==EmployerContributionProjectionV2.Family.STATUTORY}.map{PayrollMoneyV2.cents(it.employeeAmount!!)!!}))
+        val rows=CalculatedPayslipDetailsV2.contributions(result,true,result.employerProjection,"company",2026,1)
+        listOf("at-mp","mobility","unemployment","ags","apprenticeship-principal","apprenticeship-balance").forEach { id ->
+            val detail=result.contributionDetails.single{it.id==id}
+            assertEquals(id,150L,PayrollMoneyV2.cents(detail.employerAmount!!))
+            assertEquals(id,"1,50 €",rows.single{it.label==detail.label}.employerAmount)
+        }
+    }
+
 }

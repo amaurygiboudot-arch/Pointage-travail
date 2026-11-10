@@ -55,7 +55,10 @@ object NetSalaryEngineV2 {
         /** Toutes les opérations monétaires salariales sont représentables au centime. */
         val employeeAmountsReliable: Boolean = false,
         /** Projection partielle issue des mêmes entrées résolues que le net. */
-        val employerProjection: EmployerContributionProjectionV2.Result? = null
+        val employerProjection: EmployerContributionProjectionV2.Result? = null,
+        /** Original lines from this calculation; presentation must retain the reliability guards. */
+        val contributionDetails: List<CalculatedContributionLineV2> = emptyList(),
+        val employeeDeductionDetails: List<CalculatedEmployeeDeductionV2> = emptyList()
     )
 
     fun calculate(
@@ -378,12 +381,21 @@ object NetSalaryEngineV2 {
         fun amountCents(amount: Double?): Long? = amount?.takeIf { it >= 0.0 }?.let(PayrollMoneyV2::cents)
         val knownStatus = company.professionalStatus?.trim()?.uppercase() in setOf("CADRE", "NON_CADRE")
         val aniKnown = !company.verifiedProtectionCategory.conventionControlsAni || company.verifiedProtectionCategory.confirmed
-        val statutoryEmployerCents = sumContributions(statutory.lines.map {
+        val statutoryEmployerLineCents = statutory.lines.map {
             PayrollMoneyV2.contribution(it.baseAmount, it.employerRate)
-        })
-        val retirementEmployerCents = sumContributions(retirement.lines.map {
+        }
+        val retirementEmployerLineCents = retirement.lines.map {
             PayrollMoneyV2.contribution(it.baseAmount, it.employerRate)
-        })
+        }
+        val statutoryEmployerCents = sumContributions(statutoryEmployerLineCents)
+        val retirementEmployerCents = sumContributions(retirementEmployerLineCents)
+        // Retain the exact checked cents used by the projection, not raw binary catalog amounts.
+        val atMpEmployerCents = company.atMpEmployerRate?.let { PayrollMoneyV2.contribution(contributionGross, it) }
+        val mobilityEmployerCents = company.employerMobilityRate?.let { PayrollMoneyV2.contribution(contributionGross, it) }
+        val unemploymentEmployerCents = unemploymentAgs.baseAmount?.let { base -> company.employerUnemploymentRate?.let { PayrollMoneyV2.contribution(base, it) } }
+        val agsEmployerCents = unemploymentAgs.baseAmount?.let { base -> company.employerAgsRate?.let { PayrollMoneyV2.contribution(base, it) } }
+        val apprenticeshipPrincipalCents = company.employerApprenticeshipPrincipalRate?.let { PayrollMoneyV2.contribution(contributionGross, it) }
+        val apprenticeshipBalanceCents = company.employerApprenticeshipBalanceRate?.let { PayrollMoneyV2.contribution(contributionGross, it) }
         val statusEmployerCents = sumContributions(statusContributions.lines.map {
             PayrollMoneyV2.contribution(it.baseAmount, it.employerRate)
         })
@@ -409,15 +421,13 @@ object NetSalaryEngineV2 {
                         .ifBlank { "Statut professionnel et catégorie ANI confirmés ; catalogue existant $year" },
                     year == 2026 && ceiling.complete && knownStatus && aniKnown),
                 familyLine(EmployerContributionProjectionV2.Family.AT_MP,
-                    company.atMpEmployerRate?.let { PayrollMoneyV2.contribution(contributionGross, it) },
+                    atMpEmployerCents,
                     company.atMpEmployerSource, atMp.complete, invalidRate(company.atMpEmployerRate)),
                 familyLine(EmployerContributionProjectionV2.Family.MOBILITY,
-                    company.employerMobilityRate?.let { PayrollMoneyV2.contribution(contributionGross, it) },
+                    mobilityEmployerCents,
                     company.employerMobilitySource, mobility.complete, invalidRate(company.employerMobilityRate)),
                 familyLine(EmployerContributionProjectionV2.Family.UNEMPLOYMENT_AGS,
-                    unemploymentAgs.baseAmount?.let { base -> sumContributions(listOf(
-                        company.employerUnemploymentRate?.let { PayrollMoneyV2.contribution(base, it) },
-                        company.employerAgsRate?.let { PayrollMoneyV2.contribution(base, it) })) },
+                    sumContributions(listOf(unemploymentEmployerCents, agsEmployerCents)),
                     company.employerUnemploymentAgsSource, unemploymentAgs.complete,
                     invalidRate(company.employerUnemploymentRate) || invalidRate(company.employerAgsRate)),
                 familyLine(EmployerContributionProjectionV2.Family.WORKFORCE,
@@ -428,9 +438,7 @@ object NetSalaryEngineV2 {
                     invalidRate(company.employerHealthRate) || invalidRate(company.employerFamilyRate) ||
                         (company.employerHealthRate != null && company.employerFamilyRate != null && !healthFamily.complete)),
                 familyLine(EmployerContributionProjectionV2.Family.APPRENTICESHIP,
-                    sumContributions(listOf(
-                        company.employerApprenticeshipPrincipalRate?.let { PayrollMoneyV2.contribution(contributionGross, it) },
-                        company.employerApprenticeshipBalanceRate?.let { PayrollMoneyV2.contribution(contributionGross, it) })),
+                    sumContributions(listOf(apprenticeshipPrincipalCents, apprenticeshipBalanceCents)),
                     company.employerApprenticeshipSource, apprenticeship.complete,
                     invalidRate(company.employerApprenticeshipPrincipalRate) || invalidRate(company.employerApprenticeshipBalanceRate))
             ),
@@ -509,7 +517,42 @@ object NetSalaryEngineV2 {
             confirmedEmployerReductions = reductionAmount,
             knownEmployerContributionsAfterReductions = knownAfterReductions,
             employeeAmountsReliable = employeeAmountsReliable,
-            employerProjection = employerProjection
+            employerProjection = employerProjection,
+            employeeDeductionDetails = listOf(
+                CalculatedEmployeeDeductionV2("mutual", "Mutuelle — part salariale", company.mutualEmployeeAmount),
+                CalculatedEmployeeDeductionV2("provident", "Prévoyance — part salariale appliquée", effectiveProvident),
+                CalculatedEmployeeDeductionV2("transport-deduction", "Transport — retenue salariale", company.transportEmployeeAmount)
+            ),
+            contributionDetails = statutory.lines.mapIndexed { index, line ->
+                CalculatedContributionLineV2("statutory:${line.id}", line.label,
+                    EmployerContributionProjectionV2.Family.STATUTORY, line.baseAmount,
+                    line.rate, statutoryLineCents[index]?.let(PayrollMoneyV2::amount), line.employerRate,
+                    statutoryEmployerLineCents[index]?.let(PayrollMoneyV2::amount), line.source)
+            } + retirement.lines.mapIndexed { index, line ->
+                CalculatedContributionLineV2("retirement:${line.id}", line.label,
+                    EmployerContributionProjectionV2.Family.COMPLEMENTARY_RETIREMENT, line.baseAmount,
+                    line.employeeRate, retirementLineCents[index]?.let(PayrollMoneyV2::amount), line.employerRate,
+                    retirementEmployerLineCents[index]?.let(PayrollMoneyV2::amount), line.source)
+            } + listOfNotNull(
+                company.atMpEmployerSource?.let { CalculatedContributionLineV2("at-mp", "Accidents du travail / maladies professionnelles", EmployerContributionProjectionV2.Family.AT_MP,
+                    contributionGross, null, null, company.atMpEmployerRate, atMpEmployerCents?.let(PayrollMoneyV2::amount), it) },
+                company.employerMobilitySource?.let { CalculatedContributionLineV2("mobility", "Versement mobilité", EmployerContributionProjectionV2.Family.MOBILITY,
+                    contributionGross, null, null, company.employerMobilityRate, mobilityEmployerCents?.let(PayrollMoneyV2::amount), it) },
+                company.employerUnemploymentAgsSource?.let { source -> unemploymentAgs.baseAmount?.let { base ->
+                    CalculatedContributionLineV2("unemployment", "Assurance chômage", EmployerContributionProjectionV2.Family.UNEMPLOYMENT_AGS,
+                        base, null, null, company.employerUnemploymentRate, unemploymentEmployerCents?.let(PayrollMoneyV2::amount), source) } },
+                company.employerUnemploymentAgsSource?.let { source -> unemploymentAgs.baseAmount?.let { base ->
+                    CalculatedContributionLineV2("ags", "AGS", EmployerContributionProjectionV2.Family.UNEMPLOYMENT_AGS,
+                        base, null, null, company.employerAgsRate, agsEmployerCents?.let(PayrollMoneyV2::amount), source) } },
+                company.employerHealthFamilySource?.let { CalculatedContributionLineV2("employer-health", "Maladie — employeur", EmployerContributionProjectionV2.Family.HEALTH_FAMILY,
+                    contributionGross, null, null, company.employerHealthRate, healthFamily.healthAmount, it) },
+                company.employerHealthFamilySource?.let { CalculatedContributionLineV2("family", "Famille", EmployerContributionProjectionV2.Family.HEALTH_FAMILY,
+                    contributionGross, null, null, company.employerFamilyRate, healthFamily.familyAmount, it) },
+                company.employerApprenticeshipSource?.let { CalculatedContributionLineV2("apprenticeship-principal", "Apprentissage — part principale", EmployerContributionProjectionV2.Family.APPRENTICESHIP,
+                    contributionGross, null, null, company.employerApprenticeshipPrincipalRate, apprenticeshipPrincipalCents?.let(PayrollMoneyV2::amount), it) },
+                company.employerApprenticeshipSource?.let { CalculatedContributionLineV2("apprenticeship-balance", "Apprentissage — provision mensuelle du solde", EmployerContributionProjectionV2.Family.APPRENTICESHIP,
+                    contributionGross, null, null, company.employerApprenticeshipBalanceRate, apprenticeshipBalanceCents?.let(PayrollMoneyV2::amount), it) }
+            )
         )
     }
 

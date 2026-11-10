@@ -295,6 +295,20 @@ object SalaryExamplePdfV2 {
                 else if (payroll?.employerProjection != null && employerForPdf == null)
                     listOf(SegmentedSalaryCanonicalOutputAssemblerV2.EMPLOYER_CONTEXT_WARNING)
                 else employerForPdf?.warnings.orEmpty())))
+                add(PdfSection("DÉTAIL DU BRUT", if (segmentedConsumer)
+                    CalculatedPayslipDetailsV2.earnings(canonicalForPdf) else CalculatedPayslipDetailsV2.earnings(salaryNet?.salary)))
+                val contributionDetails = CalculatedPayslipDetailsV2.contributions(payroll,
+                    if (segmentedConsumer) canonicalForPdf?.cashGrossReliable == true
+                    else salaryNet?.salary?.let { it.monthlyGrossReliable && it.paidTimeReliable } == true,
+                    employerForPdf, company?.id.orEmpty(), year, month + 1)
+                if (contributionDetails.isNotEmpty()) {
+                    add(PdfSection("DÉTAIL DES COTISATIONS CONNUES", emptyList(), contributionDetails))
+                    add(PdfSection("SOURCES DU DÉTAIL DES COTISATIONS", listOf("Lecture" to "Ces lignes détaillent les groupes de cotisations ; elles ne s’ajoutent pas une seconde fois aux totaux.") + contributionDetails.map { it.label to it.source }))
+                }
+                add(PdfSection("DÉTAIL DES RETENUES SALARIALES", CalculatedPayslipDetailsV2.deductions(payroll,
+                    if (segmentedConsumer) canonicalForPdf?.cashGrossReliable == true else salaryNet?.salary?.let { it.monthlyGrossReliable && it.paidTimeReliable } == true,
+                    company?.id.orEmpty(),year,month+1)))
+                add(PdfSection("FRAIS, RETENUES ET VERSEMENT", CalculatedPayslipDetailsV2.settlementLines()))
             }
 
             if (Field.COUNTERS in fields) {
@@ -450,7 +464,10 @@ object SalaryExamplePdfV2 {
             rows.map { listOf(it.first, it.second) }
         )
         val tables = sections.flatMap { section ->
-            when (section.name) {
+            if (section.contributionDetails.isNotEmpty()) listOf(PresentationTable(section.name,
+                listOf("Rubrique", "Base", "Taux sal.", "Part sal.", "Taux emp.", "Part emp."),
+                listOf(209f, 66f, 66f, 66f, 66f, 66f), section.contributionDetails.map { it.cells() }))
+            else when (section.name) {
                 "ESTIMATION DE RÉMUNÉRATION" -> {
                     val remuneration = mutableListOf<Pair<String, String>>()
                     val expenses = mutableListOf<Pair<String, String>>()
@@ -575,7 +592,8 @@ object SalaryExamplePdfV2 {
 
     internal data class PdfSection(
         val name: String,
-        val lines: List<Pair<String, String>>
+        val lines: List<Pair<String, String>>,
+        val contributionDetails: List<CalculatedPayslipDetailsV2.Row> = emptyList()
     )
 
     internal data class PdfSectionFragment(

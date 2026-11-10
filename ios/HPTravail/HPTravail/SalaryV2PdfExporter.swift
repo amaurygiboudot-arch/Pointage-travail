@@ -149,15 +149,14 @@ enum SalaryV2PdfExporter {
                 company.map(companyLabel) ?? "À confirmer"
             )
 
-            section("SYNTHÈSE DU SALAIRE")
-            row("Brut social estimé", money(snapshot.socialGross))
-            row("Net estimé avant impôt", money(snapshot.netBeforeIncomeTax))
-            row("Net imposable estimé", money(snapshot.netTaxable))
-            row(
-                "Prélèvement à la source",
-                snapshot.incomeTax.map { "-\(money($0))" } ?? "À confirmer"
-            )
-            row("Net après impôt", money(snapshot.netAfterIncomeTax), emphasized: true)
+            for detailSection in SalaryCalculatedPayslipPresentationV2.sections(
+                snapshot: snapshot, companyId: company?.id
+            ) {
+                section(detailSection.title.uppercased())
+                for detailRow in detailSection.rows {
+                    row(detailRow.label, detailRow.value)
+                }
+            }
 
             section("COTISATIONS PATRONALES CONNUES — PARTIELLES")
             if let employer = snapshot.employerContributions,

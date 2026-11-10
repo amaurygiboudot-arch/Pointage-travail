@@ -236,4 +236,15 @@ class SalaryExamplePdfNetBridgeV2Test {
         assertEquals("Non applicable confirmé", lines["Réductions / exonérations patronales"])
         assertEquals("À confirmer", lines["Sous-total patronal connu avant réductions"])
     }
+    @Test fun monthlyEarningsRetainKnownSeniorityAndNamedPremiumsWithoutInventingSettlement() {
+        val salary=salary().copy(premiumsGross=150.0,seniorityPremiumGross=40.0,
+            companyPremiumDetails=listOf(CompanyPremiumResolverV2.Applied("fixture","Prime synthétique",90.0)))
+        val rows=CalculatedPayslipDetailsV2.earnings(salary).toMap()
+        assertEquals("2400,00 €",rows["Salaire de base calculé"])
+        assertEquals("40,00 €",rows["Dont prime d’ancienneté"])
+        assertEquals("90,00 €",rows["Dont Prime synthétique"])
+        assertEquals("À confirmer",CalculatedPayslipDetailsV2.earnings(salary.copy(monthlyGrossReliable=false)).toMap()["Salaire de base calculé"])
+        assertEquals("À confirmer",CalculatedPayslipDetailsV2.earnings(salary.copy(companyPremiumDetails=salary.companyPremiumDetails+salary.companyPremiumDetails)).toMap()["Détail des primes d’entreprise"])
+    }
+
 }

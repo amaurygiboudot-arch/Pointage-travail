@@ -119,4 +119,48 @@ final class SalaryV2WorkspaceStateTests: XCTestCase {
         XCTAssertTrue(ordinaryMonth.sourceReady)
         XCTAssertEqual(ordinaryMonth.socialGross, 2_500)
     }
+    func testDetailedPresentationUsesConfirmedLinesAndDoesNotTurnNetAfterTaxIntoPaidNet() {
+        let details = SalaryCalculatedPayslipDetailsV2(
+            companyId: "company-a", period: month, socialGross: 2400,
+            grossLines: [.init(label: "Prime de production", amount: 42)],
+            contributions: [.init(label: "Retraite", base: 2400, employeeRate: 0.04,
+                                  employeeAmount: 96, employerRate: 0.06, employerAmount: 144,
+                                  source: "Source synthétique datée")])
+        let snapshot = SalaryWorkspaceSnapshotV2(period: month, sourceReady: true,
+            socialGross: 2400, netBeforeIncomeTax: 1900, netTaxable: 1950,
+            incomeTax: 0, netAfterIncomeTax: 1900, warnings: [], payslipDetails: details)
+        let sections = SalaryCalculatedPayslipPresentationV2.sections(snapshot: snapshot, companyId: "company-a")
+        XCTAssertTrue(sections[0].rows.contains { $0.label == "Prime de production" && $0.value.contains("42,00") })
+        XCTAssertTrue(sections[1].rows[0].value.contains("4,0000"))
+        XCTAssertTrue(sections[1].rows[0].value.contains("144,00"))
+        XCTAssertEqual(sections[2].rows.first { $0.id == "pas" }?.value, "0,00 €")
+        XCTAssertTrue(sections[2].rows.first { $0.id == "paid" }!.value.hasPrefix("À confirmer"))
+        XCTAssertTrue(sections[2].rows.first { $0.id == "transport" }!.value.contains("distinct"))
+    }
+
+    func testForeignOrStaleDetailNeverAppearsInPresentation() {
+        let detail = SalaryCalculatedPayslipDetailsV2(companyId: "other", period: month,
+            socialGross: 2400, grossLines: [.init(label: "Foreign premium", amount: 999)], contributions: [])
+        let snapshot = SalaryWorkspaceSnapshotV2(period: month, sourceReady: true,
+            socialGross: 2400, netBeforeIncomeTax: nil, netTaxable: nil,
+            incomeTax: nil, netAfterIncomeTax: nil, warnings: [], payslipDetails: detail)
+        let sections = SalaryCalculatedPayslipPresentationV2.sections(snapshot: snapshot, companyId: "company-a")
+        XCTAssertFalse(sections.flatMap(\.rows).contains { $0.label == "Foreign premium" })
+        XCTAssertFalse(detail.matches(companyId: "other", period: YearMonthV2(year: 2026, month: 8)!, gross: 2400))
+        XCTAssertFalse(detail.matches(companyId: "other", period: month, gross: 2401))
+    }
+
+    func testMissingDetailsRemainUnknownInsteadOfZero() {
+        let snapshot = SalaryWorkspaceResolverV2.resolve(period: month, reference: nil)
+        let rows = SalaryCalculatedPayslipPresentationV2.sections(snapshot: snapshot, companyId: "company-a").flatMap(\.rows)
+        XCTAssertFalse(rows.contains { $0.value == "0,00 €" })
+        XCTAssertTrue(rows.first { $0.id == "social" }!.value.hasPrefix("À confirmer"))
+    }
+
+    func testPresentationUsesCanonicalCentRoundingAndRejectsInvalidMoney() {
+        XCTAssertEqual(SalaryCalculatedPayslipPresentationV2.money(1.005), "1,01 €")
+        XCTAssertEqual(SalaryCalculatedPayslipPresentationV2.money(.infinity), "À confirmer")
+        XCTAssertEqual(SalaryCalculatedPayslipPresentationV2.money(-1), "À confirmer")
+    }
+
 }

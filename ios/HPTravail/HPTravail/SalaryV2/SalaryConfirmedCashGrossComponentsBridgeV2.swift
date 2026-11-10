@@ -73,7 +73,8 @@ enum SalaryConfirmedCashGrossComponentsBridgeV2 {
                     id: "seniority-premium",
                     amount: seniorityAmount,
                     reliable: true,
-                    warnings: seniority.warnings
+                    warnings: seniority.warnings,
+                    label: "Prime d’ancienneté"
                 )
             )
         }
@@ -83,7 +84,8 @@ enum SalaryConfirmedCashGrossComponentsBridgeV2 {
                 SalaryConfirmedCashGrossComponentV2(
                     id: "company-premium:\(premium.id)",
                     amount: premium.grossAmount,
-                    reliable: true
+                    reliable: true,
+                    label: premium.label
                 )
             })
         }

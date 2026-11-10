@@ -271,6 +271,7 @@ enum SalarySegmentedCanonicalOutputAssemblerV2 {
         lhs.reliable == rhs.reliable &&
         sameOptionalMoney(lhs.workedGross, rhs.workedGross) &&
         sameOptionalMoney(lhs.additionalCashGross, rhs.additionalCashGross) &&
+        lhs.confirmedComponents == rhs.confirmedComponents &&
         sameOptionalMoney(lhs.cashGross, rhs.cashGross)
     }
 
