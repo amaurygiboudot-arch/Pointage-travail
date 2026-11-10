@@ -180,7 +180,8 @@ enum SalarySegmentedCanonicalReferenceProviderV2 {
             protectionCategory: protection.category,
             companyDeductions: deductions,
             period: deductionPeriod,
-            incomeTaxRate: incomeTax
+            incomeTaxRate: incomeTax,
+            companyId: company.id
         )
         return SalarySegmentedCanonicalProductionV2.calculate(
             worked: worked,

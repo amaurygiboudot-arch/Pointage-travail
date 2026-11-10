@@ -163,12 +163,12 @@ class EmployeeNetMoneyBoundaryV2Test {
     @Test
     fun employerContributionsDoNotReduceEmployeeAmounts() {
         val baseline = calculate()
-        val actual = calculate(company().copy(atMpEmployerRate = 0.02, employerMobilityRate = 0.03))
+        val actual = calculate(company().copy(atMpEmployerRate = 0.02, atMpEmployerSource = "Fixture AT/MP", employerMobilityRate = 0.03, employerMobilitySource = "Fixture mobilité"))
         assertEquals(baseline.netBeforeIncomeTax, actual.netBeforeIncomeTax)
         assertEquals(baseline.netTaxable, actual.netTaxable)
         assertEquals(baseline.incomeTax, actual.incomeTax)
         assertEquals(baseline.netAfterIncomeTax, actual.netAfterIncomeTax)
-        assertTrue(actual.payroll.knownEmployerContributions > baseline.payroll.knownEmployerContributions)
+        assertTrue(actual.payroll.knownEmployerContributions!! > baseline.payroll.knownEmployerContributions!!)
         assertFalse(actual.payroll.employerCostComplete)
         assertNotNull(actual.netAfterIncomeTax)
     }

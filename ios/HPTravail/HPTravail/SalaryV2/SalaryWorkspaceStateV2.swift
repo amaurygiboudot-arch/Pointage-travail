@@ -14,6 +14,8 @@ struct SalaryWorkspaceSnapshotV2: Equatable {
     let incomeTax: Double?
     let netAfterIncomeTax: Double?
     let warnings: [String]
+    var employerContributions: EmployerContributionProjectionV2.Result? = nil
+    var employerWarnings: [String] = []
 
     var hasReliableGross: Bool { socialGross != nil }
     var hasReliableNet: Bool { netBeforeIncomeTax != nil }
@@ -32,10 +34,11 @@ enum SalaryWorkspaceResolverV2 {
         requiresSegmentedSource: Bool,
         segmented: SalarySegmentedCanonicalOutputV2?,
         reference: SalaryReferenceContractV2?,
-        incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot? = nil
+        incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot? = nil,
+        expectedCompanyId: String? = nil
     ) -> SalaryWorkspaceSnapshotV2 {
         guard requiresSegmentedSource else {
-            return resolve(period: period, reference: reference, incomeTaxRate: incomeTaxRate)
+            return resolve(period: period, reference: reference, incomeTaxRate: incomeTaxRate, expectedCompanyId: expectedCompanyId)
         }
         guard let segmented else {
             return SalaryWorkspaceSnapshotV2(
@@ -49,12 +52,13 @@ enum SalaryWorkspaceResolverV2 {
                 warnings: [segmentedSourceUnavailableWarning]
             )
         }
-        return resolve(period: period, segmented: segmented)
+        return resolve(period: period, segmented: segmented, expectedCompanyId: expectedCompanyId)
     }
 
     static func resolve(
         period: YearMonthV2,
-        segmented: SalarySegmentedCanonicalOutputV2?
+        segmented: SalarySegmentedCanonicalOutputV2?,
+        expectedCompanyId: String? = nil
     ) -> SalaryWorkspaceSnapshotV2 {
         guard let segmented else {
             return SalaryWorkspaceSnapshotV2(
@@ -101,14 +105,21 @@ enum SalaryWorkspaceResolverV2 {
             netTaxable: netComplete ? segmented.netTaxable : nil,
             incomeTax: netComplete ? segmented.incomeTax : nil,
             netAfterIncomeTax: netComplete ? segmented.netAfterIncomeTax : nil,
-            warnings: unique(segmented.warnings)
+            warnings: unique(segmented.warnings),
+            employerContributions: sourceReady ? segmented.employerContributions.flatMap { employer in
+                employer.matches(companyId: expectedCompanyId, year: period.year, month: period.month, gross: socialGross) ? employer : nil
+            } : nil,
+            employerWarnings: segmented.employerContributions?.matches(companyId: expectedCompanyId, year: period.year, month: period.month, gross: socialGross) == true && sourceReady
+                ? segmented.employerWarnings
+                : unique(segmented.employerWarnings + ["Cotisations patronales : contexte de l'entreprise ou du mois sélectionné non concordant ; affichage bloqué."])
         )
     }
 
     static func resolve(
         period: YearMonthV2,
         reference: SalaryReferenceContractV2?,
-        incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot? = nil
+        incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot? = nil,
+        expectedCompanyId: String? = nil
     ) -> SalaryWorkspaceSnapshotV2 {
         guard let reference else {
             return SalaryWorkspaceSnapshotV2(
@@ -152,7 +163,14 @@ enum SalaryWorkspaceResolverV2 {
             netTaxable: netTaxable,
             incomeTax: withholding.incomeTax,
             netAfterIncomeTax: withholding.netAfterIncomeTax,
-            warnings: unique(warnings)
+            warnings: unique(warnings),
+            employerContributions: reference.employerContributions.flatMap { employer in
+                guard employer.matches(companyId: expectedCompanyId, year: period.year, month: period.month, gross: socialGross) else { return nil }
+                return employer
+            },
+            employerWarnings: reference.employerContributions?.matches(companyId: expectedCompanyId, year: period.year, month: period.month, gross: socialGross) == true
+                ? reference.employerWarnings
+                : unique(reference.employerWarnings + ["Cotisations patronales : contexte de l'entreprise ou du mois sélectionné non concordant ; affichage bloqué."])
         )
     }
 

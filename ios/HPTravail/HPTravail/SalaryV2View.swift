@@ -894,6 +894,27 @@ struct SalaryV2View: View {
 
             Divider()
             VStack(alignment: .leading, spacing: 8) {
+                Text("Cotisations patronales connues — partielles").fontWeight(.semibold)
+                if let employer = salaryStore.snapshot.employerContributions {
+                    ForEach(employer.lines, id: \.family.rawValue) { line in
+                        if line.state == .notApplicable {
+                            HStack { Text(line.family.label); Spacer(); Text("Non applicable confirmé") }
+                        } else {
+                            amountRow(line.family.label, amount: line.state == .known ? line.amountCents.flatMap(PayrollMoneyV2.amount) : nil)
+                        }
+                    }
+                    amountRow("Sous-total connu avant réductions", amount: employer.knownSubtotalBeforeReductions)
+                    amountRow("Sous-total connu après réductions", amount: employer.knownSubtotalAfterReductions)
+                } else {
+                    Text("Cotisations patronales à confirmer pour l’entreprise et le mois sélectionnés.").font(.footnote)
+                }
+                ForEach(salaryStore.snapshot.employerWarnings, id: \.self) { Text($0).font(.footnote).foregroundStyle(.secondary) }
+                Text("Coût employeur complet indisponible. Une ligne absente n’est pas une cotisation nulle.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
                 Text("Comparaison bulletin")
                     .fontWeight(.semibold)
 

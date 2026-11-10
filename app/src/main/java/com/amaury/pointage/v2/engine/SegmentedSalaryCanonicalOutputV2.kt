@@ -26,7 +26,10 @@ data class SegmentedSalaryCanonicalOutputV2(
     val workedGrossReliable: Boolean,
     val cashGrossReliable: Boolean,
     val netBeforeIncomeTaxComplete: Boolean,
-    val warnings: List<String>
+    val warnings: List<String>,
+    val employerProjection: EmployerContributionProjectionV2.Result? = null,
+    /** Diagnostics patronaux distincts de la fiabilité du net salarié. */
+    val employerWarnings: List<String> = emptyList()
 )
 
 /**
@@ -44,6 +47,8 @@ object SegmentedSalaryCanonicalOutputAssemblerV2 {
         "Sortie Salaire segmentée : la ventilation nuit/samedi/dimanche/jour férié n'est pas fiable."
     const val VARIABLE_WARNING =
         "Sortie Salaire segmentée : la ventilation des variables de brut n'est pas fiable."
+    const val EMPLOYER_CONTEXT_WARNING =
+        "Cotisations patronales : entreprise, mois ou chaîne de brut incohérents ; projection non affichable."
     const val NET_PROOF_WARNING =
         "Sortie Salaire segmentée : la projection nette ne correspond pas au brut fiable de cette chaîne."
 
@@ -146,6 +151,21 @@ object SegmentedSalaryCanonicalOutputAssemblerV2 {
                 projection?.netBeforeIncomeTax != null
         if (net.netBeforeIncomeTaxComplete && !netComplete) warnings += NET_PROOF_WARNING
 
+        val employer = projection?.payroll?.employerProjection?.takeIf { candidate ->
+            val context = candidate.context
+            val pieces = worked.variables.pieces
+            val month = runCatching { java.time.YearMonth.of(context.year, context.month) }.getOrNull()
+            chainConsistent && paidTimeReliable && worked.reliable && reliableCashGross != null &&
+                projection.payroll.grossReliable && context.valid &&
+                piecesMatchEvidence(pieces, worked.evidence.slices) &&
+                socialGrossMatchesCash(projection.payroll, reliableCashGross) &&
+                context.contributionGrossCents == PayrollMoneyV2.cents(projection.payroll.gross) &&
+                month != null && pieces.isNotEmpty() && pieces.all {
+                    it.reliable && it.endEpochDay >= it.startEpochDay && it.employerId == context.companyId &&
+                        it.startEpochDay >= month.atDay(1).toEpochDay() &&
+                        it.endEpochDay <= month.atEndOfMonth().toEpochDay()
+                }
+        }
         return SegmentedSalaryCanonicalOutputV2(
             worked = worked,
             cash = cash,
@@ -172,8 +192,36 @@ object SegmentedSalaryCanonicalOutputAssemblerV2 {
             workedGrossReliable = reliableWorkedGross != null,
             cashGrossReliable = reliableCashGross != null,
             netBeforeIncomeTaxComplete = netComplete,
-            warnings = warnings.distinct()
+            warnings = warnings.distinct(),
+            employerProjection = employer,
+            employerWarnings = if (projection?.payroll?.employerProjection != null && employer == null)
+                listOf(EMPLOYER_CONTEXT_WARNING) else employer?.warnings.orEmpty()
         )
+    }
+
+    /** A contract piece may span several dated-rule slices; require their exact union. */
+    private fun piecesMatchEvidence(
+        pieces: List<SegmentedWorkedVariableGrossPieceV2>,
+        slices: List<SegmentedPayrollSliceEvidenceV2>
+    ): Boolean {
+        if (pieces.isEmpty() || slices.isEmpty()) return false
+        val used = mutableSetOf<Int>()
+        for (piece in pieces) {
+            if (piece.versionId.isBlank()) return false
+            val matching = slices.withIndex().filter {
+                it.value.contractVersionId.trim() == piece.versionId.trim() &&
+                    it.value.startEpochDay >= piece.startEpochDay && it.value.endEpochDay <= piece.endEpochDay
+            }.sortedBy { it.value.startEpochDay }
+            if (matching.firstOrNull()?.value?.startEpochDay != piece.startEpochDay ||
+                matching.lastOrNull()?.value?.endEpochDay != piece.endEpochDay) return false
+            var next = piece.startEpochDay
+            for ((index, slice) in matching) {
+                if (!used.add(index) || slice.startEpochDay != next || slice.endEpochDay < slice.startEpochDay ||
+                    slice.endEpochDay == Long.MAX_VALUE) return false
+                next = slice.endEpochDay + 1
+            }
+        }
+        return used.size == slices.size
     }
 
     private fun sumMinutes(values: List<Int>): Int? {

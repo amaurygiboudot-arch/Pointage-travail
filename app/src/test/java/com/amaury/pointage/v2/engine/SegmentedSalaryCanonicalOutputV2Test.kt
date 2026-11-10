@@ -172,6 +172,87 @@ class SegmentedSalaryCanonicalOutputV2Test {
         assertTrue(actual.warnings.contains(SegmentedSalaryCanonicalOutputAssemblerV2.NET_PROOF_WARNING))
     }
 
+    @Test fun `employer projection follows exact company month and cash chain through pdf`() {
+        val first = java.time.LocalDate.of(2026, 1, 1).toEpochDay()
+        val originalWorked = fixtureWorked()
+        val worked = originalWorked.copy(
+            evidence = originalWorked.evidence.copy(slices = originalWorked.evidence.slices.map {
+                it.copy(startEpochDay = first, endEpochDay = first + 6)
+            }),
+            variables = originalWorked.variables.copy(pieces = listOf(
+                SegmentedWorkedVariableGrossPieceV2("company", "c1", first, first + 6, 75.0, true))))
+        val cash = cash(worked, 1100.0)
+        val originalNet = net(cash, complete = true)
+        fun result(context: EmployerContributionProjectionV2.Context): SegmentedSalaryCanonicalOutputV2 {
+            val employer = EmployerContributionProjectionV2.assemble(context,
+                listOf(EmployerContributionProjectionV2.Line(EmployerContributionProjectionV2.Family.STATUTORY,
+                    EmployerContributionProjectionV2.State.KNOWN, 10000, "Fixture")),
+                EmployerContributionProjectionV2.Reduction(EmployerContributionProjectionV2.State.KNOWN, 0, "Fixture"))
+            val employee = originalNet.projection!!
+            return SegmentedSalaryCanonicalOutputAssemblerV2.assemble(worked, cash,
+                originalNet.copy(projection = employee.copy(payroll = employee.payroll.copy(employerProjection = employer))))
+        }
+        val context = EmployerContributionProjectionV2.Context("company", 2026, 1, 110000, true)
+        val valid = result(context)
+        assertEquals(10000L, valid.employerProjection!!.knownSubtotalBeforeReductionsCents)
+        assertEquals("100,00 €", SalaryExamplePdfV2.estimatedGrossLines(valid).toMap()["Sous-total patronal connu après réductions"])
+        val selected = SalaryExamplePdfV2.canonicalForSelection(valid, "company", 2026, 1)!!
+        assertEquals(valid, selected)
+        assertEquals("100,00 €", SalaryExamplePdfV2.estimatedGrossLines(selected).toMap()["Sous-total patronal connu après réductions"])
+        for (selection in listOf(Triple("other-company", 2026, 1), Triple("company", 2026, 2), Triple("company", 2027, 1))) {
+            val filtered = SalaryExamplePdfV2.canonicalForSelection(valid, selection.first, selection.second, selection.third)!!
+            assertNull(filtered.employerProjection)
+            assertEquals(valid.netBeforeIncomeTax, filtered.netBeforeIncomeTax)
+            assertEquals(valid.netAfterIncomeTax, filtered.netAfterIncomeTax)
+            assertEquals(valid.warnings, filtered.warnings)
+            val summary = SalaryExamplePdfV2.estimatedGrossLines(filtered).toMap()
+            assertEquals("À confirmer", summary["Sous-total patronal connu après réductions"])
+            assertTrue(summary["Informations patronales"]!!.contains("non affichable"))
+            val details = SalaryExamplePdfV2.contributionLines(filtered.net.projection?.payroll,
+                filtered.employerProjection, filtered.employerWarnings).toMap()
+            assertEquals("À confirmer", details["Sous-total patronal connu avant réductions"])
+            assertTrue(details["Informations patronales"]!!.contains("non affichable"))
+        }
+        for (invalid in listOf(context.copy(companyId = "other-company"), context.copy(month = 2),
+            context.copy(year = Int.MAX_VALUE), context.copy(contributionGrossCents = 110001))) {
+            val rejected = result(invalid)
+            assertNull(rejected.employerProjection)
+            assertEquals(valid.netBeforeIncomeTax, rejected.netBeforeIncomeTax)
+            assertEquals(valid.netAfterIncomeTax, rejected.netAfterIncomeTax)
+            assertEquals(valid.warnings, rejected.warnings)
+            assertEquals(valid.netBeforeIncomeTaxComplete, rejected.netBeforeIncomeTaxComplete)
+            assertTrue(rejected.employerWarnings.contains(SegmentedSalaryCanonicalOutputAssemblerV2.EMPLOYER_CONTEXT_WARNING))
+            assertTrue(SalaryExamplePdfV2.estimatedGrossLines(rejected).toMap()["Informations patronales"]!!.contains("non affichable"))
+            assertEquals("À confirmer", SalaryExamplePdfV2.estimatedGrossLines(rejected).toMap()["Sous-total patronal connu après réductions"])
+            val details = SalaryExamplePdfV2.contributionLines(rejected.net.projection?.payroll, rejected.employerProjection).toMap()
+            assertEquals("À confirmer", details["Sous-total patronal connu avant réductions"])
+        }
+        val mismatchedCash = SegmentedSalaryCanonicalOutputAssemblerV2.assemble(worked, cash(worked, 1200.0), valid.net)
+        assertNull(mismatchedCash.employerProjection)
+
+        val whole = worked.evidence.slices.single()
+        val transition = worked.copy(evidence = worked.evidence.copy(slices = listOf(
+            whole.copy(endEpochDay = first + 2),
+            whole.copy(startEpochDay = first + 3, ruleVersionId = "r2", weeks = emptyList()))))
+        val transitionResult = SegmentedSalaryCanonicalOutputAssemblerV2.assemble(transition, cash, valid.net)
+        assertEquals(10000L, transitionResult.employerProjection!!.knownSubtotalBeforeReductionsCents)
+        for (slices in listOf(
+            listOf(whole.copy(contractVersionId = "other-contract")),
+            listOf(whole.copy(endEpochDay = first + 2), whole.copy(startEpochDay = first + 4, weeks = emptyList())),
+            listOf(whole, whole.copy(weeks = emptyList())),
+            listOf(whole.copy(startEpochDay = first - 1))
+        )) {
+            val inconsistentWorked = worked.copy(evidence = worked.evidence.copy(slices = slices))
+            val rejected = SegmentedSalaryCanonicalOutputAssemblerV2.assemble(inconsistentWorked, cash, valid.net)
+            assertNull(rejected.employerProjection)
+            assertTrue(rejected.employerWarnings.contains(SegmentedSalaryCanonicalOutputAssemblerV2.EMPLOYER_CONTEXT_WARNING))
+        }
+        val invalidPaid = worked.copy(evidence = worked.evidence.copy(slices = listOf(whole.copy(weeks = whole.weeks + whole.weeks))))
+        assertNull(SegmentedSalaryCanonicalOutputAssemblerV2.assemble(invalidPaid, cash, valid.net).employerProjection)
+        val unreliableGrossNet = valid.net.copy(projection = valid.net.projection!!.copy(payroll = valid.net.projection!!.payroll.copy(grossReliable = false)))
+        assertNull(SegmentedSalaryCanonicalOutputAssemblerV2.assemble(worked, cash, unreliableGrossNet).employerProjection)
+    }
+
     private fun fixtureWorked(): SegmentedWorkedGrossProductionResultV2 {
         val week = SegmentedPayrollWeekEvidenceV2(
             weekYear = 2026,

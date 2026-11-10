@@ -159,6 +159,20 @@ enum SalaryV2PdfExporter {
             )
             row("Net après impôt", money(snapshot.netAfterIncomeTax), emphasized: true)
 
+            section("COTISATIONS PATRONALES CONNUES — PARTIELLES")
+            if let employer = snapshot.employerContributions,
+               employer.matches(companyId: company?.id, year: snapshot.period.year, month: snapshot.period.month, gross: snapshot.socialGross) {
+                for line in employer.lines {
+                    row(line.family.label, line.state == .notApplicable ? "Non applicable confirmé" : money(line.state == .known ? line.amountCents.flatMap(PayrollMoneyV2.amount) : nil))
+                }
+                row("Sous-total connu avant réductions", money(employer.knownSubtotalBeforeReductions))
+                row("Sous-total connu après réductions", money(employer.knownSubtotalAfterReductions))
+            } else {
+                row("Cotisations patronales connues", "À confirmer")
+            }
+            row("Coût employeur complet", "Indisponible — couverture partielle")
+            for warning in snapshot.employerWarnings { row("À vérifier — cotisations patronales", warning) }
+
             section("FIABILITÉ")
             row(
                 "Sources canoniques",

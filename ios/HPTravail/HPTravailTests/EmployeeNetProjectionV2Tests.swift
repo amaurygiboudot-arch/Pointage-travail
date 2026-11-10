@@ -124,6 +124,91 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
         )
     }
 
+    func testEmployerProjectionUsesSameGrossAndDoesNotChangeEmployeeNet() throws {
+        let original = input()
+        let withoutOwner = EmployeeNetProjectionV2.calculate(original)
+        var owned = original
+        owned.companyId = "company-a"
+        let result = EmployeeNetProjectionV2.calculate(owned)
+        let employer = try XCTUnwrap(result.employerContributions)
+        XCTAssertEqual(employer.context.companyId, "company-a")
+        XCTAssertEqual(employer.context.year, owned.period.year)
+        XCTAssertEqual(employer.context.month, owned.period.month)
+        XCTAssertEqual(employer.context.contributionGrossCents, PayrollMoneyV2.cents(result.contributionGross))
+        XCTAssertNotNil(employer.knownSubtotalBeforeReductionsCents)
+        XCTAssertNil(employer.knownSubtotalAfterReductionsCents)
+        XCTAssertFalse(employer.coverageComplete)
+        XCTAssertEqual(employer.lines.filter { $0.state == .known }.map(\.family), [.statutory, .complementaryRetirement])
+        XCTAssertEqual(employer.lines.filter { $0.state == .missing }.count, 8)
+        XCTAssertNil(withoutOwner.employerContributions?.knownSubtotalBeforeReductionsCents)
+        XCTAssertEqual(result.netBeforeIncomeTax, withoutOwner.netBeforeIncomeTax)
+        XCTAssertEqual(result.netTaxable, withoutOwner.netTaxable)
+        XCTAssertEqual(result.incomeTax, withoutOwner.incomeTax)
+        XCTAssertEqual(result.netAfterIncomeTax, withoutOwner.netAfterIncomeTax)
+        XCTAssertEqual(result.warnings, withoutOwner.warnings)
+        XCTAssertEqual(result.netBeforeIncomeTaxComplete, withoutOwner.netBeforeIncomeTaxComplete)
+    }
+
+    func testUnknownApecEligibilityKeepsProvedRetirementLinesAndDiagnostics() throws {
+        let unknownAni = ProtectionCategoryV2.Result(aniCategory: .toConfirm, confirmed: false, source: "Fixture ANI inconnue")
+        for original in [input(cashGross: 2500, professionalStatus: "CADRE", protectionCategory: unknownAni),
+                         input(cashGross: 2500, professionalStatus: nil)] {
+            let unowned = EmployeeNetProjectionV2.calculate(original)
+            var owned = original
+            owned.companyId = "company-a"
+            let result = EmployeeNetProjectionV2.calculate(owned)
+            let employer = try XCTUnwrap(result.employerContributions)
+            let retirement = try XCTUnwrap(employer.lines.first { $0.family == .complementaryRetirement })
+            XCTAssertEqual(retirement.state, .known)
+            XCTAssertEqual(retirement.amountCents, 15025) // T1 118 + CEG 32.25, synthetic existing-catalog fixture.
+            XCTAssertFalse(result.complementaryRetirement.lines.contains { $0.id == "apec" })
+            XCTAssertTrue(employer.warnings.contains { $0.contains("APEC") })
+            XCTAssertTrue(employer.warnings.contains { $0.contains("partielle") })
+            XCTAssertFalse(employer.coverageComplete)
+            XCTAssertEqual(result.netBeforeIncomeTax, unowned.netBeforeIncomeTax)
+            XCTAssertEqual(result.netTaxable, unowned.netTaxable)
+            XCTAssertEqual(result.incomeTax, unowned.incomeTax)
+            XCTAssertEqual(result.netAfterIncomeTax, unowned.netAfterIncomeTax)
+            XCTAssertEqual(result.netBeforeIncomeTaxComplete, unowned.netBeforeIncomeTaxComplete)
+            XCTAssertEqual(result.warnings, unowned.warnings)
+        }
+        var known = input(cashGross: 2500, professionalStatus: "CADRE",
+                          protectionCategory: .init(aniCategory: .article2_1, confirmed: true, source: "Fixture ANI confirmée"))
+        known.companyId = "company-a"
+        let result = EmployeeNetProjectionV2.calculate(known)
+        XCTAssertEqual(result.employerContributions?.lines.first { $0.family == .complementaryRetirement }?.amountCents, 15115)
+        XCTAssertEqual(result.complementaryRetirement.lines.filter { $0.id == "agirc_t1" }.count, 1)
+        XCTAssertEqual(result.complementaryRetirement.lines.filter { $0.id == "ceg_t1" }.count, 1)
+        XCTAssertEqual(result.complementaryRetirement.lines.filter { $0.id == "apec" }.count, 1)
+        XCTAssertFalse(result.employerContributions?.warnings.contains { $0.contains("APEC non appliquée") } ?? true)
+    }
+
+    func testEmployerReferenceAndWorkspaceRejectAnotherCompanyOrMonth() throws {
+        var owned = input()
+        owned.companyId = "company-a"
+        let projection = EmployeeNetProjectionV2.calculate(owned)
+        let payroll = try confirmedForfaitPayroll()
+        let period = try XCTUnwrap(YearMonthV2(year: 2026, month: 4))
+        let reference = SalaryReferenceContractV2.buildFromPayroll(payroll: payroll, benefits: owned.benefits,
+            projection: projection, expectedCompanyId: "company-a", expectedPeriod: period)
+        XCTAssertNotNil(reference.employerContributions)
+        let workspace = SalaryWorkspaceResolverV2.resolve(period: period, reference: reference, expectedCompanyId: "company-a")
+        XCTAssertNotNil(workspace.employerContributions)
+        let mismatch = SalaryWorkspaceResolverV2.resolve(period: period, reference: reference, expectedCompanyId: "company-b")
+        XCTAssertNil(mismatch.employerContributions)
+        XCTAssertFalse(mismatch.employerWarnings.isEmpty)
+        XCTAssertEqual(mismatch.warnings, workspace.warnings)
+        XCTAssertEqual(mismatch.netBeforeIncomeTax, workspace.netBeforeIncomeTax)
+        XCTAssertNil(SalaryWorkspaceResolverV2.resolve(period: YearMonthV2(year: 2026, month: 5)!, reference: reference,
+                                                       expectedCompanyId: "company-a").employerContributions)
+        let wrongReference = SalaryReferenceContractV2.buildFromPayroll(payroll: payroll, benefits: owned.benefits,
+            projection: projection, expectedCompanyId: "company-b", expectedPeriod: period)
+        XCTAssertNil(wrongReference.employerContributions)
+        XCTAssertFalse(wrongReference.employerWarnings.isEmpty)
+        XCTAssertEqual(wrongReference.warnings, reference.warnings)
+        XCTAssertEqual(wrongReference.complete, reference.complete)
+    }
+
     func testCompleteInputsPublishBeforeTaxAndTaxableNet() {
         let result = EmployeeNetProjectionV2.calculate(
             input(benefits: benefits(total: 100))

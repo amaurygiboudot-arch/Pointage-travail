@@ -505,7 +505,8 @@ final class SalaryV2Store: ObservableObject {
             requiresSegmentedSource: needsSegmentedSource,
             segmented: needsSegmentedSource ? companyId.flatMap { segmentedProvider($0, period) } : nil,
             reference: reference,
-            incomeTaxRate: taxRate
+            incomeTaxRate: taxRate,
+            expectedCompanyId: companyId
         )
         self.storedIncomeTaxRateText = taxRate?.ratePercent.map { String(format: "%.2f", $0) } ?? ""
         self.storedIncomeTaxSource = taxRate?.source ?? ""
@@ -1318,7 +1319,8 @@ final class SalaryV2Store: ObservableObject {
             requiresSegmentedSource: needsSegmentedSource,
             segmented: needsSegmentedSource ? companyId.flatMap { segmentedProvider($0, selectedPeriod) } : nil,
             reference: reference,
-            incomeTaxRate: taxRate
+            incomeTaxRate: taxRate,
+            expectedCompanyId: companyId
         )
         incomeTaxRateText = taxRate?.ratePercent.map { String(format: "%.2f", $0) } ?? ""
         incomeTaxSource = taxRate?.source ?? ""

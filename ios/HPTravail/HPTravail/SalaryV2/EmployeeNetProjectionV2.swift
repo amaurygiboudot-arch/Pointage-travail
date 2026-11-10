@@ -18,6 +18,7 @@ enum EmployeeNetProjectionV2 {
         let companyDeductions: CompanyEmployeeDeductionResolverV2.Snapshot
         let period: CompanyEmployeeDeductionResolverV2.YearMonth
         let incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot?
+        var companyId: String? = nil
     }
 
     struct Result {
@@ -38,6 +39,7 @@ enum EmployeeNetProjectionV2 {
         let netTaxableComplete: Bool
         let warnings: [String]
         let traces: [String]
+        var employerContributions: EmployerContributionProjectionV2.Result? = nil
     }
 
     static func calculate(_ input: Input) -> Result {
@@ -206,6 +208,28 @@ enum EmployeeNetProjectionV2 {
             ]
         )
 
+        // Same resolved gross, period and catalog objects as the employee projection.
+        // Missing employer-only sources do not participate in employee-net reliability.
+        let employerContext = EmployerContributionProjectionV2.Context(
+            companyId: input.companyId, year: input.period.year, month: input.period.month,
+            contributionGrossCents: contributionCents, reliable: grossReliable && periodMatches && input.ceiling.complete
+        )
+        func employerLine(_ family: EmployerContributionProjectionV2.Family,
+                          amounts: [(Double, Double, String)], available: Bool) -> EmployerContributionProjectionV2.Line {
+            guard available, !amounts.isEmpty else { return .init(family: family, state: .missing, amountCents: nil, source: nil) }
+            let cents = amounts.map { PayrollMoneyV2.contribution(base: $0.0, rate: $0.1) }
+            let values = cents.compactMap { $0 }
+            let total = values.count == amounts.count ? PayrollMoneyV2.sum(values) : nil
+            let source = unique(amounts.map { $0.2 }).joined(separator: " ; ")
+            return .init(family: family, state: total == nil ? .invalid : .known, amountCents: total, source: source)
+        }
+        let employer = EmployerContributionProjectionV2.calculate(context: employerContext, lines: [
+            employerLine(.statutory, amounts: statutory.lines.map { ($0.baseAmount, $0.employerRate, $0.source) },
+                         available: supportedNationalTables && input.ceiling.complete),
+            employerLine(.complementaryRetirement, amounts: retirement.lines.map { ($0.baseAmount, $0.employerRate, $0.source) },
+                         available: supportedNationalTables && input.ceiling.complete)
+        ], additionalWarnings: retirement.warnings.map { "Couverture patronale retraite partielle : " + $0 })
+
         return Result(
             cashGross: safeCashGross,
             contributionGross: contributionGross,
@@ -221,7 +245,8 @@ enum EmployeeNetProjectionV2 {
             netBeforeIncomeTaxComplete: beforeTaxComplete,
             netTaxableComplete: taxable != nil,
             warnings: unique(warnings),
-            traces: traces
+            traces: traces,
+            employerContributions: employer
         )
     }
 

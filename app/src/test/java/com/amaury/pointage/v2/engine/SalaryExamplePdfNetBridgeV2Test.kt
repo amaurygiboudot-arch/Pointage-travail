@@ -208,4 +208,32 @@ class SalaryExamplePdfNetBridgeV2Test {
         assertEquals("2000,00 €", values["Net estimé avant impôt"])
         assertEquals("1900,00 €", values["Net estimé après PAS"])
     }
+
+    @Test fun knownEmployerLinesAndSubtotalRemainVisibleWithPartialCoverage() {
+        val context = EmployerContributionProjectionV2.Context("fixture", 2026, 1, 250000, true)
+        val projection = EmployerContributionProjectionV2.assemble(context,
+            listOf(EmployerContributionProjectionV2.Line(EmployerContributionProjectionV2.Family.COMPLEMENTARY_RETIREMENT,
+                EmployerContributionProjectionV2.State.KNOWN, 10000, "Fixture retraite")),
+            EmployerContributionProjectionV2.Reduction(EmployerContributionProjectionV2.State.KNOWN, 0, "Fixture DSN"))
+        val lines = SalaryExamplePdfV2.contributionLines(payroll().copy(employerProjection = projection)).toMap()
+        assertEquals("100,00 € / 100,00 €", lines["Retraite complémentaire"])
+        assertEquals("À confirmer", lines["Accidents du travail / maladies professionnelles"])
+        assertEquals("100,00 €", lines["Sous-total patronal connu avant réductions"])
+        assertEquals("100,00 €", lines["Sous-total patronal connu après réductions"])
+        assertEquals("À confirmer — sous-total partiel", lines["Fiabilité du coût employeur"])
+        val unknown = SalaryExamplePdfV2.contributionLines(payroll().copy(employerProjection =
+            EmployerContributionProjectionV2.assemble(context.copy(companyId = null), projection.lines, projection.reductions))).toMap()
+        assertEquals("À confirmer", unknown["Sous-total patronal connu avant réductions"])
+    }
+    @Test fun confirmedNonApplicabilityRemainsDistinctFromUnknownAndKnownZero() {
+        val projection = EmployerContributionProjectionV2.assemble(
+            EmployerContributionProjectionV2.Context("fixture", 2026, 1, 250000, true),
+            listOf(EmployerContributionProjectionV2.Line(EmployerContributionProjectionV2.Family.AT_MP,
+                EmployerContributionProjectionV2.State.NOT_APPLICABLE, null, "Fixture explicite")),
+            EmployerContributionProjectionV2.Reduction(EmployerContributionProjectionV2.State.NOT_APPLICABLE, null, "Fixture explicite"))
+        val lines = SalaryExamplePdfV2.contributionLines(payroll(), projection).toMap()
+        assertEquals("Non applicable confirmé", lines["Accidents du travail / maladies professionnelles"])
+        assertEquals("Non applicable confirmé", lines["Réductions / exonérations patronales"])
+        assertEquals("À confirmer", lines["Sous-total patronal connu avant réductions"])
+    }
 }

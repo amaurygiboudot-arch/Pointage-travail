@@ -5,6 +5,79 @@ import XCTest
 #endif
 
 final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
+    func testEmployerProjectionRequiresProvedCompanyAndPeriodPieces() throws {
+        let original = fixtureWorked()
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let first = Int64(calendar.date(from: DateComponents(year: 2026, month: 4, day: 1))!.timeIntervalSince1970 / 86_400)
+        func worked(companyId: String, start: Int64) -> SalarySegmentedWorkedGrossProductionResultV2 {
+            let oldSlice = original.evidence.slices[0]
+            let evidence = SalarySegmentedPayrollSessionEvidenceResultV2(
+                slices: [.init(startEpochDay: start, endEpochDay: start + 6, contractVersionId: "c1", ruleVersionId: "r1",
+                               weeks: oldSlice.weeks, evidence: oldSlice.evidence, warnings: [])],
+                reliable: true, warnings: [], sourceId: "source", contributingSessionIds: ["s1"])
+            return .init(evidence: evidence,
+                  variables: .init(pieces: [.init(companyId: companyId, versionId: "c1", startEpochDay: start,
+                                                  endEpochDay: start + 6, variableGross: 75, reliable: true)],
+                                   reliable: true, warnings: [], breakdowns: original.variables.breakdowns),
+                  base: original.base, assembly: original.assembly)
+        }
+        let validWorked = worked(companyId: "company-a", start: first)
+        let cash = cash(validWorked, 1100)
+        var input = projectionInput(cashGross: 1100)
+        input.companyId = "company-a"
+        let net = SalarySegmentedCashGrossNetProjectionV2.project(cash: cash,
+            context: .init(benefits: input.benefits, year: input.year, ceiling: input.ceiling,
+                alsaceMoselleLocalRegime: input.alsaceMoselleLocalRegime, professionalStatus: input.professionalStatus,
+                protectionCategory: input.protectionCategory, companyDeductions: input.companyDeductions,
+                period: input.period, incomeTaxRate: input.incomeTaxRate, companyId: "company-a"))
+        XCTAssertEqual(net.projection?.employerContributions?.context.companyId, "company-a")
+        let period = YearMonthV2(year: 2026, month: 4)!
+        let output = SalarySegmentedCanonicalOutputAssemblerV2.assemble(period: period, worked: validWorked, cash: cash, net: net)
+        XCTAssertNotNil(output.employerContributions)
+        for badWorked in [worked(companyId: "company-b", start: first), worked(companyId: "company-a", start: first - 31)] {
+            let bad = SalarySegmentedCanonicalOutputAssemblerV2.assemble(period: period, worked: badWorked, cash: cash, net: net)
+            XCTAssertNil(bad.employerContributions)
+            XCTAssertFalse(bad.employerWarnings.isEmpty)
+            XCTAssertEqual(bad.warnings, output.warnings)
+            XCTAssertEqual(bad.netBeforeIncomeTax, output.netBeforeIncomeTax)
+        }
+        let sourceSlice = validWorked.evidence.slices[0]
+        func slice(_ start: Int64, _ end: Int64, version: String = "c1", rule: String) -> SalarySegmentedPayrollSliceEvidenceV2 {
+            .init(startEpochDay: start, endEpochDay: end, contractVersionId: version, ruleVersionId: rule,
+                  weeks: sourceSlice.weeks.map { .init(yearForWeekOfYear: $0.yearForWeekOfYear,
+                      weekOfYear: rule == "r2" ? $0.weekOfYear + 1 : $0.weekOfYear,
+                      week: $0.week, fullWeekContextReliable: $0.fullWeekContextReliable) },
+                  evidence: sourceSlice.evidence, warnings: [])
+        }
+        func outputWithSlices(_ slices: [SalarySegmentedPayrollSliceEvidenceV2]) -> SalarySegmentedCanonicalOutputV2 {
+            let evidence = SalarySegmentedPayrollSessionEvidenceResultV2(slices: slices, reliable: true, warnings: [], sourceId: "source", contributingSessionIds: ["s1"])
+            let varied = SalarySegmentedWorkedGrossProductionResultV2(evidence: evidence, variables: validWorked.variables,
+                base: validWorked.base, assembly: validWorked.assembly)
+            return SalarySegmentedCanonicalOutputAssemblerV2.assemble(period: period, worked: varied, cash: cash, net: net)
+        }
+        let ruleChange = [slice(first, first + 2, rule: "r1"), slice(first + 3, first + 6, rule: "r2")]
+        XCTAssertNotNil(outputWithSlices(ruleChange).employerContributions)
+        for badSlices in [
+            [slice(first, first + 2, rule: "r1"), slice(first + 4, first + 6, rule: "r2")],
+            [slice(first, first + 3, rule: "r1"), slice(first + 3, first + 6, rule: "r2")],
+            [slice(first, first + 2, rule: "r1"), slice(first + 3, first + 6, version: "other", rule: "r2")],
+            [sourceSlice, sourceSlice]
+        ] {
+            XCTAssertNil(outputWithSlices(badSlices).employerContributions)
+        }
+        let mismatchedEvidence = SalarySegmentedWorkedGrossProductionResultV2(evidence: original.evidence,
+            variables: validWorked.variables, base: validWorked.base, assembly: validWorked.assembly)
+        let mismatchOutput = SalarySegmentedCanonicalOutputAssemblerV2.assemble(period: period, worked: mismatchedEvidence, cash: cash, net: net)
+        XCTAssertNil(mismatchOutput.employerContributions)
+        XCTAssertFalse(mismatchOutput.employerWarnings.isEmpty)
+        XCTAssertEqual(mismatchOutput.netBeforeIncomeTax, output.netBeforeIncomeTax)
+        let wrongPeriod = SalarySegmentedCanonicalOutputAssemblerV2.assemble(period: YearMonthV2(year: 2026, month: 5)!,
+            worked: validWorked, cash: cash, net: net)
+        XCTAssertNil(wrongPeriod.employerContributions)
+        XCTAssertFalse(wrongPeriod.employerWarnings.isEmpty)
+    }
+
     func testRichOutputPreservesProvedLevels() {
         let worked = fixtureWorked()
         let cash = cash(worked, 1_100)

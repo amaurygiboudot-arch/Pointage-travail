@@ -67,6 +67,8 @@ object CompanyPayrollOverridesV2 {
         val alsaceMoselleLocalRegime:Boolean?=null,
         /** Taux AT/MP employeur confirmé, stocké sous forme décimale (ex. 2,08 % = 0,0208). */
         val atMpEmployerRate:Double?=null,
+        /** Provenance du taux AT/MP résolu pour cette entreprise et ce mois. */
+        val atMpEmployerSource:String?=null,
         /** Valeur brute des avantages en nature applicables à la période. */
         val benefitsInKindGross:Double=0.0,
         /** Taux de versement mobilité employeur applicable à la période ; 0 = non applicable confirmé. */
@@ -372,6 +374,7 @@ object CompanyPayrollOverridesV2 {
             warnings=warnings,
             alsaceMoselleLocalRegime=alsaceMoselleLocalRegime,
             atMpEmployerRate=atMpEmployerRate,
+            atMpEmployerSource=atMpSource.source,
             benefitsInKindGross=benefitsInKind.totalGross,
             benefitsInKindReliable=benefitsInKind.reliable,
             employerMobilityRate=mobility.rate,

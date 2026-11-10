@@ -11,7 +11,9 @@ extension SalaryReferenceContractV2 {
         payroll: PayrollResultV2,
         benefits: CompanyBenefitInKindContractV2.Snapshot,
         projection: EmployeeNetProjectionV2.Result,
-        additionalWarnings: [String] = []
+        additionalWarnings: [String] = [],
+        expectedCompanyId: String? = nil,
+        expectedPeriod: YearMonthV2? = nil
     ) -> SalaryReferenceContractV2 {
         let payrollCashCents = PayrollMoneyV2.cents(payroll.grossEstimate)
         let projectionCashCents = PayrollMoneyV2.cents(projection.cashGross)
@@ -72,8 +74,15 @@ extension SalaryReferenceContractV2 {
                 netTaxable: base.netTaxable,
                 complete: false,
                 warnings: blockedWarnings,
-                benefitsInKindDeduction: base.benefitsInKindDeduction
+                benefitsInKindDeduction: base.benefitsInKindDeduction,
+                employerWarnings: ["Cotisations patronales : brut canonique non confirmé ; projection indisponible."]
             )
+        }
+
+        let employer = projection.employerContributions.flatMap { value -> EmployerContributionProjectionV2.Result? in
+            guard let period = expectedPeriod,
+                  value.matches(companyId: expectedCompanyId, year: period.year, month: period.month, gross: base.gross) else { return nil }
+            return value
         }
 
         // Les diagnostics de projection incluent aussi des réserves informatives de catalogue
@@ -86,7 +95,9 @@ extension SalaryReferenceContractV2 {
             netTaxable: base.netTaxable,
             complete: base.complete,
             warnings: uniqueReferenceWarnings(base.warnings + projection.warnings),
-            benefitsInKindDeduction: base.benefitsInKindDeduction
+            benefitsInKindDeduction: base.benefitsInKindDeduction,
+            employerContributions: employer,
+            employerWarnings: employer?.warnings ?? ["Cotisations patronales : contexte entreprise/période/brut non concordant ou absent ; projection indisponible."]
         )
     }
 

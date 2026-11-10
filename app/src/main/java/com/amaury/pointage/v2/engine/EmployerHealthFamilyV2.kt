@@ -54,7 +54,7 @@ object EmployerHealthFamilyV2 {
     }
 
     fun calculate(grossSocial: Double, healthRate: Double?, familyRate: Double?): Result {
-        if (!grossSocial.isFinite() || grossSocial < 0.0) {
+        if (!grossSocial.isFinite() || grossSocial < 0.0 || PayrollMoneyV2.cents(grossSocial) == null) {
             return Result(null, null, null, false, listOf("Maladie/allocations familiales employeur : assiette brute invalide ; aucun montant patronal n'est calculé."))
         }
         if (healthRate == null || familyRate == null) {
@@ -63,9 +63,13 @@ object EmployerHealthFamilyV2 {
         if (!validRate(healthRate) || !validRate(familyRate)) {
             return Result(null, null, null, false, listOf("Maladie/allocations familiales employeur : taux invalide ; aucun montant n'est calculé."))
         }
-        val health = grossSocial * healthRate
-        val family = grossSocial * familyRate
-        return Result(health, family, health + family, true, emptyList())
+        val health = PayrollMoneyV2.contribution(grossSocial, healthRate)
+        val family = PayrollMoneyV2.contribution(grossSocial, familyRate)
+        val total = if (health != null && family != null) PayrollMoneyV2.sum(listOf(health, family)) else null
+        if (total == null) return Result(null, null, null, false,
+            listOf("Maladie/allocations familiales employeur : montant ou somme non représentable au centime."))
+        return Result(health?.let(PayrollMoneyV2::amount), family?.let(PayrollMoneyV2::amount),
+            PayrollMoneyV2.amount(total), true, emptyList())
     }
 
     private fun validRate(rate: Double): Boolean = rate.isFinite() && rate >= 0.0 && rate <= 1.0
