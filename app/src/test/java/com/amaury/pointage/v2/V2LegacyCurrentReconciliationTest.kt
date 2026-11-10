@@ -67,14 +67,19 @@ class V2LegacyCurrentReconciliationTest {
         assertNull(V2LegacyJournalRecovery.merge(unarchived, otherUnarchived))
     }
 
-    @Test fun unarchivedClosedFactsAreRetainedWhenOnlyTheOtherCacheIsRedundant() {
+    @Test fun unarchivedClosedCurrentCannotBeSelectedEvenWhenTheOtherCacheIsRedundant() {
         val unarchived = closed("unarchived", 3_000L, 4_000L) - "history"
         val archived = closed("archived", 1_000L, 2_000L)
+        assertTrue(V2LegacyJournalRecovery.validSource(unarchived))
+        assertTrue(V2LegacyJournalRecovery.validSource(archived))
         for ((left, right) in listOf(unarchived to archived, archived to unarchived)) {
-            val result = V2LegacyJournalRecovery.merge(left, right)!!
-            assertEquals(unarchived, result.filterKeys { it != "history" })
-            assertEquals(JSONArray(archived["history"] as String).toString(), result["history"])
-            assertEquals(1, JSONArray(result["history"] as String).length())
+            val beforeLeft = V2LegacyJournalRecovery.fingerprint(left)
+            val beforeRight = V2LegacyJournalRecovery.fingerprint(right)
+            val trace = LegacyJournalDiagnosticV2.Trace()
+            assertNull(V2LegacyJournalRecovery.merge(left, right, trace))
+            assertEquals(LegacyJournalDiagnosticV2.Code.CURRENT_CONFLICT, trace.issue!!.code)
+            assertEquals(beforeLeft, V2LegacyJournalRecovery.fingerprint(left))
+            assertEquals(beforeRight, V2LegacyJournalRecovery.fingerprint(right))
         }
     }
 

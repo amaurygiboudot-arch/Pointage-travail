@@ -115,7 +115,9 @@ object V2RuntimeStore {
         companySlot: Int? = null,
         source: EventSourceV2 = EventSourceV2.MANUAL
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         return V2RuntimeAccountScope.withScope {
+        if (SalaryAccountScope.lease(context) != V2RuntimeAccountScope.pinnedLease.get()) return false
         DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.ENTRY_REQUEST, nowMs, value = expectedEndMs)
         fun refused(reason: String): Boolean {
             DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.ENTRY_REFUSED, nowMs, reason)
@@ -127,11 +129,15 @@ object V2RuntimeStore {
         if (current.session?.status == SessionStatusV2.OPEN) return refused("SESSION_ALREADY_OPEN")
         val storedHistory = V2RuntimeHistoryGuardV2.read(context)
         if (!storedHistory.reliable) return refused("HISTORY_UNRELIABLE")
+        val prefs = prefs(context)
+        val closed = current.session?.takeIf { it.status == SessionStatusV2.CLOSED }
+        val archive = if (closed == null) null
+            else historyPreservingClosedCurrent(prefs.all, closed) ?: return refused("RUNTIME_UNRELIABLE")
+        val historyForEntry = archive?.history ?: storedHistory.history
         // Une nouvelle session est ouverte sans fin connue. Elle ne peut donc commencer avant
         // une session déjà archivée (y compris une saisie manuelle future), sinon deux vérités
         // temporelles coexisteraient jusqu'à sa fermeture.
-        if (historyOverlapsRange(storedHistory.history, nowMs, Long.MAX_VALUE) != false) return refused("HISTORY_OVERLAP_OR_INVALID")
-        val prefs = prefs(context)
+        if (historyOverlapsRange(historyForEntry, nowMs, Long.MAX_VALUE) != false) return refused("HISTORY_OVERLAP_OR_INVALID")
 
         // Les anciens appels peuvent encore imposer un slot 1/2. Le flux normal utilise désormais
         // l'identifiant stable de l'entreprise active, ce qui permet plus de deux entreprises.
@@ -150,6 +156,9 @@ object V2RuntimeStore {
             }
 
         val editor = prefs.edit()
+            // A restored CLOSED current may have no archive yet. Retain it in this same commit
+            // before replacing its only runtime representation; never publish an archive alone.
+            .apply { if (archive?.added == true) putString(KEY_HISTORY, historyForEntry.toString()) }
             .remove(KEY_ID).remove(KEY_EMPLOYER_ID).remove(KEY_COMPANY_SLOT)
             .remove(KEY_REAL_ENTRY).remove(KEY_COUNTED_ENTRY).remove(KEY_TIME_BASIS)
             .remove("departureObservedAtMs").remove("closureOrigin").remove(KEY_REAL_EXIT).remove(KEY_COUNTED_EXIT).remove(KEY_EXPECTED_END)
@@ -169,6 +178,29 @@ object V2RuntimeStore {
         return commitRuntime(context, editor).also { DailyDiagnosticStoreV2.record(context, DailyDiagnosticKindV2.ENTRY_WRITE, nowMs, if (it) "SUCCESS" else "FAILED", value = nowMs) }
         }
     }
+
+    /** Prepare only; raw facts must survive model serialization before entry may replace them. */
+    internal data class EntryArchive(val history: JSONArray, val added: Boolean)
+
+    internal fun historyPreservingClosedCurrent(values: Map<String, *>, session: WorkSessionV2): EntryArchive? = runCatching {
+        if (session.status != SessionStatusV2.CLOSED) return@runCatching null
+        if (values.containsKey("legacy_recovery_receipt") && values["legacy_recovery_receipt"] !is String)
+            return@runCatching null
+        val facts = values.filterKeys { it != "legacy_recovery_receipt" }
+        val validationScope = V2LegacyJournalRecovery.ValidationScope.LOCAL_RUNTIME
+        if (!V2LegacyJournalRecovery.validSource(facts, validationScope = validationScope)) return@runCatching null
+        val history = JSONArray(facts[KEY_HISTORY] as? String ?: "[]")
+        val id = facts[KEY_ID] as? String ?: return@runCatching null
+        // Keep the original row, including its explicit unknown employer and additional fields.
+        val archived = (0 until history.length()).any { history.getJSONObject(it).optString("id") == id }
+        val candidate = if (archived) history else historyWithClosedSession(history, session,
+            if (facts.containsKey(KEY_COMPANY_SLOT)) strictInt(facts[KEY_COMPANY_SLOT]) else null)
+            ?: return@runCatching null
+        val candidateFacts = facts + (KEY_HISTORY to candidate.toString())
+        if (!V2LegacyJournalRecovery.validSource(candidateFacts, validationScope = validationScope) ||
+            !V2LegacyJournalRecovery.closedCurrentIsArchived(candidateFacts)) return@runCatching null
+        EntryArchive(candidate, added = !archived)
+    }.getOrNull()
 
     /** A successful read of SharedPreferences is not a durable write receipt. */
     internal fun confirmCurrent(context: Context, expectedSessionId: String): Boolean = withTransaction {

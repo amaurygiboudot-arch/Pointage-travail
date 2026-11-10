@@ -28,16 +28,17 @@ class V2LegacyJournalRecoveryIntegrationTest {
     private lateinit var auth: FirebaseAuth
     private val files = mutableMapOf<String, FaultPreferences>()
     private fun file(name: String) = files.getOrPut(name) { FaultPreferences() }
+    private fun newContext(): Context = object : ContextWrapper(RuntimeEnvironment.getApplication()) {
+        override fun getApplicationContext(): Context = this
+        override fun getSharedPreferences(name: String, mode: Int): SharedPreferences = file(name)
+    }
     private fun account(id: String?) {
         val user = id?.let { Mockito.mock(FirebaseUser::class.java).also { u -> Mockito.`when`(u.uid).thenReturn(it) } }
         Mockito.`when`(auth.currentUser).thenReturn(user)
     }
     @Before fun setup() {
         files.clear()
-        context = object : ContextWrapper(RuntimeEnvironment.getApplication()) {
-            override fun getApplicationContext(): Context = this
-            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences = file(name)
-        }
+        context = newContext()
         auth = Mockito.mock(FirebaseAuth::class.java)
         RecoveryAuthShadow.auth = auth
         account("a")
@@ -130,6 +131,267 @@ class V2LegacyJournalRecoveryIntegrationTest {
         assertEquals(destination["session_id"], target.all["session_id"])
         assertEquals(2, JSONArray(target.all["history"] as String).length())
         assertNull(V2LegacyJournalRecovery.preview(context))
+    }
+
+    private fun unarchivedClosed() = mapOf<String, Any>("session_id" to "retained",
+        "real_entry" to 1_000L, "real_exit" to 9_000L, "counted_entry" to 1_000L,
+        "counted_exit" to 9_000L, "time_basis" to "REAL_FACTS", "pauses" to "[]")
+
+    private fun seedForNextEntry(values: Map<String, *>): FaultPreferences {
+        file("horatrack_v2_test_runtime").edit().clear().commit()
+        assertTrue(V2MigrationManager.ensureMigrated(context).reliable)
+        val target = file(V2RuntimeAccountScope.fileName("horatrack_v2_test_runtime", "uid:a")!!)
+        assertTrue(V2PreferenceValues.replace(target, values))
+        return target
+    }
+
+    private fun recreatePreferences() {
+        files.values.forEach { it.restart() }
+        context = newContext()
+        SalaryAccountScope.invalidateSession()
+    }
+
+    @Test fun nextEntryArchivesUnknownClosedFactsAndKeepsMetadataInOneCommit() {
+        val pauses = """[{"start":2000,"end":3000,"source":"MANUAL","paid":true},{"start":5000,"end":6000,"source":"GPS","paid":false}]"""
+        val segments = """[{"start":1000,"end":9000,"kind":"TO_CONFIRM","status":"TO_CONFIRM"}]"""
+        val original = (unarchivedClosed() - "counted_entry" - "counted_exit" - "time_basis") + mapOf(
+            "company_slot" to 1, "pauses" to pauses, "work_segments" to segments,
+            "closureOrigin" to "UNKNOWN", "expected_end" to 8_000L,
+            "legacy_recovery_receipt" to "local-proof", "restored_legacy_provenance" to "[\"prior-proof\"]")
+        val target = seedForNextEntry(original)
+        val commits = target.commits
+        assertTrue(V2RuntimeStore.entry(context, 10_000L))
+        assertEquals(commits + 1, target.commits)
+        val row = JSONArray(target.all["history"] as String).getJSONObject(0)
+        assertEquals("retained", row.getString("id"))
+        assertEquals(1_000L, row.getLong("realEntry")); assertEquals(9_000L, row.getLong("realExit"))
+        assertTrue(row.isNull("countedEntry")); assertTrue(row.isNull("countedExit"))
+        assertTrue(row.isNull("employerId")); assertEquals(1, row.getInt("companySlot"))
+        assertEquals("LEGACY_UNVERIFIED", row.getString("timeBasis"))
+        assertEquals(JSONArray(pauses).toString(), row.getJSONArray("pauses").toString())
+        assertEquals(JSONArray(segments).toString(), row.getJSONArray("workSegments").toString())
+        assertEquals("UNKNOWN", row.getString("closureOrigin")); assertTrue(row.isNull("departureObservedAtMs"))
+        assertEquals("local-proof", target.all["legacy_recovery_receipt"])
+        assertEquals("[\"prior-proof\"]", target.all["restored_legacy_provenance"])
+        recreatePreferences()
+        assertEquals(2, V2RuntimeStore.allSessions(context).size)
+        assertEquals(1, V2RuntimeStore.allSessions(context).count { it.id == "retained" })
+    }
+
+    @Test fun nextEntryCannotPrecedeTheUnarchivedClosedExitAndDoesNotChangeProfile() {
+        val target = seedForNextEntry(unarchivedClosed())
+        val before = files.mapValues { it.value.all }.filterValues { it.isNotEmpty() }
+        assertFalse(V2RuntimeStore.entry(context, 8_000L, companySlot = 2))
+        assertEquals(before, files.mapValues { it.value.all }.filterValues { it.isNotEmpty() })
+        assertEquals(unarchivedClosed(), target.all)
+        assertTrue(V2RuntimeStore.entry(context, 9_000L)) // Adjacent ranges remain valid.
+        assertEquals(2, V2RuntimeStore.allSessions(context).size)
+    }
+
+    @Test fun nextEntryRejectsUnrepresentableRawFactsBeforeAnyProfileOrRuntimeWrite() {
+        val cases = listOf(
+            unarchivedClosed() + ("unknown_current_field" to "preserve"),
+            unarchivedClosed() + ("session_id" to " retained "),
+            unarchivedClosed() + ("place_label" to " label "),
+            unarchivedClosed() + ("employer_id" to " employer "),
+            unarchivedClosed() + ("counted_entry" to "1000"),
+            unarchivedClosed() + ("company_slot" to 3),
+            unarchivedClosed() + ("legacy_recovery_receipt" to 1),
+            unarchivedClosed() + ("restored_legacy_provenance" to "[1]"),
+            unarchivedClosed() + ("pauses" to """[{"start":2000,"end":3000,"source":"MANUAL","paid":true,"extra":"preserve"}]"""),
+            unarchivedClosed() + ("work_segments" to """[{"start":1000,"end":9000,"kind":"TO_CONFIRM","status":"TO_CONFIRM","extra":"preserve"}]""")
+        )
+        for ((index, values) in cases.withIndex()) {
+            val target = seedForNextEntry(values)
+            val before = files.mapValues { it.value.all }.filterValues { it.isNotEmpty() }
+            val commits = target.commits
+            assertFalse("case $index", V2RuntimeStore.entry(context, 10_000L, companySlot = 2))
+            assertEquals("case $index", before, files.mapValues { it.value.all }.filterValues { it.isNotEmpty() })
+            assertEquals("case $index", commits, target.commits)
+        }
+    }
+
+    @Test fun nextEntryRejectsConflictingArchiveOrRicherDefaultsWithoutChangingFacts() {
+        val baseRow = JSONObject().put("id", "retained").put("realEntry", 1_000L).put("realExit", 9_000L)
+            .put("countedEntry", 1_000L).put("countedExit", 9_000L).put("employerId", JSONObject.NULL)
+            .put("timeBasis", "REAL_FACTS").put("pauses", JSONArray())
+        val histories = listOf(
+            JSONArray().put(JSONObject(baseRow.toString()).put("countedExit", 8_999L)),
+            JSONArray().put(JSONObject(baseRow.toString()).put("workSegments", JSONArray(
+                """[{"start":1000,"end":9000,"kind":"TO_CONFIRM","status":"TO_CONFIRM"}]"""))),
+            JSONArray().put(JSONObject(baseRow.toString()).apply { remove("employerId") }),
+            JSONArray().put(JSONObject(baseRow.toString()).put("id", "overlap"))
+        )
+        for (history in histories) {
+            val target = seedForNextEntry(unarchivedClosed() + ("history" to history.toString()))
+            val before = files.mapValues { it.value.all }.filterValues { it.isNotEmpty() }
+            val commits = target.commits
+            assertFalse(V2RuntimeStore.entry(context, 10_000L, companySlot = 2))
+            assertEquals(before, files.mapValues { it.value.all }.filterValues { it.isNotEmpty() })
+            assertEquals(commits, target.commits)
+        }
+    }
+
+    private fun verifyUnknownEmployerStaysArchived(createProfileAfterClose: Boolean) {
+        val target = seedForNextEntry(emptyMap<String, Any>())
+        assertTrue(V2RuntimeStore.entry(context, 1_000L))
+        assertTrue(V2RuntimeStore.exit(context, 9_000L))
+        val originalHistory = JSONArray(target.all["history"] as String).toString(2)
+        assertTrue(target.edit().putString("history", originalHistory).commit())
+        val closed = target.all
+        assertFalse(closed.containsKey("employer_id"))
+        assertFalse(V2LegacyJournalRecovery.validSource(closed)) // Cross-account recovery is still strict.
+        assertTrue(V2LegacyJournalRecovery.validSource(closed,
+            validationScope = V2LegacyJournalRecovery.ValidationScope.LOCAL_RUNTIME))
+        if (createProfileAfterClose) {
+            assertTrue(com.amaury.pointage.SalaryCompanyStore.createOrUpdate(context,
+                com.amaury.pointage.SalaryCompanyStore.Company("new-employer", "New employer", "")))
+            assertTrue(V2ProfileStore.setActiveCompanyId(context, "new-employer"))
+        }
+        assertTrue(V2RuntimeStore.entry(context, 10_000L))
+        assertEquals(originalHistory, target.all["history"])
+        assertTrue(JSONArray(target.all["history"] as String).getJSONObject(0).isNull("employerId"))
+        if (createProfileAfterClose) assertEquals("new-employer", target.all["employer_id"])
+        assertEquals(2, V2RuntimeStore.allSessions(context).size)
+    }
+
+    @Test fun realEntryExitEntryWithoutEmployerKeepsItsExistingUnknownArchive() =
+        verifyUnknownEmployerStaysArchived(createProfileAfterClose = false)
+
+    @Test fun profileCreatedAfterClosureDoesNotReassignTheExistingArchive() =
+        verifyUnknownEmployerStaysArchived(createProfileAfterClose = true)
+
+    @Test fun missingArchiveCannotInferAnOldEmployerFromANewProfile() {
+        val target = seedForNextEntry(unarchivedClosed() + ("company_slot" to 1))
+        assertTrue(com.amaury.pointage.SalaryCompanyStore.createOrUpdate(context,
+            com.amaury.pointage.SalaryCompanyStore.Company("new-employer", "New employer", "")))
+        assertTrue(V2ProfileStore.setActiveCompanyId(context, "new-employer"))
+        val before = files.mapValues { it.value.all }.filterValues { it.isNotEmpty() }
+        val commits = target.commits
+        assertFalse(V2RuntimeStore.entry(context, 10_000L, companySlot = 2))
+        assertEquals(before, files.mapValues { it.value.all }.filterValues { it.isNotEmpty() })
+        assertEquals(commits, target.commits)
+    }
+
+    @Test fun archiveAndNewEntryCommitFalseRemainAtomicAcrossPreferenceRecreation() {
+        val original = unarchivedClosed()
+        val target = seedForNextEntry(original)
+        val commits = target.commits
+        target.failOnCommit = commits + 1
+        assertFalse(V2RuntimeStore.entry(context, 10_000L))
+        assertEquals(commits + 1, target.commits)
+        assertEquals(1, JSONArray(target.all["history"] as String).length()) // Complete new RAM image.
+        assertEquals(10_000L, target.all["real_entry"])
+        recreatePreferences()
+        assertEquals(original, target.all) // Complete old disk image, never a half-published archive.
+        assertEquals(setOf("retained"), V2RuntimeStore.allSessions(context).map { it.id }.toSet())
+        assertTrue(V2RuntimeStore.entry(context, 10_000L))
+        recreatePreferences()
+        assertEquals(2, V2RuntimeStore.allSessions(context).size)
+        assertEquals(1, V2RuntimeStore.allSessions(context).count { it.id == "retained" })
+        assertEquals(1, JSONArray(target.all["history"] as String).length())
+    }
+
+    @Test fun alreadyOpenCurrentStillRefusesEntryWithoutChangingAnyProfile() {
+        seedForNextEntry(unarchivedClosed() - "real_exit" - "counted_exit")
+        val before = files.mapValues { it.value.all }.filterValues { it.isNotEmpty() }
+        assertFalse(V2RuntimeStore.entry(context, 10_000L, companySlot = 2))
+        assertEquals(before, files.mapValues { it.value.all }.filterValues { it.isNotEmpty() })
+    }
+
+    @Test fun claimedUnarchivedClosedJournalSurvivesNextEntryAndRecreationWithOwnershipIntact() {
+        val original = unarchivedClosed()
+        assertTrue(V2PreferenceValues.replace(file("horatrack_v2_test_runtime"), original))
+        val preview = V2LegacyJournalRecovery.preview(context)!!
+        assertTrue(preview.message, preview.eligible)
+        assertTrue(V2LegacyJournalRecovery.confirm(context, preview, true).success)
+        val target = file(V2RuntimeAccountScope.fileName("horatrack_v2_test_runtime", "uid:a")!!)
+        val receipt = target.all["legacy_recovery_receipt"]
+        val claimBefore = file("horatrack_v2_legacy_recovery_claim").all
+        assertEquals("COMPLETE", claimBefore["state"])
+        assertEquals(setOf("retained"), V2RuntimeStore.allSessions(context).map { it.id }.toSet())
+        assertTrue(V2RuntimeStore.entry(context, 10_000L))
+        recreatePreferences()
+        assertEquals(original, file("horatrack_v2_test_runtime").all)
+        assertEquals(receipt, target.all["legacy_recovery_receipt"])
+        assertEquals(claimBefore, file("horatrack_v2_legacy_recovery_claim").all)
+        assertFalse(V2RuntimeAccountScope.hasUnassignedHistory(context))
+        assertNull(V2LegacyJournalRecovery.preview(context))
+        val sessions = V2RuntimeStore.allSessions(context)
+        assertEquals(2, sessions.size)
+        assertEquals(1, sessions.count { it.id == "retained" })
+        assertEquals(1, sessions.count { it.realArrivalMs == 10_000L })
+        assertEquals(1, JSONArray(target.all["history"] as String).length())
+    }
+
+    private fun prepareAccountsForEntrySwitch() {
+        account("b")
+        for (id in listOf("b-first", "b-second")) assertTrue(com.amaury.pointage.SalaryCompanyStore.createOrUpdate(
+            context, com.amaury.pointage.SalaryCompanyStore.Company(id, id, "")))
+        V2ProfileStore.setActiveCompanySlot(context, 1)
+        assertTrue(V2PreferenceValues.replace(file(V2RuntimeAccountScope.fileName("horatrack_v2_test_runtime", "uid:b")!!),
+            unarchivedClosed() + ("session_id" to "b-session")))
+        account("a")
+        seedForNextEntry(unarchivedClosed())
+        V2ProfileStore.setActiveCompanySlot(context, 1)
+        SalaryAccountScope.capture()
+    }
+
+    @Test fun accountSwitchAtProfileSelectionCannotWriteEitherAccount() {
+        prepareAccountsForEntrySwitch()
+        val before = files.mapValues { it.value.all }.filterValues { it.isNotEmpty() }
+        val profileB = SalaryPreferenceRegistry.fileName("horatrack_v2_integration", "uid:b")!!
+        var switched = false
+        val a = Mockito.mock(FirebaseUser::class.java).also { Mockito.`when`(it.uid).thenReturn("a") }
+        val b = Mockito.mock(FirebaseUser::class.java).also { Mockito.`when`(it.uid).thenReturn("b") }
+        Mockito.`when`(auth.currentUser).thenAnswer {
+            // Test provider hook: cross the boundary after archive proof, before profile mutation.
+            if (!switched && Thread.currentThread().stackTrace.any {
+                    it.className == V2ProfileStore::class.java.name && it.methodName == "setActiveCompanySlot"
+                }) switched = true
+            if (switched) b else a
+        }
+        assertFalse(V2RuntimeStore.entry(context, 10_000L, companySlot = 2))
+        assertTrue("The deterministic profile-selection account switch must occur", switched)
+        for ((name, values) in before) if (name != profileB) assertEquals(name, values, file(name).all)
+        assertEquals("Account B profile changed despite a refused entry", before[profileB], file(profileB).all)
+        assertEquals(before, files.mapValues { it.value.all }.filterValues { it.isNotEmpty() })
+    }
+
+    @Test fun staleBoundEntryContextCannotBeReassignedToTheNewAccount() {
+        prepareAccountsForEntrySwitch()
+        val oldContext = SalaryAccountScope.bindContext(context)
+        account("b")
+        SalaryAccountScope.capture()
+        val before = files.mapValues { it.value.all }.filterValues { it.isNotEmpty() }
+        assertFalse(V2RuntimeStore.entry(oldContext, 10_000L, companySlot = 2))
+        assertEquals(before, files.mapValues { it.value.all }.filterValues { it.isNotEmpty() })
+    }
+
+    @Test fun accountRoundTripAtProfileSelectionCannotReviveTheOriginalEntryLease() {
+        prepareAccountsForEntrySwitch()
+        val before = files.mapValues { it.value.all }.filterValues { it.isNotEmpty() }
+        val initialLease = SalaryAccountScope.capture()
+        var switched = false
+        var insideRoundTrip = false
+        val a = Mockito.mock(FirebaseUser::class.java).also { Mockito.`when`(it.uid).thenReturn("a") }
+        val b = Mockito.mock(FirebaseUser::class.java).also { Mockito.`when`(it.uid).thenReturn("b") }
+        Mockito.`when`(auth.currentUser).thenAnswer {
+            if (!switched && Thread.currentThread().stackTrace.any {
+                    it.className == V2ProfileStore::class.java.name && it.methodName == "setActiveCompanySlot"
+                }) {
+                switched = true
+                insideRoundTrip = true
+                assertEquals("uid:b", SalaryAccountScope.capture().scope)
+                insideRoundTrip = false
+            }
+            if (insideRoundTrip) b else a
+        }
+        assertFalse(V2RuntimeStore.entry(context, 10_000L, companySlot = 2))
+        assertTrue("The deterministic account round trip must occur", switched)
+        assertEquals("uid:a", SalaryAccountScope.capture().scope)
+        assertNotEquals(initialLease, SalaryAccountScope.capture())
+        assertEquals(before, files.mapValues { it.value.all }.filterValues { it.isNotEmpty() })
     }
     private fun recoverAfterFailure(target: String, failAt: Int, restart: Boolean) {
         val preview = V2LegacyJournalRecovery.preview(context)!!

@@ -308,7 +308,7 @@ object V2LegacyJournalRecovery {
     }
 
     /** Called only for validated sources. CLOSED alone does not prove that its facts are archived. */
-    private fun closedCurrentIsArchived(values: Map<String, *>): Boolean = runCatching {
+    internal fun closedCurrentIsArchived(values: Map<String, *>): Boolean = runCatching {
         if (V2RuntimeStore.optionalStrictPositive(values, "real_exit").value == null) return@runCatching false
         val id = values["session_id"] as? String ?: return@runCatching false
         val history = JSONArray(values["history"] as? String ?: return@runCatching false)
@@ -346,8 +346,11 @@ object V2LegacyJournalRecovery {
             leftCurrent.isEmpty() -> right
             rightCurrent.isEmpty() || fingerprint(leftCurrent) == fingerprint(rightCurrent) -> left
             // Different snapshots of one identity remain a conflict, even if both are closed.
-            leftCurrent["session_id"] != rightCurrent["session_id"] && closedCurrentIsArchived(right) -> left
-            leftCurrent["session_id"] != rightCurrent["session_id"] && closedCurrentIsArchived(left) -> right
+            // A retained CLOSED session also needs its archive: the next entry replaces current keys.
+            leftCurrent["session_id"] != rightCurrent["session_id"] && closedCurrentIsArchived(right) &&
+                (!leftCurrent.containsKey("real_exit") || closedCurrentIsArchived(left)) -> left
+            leftCurrent["session_id"] != rightCurrent["session_id"] && closedCurrentIsArchived(left) &&
+                (!rightCurrent.containsKey("real_exit") || closedCurrentIsArchived(right)) -> right
             else -> {
                 trace?.fail(Code.CURRENT_CONFLICT, trace.ref(left), second = trace.ref(right))
                 error("Conflicting current states")
@@ -415,11 +418,14 @@ object V2LegacyJournalRecovery {
         return result
     }
 
-    internal fun validSource(values: Map<String, *>, trace: Trace? = null): Boolean =
-        if (trace == null) validSourceChecked(values, null)
-        else trace.reading(trace.origin(values).source) { validSourceChecked(values, trace) }
+    internal enum class ValidationScope { RECOVERY, LOCAL_RUNTIME }
 
-    private fun validSourceChecked(values: Map<String, *>, trace: Trace?): Boolean {
+    internal fun validSource(values: Map<String, *>, trace: Trace? = null,
+                             validationScope: ValidationScope = ValidationScope.RECOVERY): Boolean =
+        if (trace == null) validSourceChecked(values, null, validationScope)
+        else trace.reading(trace.origin(values).source) { validSourceChecked(values, trace, validationScope) }
+
+    private fun validSourceChecked(values: Map<String, *>, trace: Trace?, validationScope: ValidationScope): Boolean {
         var field: String? = null
         fun fail(code: Code = Code.CURRENT_INVALID, name: String? = field): Boolean {
             trace?.fail(code, if (name == null || name in setOf("history", "restored_legacy_provenance"))
@@ -454,7 +460,10 @@ object V2LegacyJournalRecovery {
         if (!inspect(history)) return false
         if (!values.containsKey("real_entry")) return if (V2RuntimeStore.hasOrphanedCurrentSession(values))
             fail(Code.ORPHAN_CURRENT, "real_entry") else true
-        if (values.containsKey("company_slot") && !values.containsKey("employer_id")) return fail(Code.CURRENT_INVALID, "employer_id")
+        // Account recovery cannot resolve a legacy slot. Local retention may preserve it only
+        // when the subsequent raw current/archive proof confirms the employer without inference.
+        if (validationScope == ValidationScope.RECOVERY && values.containsKey("company_slot") &&
+            !values.containsKey("employer_id")) return fail(Code.CURRENT_INVALID, "employer_id")
         val current = JSONObject()
         mapping.forEach { (key, target) -> if (values.containsKey(key)) current.put(target, values[key]) }
         field = "real_entry"

@@ -97,6 +97,14 @@ class V2BackupCurrentRestoreIntegrationTest {
         assertTrue(V2BackupManager.restoreFromJson(context, backup(remote)).isSuccess)
         assertEquals(saved, V2RuntimeAccountScope.preferences(context, runtime).all)
         assertEquals(2, V2RuntimeStore.allSessions(context).size)
+        assertTrue(V2RuntimeStore.entry(context, 50_000L))
+        val afterEntry = V2RuntimeStore.allSessions(context)
+        assertEquals(3, afterEntry.size)
+        assertEquals(1, afterEntry.count { it.id == "local" })
+        assertEquals(1, afterEntry.count { it.id == "remote" })
+        assertEquals(1, afterEntry.count { it.realArrivalMs == 50_000L })
+        assertEquals(2, JSONArray(V2RuntimeAccountScope.preferences(context, runtime)
+            .getString("history", null)).length())
     }
 
     @Test fun restoreReplacesOnlyProvenClosedCacheAndPreservesOpenPauseAndPlanning() {
@@ -118,5 +126,33 @@ class V2BackupCurrentRestoreIntegrationTest {
         assertTrue(V2PreferenceValues.replace(V2RuntimeAccountScope.preferences(context, runtime), local))
         assertTrue(V2BackupManager.restoreFromJson(context, backup(closed("remote", 15_000L, 25_000L))).isFailure)
         assertEquals(local, V2RuntimeAccountScope.preferences(context, runtime).all)
+    }
+
+    @Test fun restoreRefusesUnarchivedClosedCurrentBeforeTheNextEntryCouldLoseIt() {
+        val local = closed("local", 1_000L, 2_000L)
+        val remote = closed("remote", 3_000L, 4_000L) - "history"
+        assertTrue(V2PreferenceValues.replace(V2RuntimeAccountScope.preferences(context, runtime), local))
+        val result = V2BackupManager.restoreFromJson(context, backup(remote))
+        assertTrue(result.isFailure)
+        assertEquals(local, V2RuntimeAccountScope.preferences(context, runtime).all)
+        assertEquals(setOf("local"), V2RuntimeStore.allSessions(context).map { it.id }.toSet())
+        assertTrue(V2RuntimeStore.entry(context, 5_000L))
+        val afterEntry = V2RuntimeStore.allSessions(context)
+        assertEquals(2, afterEntry.size)
+        assertEquals(1, afterEntry.count { it.id == "local" })
+        assertEquals(1, afterEntry.count { it.realArrivalMs == 5_000L })
+        assertEquals(0, afterEntry.count { it.id == "remote" })
+    }
+
+    @Test fun restoredUnarchivedClosedSessionIntoEmptyAccountSurvivesNextEntry() {
+        val remote = closed("remote", 3_000L, 4_000L) - "history"
+        val result = V2BackupManager.restoreFromJson(context, backup(remote))
+        assertTrue(result.exceptionOrNull()?.stackTraceToString(), result.isSuccess)
+        assertEquals(setOf("remote"), V2RuntimeStore.allSessions(context).map { it.id }.toSet())
+        assertTrue(V2RuntimeStore.entry(context, 5_000L))
+        val afterEntry = V2RuntimeStore.allSessions(context)
+        assertTrue(afterEntry.any { it.realArrivalMs == 5_000L })
+        assertTrue("Legacy restore into an empty account lost the closed session on next entry",
+            afterEntry.any { it.id == "remote" })
     }
 }
