@@ -1,4 +1,4 @@
-# HoraTrack — audit de monétisation du 6 octobre 2026
+# AGKGMG — audit de monétisation du 6 octobre 2026
 
 ## Décisions approuvées
 

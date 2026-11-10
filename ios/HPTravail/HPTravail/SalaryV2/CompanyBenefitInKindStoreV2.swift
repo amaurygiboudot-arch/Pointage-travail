@@ -22,8 +22,9 @@ enum CompanyBenefitInKindStoreV2 {
 
     static func read(
         companyId: String,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> CompanyBenefitInKindContractV2.ReadResult {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard confirmedCompany(companyId: companyId, defaults: defaults) != nil else {
             return CompanyBenefitInKindContractV2.companyUnavailableReadResult()
         }
@@ -33,8 +34,9 @@ enum CompanyBenefitInKindStoreV2 {
     static func monthCoverage(
         companyId: String,
         period: YearMonthV2,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> MonthCoverageSnapshot {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard confirmedCompany(companyId: companyId, defaults: defaults) != nil else {
             return MonthCoverageSnapshot(
                 confirmed: false,
@@ -83,8 +85,9 @@ enum CompanyBenefitInKindStoreV2 {
     static func resolve(
         companyId: String,
         period: YearMonthV2,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> CompanyBenefitInKindContractV2.Snapshot {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard confirmedCompany(companyId: companyId, defaults: defaults) != nil else {
             return CompanyBenefitInKindContractV2.resolve(
                 records: CompanyBenefitInKindContractV2.companyUnavailableReadResult(),
@@ -102,8 +105,9 @@ enum CompanyBenefitInKindStoreV2 {
     static func save(
         companyId: String,
         record: CompanyBenefitInKindContractV2.Record,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard !companyId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               validRecord(record) else { return false }
         lock.lock()
@@ -130,8 +134,9 @@ enum CompanyBenefitInKindStoreV2 {
     static func remove(
         companyId: String,
         recordId: String,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard !companyId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !recordId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         lock.lock()
@@ -152,8 +157,9 @@ enum CompanyBenefitInKindStoreV2 {
         companyId: String,
         period: YearMonthV2,
         source: String,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let source = source.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !companyId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !source.isEmpty else { return false }
@@ -175,8 +181,9 @@ enum CompanyBenefitInKindStoreV2 {
     static func clearMonthConfirmation(
         companyId: String,
         period: YearMonthV2,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         lock.lock()
         defer { lock.unlock() }
 
@@ -194,7 +201,8 @@ enum CompanyBenefitInKindStoreV2 {
         companyId: String,
         defaults: UserDefaults
     ) -> SalaryCompanyV2? {
-        SalaryCompanyStoreV2.confirmedCompany(
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return SalaryCompanyStoreV2.confirmedCompany(
             SalaryCompanyStoreV2.readConfirmed(defaults: defaults),
             companyId: companyId
         )
@@ -204,28 +212,34 @@ enum CompanyBenefitInKindStoreV2 {
         companyId: String,
         defaults: UserDefaults
     ) -> CompanyBenefitInKindContractV2.ReadResult {
-        let key = recordsKey(companyId)
-        guard defaults.object(forKey: key) != nil else {
-            return CompanyBenefitInKindContractV2.decodeRecords("[]")
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return SalaryAccountStorageV2.readConsistently(defaults, unavailable: CompanyBenefitInKindContractV2.ReadResult(records: [], reliable: false, warnings: [SalaryAccountStorageV2.warning])) {
+            let key = recordsKey(companyId)
+            guard defaults.object(forKey: key) != nil else {
+                return CompanyBenefitInKindContractV2.decodeRecords("[]")
+            }
+            guard let raw = defaults.string(forKey: key) else {
+                return .init(records: [], reliable: false, warnings: [storageWarning])
+            }
+            return CompanyBenefitInKindContractV2.decodeRecords(raw)
         }
-        guard let raw = defaults.string(forKey: key) else {
-            return .init(records: [], reliable: false, warnings: [storageWarning])
-        }
-        return CompanyBenefitInKindContractV2.decodeRecords(raw)
     }
 
     private static func readConfirmationsConfirmed(
         companyId: String,
         defaults: UserDefaults
     ) -> CompanyBenefitInKindContractV2.ConfirmationReadResult {
-        let key = confirmationsKey(companyId)
-        guard defaults.object(forKey: key) != nil else {
-            return CompanyBenefitInKindContractV2.decodeConfirmations("[]")
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return SalaryAccountStorageV2.readConsistently(defaults, unavailable: CompanyBenefitInKindContractV2.ConfirmationReadResult(confirmations: [], reliable: false, warnings: [SalaryAccountStorageV2.warning])) {
+            let key = confirmationsKey(companyId)
+            guard defaults.object(forKey: key) != nil else {
+                return CompanyBenefitInKindContractV2.decodeConfirmations("[]")
+            }
+            guard let raw = defaults.string(forKey: key) else {
+                return .init(confirmations: [], reliable: false, warnings: [coverageStorageWarning])
+            }
+            return CompanyBenefitInKindContractV2.decodeConfirmations(raw)
         }
-        guard let raw = defaults.string(forKey: key) else {
-            return .init(confirmations: [], reliable: false, warnings: [coverageStorageWarning])
-        }
-        return CompanyBenefitInKindContractV2.decodeConfirmations(raw)
     }
 
     private static func writeRecordsAndInvalidateConfirmations(
@@ -233,6 +247,7 @@ enum CompanyBenefitInKindStoreV2 {
         records: [CompanyBenefitInKindContractV2.Record],
         defaults: UserDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard let raw = encodeRecords(records) else { return false }
         let verification = CompanyBenefitInKindContractV2.decodeRecords(raw)
         guard verification.reliable, verification.records.count == records.count else { return false }
@@ -248,6 +263,7 @@ enum CompanyBenefitInKindStoreV2 {
         confirmations: [CompanyBenefitInKindContractV2.MonthConfirmation],
         defaults: UserDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let sorted = confirmations.sorted { $0.period < $1.period }
         let array: [[String: Any]] = sorted.map {
             ["period": $0.period.description, "source": $0.source]

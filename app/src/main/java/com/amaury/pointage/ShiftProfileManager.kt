@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.SalaryAccountScope
+
 import android.content.Context
 import com.amaury.pointage.v2.HoraTrackV2
 import java.util.Calendar
@@ -17,10 +19,10 @@ object ShiftProfileManager {
     private const val KEY_MODE = "selected_shift"
 
     fun selectedMode(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_MODE, "auto") ?: "auto"
+        SalaryAccountScope.preferences(context, PREFS).getString(KEY_MODE, "auto") ?: "auto"
 
     fun setSelectedMode(context: Context, mode: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_MODE, mode).apply()
+        SalaryAccountScope.preferences(context, PREFS).edit().putString(KEY_MODE, mode).apply()
     }
 
     /**
@@ -56,12 +58,12 @@ object ShiftProfileManager {
             ShiftType.NIGHT -> 30
             else -> 0
         }
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return SalaryAccountScope.preferences(context, PREFS)
             .getInt("pause_${shift.id}", defaultMinutes).coerceIn(0, 240)
     }
 
     fun setPauseMinutes(context: Context, shift: ShiftType, minutes: Int) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        SalaryAccountScope.preferences(context, PREFS)
             .edit().putInt("pause_${shift.id}", minutes.coerceIn(0, 240)).apply()
     }
 
@@ -72,14 +74,14 @@ object ShiftProfileManager {
      */
     fun mealEnabled(context: Context, shift: ShiftType): Boolean {
         if (HoraTrackV2.ENABLED) return false
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = SalaryAccountScope.preferences(context, PREFS)
         val default = shift == ShiftType.MORNING
         return prefs.getBoolean("meal_${shift.id}", default)
     }
 
     fun setMealEnabled(context: Context, shift: ShiftType, enabled: Boolean) {
         if (HoraTrackV2.ENABLED) return
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        SalaryAccountScope.preferences(context, PREFS)
             .edit().putBoolean("meal_${shift.id}", enabled).apply()
     }
 }

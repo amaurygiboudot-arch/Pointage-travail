@@ -46,6 +46,8 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
+            // Robolectric loads multiple Android SDK sandboxes in the same test worker.
+            it.maxHeapSize = "1g"
             it.testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
             it.jvmArgs(
                 "--add-opens=java.base/java.lang=ALL-UNNAMED",

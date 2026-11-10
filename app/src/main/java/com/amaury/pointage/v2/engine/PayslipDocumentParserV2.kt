@@ -56,6 +56,7 @@ object PayslipDocumentParserV2 {
     fun parse(rawText: String): Result {
         val lines = rawText
             .replace('\u00A0', ' ')
+            .replace('\u202F', ' ')
             .lineSequence()
             .map { it.trim().replace(Regex("\\s+"), " ") }
             .filter { it.isNotBlank() }
@@ -96,13 +97,20 @@ object PayslipDocumentParserV2 {
 
     private fun singleTotal(lines: List<String>, scorer: (String) -> Double): Candidate {
         val found = mutableListOf<Triple<Double, Double, String>>()
+        var incomplete = false
         lines.forEach { line ->
-            val score = scorer(normalize(line))
+            val normalized = normalize(line)
+            if (isCumulative(normalized)) return@forEach
+            val score = scorer(normalized)
             if (score <= 0.0) return@forEach
-            val amount = lastMoneyAmount(line) ?: return@forEach
+            val amount = lastMoneyAmount(line, allowMultiple = false)
+            if (amount == null) {
+                incomplete = true
+                return@forEach
+            }
             found += Triple(amount, score, line.take(180))
         }
-        if (found.isEmpty()) return Candidate(null, 0.0)
+        if (incomplete || found.isEmpty()) return Candidate(null, 0.0)
         val sorted = found.sortedByDescending { it.second }
         val best = sorted.first()
         val competing = sorted.drop(1).firstOrNull {
@@ -117,24 +125,39 @@ object PayslipDocumentParserV2 {
      * est considérée comme le montant de ligne. Quantité et taux peuvent la précéder.
      */
     private fun aggregateRows(lines: List<String>, scorer: (String) -> Double): Candidate {
+        var incomplete = false
         val rows = lines.mapNotNull { line ->
             val normalized = normalize(line)
+            if (isCumulative(normalized)) return@mapNotNull null
             val score = scorer(normalized)
             if (score < 0.85) return@mapNotNull null
-            val amount = lastMoneyAmount(line) ?: return@mapNotNull null
+            val employeeContribution = complementaryRetirementEmployeeScore(normalized) > 0.0
+            val amount = lastMoneyAmount(line, allowMultiple = !employeeContribution)
+            if (amount == null) {
+                incomplete = true
+                return@mapNotNull null
+            }
             Triple(amount, score, line.take(180))
         }
-        if (rows.isEmpty()) return Candidate(null, 0.0)
+        if (incomplete || rows.isEmpty()) return Candidate(null, 0.0)
         val distinct = rows.distinctBy { it.third }
+        val total = distinct.sumOf { it.first }
+        if (!PayslipEngineV2.isValidAmount(total)) return Candidate(null, 0.0)
         return Candidate(
-            amount = distinct.sumOf { it.first },
+            amount = total,
             confidence = distinct.minOf { it.second }.coerceIn(0.0, 1.0),
             sourceLabel = distinct.joinToString(" • ") { it.third }.take(300)
         )
     }
 
+    /** Annual/cumulative rows cannot supply a monthly observed amount. */
+    private fun isCumulative(text: String): Boolean =
+        Regex("\\b(cumul|cumuls|cumule|cumules)\\b").containsMatchIn(text) ||
+            (Regex("\\b(annuel|annuelle|annuels|annuelles)\\b").containsMatchIn(text) &&
+                (grossScore(text) > 0.0 || netBeforeTaxScore(text) > 0.0 || netTaxableScore(text) > 0.0))
+
     private fun grossScore(text: String): Double = when {
-        text.contains("net") -> 0.0
+        text.contains("net") || text.contains("horaire") || text.contains("de base") -> 0.0
         text.contains("total brut") -> 1.0
         text.contains("salaire brut") && (text.contains("total") || text.startsWith("salaire brut")) -> 0.95
         text.matches(Regex(".*\\bbrut\\s+(mensuel|soumis|fiscal)\\b.*")) -> 0.88
@@ -203,23 +226,56 @@ object PayslipDocumentParserV2 {
         return if (employee) 0.92 else 0.0
     }
 
-    private fun lastMoneyAmount(raw: String): Double? {
-        val regex = Regex(
-            "(?<![\\d/])([+-]?\\d{1,3}(?:[ .\\u00A0]\\d{3})*|[+-]?\\d+)(?:[,.](\\d{2}))?\\s*(€|eur|euros?)?",
+    private fun lastMoneyAmount(raw: String, allowMultiple: Boolean = true): Double? {
+        // OCR can preserve a Unicode minus or accounting parentheses. Neither is a positive amount.
+        if (Regex("[-−﹣－–—][\\s\\u00A0\\u202F]*\\d|\\(\\s*[+-]?\\d[\\d ,.\\u00A0]*\\s*€?\\s*\\)").containsMatchIn(raw)) return null
+        // Extract maximal numeric spans first. No invalid prefix/suffix may disappear.
+        val spans = Regex(
+            "(?:[+.,/−﹣－–—-][ \\u00A0\\u202F]*)*\\d(?:[\\d+.,/'’_: \\u00A0\\u202F−﹣－–—-]|[eE](?=[+-]?\\d))*",
             RegexOption.IGNORE_CASE
         )
-        val candidates = regex.findAll(raw).mapNotNull { match ->
-            val tail = raw.substring(match.range.last + 1).trimStart()
-            if (tail.startsWith("%") || tail.startsWith("/") || tail.startsWith("h", ignoreCase = true)) return@mapNotNull null
-            val token = match.value.trim()
-            val hasCurrency = match.groupValues[3].isNotBlank()
-            val hasDecimals = match.groupValues[2].isNotBlank()
-            // Sans symbole monétaire, on exige deux décimales pour éviter heures, coefficients et dates.
-            if (!hasCurrency && !hasDecimals) return@mapNotNull null
-            val integer = match.groupValues[1].replace(" ", "").replace(".", "").replace("\u00A0", "")
-            val decimals = match.groupValues[2].ifBlank { "00" }
-            "$integer.$decimals".toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.0..10_000_000.0 }
-        }.toList()
+        val integer = "[+]?(?:\\d{1,3}(?:\\.\\d{3})+|\\d{1,3}(?:[ \\u00A0\\u202F]\\d{3})+|\\d+)"
+        val money = Regex("($integer)[,.](\\d{2})")
+        val wholeInteger = Regex(integer)
+        val candidates = mutableListOf<Double>()
+        fun append(token: String): Boolean {
+            val parts = money.matchEntire(token)
+            val integerPart = parts?.groupValues?.get(1) ?: token
+            val decimals = parts?.groupValues?.get(2) ?: "00"
+            val digits = integerPart.filterNot { it == ' ' || it == '.' || it == ' ' || it == ' ' }
+            val amount = PayslipEngineV2.parseAmount("$digits.$decimals") ?: return false
+            if (amount !in 0.0..10_000_000.0) return false
+            candidates += amount
+            return true
+        }
+        for (span in spans.findAll(raw)) {
+            val token = span.value.trim()
+            val tail = raw.substring(span.range.last + 1).trimStart()
+            val currency = Regex("^(€|eur(?:os?)?)(?![\\p{L}\\p{N}_])", RegexOption.IGNORE_CASE).containsMatchIn(tail)
+            val before = raw.getOrNull(span.range.first - 1)
+            val after = raw.getOrNull(span.range.first + span.value.trimEnd().length)
+            // OCR letter/digit collisions must invalidate the line, never expose a numeric suffix.
+            if (before?.isLetterOrDigit() == true || (after?.isLetterOrDigit() == true && !currency)) return null
+            if (tail.startsWith("%") || tail.startsWith("h", ignoreCase = true)) continue
+            if (money.matches(token) || (currency && wholeInteger.matches(token))) {
+                if (!append(token)) return null
+                continue
+            }
+            // A bare quantity cannot provide money; malformed monetary spans are never ignored.
+            if (!currency && token.all { it.isDigit() || it == '+' || it.isWhitespace() } && wholeInteger.matches(token)) continue
+            if (!allowMultiple) return null
+            var cursor = 0
+            while (cursor < token.length) {
+                val part = money.find(token, cursor) ?: return null
+                if (part.range.first != cursor) return null
+                val end = part.range.last + 1
+                if (end < token.length && !token[end].isWhitespace()) return null
+                if (!append(part.value)) return null
+                cursor = end
+                while (cursor < token.length && token[cursor].isWhitespace()) cursor++
+            }
+        }
+        if (!allowMultiple && candidates.size != 1) return null
         return candidates.lastOrNull()
     }
 

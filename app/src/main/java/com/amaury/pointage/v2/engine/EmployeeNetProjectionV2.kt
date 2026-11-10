@@ -47,34 +47,38 @@ object EmployeeNetProjectionV2 {
         val professionalStatus = company.professionalStatus?.trim()?.uppercase(Locale.ROOT)
         val supportedNationalTables = SocialContributionCatalogV2.employeeRules(year).isNotEmpty() &&
             SocialSecurityCeilingV2.fullMonthly(year) != null
-        val directEmployeeDeductionsComplete = company.mutualEmployeeAmount != null &&
-            company.providentEmployeeAmount != null &&
-            company.transportEmployeeAmount != null
+        val periodMatches = company.referenceDate.year == year
+        val directEmployeeDeductionsComplete = validAmount(company.mutualEmployeeAmount) &&
+            validAmount(company.providentEmployeeAmount) && validAmount(company.transportEmployeeAmount)
         val statutoryInputsComplete = company.alsaceMoselleLocalRegime != null &&
-            company.employerProtectionCsgCrdsBaseAmount != null
+            validAmount(company.employerProtectionCsgCrdsBaseAmount)
         val retirementInputsComplete = professionalStatus == "CADRE" || professionalStatus == "NON_CADRE"
         val aniInputComplete = !company.verifiedProtectionCategory.conventionControlsAni ||
             company.verifiedProtectionCategory.confirmed
 
         val blockers = buildList {
             if (!supportedNationalTables) add("barèmes nationaux non intégrés pour $year")
+            if (!periodMatches) add("année de barème hors période de paie")
             if (!upstreamGrossReliable) add("brut issu du calcul temps/primes incomplet")
             if (!payroll.grossReliable) add("brut social incomplet ou avantages en nature non confirmés")
             if (!payroll.socialSecurityCeilingComplete) add("plafond de Sécurité sociale incomplet")
             if (company.alsaceMoselleLocalRegime == null) add("affiliation Alsace-Moselle à confirmer")
-            if (company.employerProtectionCsgCrdsBaseAmount == null) {
+            if (!validAmount(company.employerProtectionCsgCrdsBaseAmount)) {
                 add("part employeur de protection complémentaire soumise à CSG/CRDS à confirmer")
             }
-            if (company.mutualEmployeeAmount == null) add("mutuelle salariale à confirmer")
-            if (company.providentEmployeeAmount == null) add("prévoyance salariale réellement prélevée à confirmer")
-            if (company.transportEmployeeAmount == null) add("retenue transport à confirmer")
+            if (!validAmount(company.mutualEmployeeAmount)) add("mutuelle salariale à confirmer")
+            if (!validAmount(company.providentEmployeeAmount)) add("prévoyance salariale réellement prélevée à confirmer")
+            if (!validAmount(company.transportEmployeeAmount)) add("retenue transport à confirmer")
+            if (!payroll.employeeAmountsReliable) add("calcul monétaire non représentable au centime")
             if (!retirementInputsComplete) add("statut professionnel cadre/non-cadre à confirmer")
             if (!aniInputComplete) add("catégorie ANI conventionnelle à confirmer")
         }
 
         val netBeforeIncomeTaxComplete = supportedNationalTables &&
+            periodMatches &&
             upstreamGrossReliable &&
             payroll.grossReliable &&
+            payroll.employeeAmountsReliable &&
             payroll.socialSecurityCeilingComplete &&
             directEmployeeDeductionsComplete &&
             statutoryInputsComplete &&
@@ -99,4 +103,7 @@ object EmployeeNetProjectionV2 {
             warnings = (payroll.warnings + failClosedWarnings).distinct()
         )
     }
+
+    private fun validAmount(value: Double?): Boolean =
+        value != null && value.isFinite() && value >= 0.0 && PayrollMoneyV2.cents(value) != null
 }

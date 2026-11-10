@@ -1,6 +1,9 @@
 package com.amaury.pointage.v2.engine
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.content.Context
+import com.amaury.pointage.v2.SalaryAccountScope
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.CompanyApprenticeshipTaxStoreV2
 import com.amaury.pointage.v2.CompanyBenefitInKindStoreV2
@@ -152,6 +155,7 @@ object CompanyPayrollOverridesV2 {
         referenceDate:LocalDate=selectedPayrollReferenceDate(context),
         ignoreAbsencesForTheoreticalBase:Boolean=false
     ):Snapshot {
+        val context = SalaryAccountScope.bindContext(context)
         val id=companyId.trim()
         if(id.isBlank()){
             val stored=SalaryCompanyStore.readConfirmed(context)
@@ -476,7 +480,7 @@ object CompanyPayrollOverridesV2 {
 
     /** Utilise la fin du mois actuellement sélectionné dans l'espace bulletin. */
     private fun selectedPayrollReferenceDate(context:Context):LocalDate {
-        val ms=context.getSharedPreferences("navigation_state",Context.MODE_PRIVATE).getLong("report_month_ms",-1L)
+        val ms=RestoreGuardedPreferences.open(context, "navigation_state", Context.MODE_PRIVATE).getLong("report_month_ms",-1L)
         val selected=if(ms>0L) Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDate() else LocalDate.now()
         return selected.withDayOfMonth(selected.lengthOfMonth())
     }

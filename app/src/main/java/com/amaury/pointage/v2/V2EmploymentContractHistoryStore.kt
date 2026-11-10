@@ -37,16 +37,44 @@ object V2EmploymentContractHistoryStore {
     )
 
     fun readConfirmed(context: Context): ReadResult {
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val hasPrimary = prefs.contains(KEY_CONFIRMED)
-        val hasBackup = prefs.contains(KEY_BACKUP)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(snapshots = emptyList(), reliable = false, repairedFromBackup = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            val prefs = SalaryAccountScope.preferences(context, PREFS)
+            val hasPrimary = prefs.contains(KEY_CONFIRMED)
+            val hasBackup = prefs.contains(KEY_BACKUP)
 
-        if (!hasPrimary) {
-            if (!hasBackup) return ReadResult(emptyList(), true, false, emptyList())
-            val backupRaw = runCatching { prefs.getString(KEY_BACKUP, null) }.getOrNull()
-                ?: return unreliableResult()
+            if (!hasPrimary) {
+                if (!hasBackup) return ReadResult(emptyList(), true, false, emptyList())
+                val backupRaw = runCatching { prefs.getString(KEY_BACKUP, null) }.getOrNull()
+                    ?: return unreliableResult()
+                val backup = decodeConfirmed(backupRaw)
+                if (!backup.reliable) return unreliableResult(backup.snapshots)
+                if (!writeVerified(context, KEY_CONFIRMED, backupRaw)) {
+                    return ReadResult(
+                        snapshots = backup.snapshots,
+                        reliable = false,
+                        repairedFromBackup = false,
+                        warnings = listOf(STORAGE_WARNING, "La copie valide a été trouvée mais sa restauration a échoué.")
+                    )
+                }
+                return ReadResult(backup.snapshots, true, true, listOf(REPAIRED_WARNING))
+            }
+
+            val primaryRaw = runCatching { prefs.getString(KEY_CONFIRMED, null) }.getOrNull()
+            val primary = primaryRaw?.let(::decodeConfirmed) ?: unreliableResult()
+            if (primary.reliable && primaryRaw != null) {
+                if (prefs.getString(KEY_BACKUP, null) != primaryRaw) {
+                    writeVerified(context, KEY_BACKUP, primaryRaw)
+                }
+                return primary
+            }
+
+            if (!hasBackup) return primary
+            val backupRaw = runCatching { prefs.getString(KEY_BACKUP, null) }.getOrNull() ?: return primary
             val backup = decodeConfirmed(backupRaw)
-            if (!backup.reliable) return unreliableResult(backup.snapshots)
+            if (!backup.reliable) return primary
             if (!writeVerified(context, KEY_CONFIRMED, backupRaw)) {
                 return ReadResult(
                     snapshots = backup.snapshots,
@@ -57,29 +85,8 @@ object V2EmploymentContractHistoryStore {
             }
             return ReadResult(backup.snapshots, true, true, listOf(REPAIRED_WARNING))
         }
-
-        val primaryRaw = runCatching { prefs.getString(KEY_CONFIRMED, null) }.getOrNull()
-        val primary = primaryRaw?.let(::decodeConfirmed) ?: unreliableResult()
-        if (primary.reliable && primaryRaw != null) {
-            if (prefs.getString(KEY_BACKUP, null) != primaryRaw) {
-                writeVerified(context, KEY_BACKUP, primaryRaw)
-            }
-            return primary
-        }
-
-        if (!hasBackup) return primary
-        val backupRaw = runCatching { prefs.getString(KEY_BACKUP, null) }.getOrNull() ?: return primary
-        val backup = decodeConfirmed(backupRaw)
-        if (!backup.reliable) return primary
-        if (!writeVerified(context, KEY_CONFIRMED, backupRaw)) {
-            return ReadResult(
-                snapshots = backup.snapshots,
-                reliable = false,
-                repairedFromBackup = false,
-                warnings = listOf(STORAGE_WARNING, "La copie valide a été trouvée mais sa restauration a échoué.")
-            )
-        }
-        return ReadResult(backup.snapshots, true, true, listOf(REPAIRED_WARNING))
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     fun history(context: Context): EmploymentContractHistoryV2? = historyFrom(readConfirmed(context))
@@ -91,6 +98,7 @@ object V2EmploymentContractHistoryStore {
 
     @Synchronized
     fun saveConfirmed(context: Context, snapshot: EmploymentContractSnapshotV2): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val candidate = normalizeSnapshot(snapshot)
         if (runCatching { EmploymentContractHistoryV2(listOf(candidate)) }.isFailure) return false
 
@@ -126,6 +134,7 @@ object V2EmploymentContractHistoryStore {
         checkedAtMs: Long,
         note: String? = null
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val stored = readConfirmed(context)
         val updated = updatedTimelineFrom(
             stored = stored,
@@ -313,10 +322,11 @@ object V2EmploymentContractHistoryStore {
         context: Context,
         snapshots: List<EmploymentContractSnapshotV2>
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val normalized = snapshots.map(::normalizeSnapshot)
         if (runCatching { EmploymentContractHistoryV2(normalized) }.isFailure) return false
         val raw = encodeConfirmed(normalized)
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = SalaryAccountScope.preferences(context, PREFS)
         val committed = runCatching {
             prefs.edit()
                 .putString(KEY_CONFIRMED, raw)
@@ -331,7 +341,8 @@ object V2EmploymentContractHistoryStore {
     }
 
     private fun writeVerified(context: Context, key: String, value: String): Boolean {
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val context = SalaryAccountScope.bindContext(context)
+        val prefs = SalaryAccountScope.preferences(context, PREFS)
         val committed = runCatching { prefs.edit().putString(key, value).commit() }.getOrDefault(false)
         if (!committed) return false
         return runCatching { prefs.getString(key, null) == value }.getOrDefault(false)

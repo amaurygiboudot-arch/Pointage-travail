@@ -140,7 +140,7 @@ enum SalarySegmentedCanonicalOutputAssemblerV2 {
             net.netBeforeIncomeTaxComplete &&
             projection?.grossReliable == true &&
             projection?.netBeforeIncomeTaxComplete == true &&
-            sameMoney(projection?.cashGross, reliableCashGross) &&
+            sameMonetaryProjection(projection?.cashGross, reliableCashGross) &&
             projection?.netBeforeIncomeTax != nil
         if net.netBeforeIncomeTaxComplete && !netComplete { warnings.append(netProofWarning) }
 
@@ -199,6 +199,16 @@ enum SalarySegmentedCanonicalOutputAssemblerV2 {
         guard let left, let right,
               finiteNonNegative(left), finiteNonNegative(right) else { return false }
         return abs(left - right) <= 0.005
+    }
+
+    /// La projection nette normalise le brut au centime. Les autres preuves de la chaîne
+    /// restent inchangées ; cette frontière compare les mêmes centimes, sans epsilon flottant.
+    private static func sameMonetaryProjection(_ projected: Double?, _ upstream: Double?) -> Bool {
+        guard let projected, let upstream,
+              finiteNonNegative(projected), finiteNonNegative(upstream),
+              let projectedCents = PayrollMoneyV2.cents(projected),
+              let upstreamCents = PayrollMoneyV2.cents(upstream) else { return false }
+        return projectedCents == upstreamCents
     }
 
     private static func cashEqual(
