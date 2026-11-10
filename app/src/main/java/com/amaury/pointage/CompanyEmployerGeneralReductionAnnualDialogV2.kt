@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.app.AlertDialog
 import android.content.Context
 import android.text.InputType
@@ -47,7 +49,7 @@ object CompanyEmployerGeneralReductionAnnualDialogV2 {
         box.addView(TextView(context).apply {
             text = buildString {
                 append("Régularisation RGDU ").append(year).append("\n\n")
-                append("HoraTrack ne déduit jamais les paramètres historiques depuis le contrat actuel. ")
+                append("AGKGMG ne déduit jamais les paramètres historiques depuis le contrat actuel. ")
                 append("Confirme ici uniquement des faits valables pour toute l'année, avec une source vérifiable.")
                 if (!stored.reliable) {
                     append("\n\n⚠ Stockage annuel incohérent.")
@@ -95,7 +97,7 @@ object CompanyEmployerGeneralReductionAnnualDialogV2 {
                 text = "SUPPRIMER LE CONTEXTE ANNUEL"
                 isEnabled = stored.reliable
                 setOnClickListener {
-                    AlertDialog.Builder(context)
+                    SalaryAccountUi.dialog(context)
                         .setTitle("Supprimer le contexte RGDU $year ?")
                         .setMessage("Le calcul annuel redeviendra « à confirmer ». Les montants RGDU mensuels constatés ne seront pas supprimés.")
                         .setPositiveButton("SUPPRIMER") { _, _ ->
@@ -113,7 +115,7 @@ object CompanyEmployerGeneralReductionAnnualDialogV2 {
         }
 
         val scroll = ScrollView(context).apply { addView(box) }
-        listDialog = AlertDialog.Builder(context)
+        listDialog = SalaryAccountUi.dialog(context)
             .setTitle("RGDU annuelle")
             .setView(scroll)
             .setNegativeButton("FERMER", null)
@@ -165,7 +167,7 @@ object CompanyEmployerGeneralReductionAnnualDialogV2 {
             source.setText(record.source)
         }
 
-        val dialog = AlertDialog.Builder(context)
+        val dialog = SalaryAccountUi.dialog(context)
             .setTitle("Contexte RGDU annuel $year")
             .setView(ScrollView(context).apply { addView(box) })
             .setPositiveButton("ENREGISTRER", null)
@@ -257,7 +259,7 @@ object CompanyEmployerGeneralReductionAnnualDialogV2 {
                         CompanyEmployerGeneralReductionAnnualPayrollBridgeV2.AdvanceBasis.CONFIRMED_OBSERVED ->
                             "12 montants RGDU réellement constatés et confirmés"
                         CompanyEmployerGeneralReductionAnnualPayrollBridgeV2.AdvanceBasis.RECONSTRUCTED_AUTOMATIC ->
-                            "reconstruction automatique HoraTrack"
+                            "reconstruction automatique AGKGMG"
                         null -> "à confirmer"
                     }
                 )
@@ -271,7 +273,7 @@ object CompanyEmployerGeneralReductionAnnualDialogV2 {
                 append("\n\n").append(result.notes.joinToString("\n"))
             }
         }
-        AlertDialog.Builder(context)
+        SalaryAccountUi.dialog(context)
             .setTitle("Régularisation RGDU $year")
             .setMessage(text)
             .setPositiveButton("OK", null)
@@ -363,7 +365,7 @@ object CompanyEmployerGeneralReductionAnnualDialogV2 {
     } ?: "À confirmer"
 
     private fun selectedPayrollYear(context: Context): Int {
-        val ms = context.getSharedPreferences("navigation_state", Context.MODE_PRIVATE)
+        val ms = RestoreGuardedPreferences.open(context, "navigation_state", Context.MODE_PRIVATE)
             .getLong("report_month_ms", -1L)
         val calendar = Calendar.getInstance(Locale.FRANCE)
         if (ms > 0L) calendar.timeInMillis = ms

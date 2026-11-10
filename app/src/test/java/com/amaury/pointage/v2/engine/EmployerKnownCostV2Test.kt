@@ -48,5 +48,14 @@ class EmployerKnownCostV2Test {
         assertTrue(result.knownEmployerContributions > 0.0)
         assertFalse(result.employerCostComplete)
         assertTrue(result.employerCostWarnings.any { it.contains("aucun total complet", ignoreCase = true) })
+        assertTrue(result.employerCostWarnings.any { it.contains("part patronale de mutuelle") })
+        assertTrue(result.employerCostWarnings.any { it.contains("réductions/exonérations du mois à confirmer") })
+        val zeroConfirmed = NetSalaryEngineV2.calculate(2500.0, 2026, company.copy(
+            employerReductionAmount = 0.0,
+            employerReductionSource = "Bulletin vérifié janvier 2026"
+        ))
+        assertFalse(zeroConfirmed.employerCostWarnings.any { it.contains("réductions/exonérations du mois à confirmer") })
+        assertFalse(zeroConfirmed.employerCostComplete)
+        assertEquals(zeroConfirmed.knownEmployerContributions, zeroConfirmed.knownEmployerContributionsAfterReductions!!, 0.001)
     }
 }

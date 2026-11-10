@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import android.content.Context
+import com.amaury.pointage.v2.SalaryAccountScope
 import com.amaury.pointage.v2.CompanyPremiumStoreV2
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.LegalPayrollSourceStoreV2
@@ -14,8 +15,6 @@ import com.amaury.pointage.v2.V2ConventionSeniorityPremiumBridge
 import com.amaury.pointage.v2.V2EmploymentContractPayrollBridge
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RightsStore
-import com.amaury.pointage.v2.V2RuntimeStore
-import com.amaury.pointage.v2.V2RuntimeHistoryGuardV2
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.CollectivePremiumLegalArbitrationBridgeV2
@@ -54,7 +53,8 @@ import kotlin.math.roundToInt
 /** Passerelle unique entre les écrans Salaire et PayrollEngineV2. */
 object V2SalaryAdapter {
  data class TierDuration(val label:String,val durationMs:Long,val multiplier:Double)
- data class Result(val regularMs:Long,val overtimeTiers:List<TierDuration>,val totalWorkedMs:Long,val regularGross:Double,val overtimeGross:Double,val premiumsGross:Double,val monthlyEstimatedGross:Double,val monthlyGrossReliable:Boolean,val nightMs:Long,val saturdayMs:Long,val sundayMs:Long,val complementaryMinutes:Int,val completedSessions:Int,val warnings:List<String>,val mealBasketCount:Int=0,val mealBasketAmount:Double?=null,val mealBasketTotal:Double?=null,val publicHolidayMs:Long=0L,val conventionMinimumMonthlyGross:Double?=null,val conventionClassificationLabel:String?=null,val seniorityPremiumGross:Double?=null,val paidTimeReliable:Boolean=monthlyGrossReliable,val unpaidPauseMs:Long?=null)
+ /** totalWorkedMs is exact tracked paid time; regularMs and tiers are the quantities valued by payroll. */
+ data class Result(val regularMs:Long,val overtimeTiers:List<TierDuration>,val totalWorkedMs:Long,val regularGross:Double,val overtimeGross:Double,val premiumsGross:Double,val monthlyEstimatedGross:Double,val monthlyGrossReliable:Boolean,val nightMs:Long,val saturdayMs:Long,val sundayMs:Long,val complementaryMinutes:Int,val completedSessions:Int,val warnings:List<String>,val mealBasketCount:Int=0,val mealBasketAmount:Double?=null,val mealBasketTotal:Double?=null,val publicHolidayMs:Long=0L,val conventionMinimumMonthlyGross:Double?=null,val conventionClassificationLabel:String?=null,val seniorityPremiumGross:Double?=null,val paidTimeReliable:Boolean=monthlyGrossReliable,val unpaidPauseMs:Long?=null,val grossBeforeMayFirstReliable:Boolean=false)
  data class FullTimeRegularReference(val minutes:Int?,val reliable:Boolean)
 
  internal fun resolvePositiveHourlyRate(contractRate:Double?,fallbackRate:Double?):Double? =
@@ -78,112 +78,129 @@ object V2SalaryAdapter {
  }
 
  fun calculateForCompany(context:Context,company:SalaryCompanyStore.Company,year:Int,month:Int,convention:ConventionCatalog.Convention,ruleHistory:ConventionRuleHistoryV2?=null):Result {
-  require(HoraTrackV2.ENABLED)
-  val period=PayrollPeriodV2.month(year,month)
-  val contractSource=V2EmploymentContractPayrollBridge.resolve(context,company.id,year,month)
-  val contract=contractSource.resolution.contract
-  val type=contract?.type
-  val rate=contract?.grossHourlyRate
-  val missing=if(contract==null) listOf("contrat daté confirmé couvrant toute la période") else emptyList()
-  val acceptedIds=SalaryCompanyStore.acceptedEmployerIds(context,company.id)
-  val runtimeSource=V2RuntimeReader.allSessions(context)
-  val runtimeSessions=runtimeSource.sessions
-  val runtimeWarnings=if(runtimeSource.reliable)emptyList()else runtimeSource.warnings.ifEmpty{listOf(V2RuntimeReader.UNRELIABLE_MESSAGE)}
-  val absenceImpact=AbsencePayrollImpactV2.forMonth(V2RightsStore.absences(context),period.referenceDate,acceptedIds,workSessions=runtimeSessions)
-  val companyAgreement=CompanyAgreementPayrollBridgeV2.load(context,company.id,period.referenceDate,period)
-  val overtimeArbitration=OvertimeLegalArbitrationBridgeV2.load(context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,period=period)
-  val collectivePremiumArbitration=CollectivePremiumLegalArbitrationBridgeV2.load(context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,period=period)
-  val holidayScope=FrenchPublicHolidayCalendarV2.scopeForAddress(company.address)
-  val conventionHistory=salaryConventionHistoryStateV2(
-   provided=ruleHistory,
-   stored=if(ruleHistory==null)V2ConventionRuleStore.readConfirmed(context)else null
-  )
-  val calculationConvention=conventionHistory.conventionForCalculation(convention,type)
-  val baseCalculated=applyMayFirstLegalAdjustment(
-   context=context,
-   base=calculateCore(
-    contract,missing,runtimeSessions,year,month,rate?:0.0,calculationConvention,
-    conventionHistory.history,acceptedIds,companyAgreement,absenceImpact,overtimeArbitration,collectivePremiumArbitration,holidayScope,
-    runtimeReliable=runtimeSource.reliable
-   ),
-   contract=contract,
-   sessions=runtimeSessions,
-   year=year,
-   month=month,
-   fallbackRate=rate,
-   acceptedEmployerIds=acceptedIds,
-   premiumSnapshot=collectivePremiumArbitration,
-   referenceDate=period.referenceDate
-  ).let{result->
-   result.copy(
-    monthlyGrossReliable=salaryConventionHistoryGrossReliableV2(result.monthlyGrossReliable,conventionHistory,type,result.overtimeGross),
-    warnings=salaryConventionHistoryWarningsV2(result.warnings,conventionHistory,type)
-   )
-  }
-  val conventionMinimum=V2ConventionMinimumSalaryBridge.load(context,company.id,convention.idcc,period.referenceDate)
-  val seniorityBase=baseCalculated.regularGross.takeIf{type in setOf(ContractTypeV2.FULL_TIME,ContractTypeV2.PART_TIME)&&baseCalculated.monthlyGrossReliable}
-  val seniority=V2ConventionSeniorityPremiumBridge.load(
-   context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,
-   actualMonthlyBaseGross=seniorityBase,conventionalMinimumMonthlyGross=conventionMinimum.selectedMonthlyGross
-  ).result
-  val seniorityAmount=seniority.monthlyAmount?.takeIf{seniority.reliable}?:0.0
-  val companyPremiums=CompanyPremiumStoreV2.resolve(context,company.id,YearMonth.of(year,month+1))
-  val calculated=baseCalculated.copy(
-   premiumsGross=baseCalculated.premiumsGross+seniorityAmount+companyPremiums.totalGross,
-   monthlyEstimatedGross=baseCalculated.monthlyEstimatedGross+seniorityAmount+companyPremiums.totalGross,
-   monthlyGrossReliable=baseCalculated.monthlyGrossReliable&&seniority.reliable&&companyPremiums.reliable,
-   warnings=(baseCalculated.warnings+conventionMinimum.resolution.warnings+seniority.warnings+companyPremiums.warnings).distinct(),
-   conventionMinimumMonthlyGross=conventionMinimum.selectedMonthlyGross,
-   conventionClassificationLabel=conventionMinimum.classification.takeIf{!it.isEmpty()}?.label(),
-   seniorityPremiumGross=seniority.monthlyAmount?.takeIf{seniority.reliable}
-  )
-  val meals=MealBasketSalaryBridgeV2.calculate(
-   context=context,
-   companyId=company.id,
-   expectedIdcc=convention.idcc,
-   companyAddress=company.address,
-   sessions=runtimeSessions,
-   year=year,
-   monthZeroBased=month,
-   acceptedEmployerIds=acceptedIds
-  )
-  val legalAtMs=period.referenceDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-  val legalSnapshot=LegalPayrollSourceStoreV2.snapshot(context,legalAtMs)
-  val legalWarnings=legalPayrollSourceWarnings(legalSnapshot)
-  return calculated.copy(
-   mealBasketCount=if(calculated.paidTimeReliable)meals.count else 0,
-   mealBasketAmount=meals.unitAmount.takeIf{calculated.paidTimeReliable},
-   mealBasketTotal=meals.totalAmount.takeIf{calculated.paidTimeReliable},
-   warnings=(calculated.warnings+contractSource.warnings+meals.warnings+legalWarnings+runtimeWarnings).distinct()
-  )
- }
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): Result = empty(listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        V2ProfileStore.bind(context)
+        val company = SalaryCompanyStore.confirmedCompany(SalaryCompanyStore.readConfirmed(context), company.id) ?: return unavailable()
+        fun calculateInScope(): Result {
+            require(HoraTrackV2.ENABLED)
+            val period=PayrollPeriodV2.month(year,month)
+            val contractSource=V2EmploymentContractPayrollBridge.resolve(context,company.id,year,month)
+            val contract=contractSource.resolution.contract
+            val type=contract?.type
+            val rate=contract?.grossHourlyRate
+            val missing=if(contract==null) listOf("contrat daté confirmé couvrant toute la période") else emptyList()
+            val acceptedIds=SalaryCompanyStore.acceptedEmployerIds(context,company.id)
+            val runtimeSource=V2RuntimeReader.allSessions(context)
+            val runtimeSessions=runtimeSource.sessions
+            val runtimeWarnings=if(runtimeSource.reliable)emptyList()else runtimeSource.warnings.ifEmpty{listOf(V2RuntimeReader.UNRELIABLE_MESSAGE)}
+            val absenceImpact=AbsencePayrollImpactV2.forMonth(V2RightsStore.absences(context),period.referenceDate,acceptedIds,workSessions=runtimeSessions)
+            val companyAgreement=CompanyAgreementPayrollBridgeV2.load(context,company.id,period.referenceDate,period)
+            val overtimeArbitration=OvertimeLegalArbitrationBridgeV2.load(context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,period=period)
+            val collectivePremiumArbitration=CollectivePremiumLegalArbitrationBridgeV2.load(context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,period=period)
+            val holidayScope=FrenchPublicHolidayCalendarV2.scopeForAddress(company.address)
+            val conventionHistory=salaryConventionHistoryStateV2(
+             provided=ruleHistory,
+             stored=if(ruleHistory==null)V2ConventionRuleStore.readConfirmed(context)else null
+            )
+            val calculationConvention=conventionHistory.conventionForCalculation(convention,type)
+            val baseCalculated=applyMayFirstLegalAdjustment(
+             context=context,
+             base=calculateCore(
+              contract,missing,runtimeSessions,year,month,rate?:0.0,calculationConvention,
+              conventionHistory.history,acceptedIds,companyAgreement,absenceImpact,overtimeArbitration,collectivePremiumArbitration,holidayScope,
+              runtimeReliable=runtimeSource.reliable
+             ),
+             contract=contract,
+             sessions=runtimeSessions,
+             year=year,
+             month=month,
+             fallbackRate=rate,
+             acceptedEmployerIds=acceptedIds,
+             premiumSnapshot=collectivePremiumArbitration,
+             referenceDate=period.referenceDate
+            ).let{result->
+             result.copy(
+              monthlyGrossReliable=salaryConventionHistoryGrossReliableV2(result.monthlyGrossReliable,conventionHistory,type,result.overtimeGross),
+              warnings=salaryConventionHistoryWarningsV2(result.warnings,conventionHistory,type)
+             )
+            }
+            val conventionMinimum=V2ConventionMinimumSalaryBridge.load(context,company.id,convention.idcc,period.referenceDate)
+            val seniorityBase=baseCalculated.regularGross.takeIf{type in setOf(ContractTypeV2.FULL_TIME,ContractTypeV2.PART_TIME)&&baseCalculated.monthlyGrossReliable}
+            val seniority=V2ConventionSeniorityPremiumBridge.load(
+             context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,
+             actualMonthlyBaseGross=seniorityBase,conventionalMinimumMonthlyGross=conventionMinimum.selectedMonthlyGross
+            ).result
+            val seniorityAmount=seniority.monthlyAmount?.takeIf{seniority.reliable}?:0.0
+            val companyPremiums=CompanyPremiumStoreV2.resolve(context,company.id,YearMonth.of(year,month+1))
+            val calculated=baseCalculated.copy(
+             premiumsGross=baseCalculated.premiumsGross+seniorityAmount+companyPremiums.totalGross,
+             monthlyEstimatedGross=baseCalculated.monthlyEstimatedGross+seniorityAmount+companyPremiums.totalGross,
+             monthlyGrossReliable=baseCalculated.monthlyGrossReliable&&seniority.reliable&&companyPremiums.reliable,
+             warnings=(baseCalculated.warnings+conventionMinimum.resolution.warnings+seniority.warnings+companyPremiums.warnings).distinct(),
+             conventionMinimumMonthlyGross=conventionMinimum.selectedMonthlyGross,
+             conventionClassificationLabel=conventionMinimum.classification.takeIf{!it.isEmpty()}?.label(),
+             seniorityPremiumGross=seniority.monthlyAmount?.takeIf{seniority.reliable}
+            )
+            val meals=MealBasketSalaryBridgeV2.calculate(
+             context=context,
+             companyId=company.id,
+             expectedIdcc=convention.idcc,
+             companyAddress=company.address,
+             sessions=runtimeSessions,
+             year=year,
+             monthZeroBased=month,
+             acceptedEmployerIds=acceptedIds
+            )
+            val legalAtMs=period.referenceDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val legalSnapshot=LegalPayrollSourceStoreV2.snapshot(context,legalAtMs)
+            val legalWarnings=legalPayrollSourceWarnings(legalSnapshot)
+            return calculated.copy(
+             mealBasketCount=if(calculated.paidTimeReliable)meals.count else 0,
+             mealBasketAmount=meals.unitAmount.takeIf{calculated.paidTimeReliable},
+             mealBasketTotal=meals.totalAmount.takeIf{calculated.paidTimeReliable},
+             warnings=(calculated.warnings+contractSource.warnings+meals.warnings+legalWarnings+runtimeWarnings).distinct()
+            )
+        }
+        val result = SalaryAccountScope.withLease(SalaryAccountScope.lease(context)) { calculateInScope() }
+        return if (SalaryAccountScope.available(context)) result else unavailable()
+    }
 
  fun calculate(context:Context,year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention,companySlot:Int=1,ruleHistory:ConventionRuleHistoryV2?=null):Result {
-  val p=V2ProfileStore.load(context,companySlot.coerceIn(1,2))
-  val ids=p.contract?.let{setOf(it.employerId)}.orEmpty()
-  val referenceDate=LocalDate.of(year,month+1,1).let{it.withDayOfMonth(it.lengthOfMonth())}
-  val runtimeSource=V2RuntimeReader.allSessions(context)
-  val runtimeSessions=runtimeSource.sessions
-  val runtimeWarnings=if(runtimeSource.reliable)emptyList()else runtimeSource.warnings.ifEmpty{listOf(V2RuntimeReader.UNRELIABLE_MESSAGE)}
-  val absenceImpact=AbsencePayrollImpactV2.forMonth(V2RightsStore.absences(context),referenceDate,ids,workSessions=runtimeSessions)
-  val companyId=p.contract?.employerId
-  val holidayContext=LegacySalaryHolidayScopeResolverV2.resolve(SalaryCompanyStore.readConfirmed(context),companyId)
-  val collectivePremiumArbitration=companyId?.let{CollectivePremiumLegalArbitrationBridgeV2.load(context,it,convention.idcc,referenceDate)}
-  val holidayScope=holidayContext.scope
-  val contractType=p.contract?.type
-  val conventionHistory=salaryConventionHistoryStateV2(
-   provided=ruleHistory,
-   stored=if(ruleHistory==null)V2ConventionRuleStore.readConfirmed(context)else null
-  )
-  val calculationConvention=conventionHistory.conventionForCalculation(convention,contractType)
-  val calculated=calculateCore(p.contract,p.missing,runtimeSessions,year,month,hourlyRate,calculationConvention,conventionHistory.history,ids,null,absenceImpact,null,collectivePremiumArbitration,holidayScope,runtimeReliable=runtimeSource.reliable)
-  return applyMayFirstLegalAdjustment(context,calculated,p.contract,runtimeSessions,year,month,hourlyRate,ids,collectivePremiumArbitration,referenceDate).let{result->
-   result.copy(
-    monthlyGrossReliable=salaryConventionHistoryGrossReliableV2(result.monthlyGrossReliable,conventionHistory,contractType,result.overtimeGross)&&holidayContext.companyStoreReliable,
-    warnings=(salaryConventionHistoryWarningsV2(result.warnings,conventionHistory,contractType)+holidayContext.warnings+runtimeWarnings).distinct()
-   )
-  }
- }
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): Result = empty(listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        V2ProfileStore.bind(context)
+        fun calculateInScope(): Result {
+            val p=V2ProfileStore.load(context,companySlot.coerceIn(1,2))
+            val ids=p.contract?.let{setOf(it.employerId)}.orEmpty()
+            val referenceDate=LocalDate.of(year,month+1,1).let{it.withDayOfMonth(it.lengthOfMonth())}
+            val runtimeSource=V2RuntimeReader.allSessions(context)
+            val runtimeSessions=runtimeSource.sessions
+            val runtimeWarnings=if(runtimeSource.reliable)emptyList()else runtimeSource.warnings.ifEmpty{listOf(V2RuntimeReader.UNRELIABLE_MESSAGE)}
+            val absenceImpact=AbsencePayrollImpactV2.forMonth(V2RightsStore.absences(context),referenceDate,ids,workSessions=runtimeSessions)
+            val companyId=p.contract?.employerId
+            val holidayContext=LegacySalaryHolidayScopeResolverV2.resolve(SalaryCompanyStore.readConfirmed(context),companyId)
+            val collectivePremiumArbitration=companyId?.let{CollectivePremiumLegalArbitrationBridgeV2.load(context,it,convention.idcc,referenceDate)}
+            val holidayScope=holidayContext.scope
+            val contractType=p.contract?.type
+            val conventionHistory=salaryConventionHistoryStateV2(
+             provided=ruleHistory,
+             stored=if(ruleHistory==null)V2ConventionRuleStore.readConfirmed(context)else null
+            )
+            val calculationConvention=conventionHistory.conventionForCalculation(convention,contractType)
+            val calculated=calculateCore(p.contract,p.missing,runtimeSessions,year,month,hourlyRate,calculationConvention,conventionHistory.history,ids,null,absenceImpact,null,collectivePremiumArbitration,holidayScope,runtimeReliable=runtimeSource.reliable)
+            return applyMayFirstLegalAdjustment(context,calculated,p.contract,runtimeSessions,year,month,hourlyRate,ids,collectivePremiumArbitration,referenceDate).let{result->
+             result.copy(
+              monthlyGrossReliable=salaryConventionHistoryGrossReliableV2(result.monthlyGrossReliable,conventionHistory,contractType,result.overtimeGross)&&holidayContext.companyStoreReliable,
+              warnings=(salaryConventionHistoryWarningsV2(result.warnings,conventionHistory,contractType)+holidayContext.warnings+runtimeWarnings).distinct()
+             )
+            }
+        }
+        val result = SalaryAccountScope.withLease(SalaryAccountScope.lease(context)) { calculateInScope() }
+        return if (SalaryAccountScope.available(context)) result else unavailable()
+    }
  fun calculateBound(
   year:Int,
   month:Int,
@@ -192,28 +209,33 @@ object V2SalaryAdapter {
   companySlot:Int=1,
   ruleHistory:ConventionRuleHistoryV2?=null
  ):Result {
-  val p=V2ProfileStore.loadBound(companySlot.coerceIn(1,2))
-  val runtimeSessions=V2RuntimeStore.allSessionsBound()
-  val runtimeSource=V2RuntimeHistoryGuardV2.sourceState()
-  val calculated=calculateCore(
-   p?.contract,
-   p?.missing.orEmpty(),
-   runtimeSessions,
-   year,
-   month,
-   hourlyRate,
-   convention,
-   ruleHistory,
-   p?.contract?.let{setOf(it.employerId)}.orEmpty(),
-   null,
-   null,
-   null,
-   null,
-   null,
-   runtimeReliable=runtimeSource.reliable
-  )
-  val runtimeWarnings=if(runtimeSource.reliable)emptyList()else runtimeSource.warnings.ifEmpty{listOf(V2RuntimeReader.UNRELIABLE_MESSAGE)}
-  return calculated.copy(warnings=(calculated.warnings+runtimeWarnings).distinct())
+  val context=V2ProfileStore.boundForOperation() ?: return empty(listOf(SalaryAccountScope.AUTH_WARNING))
+  fun calculateInScope():Result {
+   val p=V2ProfileStore.load(context,companySlot.coerceIn(1,2))
+   val runtimeSource=V2RuntimeReader.allSessions(context)
+   val runtimeSessions=runtimeSource.sessions
+   val calculated=calculateCore(
+    p.contract,
+    p.missing,
+    runtimeSessions,
+    year,
+    month,
+    hourlyRate,
+    convention,
+    ruleHistory,
+    p.contract?.let{setOf(it.employerId)}.orEmpty(),
+    null,
+    null,
+    null,
+    null,
+    null,
+    runtimeReliable=runtimeSource.reliable
+   )
+   val runtimeWarnings=if(runtimeSource.reliable)emptyList()else runtimeSource.warnings.ifEmpty{listOf(V2RuntimeReader.UNRELIABLE_MESSAGE)}
+   return calculated.copy(warnings=(calculated.warnings+runtimeWarnings).distinct())
+  }
+  val result=SalaryAccountScope.withLease(SalaryAccountScope.lease(context)){calculateInScope()}
+  return if(SalaryAccountScope.available(context))result else empty(listOf(SalaryAccountScope.AUTH_WARNING))
  }
 
  private fun calculateCore(contract:ContractV2?,missing:List<String>,sessions:List<WorkSessionV2>,year:Int,month:Int,fallbackRate:Double,convention:ConventionCatalog.Convention,ruleHistory:ConventionRuleHistoryV2?,acceptedEmployerIds:Set<String>,companyAgreementSnapshot:CompanyAgreementPayrollBridgeV2.Snapshot?=null,absenceImpact:AbsencePayrollImpactV2.Snapshot?=null,overtimeArbitrationSnapshot:OvertimeLegalArbitrationBridgeV2.Snapshot?=null,collectivePremiumSnapshot:CollectivePremiumLegalArbitrationBridgeV2.Snapshot?=null,publicHolidayScope:FrenchPublicHolidayCalendarV2.Scope?=null,runtimeReliable:Boolean=true,nowMs:Long=System.currentTimeMillis()):Result {
@@ -245,7 +267,8 @@ object V2SalaryAdapter {
    if(premium.publicHoliday.resolution.considered.isNotEmpty())warnings+=premium.publicHoliday.warnings
   }
   val baseMonthlyGrossReliable=grossAssessment.exactMonthlyGrossAvailable&&absenceImpact?.requiresPayrollReview!=true&&paidTimeReliable
-  data class W(var paid:Int=0,var night:Int=0,var sat:Int=0,var sun:Int=0,var holiday:Int=0)
+  // Keep source precision across fragments; each ISO week/category has its own minute boundary.
+  data class W(var paidMs:Long=0L,var nightMs:Long=0L,var satMs:Long=0L,var sunMs:Long=0L,var holidayMs:Long=0L)
   val weeks=linkedMapOf<Pair<Int,Int>,W>()
   val historical=ruleHistory?.allVersions(convention.idcc)?.isNotEmpty()==true
   val nightRule=collectivePremiumSnapshot?.night?.takeIf{it.resolved}?.selectedRule
@@ -259,17 +282,16 @@ object V2SalaryAdapter {
   var collectiveCumulReviewRequired=false
   selected.forEach{s->
    PaidWorkAllocationV2.splitByIsoWeek(s,monthStart,monthEnd).forEach{slice->
-    val paidMinutes=(slice.paidMs/60000L).toInt()
     val w=weeks.getOrPut(slice.weekYear to slice.weekOfYear){W()}
-    w.paid+=paidMinutes
+    w.paidMs+=slice.paidMs
     val night=nightRule?.let{r->NightPremiumPolicyV2.paidOverlap(s,slice.startMs,slice.endMs,r)}?:0L
-    w.night+=(night/60000L).toInt();nightMs+=night
+    w.nightMs+=night;nightMs+=night
     val sat=dayPaidOverlap(s,slice.startMs,slice.endMs,Calendar.SATURDAY)
     val sun=dayPaidOverlap(s,slice.startMs,slice.endMs,Calendar.SUNDAY)
     val holiday=PublicHolidayPremiumPolicyV2.paidOverlap(s,slice.startMs,slice.endMs,genericHolidayDates)
     val mayFirst=PublicHolidayPremiumPolicyV2.paidOverlap(s,slice.startMs,slice.endMs,mayFirstDates)
     val unresolved=PublicHolidayPremiumPolicyV2.paidOverlap(s,slice.startMs,slice.endMs,unresolvedHolidayDates)
-    w.sat+=(sat/60000L).toInt();w.sun+=(sun/60000L).toInt();w.holiday+=(holiday/60000L).toInt()
+    w.satMs+=sat;w.sunMs+=sun;w.holidayMs+=holiday
     satMs+=sat;sunMs+=sun;holidayMs+=holiday;mayFirstMs+=mayFirst;unresolvedHolidayMs+=unresolved
     val activePremiumKinds=listOf(
      nightRule!=null&&night>0L,
@@ -280,6 +302,14 @@ object V2SalaryAdapter {
     if(activePremiumKinds>1)collectiveCumulReviewRequired=true
    }
   }
+  // The payroll engine still consumes whole minutes, after all fragments have been accumulated.
+  // Do not carry remainders between weeks, categories or months. The tracked total stays exact.
+  val totalWorkedMs=weeks.values.sumOf{it.paidMs}
+  val payrollWeeks=weeks.values.map{w->PayrollWeekV2(
+   paidMinutes=(w.paidMs/60000L).toInt(),nightMinutes=(w.nightMs/60000L).toInt(),
+   saturdayMinutes=(w.satMs/60000L).toInt(),sundayMinutes=(w.sunMs/60000L).toInt(),
+   publicHolidayMinutes=(w.holidayMs/60000L).toInt()
+  )}
   if(publicHolidayScope!=null&&!publicHolidayScope.complete&&collectivePremiumSnapshot?.publicHoliday?.resolution?.considered?.isNotEmpty()==true){
    publicHolidayScope.warning?.let(warnings::add)
    warnings+="Jours fériés : calendrier territorial non exhaustif ; la majoration générique reste bloquée."
@@ -288,7 +318,7 @@ object V2SalaryAdapter {
   if(unresolvedHolidayMs>0L)warnings+="Jour férié territorial potentiel travaillé : le périmètre local n'est pas suffisamment confirmé pour valoriser automatiquement ces minutes."
 
   if(contract.type==ContractTypeV2.FORFAIT_HOURS||contract.type==ContractTypeV2.FORFAIT_DAYS){
-   val worked=PayrollEngineV2.calculate(contract,weeks.values.map{PayrollWeekV2(it.paid,it.night,it.sat,it.sun,it.holiday)},PayrollRulesV2())
+   val worked=PayrollEngineV2.calculate(contract,payrollWeeks,PayrollRulesV2())
    val contractualMonthlyMinutes=when(contract.type){
     ContractTypeV2.FORFAIT_HOURS->when(contract.forfaitHoursPeriod){ForfaitHoursPeriodV2.WEEK->contract.forfaitHours?.times(52.0/12.0)?.times(60.0);ForfaitHoursPeriodV2.MONTH->contract.forfaitHours?.times(60.0);ForfaitHoursPeriodV2.YEAR->contract.forfaitHours?.div(12.0)?.times(60.0);null->null}
     else->null
@@ -301,7 +331,7 @@ object V2SalaryAdapter {
    if(selected.isEmpty())warnings+="Aucune session pointée sur la période : la rémunération forfaitaire contractuelle reste une base théorique ; les absences enregistrées sont contrôlées séparément."
    val holidayReliable=holidayMs==0L&&mayFirstMs==0L&&unresolvedHolidayMs==0L
    return Result(
-    regularMs=contractualMonthlyMinutes?.toLong()?.times(60000L)?:0L,overtimeTiers=emptyList(),totalWorkedMs=weeks.values.sumOf{it.paid}.toLong()*60000L,
+    regularMs=contractualMonthlyMinutes?.toLong()?.times(60000L)?:0L,overtimeTiers=emptyList(),totalWorkedMs=totalWorkedMs,
     regularGross=worked.regularGross,overtimeGross=0.0,premiumsGross=worked.premiumsGross+worked.fixedPremiumsGross,monthlyEstimatedGross=worked.grossEstimate,
     monthlyGrossReliable=baseMonthlyGrossReliable&&holidayReliable,nightMs=nightMs,saturdayMs=satMs,sundayMs=sunMs,complementaryMinutes=0,completedSessions=selected.size,
     warnings=warnings+worked.traces+premiumSourceTraces(collectivePremiumSnapshot,true),publicHolidayMs=holidayMs,paidTimeReliable=paidTimeReliable,unpaidPauseMs=paidWorkScope.unpaidPauseMs?.takeIf{paidTimeReliable}
@@ -353,20 +383,20 @@ object V2SalaryAdapter {
   }
   val effectiveRules=if(!arbitratedOvertime.isNullOrEmpty())baseRules.copy(overtimeTiers=arbitratedOvertime)else baseRules
   val payrollRules=if(isPartTime||isFullTime)effectiveRules.copy(overtimeTiers=emptyList()) else effectiveRules
-  val genericOvertimeCoverageReliable=!isGenericHourly||OvertimeCoverageV2.areWeeksFullyCovered(regularLimit,weeks.values.map{it.paid},payrollRules.overtimeTiers)
+  val genericOvertimeCoverageReliable=!isGenericHourly||OvertimeCoverageV2.areWeeksFullyCovered(regularLimit,payrollWeeks.map{it.paidMinutes},payrollRules.overtimeTiers)
   if(!genericOvertimeCoverageReliable)warnings+="Heures supplémentaires : certaines minutes au-delà du seuil hebdomadaire ne sont couvertes par aucun palier confirmé ou les paliers se chevauchent ; aucune majoration n'est inventée pour ces minutes et le brut reste à confirmer."
-  val worked=PayrollEngineV2.calculate(contract.copy(grossHourlyRate=rate),weeks.values.map{PayrollWeekV2(it.paid,it.night,it.sat,it.sun,it.holiday)},payrollRules)
+  val worked=PayrollEngineV2.calculate(contract.copy(grossHourlyRate=rate),payrollWeeks,payrollRules)
 
-  val complementary=if(isPartTime)weeks.values.map{PartTimeComplementaryHoursV2.calculateWeek(regularLimit,it.paid,rate)}else emptyList()
+  val complementary=if(isPartTime)payrollWeeks.map{PartTimeComplementaryHoursV2.calculateWeek(regularLimit,it.paidMinutes,rate,confirmedSchedule=hr?.complementarySchedule?.takeIf{it.applies(date.withDayOfMonth(date.lengthOfMonth()).toEpochDay(),regularLimit)},referenceEpochDay=date.toEpochDay())}else emptyList()
   val complementaryMinutes=complementary.sumOf{it.complementaryMinutes}
   val complementaryGross=complementary.sumOf{it.grossToAdd}
-  val provisionalComplementaryRateUsed=isPartTime&&complementaryMinutes>0
+  val provisionalComplementaryRateUsed=isPartTime&&complementary.any{it.complementaryMinutes>0&&!it.confirmedScheduleUsed}
   warnings+=complementary.flatMap{it.warnings}.distinct()
   if(provisionalComplementaryRateUsed)warnings+="Temps partiel : barème supplétif des heures complémentaires appliqué (+10 % puis +25 %) tant qu'aucune stipulation conventionnelle structurée plus précise n'est intégrée."
 
   val fullTime=if(isFullTime){
    val contractual=contract.contractualWeeklyMinutes?:regularLimit
-   FullTimeStructuralOvertimeV2.calculate(contractualWeeklyMinutes=contractual,regularWeeklyLimit=regularLimit,paidWeeks=weeks.values.map{it.paid},grossHourlyRate=rate,overtimeTiers=effectiveRules.overtimeTiers)
+   FullTimeStructuralOvertimeV2.calculate(contractualWeeklyMinutes=contractual,regularWeeklyLimit=regularLimit,paidWeeks=payrollWeeks.map{it.paidMinutes},grossHourlyRate=rate,overtimeTiers=effectiveRules.overtimeTiers)
   }else null
   fullTime?.let{ft->
    warnings+=ft.warnings
@@ -386,7 +416,8 @@ object V2SalaryAdapter {
   val overtimeNeedsLegalArbitration=isFullTime&&fullTime!=null&&(fullTime.monthlyStructuralOvertimeMinutes>0.0||fullTime.variableTiers.any{it.minutes>0.0}||fullTime.unresolvedVariableOvertimeMinutes>0.0)
   val legalArbitrationResolved=overtimeArbitrationSnapshot?.let{it.resolution.state==PayrollLegalArbitratorV2.State.RESOLVED&&it.selectedSchedule!=null}==true
   val publicHolidayReliable=holidayMs==0L||publicHolidayRule!=null
-  val monthlyGrossReliable=monthlyGrossReliability(baseReliable=baseMonthlyGrossReliable,provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,arbitrationResolved=legalArbitrationResolved,cumulReviewRequired=cumulReviewRequired,runtimeReliable=runtimeReliable,provisionalComplementaryRateUsed=provisionalComplementaryRateUsed,genericOvertimeCoverageReliable=genericOvertimeCoverageReliable,fullTimeRegularReferenceReliable=fullTimeRegularReference?.reliable!=false)&&weeklyBoundaryGuard.reliable&&publicHolidayReliable&&mayFirstMs==0L&&unresolvedHolidayMs==0L
+  val grossBeforeMayFirstReliable=monthlyGrossReliability(baseReliable=baseMonthlyGrossReliable,provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,arbitrationResolved=legalArbitrationResolved,cumulReviewRequired=cumulReviewRequired,runtimeReliable=runtimeReliable,provisionalComplementaryRateUsed=provisionalComplementaryRateUsed,genericOvertimeCoverageReliable=genericOvertimeCoverageReliable,fullTimeRegularReferenceReliable=fullTimeRegularReference?.reliable!=false)&&weeklyBoundaryGuard.reliable&&publicHolidayReliable&&unresolvedHolidayMs==0L
+  val monthlyGrossReliable=grossBeforeMayFirstReliable&&mayFirstMs==0L
 
   val monthlyMinutes=contract.contractualWeeklyMinutes?.let{it*52.0/12.0}
   val partTimeBase=if(isPartTime)monthlyMinutes?.div(60.0)?.times(rate)else null
@@ -395,7 +426,7 @@ object V2SalaryAdapter {
   if(baseGross!=null){if(isFullTime)warnings+="Salaire de base mensualisé : durée légale/référence + éventuelles heures structurelles majorées ; les pointages ajoutent seulement les dépassements du contrat." else warnings+="Salaire de base mensualisé : ${String.format(Locale.FRANCE,"%.2f",monthlyMinutes!!/60.0)} h × ${String.format(Locale.FRANCE,"%.2f",rate)} € ; pointages utilisés pour les éléments variables."}
   if(selected.isEmpty())warnings+="Aucune session pointée : base mensualisée théorique conservée ; les absences enregistrées sont contrôlées séparément."
 
-  var regular=0;val tm=LongArray(payrollRules.overtimeTiers.size);weeks.values.forEach{w->regular+=minOf(w.paid,regularLimit);payrollRules.overtimeTiers.forEachIndexed{i,t->tm[i]+=(minOf(w.paid,t.toMinutes?:Int.MAX_VALUE)-maxOf(regularLimit,t.fromMinutes)).coerceAtLeast(0)}}
+  var regular=0;val tm=LongArray(payrollRules.overtimeTiers.size);payrollWeeks.forEach{w->regular+=minOf(w.paidMinutes,regularLimit);payrollRules.overtimeTiers.forEachIndexed{i,t->tm[i]+=(minOf(w.paidMinutes,t.toMinutes?:Int.MAX_VALUE)-maxOf(regularLimit,t.fromMinutes)).coerceAtLeast(0)}}
   val displayedTiers=when{
    isPartTime->complementary.flatMap{it.tiers}.groupBy{it.label to it.multiplier}.map{(key,values)->TierDuration(key.first,values.sumOf{it.minutes}.toLong()*60000L,key.second)}
    isFullTime->buildList{fullTime?.structuralTiers?.forEach{t->add(TierDuration("Heures sup. structurelles +${((t.multiplier-1.0)*100).roundToInt()} %",(t.minutes*60000.0).toLong(),t.multiplier))};fullTime?.variableTiers?.forEach{t->add(TierDuration("Heures sup. variables +${((t.multiplier-1.0)*100).roundToInt()} %",(t.minutes*60000.0).toLong(),t.multiplier))}}
@@ -406,8 +437,8 @@ object V2SalaryAdapter {
   val overtimeGross=when{isFullTime->(fullTime?.structuralOvertimeGross?:0.0)+(fullTime?.variableOvertimeGross?:0.0);isPartTime->complementaryGross;else->worked.overtimeGross}
   val traces=worked.traces.filterNot{(isPartTime||isFullTime)&&it.startsWith("Aucune majoration d'heures supplémentaires")}
   return Result(
-   regularMs=regularMs,overtimeTiers=displayedTiers,totalWorkedMs=weeks.values.sumOf{it.paid}.toLong()*60000L,regularGross=regularGross,overtimeGross=overtimeGross,
-   premiumsGross=worked.premiumsGross,monthlyEstimatedGross=gross,monthlyGrossReliable=monthlyGrossReliable,nightMs=nightMs,saturdayMs=satMs,sundayMs=sunMs,
+   regularMs=regularMs,overtimeTiers=displayedTiers,totalWorkedMs=totalWorkedMs,regularGross=regularGross,overtimeGross=overtimeGross,
+   premiumsGross=worked.premiumsGross,monthlyEstimatedGross=gross,monthlyGrossReliable=monthlyGrossReliable,grossBeforeMayFirstReliable=grossBeforeMayFirstReliable,nightMs=nightMs,saturdayMs=satMs,sundayMs=sunMs,
    complementaryMinutes=complementaryMinutes,completedSessions=selected.size,warnings=warnings+traces+listOfNotNull(snap?.let{"Règles historiques ${it.versionId} — source ${it.sourceId}"})+premiumSourceTraces(collectivePremiumSnapshot,false),publicHolidayMs=holidayMs,paidTimeReliable=paidTimeReliable,unpaidPauseMs=paidWorkScope.unpaidPauseMs?.takeIf{paidTimeReliable}
   )
  }
@@ -471,16 +502,23 @@ object V2SalaryAdapter {
     weekendPremiumOverlap=weekendPremiumOverlap
    )
   )
-  val cleanedWarnings=base.warnings.filterNot{it.startsWith("1er mai travaillé : le régime légal LEGI dédié")}
   val mayFirstWarning=adjustment.warning?:if(adjustment.extraGross>0.0){
    "1er mai travaillé : indemnité légale L3133-6 ajoutée (${String.format(Locale.FRANCE,"%.2f",adjustment.extraGross)} € brut) — source ${verifiedRule?.articleId.orEmpty()}."
   }else null
-  return base.copy(
-   premiumsGross=base.premiumsGross+adjustment.extraGross,
-   monthlyEstimatedGross=base.monthlyEstimatedGross+adjustment.extraGross,
-   monthlyGrossReliable=base.monthlyGrossReliable&&adjustment.reliable,
-   warnings=(cleanedWarnings+listOfNotNull(mayFirstWarning)).distinct()
+  return applyConfirmedMayFirstAdjustment(base,adjustment).let { adjusted ->
+   adjusted.copy(warnings=(adjusted.warnings.filterNot{it.startsWith("1er mai travaillé : le régime légal LEGI dédié")}+listOfNotNull(mayFirstWarning)).distinct())
+  }
+ }
+
+ /** Restores only the dedicated May-first blocker, never another missing proof. */
+ internal fun applyConfirmedMayFirstAdjustment(base:Result,adjustment:MayFirstPayrollAdjustmentV2.Result):Result {
+  val premiums=base.premiumsGross+adjustment.extraGross
+  val gross=base.monthlyEstimatedGross+adjustment.extraGross
+  if(!adjustment.extraGross.isFinite()||adjustment.extraGross<0.0||!premiums.isFinite()||!gross.isFinite())return base.copy(
+   monthlyGrossReliable=false,warnings=(base.warnings+"1er mai travaillé : total brut non calculable ; aucun total fiable n'est affiché.").distinct()
   )
+  return base.copy(premiumsGross=premiums,monthlyEstimatedGross=gross,
+   monthlyGrossReliable=(base.monthlyGrossReliable||base.grossBeforeMayFirstReliable)&&adjustment.reliable)
  }
 
  internal fun monthlyGrossReliability(baseReliable:Boolean,provisionalOvertimeRateUsed:Boolean,arbitrationRequired:Boolean,arbitrationResolved:Boolean,cumulReviewRequired:Boolean=false,runtimeReliable:Boolean=true,provisionalComplementaryRateUsed:Boolean=false,genericOvertimeCoverageReliable:Boolean=true,fullTimeRegularReferenceReliable:Boolean=true):Boolean = baseReliable&&runtimeReliable&&!provisionalOvertimeRateUsed&&!provisionalComplementaryRateUsed&&genericOvertimeCoverageReliable&&fullTimeRegularReferenceReliable&&(!arbitrationRequired||arbitrationResolved)&&!cumulReviewRequired
@@ -496,6 +534,7 @@ object V2SalaryAdapter {
   )
  }
 
+ internal fun unavailableResult()=empty(listOf(SalaryAccountScope.AUTH_WARNING))
  private fun empty(w:List<String> = emptyList())=Result(0,emptyList(),0,0.0,0.0,0.0,0.0,false,0,0,0,0,0,w)
  private fun dayPaidOverlap(session:WorkSessionV2,rangeStart:Long,rangeEnd:Long,dayOfWeek:Int):Long{if(rangeEnd<=rangeStart)return 0L;var total=0L;val day=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeStart;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};val last=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeEnd;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};while(day.timeInMillis<=last.timeInMillis){if(day.get(Calendar.DAY_OF_WEEK)==dayOfWeek){val next=(day.clone() as Calendar).apply{add(Calendar.DAY_OF_YEAR,1)};val from=maxOf(rangeStart,day.timeInMillis);val to=minOf(rangeEnd,next.timeInMillis);if(to>from)total+=PaidWorkAllocationV2.paidOverlap(session,from,to)};day.add(Calendar.DAY_OF_YEAR,1)};return total}
  internal fun dayOverlap(entry:Long,exit:Long,dayOfWeek:Int):Long{if(exit<=entry)return 0;var total=0L;val day=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=entry;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};val last=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=exit;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};while(day.timeInMillis<=last.timeInMillis){if(day.get(Calendar.DAY_OF_WEEK)==dayOfWeek){val next=(day.clone() as Calendar).apply{add(Calendar.DAY_OF_YEAR,1)};total+=(minOf(exit,next.timeInMillis)-maxOf(entry,day.timeInMillis)).coerceAtLeast(0L)};day.add(Calendar.DAY_OF_YEAR,1)};return total}

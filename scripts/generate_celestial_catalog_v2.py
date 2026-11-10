@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate HoraTrack Celeste V2 mobile star/constellation assets.
+Generate AGKGMG Celeste V2 mobile star/constellation assets.
 
 This tool is intentionally OFFLINE. Download/pin the two source files separately,
 then provide them as inputs. Runtime Android/iOS code must never contact the
@@ -91,7 +91,7 @@ def parse_constellations(path: Path) -> list[tuple[str, list[int]]]:
 
 def star_asset(stars: list[tuple[int, float, float, float]]) -> str:
     lines = [
-        "# HoraTrack Celeste V2 - Bright Star Catalogue BSC5P",
+        "# AGKGMG Celeste V2 - Bright Star Catalogue BSC5P",
         "# Source: HEASARC Bright Star Catalogue 5th Edition preliminary; fixed-width J2000 fields.",
         "# Columns: hr\tra_j2000_deg\tdec_j2000_deg\tvisual_magnitude",
     ]
@@ -104,7 +104,7 @@ def star_asset(stars: list[tuple[int, float, float, float]]) -> str:
 
 def line_asset(paths: list[tuple[str, list[int]]]) -> str:
     lines = [
-        "# HoraTrack Celeste V2 - constellation stick figures",
+        "# AGKGMG Celeste V2 - constellation stick figures",
         "# Source: Marc van der Sluys, ConstellationLines, DOI 10.5281/zenodo.10397192",
         "# License: CC BY 4.0",
         "# Format: IAU_abbreviation|ordered_HR_numbers",

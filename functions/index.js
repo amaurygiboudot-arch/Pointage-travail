@@ -204,7 +204,7 @@ async function handleLegalChange(db, change) {
 exports.legifranceRequest = onCall(
   { secrets: [pisteClientId, pisteClientSecret], timeoutSeconds: 30, enforceAppCheck: true },
   async (request) => {
-    if (!request.auth) throw new HttpsError("unauthenticated", "Connexion HoraTrack requise.");
+    if (!request.auth) throw new HttpsError("unauthenticated", "Connexion AGKGMG requise.");
 
     const path = typeof request.data?.path === "string" ? request.data.path : "";
     if (!ALLOWED_PATHS.has(path)) {
@@ -257,7 +257,7 @@ exports.legifranceRequest = onCall(
 exports.legalReanalysisPlan = onCall(
   { timeoutSeconds: 15, enforceAppCheck: true },
   async (request) => {
-    if (!request.auth) throw new HttpsError("unauthenticated", "Connexion HoraTrack requise.");
+    if (!request.auth) throw new HttpsError("unauthenticated", "Connexion AGKGMG requise.");
     const db = legalCacheDb();
     if (!db) throw new HttpsError("unavailable", "Veille juridique momentanément indisponible.");
 

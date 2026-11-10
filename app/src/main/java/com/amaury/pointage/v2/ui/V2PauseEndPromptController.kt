@@ -62,7 +62,7 @@ object V2PauseEndPromptController {
         val totalSeconds = max(0L, (remainingMs + 999L) / 1_000L)
         val minutes = totalSeconds / 60L
         val seconds = totalSeconds % 60L
-        return "HoraTrack a repris automatiquement le temps de travail. As-tu réellement terminé ta pause ?\n\n" +
+        return "AGKGMG a repris automatiquement le temps de travail. As-tu réellement terminé ta pause ?\n\n" +
             "Fermeture automatique dans %d:%02d".format(minutes, seconds)
     }
 }

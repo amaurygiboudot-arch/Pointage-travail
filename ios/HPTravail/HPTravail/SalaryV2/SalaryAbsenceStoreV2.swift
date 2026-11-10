@@ -41,8 +41,9 @@ enum SalaryAbsenceStoreV2 {
     static func resolve(
         companyId rawCompanyId: String,
         period: YearMonthV2,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> SalaryAbsenceSourceV2 {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let companyId = normalized(rawCompanyId)
         guard confirmedCompany(companyId, defaults: defaults) else {
             return SalaryAbsenceSourceV2(
@@ -83,54 +84,61 @@ enum SalaryAbsenceStoreV2 {
 
     static func read(
         companyId rawCompanyId: String,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> ReadResult {
-        let companyId = normalized(rawCompanyId)
-        guard confirmedCompany(companyId, defaults: defaults) else {
-            return ReadResult(
-                absences: [],
-                reliable: false,
-                warnings: ["Absences : entreprise absente ou stockage des entreprises non fiable."]
-            )
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return SalaryAccountStorageV2.readConsistently(defaults, unavailable: ReadResult(absences: [], reliable: false, warnings: [SalaryAccountStorageV2.warning])) {
+            let companyId = normalized(rawCompanyId)
+            guard confirmedCompany(companyId, defaults: defaults) else {
+                return ReadResult(
+                    absences: [],
+                    reliable: false,
+                    warnings: ["Absences : entreprise absente ou stockage des entreprises non fiable."]
+                )
+            }
+            guard let object = defaults.object(forKey: recordsKey(companyId)) else {
+                return ReadResult(absences: [], reliable: true, warnings: [])
+            }
+            guard let raw = object as? String else { return unreliableRead() }
+            return decodeRecords(raw, expectedCompanyId: companyId)
         }
-        guard let object = defaults.object(forKey: recordsKey(companyId)) else {
-            return ReadResult(absences: [], reliable: true, warnings: [])
-        }
-        guard let raw = object as? String else { return unreliableRead() }
-        return decodeRecords(raw, expectedCompanyId: companyId)
     }
 
     static func readConfirmations(
         companyId rawCompanyId: String,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> ConfirmationReadResult {
-        let companyId = normalized(rawCompanyId)
-        guard confirmedCompany(companyId, defaults: defaults) else {
-            return ConfirmationReadResult(
-                confirmations: [],
-                reliable: false,
-                warnings: ["Absences : entreprise absente ou stockage des entreprises non fiable."]
-            )
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return SalaryAccountStorageV2.readConsistently(defaults, unavailable: ConfirmationReadResult(confirmations: [], reliable: false, warnings: [SalaryAccountStorageV2.warning])) {
+            let companyId = normalized(rawCompanyId)
+            guard confirmedCompany(companyId, defaults: defaults) else {
+                return ConfirmationReadResult(
+                    confirmations: [],
+                    reliable: false,
+                    warnings: ["Absences : entreprise absente ou stockage des entreprises non fiable."]
+                )
+            }
+            guard let object = defaults.object(forKey: confirmationsKey(companyId)) else {
+                return ConfirmationReadResult(confirmations: [], reliable: true, warnings: [])
+            }
+            guard let raw = object as? String else {
+                return ConfirmationReadResult(
+                    confirmations: [],
+                    reliable: false,
+                    warnings: [coverageWarning]
+                )
+            }
+            return decodeConfirmations(raw)
         }
-        guard let object = defaults.object(forKey: confirmationsKey(companyId)) else {
-            return ConfirmationReadResult(confirmations: [], reliable: true, warnings: [])
-        }
-        guard let raw = object as? String else {
-            return ConfirmationReadResult(
-                confirmations: [],
-                reliable: false,
-                warnings: [coverageWarning]
-            )
-        }
-        return decodeConfirmations(raw)
     }
 
     @discardableResult
     static func save(
         companyId rawCompanyId: String,
         absence: SalaryAbsenceFactV2,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let companyId = normalized(rawCompanyId)
         guard confirmedCompany(companyId, defaults: defaults),
               valid(absence, companyId: companyId) else {
@@ -158,8 +166,9 @@ enum SalaryAbsenceStoreV2 {
     static func remove(
         companyId rawCompanyId: String,
         absenceId rawAbsenceId: String,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let companyId = normalized(rawCompanyId)
         let absenceId = rawAbsenceId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !absenceId.isEmpty,
@@ -185,8 +194,9 @@ enum SalaryAbsenceStoreV2 {
         companyId rawCompanyId: String,
         period: YearMonthV2,
         source rawSource: String,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let companyId = normalized(rawCompanyId)
         let source = rawSource.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !source.isEmpty,
@@ -282,6 +292,7 @@ enum SalaryAbsenceStoreV2 {
         companyId: String,
         defaults: UserDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard items.allSatisfy({ valid($0, companyId: companyId) }),
               Set(items.map(\.id)).count == items.count,
               let raw = encodeRecords(items) else {
@@ -394,6 +405,7 @@ enum SalaryAbsenceStoreV2 {
         _ companyId: String,
         defaults: UserDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard !companyId.isEmpty else { return false }
         return SalaryCompanyStoreV2.confirmedCompany(
             SalaryCompanyStoreV2.readConfirmed(defaults: defaults),

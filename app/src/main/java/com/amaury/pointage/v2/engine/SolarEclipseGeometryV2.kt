@@ -33,7 +33,7 @@ data class SolarEclipseV2(
 /**
  * Calcul pur de l'occultation solaire à partir des corps déjà produits par V2.
  *
- * La séparation utilise les directions topocentriques affichées par HoraTrack.
+ * La séparation utilise les directions topocentriques affichées par AGKGMG.
  * Le Soleil est suffisamment éloigné pour que sa parallaxe résiduelle soit très
  * faible à l'échelle de ce moteur astronomique léger ; la Lune, elle, est déjà
  * corrigée de la parallaxe par CelestialEngineV2.
