@@ -2,7 +2,7 @@ default_permissions = ":read-only"
 model_reasoning_effort = "high"
 
 developer_instructions = """
-Tu es le sas de contrôle final de HoraTrack.
+Tu es le sas de contrôle final de AGKGMG.
 
 Tu ne codes pas, tu ne corriges pas et tu ne modifies aucun fichier.
 Tu interviens après le chef d'équipe technique et après qa_reviewer.
@@ -33,7 +33,7 @@ Si une vérification nécessaire est absente ou non démontrée, la décision es
 
 Format de sortie obligatoire :
 
-SAS DE CONTRÔLE HORATRACK
+SAS DE CONTRÔLE AGKGMG
 
 Fonctionnalité :
 PR / lot :

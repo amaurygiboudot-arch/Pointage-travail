@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.app.AlertDialog
 import android.content.Context
 import android.content.SharedPreferences
@@ -137,7 +139,7 @@ object LuxuryUiInstaller {
         val settingsSection = SettingsV2Host.personalization(activity) ?: return
         if (settingsSection.findViewWithTag<View>(TAG_TRANSPARENCY) != null) return
 
-        val prefs = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(activity, "appearance_settings", Context.MODE_PRIVATE)
         val wrapper = LinearLayout(activity).apply {
             tag = TAG_TRANSPARENCY
             orientation = LinearLayout.VERTICAL
@@ -175,7 +177,7 @@ object LuxuryUiInstaller {
         val settingsSection = SettingsV2Host.personalization(activity) ?: return
         if (settingsSection.findViewWithTag<View>(TAG_FONT_CONTROL) != null) return
 
-        val prefs = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(activity, "appearance_settings", Context.MODE_PRIVATE)
         val wrapper = LinearLayout(activity).apply {
             tag = TAG_FONT_CONTROL
             orientation = LinearLayout.VERTICAL
@@ -269,7 +271,7 @@ object LuxuryUiInstaller {
     }
 
     private fun normalizeTypography(view: View, activity: MainActivity) {
-        val prefs = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(activity, "appearance_settings", Context.MODE_PRIVATE)
         val fontScale = prefs.getFloat(PREF_FONT_SCALE, 1.0f).coerceIn(0.85f, 1.30f)
         if (view is TextView && view !is TextClock) {
             val baseSp = when (view.id) {
@@ -292,7 +294,7 @@ object LuxuryUiInstaller {
     }
 
     private fun applyTransparency(activity: MainActivity) {
-        val prefs = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(activity, "appearance_settings", Context.MODE_PRIVATE)
         val transparency = prefs.getInt(PREF_TRANSPARENCY, 0).coerceIn(0, 100)
         val alpha = ((100 - transparency) * 255 / 100).coerceIn(0, 255)
         val root = activity.window.decorView.findViewById<ViewGroup>(android.R.id.content) ?: return
@@ -310,7 +312,7 @@ object LuxuryUiInstaller {
 
     private fun installAppearanceListener(activity: MainActivity) {
         if (appearanceListeners.containsKey(activity)) return
-        val prefs = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(activity, "appearance_settings", Context.MODE_PRIVATE)
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == "mode" || key == AppThemeCatalog.KEY_THEME) {
                 activity.window.decorView.post {

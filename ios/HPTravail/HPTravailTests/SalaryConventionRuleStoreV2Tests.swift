@@ -22,6 +22,23 @@ final class SalaryConventionRuleStoreV2Tests: XCTestCase {
         super.tearDown()
     }
 
+    func testComplementaryScheduleRoundTripsAndRejectsCorruptProof() {
+        let schedule = ConfirmedComplementaryScheduleV2(sourceId: "legifrance:KALI:v1", contractualMinutes: 1200,
+            effectiveFromEpochDay: 1000, effectiveToEpochDay: nil,
+            tiers: [OvertimeTierV2(fromMinutes: 1200, toMinutes: 1320, multiplier: 1.2)])
+        let snapshot = SalaryConventionRuleSnapshotV2(idcc: "0292", versionId: "v1", sourceId: "legifrance:KALI:v1",
+            effectiveFromEpochDay: 1000, effectiveToEpochDay: nil,
+            rules: PayrollRulesV2(weeklyRegularMinutes: 2100, complementarySchedule: schedule), checkedAtMs: 1, note: nil)
+        XCTAssertTrue(SalaryConventionRuleStoreV2.saveConfirmed(snapshot, defaults: defaults))
+        let reloaded = SalaryConventionRuleStoreV2.readConfirmed(defaults: defaults)
+        XCTAssertTrue(reloaded.reliable)
+        XCTAssertEqual(reloaded.snapshots.first?.rules.complementarySchedule, schedule)
+        let raw = """
+        [{"idcc":"0292","versionId":"v1","sourceId":"legifrance:KALI:v1","effectiveFromEpochDay":1000,"checkedAtMs":1,"rules":{"weeklyRegularMinutes":2100,"complementarySchedule":42}}]
+        """
+        XCTAssertFalse(SalaryConventionRuleStoreV2.decodeConfirmed(raw).reliable)
+    }
+
     private func rawSnapshot(
         version: String,
         from: Int64,

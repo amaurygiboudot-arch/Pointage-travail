@@ -25,39 +25,42 @@ enum SalarySegmentedProrationStoreV2 {
     static func resolve(
         companyId rawCompanyId: String,
         period: YearMonthV2,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> SalarySegmentedProrationSourceV2 {
-        let companyId = normalized(rawCompanyId)
-        guard confirmedCompany(companyId, defaults: defaults) else {
-            return SalarySegmentedProrationSourceV2(
-                proration: nil,
-                reliable: false,
-                warnings: ["Proratisation mensuelle : entreprise absente ou stockage des entreprises non fiable."]
-            )
-        }
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return SalaryAccountStorageV2.readConsistently(defaults, unavailable: SalarySegmentedProrationSourceV2(proration: nil, reliable: false, warnings: [SalaryAccountStorageV2.warning])) {
+            let companyId = normalized(rawCompanyId)
+            guard confirmedCompany(companyId, defaults: defaults) else {
+                return SalarySegmentedProrationSourceV2(
+                    proration: nil,
+                    reliable: false,
+                    warnings: ["Proratisation mensuelle : entreprise absente ou stockage des entreprises non fiable."]
+                )
+            }
 
-        guard let object = defaults.object(forKey: key(companyId, period: period)) else {
-            return SalarySegmentedProrationSourceV2(
-                proration: nil,
-                reliable: false,
-                warnings: [missingWarning]
-            )
-        }
-        guard let raw = object as? String,
-              let proration = decode(raw),
-              valid(proration) else {
-            return SalarySegmentedProrationSourceV2(
-                proration: nil,
-                reliable: false,
-                warnings: [storageWarning]
-            )
-        }
+            guard let object = defaults.object(forKey: key(companyId, period: period)) else {
+                return SalarySegmentedProrationSourceV2(
+                    proration: nil,
+                    reliable: false,
+                    warnings: [missingWarning]
+                )
+            }
+            guard let raw = object as? String,
+                  let proration = decode(raw),
+                  valid(proration) else {
+                return SalarySegmentedProrationSourceV2(
+                    proration: nil,
+                    reliable: false,
+                    warnings: [storageWarning]
+                )
+            }
 
-        return SalarySegmentedProrationSourceV2(
-            proration: proration,
-            reliable: true,
-            warnings: []
-        )
+            return SalarySegmentedProrationSourceV2(
+                proration: proration,
+                reliable: true,
+                warnings: []
+            )
+        }
     }
 
     @discardableResult
@@ -65,8 +68,9 @@ enum SalarySegmentedProrationStoreV2 {
         companyId rawCompanyId: String,
         period: YearMonthV2,
         proration: ConfirmedSegmentedMonthlyProrationV2,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let companyId = normalized(rawCompanyId)
         guard confirmedCompany(companyId, defaults: defaults),
               valid(proration),
@@ -89,8 +93,9 @@ enum SalarySegmentedProrationStoreV2 {
     static func remove(
         companyId rawCompanyId: String,
         period: YearMonthV2,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let companyId = normalized(rawCompanyId)
         guard confirmedCompany(companyId, defaults: defaults) else { return false }
 
@@ -212,6 +217,7 @@ enum SalarySegmentedProrationStoreV2 {
     }
 
     private static func confirmedCompany(_ companyId: String, defaults: UserDefaults) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard !companyId.isEmpty else { return false }
         return SalaryCompanyStoreV2.confirmedCompany(
             SalaryCompanyStoreV2.readConfirmed(defaults: defaults),

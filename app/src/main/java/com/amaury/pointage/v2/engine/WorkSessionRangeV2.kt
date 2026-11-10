@@ -50,8 +50,6 @@ object WorkSessionRangeV2 {
         val starts = listOfNotNull(session.countedEntryMs, session.realArrivalMs)
             .filter { it > 0L }
             .distinct()
-        if (starts.isEmpty()) return false
-
         val openEnd = openEndMs?.takeIf { session.status == SessionStatusV2.OPEN && it > 0L }
         val ends = if (session.status == SessionStatusV2.OPEN) {
             listOfNotNull(openEnd)
@@ -59,6 +57,13 @@ object WorkSessionRangeV2 {
             listOfNotNull(session.countedExitMs, session.realExitMs)
                 .filter { it > 0L }
                 .distinct()
+        }
+        if (starts.isEmpty()) {
+            // A stored EXIT with no known arrival may have started in any earlier
+            // period. Keep dependent calculations blocked up to that EXIT instead
+            // of silently treating the malformed session as absent. Do not use a
+            // synthetic now/open-end as evidence for an OPEN session.
+            return session.status != SessionStatusV2.OPEN && ends.any { it > rangeStartMs }
         }
         if (ends.isEmpty()) return starts.any { it >= rangeStartMs && it < rangeEndMs }
 

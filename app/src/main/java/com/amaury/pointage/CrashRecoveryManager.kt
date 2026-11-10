@@ -33,7 +33,7 @@ object CrashRecoveryManager {
         }.getOrDefault("inconnue")
         val date = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.FRANCE).format(Date(now))
         val report = buildString {
-            appendLine("HoraTrack — rapport de crash")
+            appendLine("AGKGMG — rapport de crash")
             appendLine("Identifiant : $incidentId")
             appendLine("Date : $date")
             appendLine("Version : ${DiagnosticSanitizer.message(version, 80)}")

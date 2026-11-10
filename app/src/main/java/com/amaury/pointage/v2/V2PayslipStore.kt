@@ -33,8 +33,8 @@ import java.util.UUID
 
 /** Stockage local des bulletins. Chaque nouveau bulletin peut être rattaché à une entreprise. */
 object V2PayslipStore {
- private const val PREFS="horatrack_v2_payslips"
- private const val KEY_ITEMS="items"
+ internal const val PREFS="horatrack_v2_payslips"
+ internal const val KEY_ITEMS="items"
  private const val STORAGE_WARNING="Bulletins réels : stockage local illisible ou incohérent ; aucune base IJSS ni comparaison n'est considérée fiable avant vérification."
 
  data class Record(
@@ -60,11 +60,18 @@ object V2PayslipStore {
  private data class OptionalNumber(val valid:Boolean,val value:Double?)
 
  internal fun readResult(context:Context):ReadResult{
-  val prefs=context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
-  if(!prefs.contains(KEY_ITEMS))return ReadResult(emptyList(),true,emptyList())
-  val raw=runCatching{prefs.getString(KEY_ITEMS,null)}.getOrNull()?:return corruptResult()
-  return decodeRecords(raw)
- }
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(records = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+      val prefs=SalaryAccountScope.preferences(context, PREFS)
+      if(!prefs.contains(KEY_ITEMS))return ReadResult(emptyList(),true,emptyList())
+      val raw=runCatching{prefs.getString(KEY_ITEMS,null)}.getOrNull()?:return corruptResult()
+      return decodeRecords(raw)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
+    }
 
  fun all(context:Context):List<Record> = readResult(context).records.sortedByDescending{it.importedAtMs}
 
@@ -86,6 +93,7 @@ object V2PayslipStore {
   confirmedByUser:Boolean,
   companyId:String=""
  ):Record?{
+        val context = SalaryAccountScope.bindContext(context)
   require(year in 2000..2200){"Année de bulletin invalide"}
   require(month in 0..11){"Mois de bulletin invalide"}
   require(uri.toString().isNotBlank()){"Document du bulletin manquant"}
@@ -93,8 +101,9 @@ object V2PayslipStore {
   require(net==null || net.isFinite()&&net>=0.0){"Net du bulletin invalide"}
   require(!confirmedByUser || gross!=null || net!=null){"Bulletin confirmé sans montant"}
 
+  return PayslipImportStoreV2.withStorageAccess(context, { null }) {
   val stored=readResult(context)
-  if(!stored.reliable)return null
+  if(!stored.reliable)return@withStorageAccess null
   val record=Record(
    id=UUID.randomUUID().toString(),
    year=year,
@@ -109,14 +118,16 @@ object V2PayslipStore {
    companyId=companyId
   )
   val updated=stored.records+record
-  return record.takeIf{saveRecords(context,updated)}
+  record.takeIf{saveRecords(context,updated)}
+  }
  }
 
  /**
   * Calcule l'IJSS maladie uniquement à partir de bulletins réels confirmés.
-  * Aucun brut estimé HoraTrack n'est injecté dans cette base de référence.
+  * Aucun brut estimé AGKGMG n'est injecté dans cette base de référence.
   */
  fun sicknessAllowanceForAbsence(context:Context,companyId:String,absence:AbsenceV2):SicknessDailyAllowanceV2.Result?{
+        val context = SalaryAccountScope.bindContext(context)
   if(absence.type != AbsencePayrollImpactV2.TYPE_SICKNESS) return null
   val zone=ZoneId.systemDefault()
   val start=Instant.ofEpochMilli(absence.startMs).atZone(zone).toLocalDate()
@@ -190,6 +201,7 @@ object V2PayslipStore {
   * de la classification et de la période. Aucune convention n'est supposée.
   */
  fun sicknessMaintenanceForAbsence(context:Context,companyId:String,absence:AbsenceV2):ConventionSicknessMaintenanceV2.Result?{
+        val context = SalaryAccountScope.bindContext(context)
   if(absence.type != AbsencePayrollImpactV2.TYPE_SICKNESS) return null
   return V2ConventionSicknessMaintenanceBridge.load(context,companyId,absence)?.result
  }
@@ -199,6 +211,7 @@ object V2PayslipStore {
   * prestation d'entreprise qui chevaucherait la période de maintien employeur.
   */
  fun sicknessProvidentRelayForAbsence(context:Context,companyId:String,absence:AbsenceV2):PlasturgieProvidentIncapacityV2.Result?{
+        val context = SalaryAccountScope.bindContext(context)
   if(absence.type != AbsencePayrollImpactV2.TYPE_SICKNESS) return null
   val zone=ZoneId.systemDefault()
   val start=Instant.ofEpochMilli(absence.startMs).atZone(zone).toLocalDate()
@@ -230,6 +243,7 @@ object V2PayslipStore {
   companyId:String,
   absence:AbsenceV2
  ):PlasturgieProvidentRelayControlV2.Result?{
+        val context = SalaryAccountScope.bindContext(context)
   if(absence.type != AbsencePayrollImpactV2.TYPE_SICKNESS) return null
   val relay=sicknessProvidentRelayForAbsence(context,companyId,absence)?:return null
   return PlasturgieProvidentRelayControlV2.calculate(
@@ -250,6 +264,7 @@ object V2PayslipStore {
   * contrat temps plein sont conservées car elles appartiennent à la mensualisation.
   */
  fun sicknessTheoreticalNetForAbsence(context:Context,companyId:String,absence:AbsenceV2):SicknessTheoreticalNetV2.Result?{
+        val context = SalaryAccountScope.bindContext(context)
   if(absence.type != AbsencePayrollImpactV2.TYPE_SICKNESS) return null
   val maintenance=sicknessMaintenanceForAbsence(context,companyId,absence)?:return null
   val allowance=sicknessAllowanceForAbsence(context,companyId,absence)
@@ -316,7 +331,7 @@ object V2PayslipStore {
     }else{
      val referenceNet=net.netBeforeIncomeTax
      if(referenceNet==null){
-      bridgeWarnings += "Base nette maladie : net HoraTrack V2 encore incomplet pour ${"%02d/%04d".format(ym.monthValue,ym.year)} ; aucune valeur partielle n'est utilisée comme référence."
+      bridgeWarnings += "Base nette maladie : net AGKGMG V2 encore incomplet pour ${"%02d/%04d".format(ym.monthValue,ym.year)} ; aucune valeur partielle n'est utilisée comme référence."
      }else{
       monthlyNet[ym]=referenceNet
      }
@@ -336,17 +351,21 @@ object V2PayslipStore {
  }
 
  fun remove(context:Context,id:String):Boolean{
-  if(id.isBlank())return false
-  val stored=readResult(context)
-  if(!stored.reliable)return false
-  if(stored.records.none{it.id==id})return false
-  val kept=stored.records.filterNot{it.id==id}
-  if(!saveRecords(context,kept))return false
-  PayslipObservedValuesStoreV2.remove(context,id)
-  return true
+  val context = SalaryAccountScope.bindContext(context)
+  return PayslipImportStoreV2.withStorageAccess(context, { false }) {
+   if(id.isBlank())return@withStorageAccess false
+   val stored=readResult(context)
+   if(!stored.reliable)return@withStorageAccess false
+   if(stored.records.none{it.id==id})return@withStorageAccess false
+   val kept=stored.records.filterNot{it.id==id}
+   if(!saveRecords(context,kept))return@withStorageAccess false
+   PayslipObservedValuesStoreV2.remove(context,id)
+   true
+  }
  }
 
  fun comparison(context:Context,record:Record):PayslipComparisonV2?{
+        val context = SalaryAccountScope.bindContext(context)
   val source=readResult(context)
   val canonicalRecord=canonicalRecord(source,record.id)?:return null
   val observedSource=PayslipObservedValuesStoreV2.readResult(context)
@@ -379,6 +398,7 @@ object V2PayslipStore {
  }
 
  private fun comparisonMonthly(context:Context,record:Record):PayslipComparisonV2?{
+        val context = SalaryAccountScope.bindContext(context)
   val source=readResult(context)
   val canonicalRecord=canonicalRecord(source,record.id)?:return null
   val observedSource=PayslipObservedValuesStoreV2.readResult(context)
@@ -463,14 +483,20 @@ object V2PayslipStore {
  }
 
  private fun saveRecords(context:Context,records:List<Record>):Boolean{
-  if(records.groupingBy{it.id}.eachCount().any{it.value>1})return false
-  if(records.any{!isValidRecord(it)})return false
+        val context = SalaryAccountScope.bindContext(context)
+  val encoded = encodeRecords(records) ?: return false
+  return runCatching{
+   SalaryAccountScope.preferences(context, PREFS)
+    .edit().putString(KEY_ITEMS,encoded).commit()
+  }.getOrDefault(false)
+ }
+
+ internal fun encodeRecords(records:List<Record>):String? {
+  if(records.groupingBy{it.id}.eachCount().any{it.value>1})return null
+  if(records.any{!isValidRecord(it)})return null
   val array=JSONArray()
   records.sortedBy{it.importedAtMs}.forEach{array.put(toJson(it))}
-  return runCatching{
-   context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
-    .edit().putString(KEY_ITEMS,array.toString()).commit()
-  }.getOrDefault(false)
+  return array.toString()
  }
 
  internal fun decodeRecords(raw:String):ReadResult{

@@ -38,11 +38,11 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
 class SalaryCompanyDetailsView(
-    context: Context,
+    hostContext: Context,
     private var company: SalaryCompanyStore.Company,
     private val onChanged: (SalaryCompanyStore.Company) -> Unit,
     private val onDelete: (SalaryCompanyStore.Company) -> Unit
-) : LinearLayout(context) {
+) : SalaryAccountLayout(hostContext) {
     private var showingAgreements = false
     private var agreementRevision = 0L
 
@@ -61,7 +61,7 @@ class SalaryCompanyDetailsView(
     private fun showConvention() {
         showingAgreements = false
         removeAllViews()
-        addView(text("CONVENTION COLLECTIVE — KALI\n\nHoraTrack vérifie la convention correspondant exactement à l’IDCC de cette entreprise. Cette vérification n’applique encore aucune règle au calcul."))
+        addView(text("CONVENTION COLLECTIVE — KALI\n\nAGKGMG vérifie la convention correspondant exactement à l’IDCC de cette entreprise. Cette vérification n’applique encore aucune règle au calcul."))
         val expectedIdcc = OfficialConventionCatalogParserV2.normalizeIdcc(company.idcc)
         if (expectedIdcc == null) {
             addView(text("État : IDCC non renseigné ou invalide."))
@@ -107,7 +107,7 @@ class SalaryCompanyDetailsView(
                 connection.connectTimeout = 10_000
                 connection.readTimeout = 15_000
                 connection.setRequestProperty("Accept", "application/json")
-                connection.setRequestProperty("User-Agent", "HoraTrack-Android")
+                connection.setRequestProperty("User-Agent", "AGKGMG-Android")
                 val response = try {
                     val status = connection.responseCode
                     val stream = if (status in 200..299) connection.inputStream else connection.errorStream
@@ -132,6 +132,7 @@ class SalaryCompanyDetailsView(
                     throw IllegalStateException("enregistrement impossible")
                 }
                 post {
+                    if (!accountCurrent()) return@post
                     val reread = rereadConfirmed(updated)
                     if (reread == null) {
                         Toast.makeText(
@@ -148,6 +149,7 @@ class SalaryCompanyDetailsView(
                 }
             } catch (error: Exception) {
                 post {
+                    if (!accountCurrent()) return@post
                     Toast.makeText(
                         context,
                         "Recherche automatique impossible : ${error.message ?: "erreur inconnue"}",
@@ -167,6 +169,7 @@ class SalaryCompanyDetailsView(
         Toast.makeText(context, "Vérification KALI en cours…", Toast.LENGTH_SHORT).show()
         LegifranceFunctionClientV2.request("/consult/kaliContIdcc", mapOf("id" to apiId))
             .addOnSuccessListener { result ->
+                if (!accountCurrent()) return@addOnSuccessListener
                 val verified = OfficialConventionContainerParserV2.parseVerified(result.data, expectedIdcc)
                 if (verified == null) {
                     Toast.makeText(context, "Convention refusée : l’IDCC ou la référence KALI ne correspond pas.", Toast.LENGTH_LONG).show()
@@ -184,7 +187,7 @@ class SalaryCompanyDetailsView(
                 val companySaved = SalaryCompanyStore.upsert(context, updated)
                 val sourceSaved = OfficialConventionResultStoreV2.save(context, company.id, verified)
                 if (!officialRemembered || !companySaved || !sourceSaved) {
-                    Toast.makeText(context, "KALI a répondu, mais HoraTrack n’a pas pu conserver toute la vérification.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "KALI a répondu, mais AGKGMG n’a pas pu conserver toute la vérification.", Toast.LENGTH_LONG).show()
                     return@addOnSuccessListener
                 }
                 val reread = rereadConfirmed(updated)
@@ -202,6 +205,7 @@ class SalaryCompanyDetailsView(
                 showConvention()
             }
             .addOnFailureListener { error ->
+                if (!accountCurrent()) return@addOnFailureListener
                 Toast.makeText(context, "Vérification KALI impossible : ${error.message ?: "erreur inconnue"}", Toast.LENGTH_LONG).show()
             }
     }
@@ -209,8 +213,8 @@ class SalaryCompanyDetailsView(
     private fun openOfficialUrl(url: String) {
         try {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-            if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
+            if (SalaryAccountUi.activity(context) == null) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (accountCurrent()) context.startActivity(SalaryAccountUi.attach(intent, com.amaury.pointage.v2.SalaryAccountScope.lease(context)))
         } catch (_: ActivityNotFoundException) {
             Toast.makeText(context, "Impossible d’ouvrir Légifrance sur cet appareil.", Toast.LENGTH_LONG).show()
         }
@@ -220,7 +224,7 @@ class SalaryCompanyDetailsView(
         showingAgreements = true
         agreementRevision = SalaryCompanyStore.prefs(context, company.id).getLong("company_agreement_import_revision", 0L)
         removeAllViews()
-        addView(text("ACCORDS D’ENTREPRISE\n\nHoraTrack recherche d’abord les accords accessibles dans les sources officielles. Un accord trouvé ou importé n’est jamais appliqué au calcul tant que ses règles et sa période d’application ne sont pas validées."))
+        addView(text("ACCORDS D’ENTREPRISE\n\nAGKGMG recherche d’abord les accords accessibles dans les sources officielles. Un accord trouvé ou importé n’est jamais appliqué au calcul tant que ses règles et sa période d’application ne sont pas validées."))
 
         val agreementState = CompanyAgreementStoreV2.read(context, company.id)
         val ruleState = CompanyAgreementRuleStoreV2.read(context, company.id)
@@ -333,6 +337,7 @@ class SalaryCompanyDetailsView(
                         Toast.makeText(context, "Récupération de l’accord officiel…", Toast.LENGTH_SHORT).show()
                         LegifranceFunctionClientV2.request("/consult/acco", mapOf("id" to agreement.id))
                             .addOnSuccessListener { result ->
+                if (!accountCurrent()) return@addOnSuccessListener
                                 val officialContent = OfficialAgreementContentParserV2.extractVerified(result.data, company.siret)
                                 if (officialContent == null) {
                                     Toast.makeText(context, "Accord refusé : SIRET différent, absent ou contenu officiel inexploitable.", Toast.LENGTH_LONG).show()
@@ -348,6 +353,7 @@ class SalaryCompanyDetailsView(
                                 if (ingestion.saved) showAgreements()
                             }
                             .addOnFailureListener { error ->
+                if (!accountCurrent()) return@addOnFailureListener
                                 Toast.makeText(context, "Lecture de l’accord impossible : ${error.message ?: "erreur inconnue"}", Toast.LENGTH_LONG).show()
                             }
                     })
@@ -422,6 +428,7 @@ class SalaryCompanyDetailsView(
             Toast.makeText(context, "Recherche officielle en cours…", Toast.LENGTH_SHORT).show()
             LegifranceFunctionClientV2.request("/search", body)
                 .addOnSuccessListener searchSuccess@{ result ->
+                if (!accountCurrent()) return@searchSuccess
                     val officialStored = OfficialAgreementResultStoreV2.save(context, company.id, siret, result.data)
                     if (!officialStored) {
                         Toast.makeText(
@@ -434,6 +441,7 @@ class SalaryCompanyDetailsView(
                     val candidates = OfficialAgreementSearchParserV2.parseCandidates(result.data)
                     OfficialAgreementCandidateVerifierV2.verify(candidates, siret)
                         .addOnSuccessListener verificationSuccess@{ verification ->
+                if (!accountCurrent()) return@verificationSuccess
                             val companyStillConfirmed = SalaryCompanyStore.withConfirmedCompany(context, company.id) { confirmed ->
                                 confirmed.siret.filter(Char::isDigit) == siret
                             } == true
@@ -493,10 +501,12 @@ class SalaryCompanyDetailsView(
                             showAgreements()
                         }
                         .addOnFailureListener { error ->
+                if (!accountCurrent()) return@addOnFailureListener
                             Toast.makeText(context, "Vérification des accords impossible : ${error.message ?: "erreur inconnue"}", Toast.LENGTH_LONG).show()
                         }
                 }
                 .addOnFailureListener { error ->
+                if (!accountCurrent()) return@addOnFailureListener
                     Toast.makeText(context, "Recherche Légifrance impossible : ${error.message ?: "erreur inconnue"}", Toast.LENGTH_LONG).show()
                 }
         })
@@ -556,8 +566,8 @@ class SalaryCompanyDetailsView(
             val intent = Intent(context, CompanyAgreementImportActivity::class.java)
                 .putExtra(CompanyAgreementImportActivity.EXTRA_COMPANY_ID, importCompany.id)
                 .putExtra(CompanyAgreementImportActivity.EXTRA_COMPANY_NAME, importCompany.name)
-            if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
+            if (SalaryAccountUi.activity(context) == null) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (accountCurrent()) context.startActivity(SalaryAccountUi.attach(intent, com.amaury.pointage.v2.SalaryAccountScope.lease(context)))
         })
         addView(button("RETOUR") { showSummary() })
     }
@@ -624,12 +634,12 @@ class SalaryCompanyDetailsView(
     }
 
     private fun field(h: String, v: String, type: Int = InputType.TYPE_CLASS_TEXT) = EditText(context).apply { hint = h; setText(v); inputType = type; isSingleLine = true; setPadding(dp(10), dp(6), dp(10), dp(6)) }
-    private fun button(label: String, click: () -> Unit) = Button(context).apply { text = label; isAllCaps = false; setOnClickListener { click() } }
+    private fun button(label: String, click: () -> Unit) = Button(context).apply { text = label; isAllCaps = false; setOnClickListener { if (accountCurrent()) click() } }
     private fun row() = LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) }
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 }
 
-class SalaryContractDetailsView(context: Context, private val company: SalaryCompanyStore.Company) : LinearLayout(context) {
+class SalaryContractDetailsView(hostContext: Context, private val company: SalaryCompanyStore.Company) : SalaryAccountLayout(hostContext) {
     private val prefs = SalaryCompanyStore.prefs(context, company.id)
     init { orientation = VERTICAL; setPadding(dp(16), dp(12), dp(16), dp(16)); showSummary() }
 
@@ -689,7 +699,7 @@ class SalaryContractDetailsView(context: Context, private val company: SalaryCom
 
     private fun text(value: String) = TextView(context).apply { text = value; textSize = 15f; setPadding(dp(4), dp(8), dp(4), dp(12)) }
     private fun field(h: String, v: String, type: Int = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL) = EditText(context).apply { hint = h; setText(v); inputType = type; isSingleLine = true; setPadding(dp(10), dp(6), dp(10), dp(6)) }
-    private fun button(label: String, click: () -> Unit) = Button(context).apply { text = label; isAllCaps = false; setOnClickListener { click() } }
+    private fun button(label: String, click: () -> Unit) = Button(context).apply { text = label; isAllCaps = false; setOnClickListener { if (accountCurrent()) click() } }
     private fun row() = LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) }
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 }

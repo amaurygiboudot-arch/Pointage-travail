@@ -11,33 +11,37 @@ enum SalaryConventionClassificationStoreV2 {
 
     static func load(
         companyId rawCompanyId: String,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> ConventionClassificationV2 {
-        let companyId = rawCompanyId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !companyId.isEmpty,
-              SalaryCompanyStoreV2.confirmedCompany(
-                SalaryCompanyStoreV2.readConfirmed(defaults: defaults),
-                companyId: companyId
-              ) != nil else {
-            return ConventionClassificationV2()
-        }
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return SalaryAccountStorageV2.readConsistently(defaults, unavailable: ConventionClassificationV2()) {
+            let companyId = rawCompanyId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !companyId.isEmpty,
+                  SalaryCompanyStoreV2.confirmedCompany(
+                    SalaryCompanyStoreV2.readConfirmed(defaults: defaults),
+                    companyId: companyId
+                  ) != nil else {
+                return ConventionClassificationV2()
+            }
 
-        guard let data = defaults.data(forKey: key(companyId)) else {
-            return ConventionClassificationV2()
+            guard let data = defaults.data(forKey: key(companyId)) else {
+                return ConventionClassificationV2()
+            }
+            guard let decoded = try? JSONDecoder().decode(ConventionClassificationV2.self, from: data),
+                  valid(decoded) else {
+                return ConventionClassificationV2()
+            }
+            return decoded
         }
-        guard let decoded = try? JSONDecoder().decode(ConventionClassificationV2.self, from: data),
-              valid(decoded) else {
-            return ConventionClassificationV2()
-        }
-        return decoded
     }
 
     @discardableResult
     static func save(
         companyId rawCompanyId: String,
         value: ConventionClassificationV2,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let companyId = rawCompanyId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !companyId.isEmpty,
               SalaryCompanyStoreV2.confirmedCompany(

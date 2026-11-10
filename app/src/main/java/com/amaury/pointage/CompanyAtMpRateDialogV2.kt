@@ -45,7 +45,7 @@ object CompanyAtMpRateDialogV2 {
             isEnabled = stored.reliable
             setOnClickListener { dialog?.dismiss(); edit(context, companyId, null, onChanged) }
         }, row(context))
-        dialog = AlertDialog.Builder(context).setTitle("Taux AT/MP datés")
+        dialog = SalaryAccountUi.dialog(context).setTitle("Taux AT/MP datés")
             .setView(ScrollView(context).apply { addView(box) }).setNegativeButton("FERMER", null).create()
         dialog.show()
     }
@@ -79,7 +79,7 @@ object CompanyAtMpRateDialogV2 {
             }
             draft?.let { rate.setText(it.toString().replace('.', ',')) }
         }
-        val builder = AlertDialog.Builder(context).setTitle(if (existing == null) "Confirmer le taux AT/MP" else "Confirmer cette version AT/MP")
+        val builder = SalaryAccountUi.dialog(context).setTitle(if (existing == null) "Confirmer le taux AT/MP" else "Confirmer cette version AT/MP")
             .setView(ScrollView(context).apply { addView(box) }).setPositiveButton("CONFIRMER CETTE VERSION", null).setNegativeButton("ANNULER", null)
         if (existing != null) builder.setNeutralButton("SUPPRIMER CETTE VERSION", null)
         val dialog = builder.create()

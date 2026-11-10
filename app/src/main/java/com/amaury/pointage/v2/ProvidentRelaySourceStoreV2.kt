@@ -13,13 +13,15 @@ object ProvidentRelaySourceStoreV2 {
     data class Source(val uri:String,val mime:String?,val displayName:String)
 
     fun get(context:Context,absenceId:String):Source? {
-        val p=context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
+        val context = SalaryAccountScope.bindContext(context)
+        val p=SalaryAccountScope.preferences(context, PREFS)
         val uri=p.getString("$absenceId:uri",null)?.takeIf{it.isNotBlank()}?:return null
         return Source(uri,p.getString("$absenceId:mime",null),p.getString("$absenceId:name",null).orEmpty().ifBlank{"Décompte prévoyance"})
     }
 
     fun put(context:Context,absenceId:String,source:Source){
-        context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit()
+        val context = SalaryAccountScope.bindContext(context)
+        SalaryAccountScope.preferences(context, PREFS).edit()
             .putString("$absenceId:uri",source.uri)
             .putString("$absenceId:mime",source.mime)
             .putString("$absenceId:name",source.displayName)
@@ -27,7 +29,8 @@ object ProvidentRelaySourceStoreV2 {
     }
 
     fun remove(context:Context,absenceId:String){
-        context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit()
+        val context = SalaryAccountScope.bindContext(context)
+        SalaryAccountScope.preferences(context, PREFS).edit()
             .remove("$absenceId:uri").remove("$absenceId:mime").remove("$absenceId:name").apply()
     }
 }

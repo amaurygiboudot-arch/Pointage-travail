@@ -24,7 +24,7 @@ import java.time.YearMonth
  * Le régime FNAL mensuel est utilisé explicitement et n'est jamais déduit de la tranche d'effectif.
  *
  * Pour la régularisation, douze montants RGDU réellement constatés et sourcés sont prioritaires.
- * Tant que cette série historique est incomplète, HoraTrack conserve une reconstruction
+ * Tant que cette série historique est incomplète, AGKGMG conserve une reconstruction
  * automatique distinctement étiquetée, sans jamais l'assimiler à une déclaration DSN réelle.
  */
 object CompanyEmployerGeneralReductionAnnualPayrollBridgeV2 {

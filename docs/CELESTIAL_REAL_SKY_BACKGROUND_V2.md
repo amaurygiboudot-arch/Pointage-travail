@@ -1,4 +1,4 @@
-# HoraTrack V2 — Fond de ciel réel / constellations de l'Accueil
+# AGKGMG V2 — Fond de ciel réel / constellations de l'Accueil
 
 ## But utilisateur
 
@@ -61,7 +61,7 @@ Aucune position d'étoile ne doit être inventée ou ajustée visuellement pour 
 
 L'IAU définit les 88 constellations comme des régions du ciel. Les figures en « bâtons » reliant les étoiles ne sont pas une géométrie astronomique unique universelle.
 
-HoraTrack doit donc séparer :
+AGKGMG doit donc séparer :
 
 - **réalité astronomique** : positions des étoiles et appartenance aux constellations ;
 - **habillage graphique facultatif** : traits reliant certaines étoiles.

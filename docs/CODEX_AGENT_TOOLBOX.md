@@ -1,4 +1,4 @@
-# HoraTrack — Atelier / outillage des agents Codex
+# AGKGMG — Atelier / outillage des agents Codex
 
 ## Objectif
 
@@ -101,7 +101,7 @@ Pour `celestial_system`, la recherche web live sert à vérifier les hypothèses
 
 ## Firebase MCP
 
-HoraTrack utilise le serveur MCP officiel Firebase via :
+AGKGMG utilise le serveur MCP officiel Firebase via :
 
 `npx -y firebase-tools@latest mcp --dir . --only functions,crashlytics,apphosting,developerknowledge`
 
