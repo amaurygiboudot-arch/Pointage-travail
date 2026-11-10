@@ -12,7 +12,7 @@ enum SalaryPayslipLocalImporterV2 {
             case .unsupported: return "Choisissez un PDF ou une image lisible."
             case .tooLarge: return "Limite : 10 Mo et 10 pages par bulletin."
             case .unreadable: return "Lecture impossible. Saisissez les montants manuellement."
-            case .invalidAmount: return "Un montant du bulletin dépasse la plage prise en charge. Aucun montant importé ; vérifiez le document ou utilisez la saisie manuelle."
+            case .invalidAmount: return "Un montant du bulletin a un format invalide ou dépasse la plage prise en charge. Aucun montant importé ; vérifiez le document ou utilisez la saisie manuelle."
             }
         }
     }

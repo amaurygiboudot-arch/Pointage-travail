@@ -144,4 +144,65 @@ class PayslipDocumentParserV2Test {
         assertNull(aggregate.premiumsGross.amount)
         assertFalse(aggregate.premiumsGross.highConfidence)
     }
+    @Test fun `malformed space connected monetary tokens invalidate the whole field`() {
+        for (separator in listOf(" ", "\u00A0", "\u202F")) {
+            for (token in listOf("12${separator}34,56", "100000000000000000${separator}000,00")) {
+                val total = PayslipDocumentParserV2.parse("Total brut $token €")
+                assertNull(token, total.gross.amount)
+                assertFalse(total.gross.highConfidence)
+                val aggregate = PayslipDocumentParserV2.parse("Prime ancienneté 25,00 €\nPrime exceptionnelle $token €")
+                assertNull(token, aggregate.premiumsGross.amount)
+                assertFalse(aggregate.premiumsGross.highConfidence)
+            }
+            val valid = PayslipDocumentParserV2.parse("Total brut 1${separator}234,56 €")
+            assertEquals(1234.56, valid.gross.amount!!, 0.001)
+        }
+    }
+
+    @Test fun `invalid monetary column cannot fall back to an earlier amount`() {
+        val result = PayslipDocumentParserV2.parse("Prime exceptionnelle 25,00 100000000000000000,00 €")
+        assertNull(result.premiumsGross.amount)
+        val valid = PayslipDocumentParserV2.parse("Heures supplémentaires 25 % 8,00 17,13 137,04 €\nTotal brut 1.234,56 €")
+        assertEquals(137.04, valid.overtimeGross.amount!!, 0.001)
+        assertEquals(1234.56, valid.gross.amount!!, 0.001)
+    }
+    @Test fun `malformed punctuation cannot hide behind a previous valid amount`() {
+        for (token in listOf("1234..567,89", "1234,567,89", "1234,,56", "1234.56.78", ".123,45", ",123,45", "++123,45", "+ 123,45", "123,45+", "- 123,45", "1e17 000,00", "1,00e17", "1.234 567,89", "12/123,45", "1'234,56", "1’234,56", "1_234,56", "1:234,56")) {
+            for (separator in listOf(" ", " | ")) {
+                val total = PayslipDocumentParserV2.parse("Total brut 2500,00${separator}$token")
+                assertNull(token, total.gross.amount)
+                val prime = PayslipDocumentParserV2.parse("Prime exceptionnelle 25,00${separator}$token")
+                assertNull(token, prime.premiumsGross.amount)
+                assertFalse(prime.premiumsGross.highConfidence)
+            }
+        }
+        val labeled = PayslipDocumentParserV2.parse("Total brut :123,45")
+        assertEquals(123.45, labeled.gross.amount!!, 0.001)
+        val valid = PayslipDocumentParserV2.parse("Prime exceptionnelle 10,00 2,00 20,00")
+        assertEquals(20.0, valid.premiumsGross.amount!!, 0.001)
+        for (currency in listOf("€", "eur", "euros")) {
+            val amount = PayslipDocumentParserV2.parse("Total brut 100,00$currency")
+            assertEquals(100.0, amount.gross.amount!!, 0.001)
+        }
+    }
+    @Test fun `all negative sign variants remain inside the monetary span`() {
+        for (sign in listOf("-", "−", "﹣", "－", "–", "—")) {
+            for (token in listOf("${sign}+123,45", "$sign +123,45", "123,45$sign", "123,45 $sign")) {
+                for (prefix in listOf("", "100,00 | ")) {
+                    val result = PayslipDocumentParserV2.parse("Prime exceptionnelle $prefix$token")
+                    assertNull("$prefix$token", result.premiumsGross.amount)
+                    assertFalse(result.premiumsGross.highConfidence)
+                }
+            }
+        }
+    }
+    @Test fun `OCR letter digit collisions invalidate the complete field`() {
+        for (token in listOf("1O00,00", "12x34,56", "12é34,56", "12Ж34,56", "100,00EURabc", "100,00euré", "100,00EUR1")) {
+            for (prefix in listOf("", "25,00 | ")) {
+                val result = PayslipDocumentParserV2.parse("Prime exceptionnelle $prefix$token")
+                assertNull("$prefix$token", result.premiumsGross.amount)
+                assertFalse(result.premiumsGross.highConfidence)
+            }
+        }
+    }
 }

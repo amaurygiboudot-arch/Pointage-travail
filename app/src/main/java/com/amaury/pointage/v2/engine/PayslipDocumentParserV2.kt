@@ -229,24 +229,54 @@ object PayslipDocumentParserV2 {
     private fun lastMoneyAmount(raw: String, allowMultiple: Boolean = true): Double? {
         // OCR can preserve a Unicode minus or accounting parentheses. Neither is a positive amount.
         if (Regex("[-−﹣－–—][\\s\\u00A0\\u202F]*\\d|\\(\\s*[+-]?\\d[\\d ,.\\u00A0]*\\s*€?\\s*\\)").containsMatchIn(raw)) return null
-        val regex = Regex(
-            "(?<![\\d/.,])([+-]?\\d{1,3}(?:[ .\\u00A0]\\d{3})+|[+-]?\\d+)(?:[,.](\\d{2}))?(?![\\d,.])\\s*(€|eur|euros?)?",
+        // Extract maximal numeric spans first. No invalid prefix/suffix may disappear.
+        val spans = Regex(
+            "(?:[+.,/−﹣－–—-][ \\u00A0\\u202F]*)*\\d(?:[\\d+.,/'’_: \\u00A0\\u202F−﹣－–—-]|[eE](?=[+-]?\\d))*",
             RegexOption.IGNORE_CASE
         )
-        val candidates = regex.findAll(raw).mapNotNull { match ->
-            val tail = raw.substring(match.range.last + 1).trimStart()
-            if (tail.startsWith("%") || tail.startsWith("/") || tail.startsWith("h", ignoreCase = true)) return@mapNotNull null
-            val token = match.value.trim()
-            val hasCurrency = match.groupValues[3].isNotBlank()
-            val hasDecimals = match.groupValues[2].isNotBlank()
-            // Sans symbole monétaire, on exige deux décimales pour éviter heures, coefficients et dates.
-            if (!hasCurrency && !hasDecimals) return@mapNotNull null
-            val integer = match.groupValues[1].replace(" ", "").replace(".", "").replace("\u00A0", "")
-            val decimals = match.groupValues[2].ifBlank { "00" }
-            "$integer.$decimals".toDoubleOrNull()
-        }.toList()
+        val integer = "[+]?(?:\\d{1,3}(?:\\.\\d{3})+|\\d{1,3}(?:[ \\u00A0\\u202F]\\d{3})+|\\d+)"
+        val money = Regex("($integer)[,.](\\d{2})")
+        val wholeInteger = Regex(integer)
+        val candidates = mutableListOf<Double>()
+        fun append(token: String): Boolean {
+            val parts = money.matchEntire(token)
+            val integerPart = parts?.groupValues?.get(1) ?: token
+            val decimals = parts?.groupValues?.get(2) ?: "00"
+            val digits = integerPart.filterNot { it == ' ' || it == '.' || it == ' ' || it == ' ' }
+            val amount = PayslipEngineV2.parseAmount("$digits.$decimals") ?: return false
+            if (amount !in 0.0..10_000_000.0) return false
+            candidates += amount
+            return true
+        }
+        for (span in spans.findAll(raw)) {
+            val token = span.value.trim()
+            val tail = raw.substring(span.range.last + 1).trimStart()
+            val currency = Regex("^(€|eur(?:os?)?)(?![\\p{L}\\p{N}_])", RegexOption.IGNORE_CASE).containsMatchIn(tail)
+            val before = raw.getOrNull(span.range.first - 1)
+            val after = raw.getOrNull(span.range.first + span.value.trimEnd().length)
+            // OCR letter/digit collisions must invalidate the line, never expose a numeric suffix.
+            if (before?.isLetterOrDigit() == true || (after?.isLetterOrDigit() == true && !currency)) return null
+            if (tail.startsWith("%") || tail.startsWith("h", ignoreCase = true)) continue
+            if (money.matches(token) || (currency && wholeInteger.matches(token))) {
+                if (!append(token)) return null
+                continue
+            }
+            // A bare quantity cannot provide money; malformed monetary spans are never ignored.
+            if (!currency && token.all { it.isDigit() || it == '+' || it.isWhitespace() } && wholeInteger.matches(token)) continue
+            if (!allowMultiple) return null
+            var cursor = 0
+            while (cursor < token.length) {
+                val part = money.find(token, cursor) ?: return null
+                if (part.range.first != cursor) return null
+                val end = part.range.last + 1
+                if (end < token.length && !token[end].isWhitespace()) return null
+                if (!append(part.value)) return null
+                cursor = end
+                while (cursor < token.length && token[cursor].isWhitespace()) cursor++
+            }
+        }
         if (!allowMultiple && candidates.size != 1) return null
-        return candidates.lastOrNull()?.takeIf { it.isFinite() && it in 0.0..10_000_000.0 }
+        return candidates.lastOrNull()
     }
 
     private fun normalize(value: String): String {

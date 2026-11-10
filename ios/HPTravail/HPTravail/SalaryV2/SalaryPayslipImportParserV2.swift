@@ -35,8 +35,14 @@ enum SalaryPayslipImportParserV2 {
         var hasUnrepresentableAmounts = false
         var blocked = Set<SalaryPayslipImportFieldV2>()
         var candidates: [SalaryPayslipImportFieldV2: [SalaryPayslipImportProposalV2]] = [:]
-        let pattern = #"(?<![\d.,])[-+]?\d{1,3}(?:[ \u00a0\u202f]\d{3})*[,.]\d{2}(?!\d)|(?<![\d.,])[-+]?\d+[,.]\d{2}(?!\d)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return ParseResult(proposals: [], hasUnrepresentableAmounts: false) }
+        // Extract whole numeric spans before validating their monetary grammar.
+        // Matching only a valid suffix can turn malformed grouping into a smaller amount.
+        let tokenPattern = #"[-+−﹣－–—.,/0-9][-+−﹣－–—.,/'’:_0-9\h]*"#
+        let amountPattern = #"[+]?(?:[0-9]+|[0-9]{1,3}(?:[ \u00a0\u202f][0-9]{3})+)[,.][0-9]{2}"#
+        guard let regex = try? NSRegularExpression(pattern: tokenPattern),
+              let singleAmount = try? NSRegularExpression(pattern: "^(?:" + amountPattern + ")$"),
+              let multipleAmounts = try? NSRegularExpression(pattern: "^(?:" + amountPattern + #")(?:\h+"# + amountPattern + ")+$")
+        else { return ParseResult(proposals: [], hasUnrepresentableAmounts: false) }
         for (page, text) in pages.prefix(10).enumerated() {
             for (lineNumber, original) in text.components(separatedBy: .newlines).enumerated() {
                 let line = original.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "fr_FR"))
@@ -53,14 +59,47 @@ enum SalaryPayslipImportParserV2 {
                 // letting the unsigned amount regex turn a debit into a positive total.
                 if original.range(of: #"[-−﹣－–—]\s*\d"#, options: .regularExpression) != nil || original.contains("−") || original.contains("﹣") || original.contains("－") ||
                     original.contains("(") || original.contains(")") {
+                    hasUnrepresentableAmounts = true
                     blocked.insert(field)
                     continue
                 }
+                // Rate/base rows are outside the unambiguous monthly-total scope.
+                guard !line.contains("%") else { blocked.insert(field); continue }
                 let ns = original as NSString
                 let matches = regex.matches(in: original, range: NSRange(location: 0, length: ns.length))
-                // A table row with bases/rates/cumuls is ambiguous: do not pick a last number.
-                guard matches.count == 1, !line.contains("%") else { blocked.insert(field); continue }
-                let raw = ns.substring(with: matches[0].range).replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "\u{00a0}", with: "").replacingOccurrences(of: "\u{202f}", with: "").replacingOccurrences(of: ",", with: ".")
+                var monetaryTokens: [String] = []
+                var ambiguous = false
+                var malformed = false
+                for match in matches {
+                    let token = ns.substring(with: match.range).trimmingCharacters(in: .whitespaces)
+                    guard token.rangeOfCharacter(from: .decimalDigits) != nil,
+                          token.contains(",") || token.contains(".") else { continue }
+                    // A fragment inside an alphanumeric/scientific token is not a total.
+                    let start = match.range.location
+                    let end = start + (token as NSString).length
+                    let left = start > 0 ? ns.substring(with: NSRange(location: start - 1, length: 1)) : ""
+                    let right = end < ns.length ? ns.substring(with: NSRange(location: end, length: 1)) : ""
+                    if (left + right).rangeOfCharacter(from: .alphanumerics) != nil {
+                        malformed = true
+                        continue
+                    }
+                    let range = NSRange(location: 0, length: (token as NSString).length)
+                    if singleAmount.firstMatch(in: token, range: range)?.range == range {
+                        monetaryTokens.append(token)
+                    } else if multipleAmounts.firstMatch(in: token, range: range)?.range == range {
+                        ambiguous = true
+                    } else {
+                        malformed = true
+                    }
+                }
+                if malformed {
+                    hasUnrepresentableAmounts = true
+                    blocked.insert(field)
+                    continue
+                }
+                // Several complete amounts remain ambiguous; never choose a column.
+                guard monetaryTokens.count == 1, !ambiguous else { blocked.insert(field); continue }
+                let raw = monetaryTokens[0].replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "\u{00a0}", with: "").replacingOccurrences(of: "\u{202f}", with: "").replacingOccurrences(of: ",", with: ".")
                 guard let amount = Decimal(string: raw, locale: Locale(identifier: "en_US_POSIX")),
                       SalaryPayslipAmountV2.importedAmount(amount) != nil else {
                     hasUnrepresentableAmounts = true
