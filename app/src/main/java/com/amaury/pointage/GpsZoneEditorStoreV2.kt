@@ -74,7 +74,7 @@ internal object GpsZoneEditorStoreV2 {
         if (automaticConfigurationChanged) {
             // Seule une vraie modification des geofences automatiques invalide leur état.
             editor.remove("active_zones").remove("entry_resolution_pending")
-                .remove("entry_resolution_token").remove("pending_exit_zones")
+                .remove("entry_resolution_token").remove("pending_exit_zones").remove("pending_exit_observations")
                 .remove("geofence_registration_valid").remove("geofence_registration_fingerprint")
         }
         return editor.commit()

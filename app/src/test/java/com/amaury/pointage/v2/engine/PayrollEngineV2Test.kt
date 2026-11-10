@@ -17,6 +17,29 @@ class PayrollEngineV2Test {
     )
 
     @Test
+    fun rejectsInvalidComponentAmountsAndOverflowInsteadOfProducingMoney() {
+        val invalid = listOf(Double.NaN, Double.POSITIVE_INFINITY, -1.0)
+        for (amount in invalid) {
+            val calls = listOf<() -> Unit>(
+                { PayrollEngineV2.calculate(contract(), emptyList(), PayrollRulesV2(), premiums = listOf(com.amaury.pointage.v2.model.PremiumV2("p", "Prime", amount, com.amaury.pointage.v2.model.PeriodicityV2.MONTHLY))) },
+                { PayrollEngineV2.calculate(contract(), emptyList(), PayrollRulesV2(), baskets = listOf(com.amaury.pointage.v2.model.BasketV2("b", "Panier", amount))) },
+                { PayrollEngineV2.calculate(contract(), emptyList(), PayrollRulesV2(), deductions = listOf(com.amaury.pointage.v2.model.DeductionV2("d", "Retenue", amount, false))) }
+            )
+            for (call in calls) {
+                try { call(); org.junit.Assert.fail("Invalid amount must be rejected") }
+                catch (_: IllegalArgumentException) { }
+            }
+        }
+        try {
+            PayrollEngineV2.calculate(contract(), emptyList(), PayrollRulesV2(), baskets = listOf(
+                com.amaury.pointage.v2.model.BasketV2("a", "A", Double.MAX_VALUE),
+                com.amaury.pointage.v2.model.BasketV2("b", "B", Double.MAX_VALUE)
+            ))
+            org.junit.Assert.fail("Overflow must be rejected")
+        } catch (_: IllegalArgumentException) { }
+    }
+
+    @Test
     fun regularWeekUsesOnlyConfirmedPaidMinutes() {
         val result = PayrollEngineV2.calculate(
             contract = contract(),

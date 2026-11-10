@@ -17,6 +17,7 @@ object ConventionClassificationStoreV2 {
     internal fun unavailableClassification(): ConventionClassificationV2 = ConventionClassificationV2()
 
     fun load(context: Context, companyId: String): ConventionClassificationV2 {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank()) return unavailableClassification()
         return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
             loadConfirmed(context, companyId)
@@ -24,6 +25,7 @@ object ConventionClassificationStoreV2 {
     }
 
     fun save(context: Context, companyId: String, value: ConventionClassificationV2): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank()) return false
         return SalaryCompanyStore.withConfirmedCompany(context, companyId) { confirmed ->
             val prefs = SalaryCompanyStore.prefs(context, confirmed.id)
@@ -45,6 +47,7 @@ object ConventionClassificationStoreV2 {
     }
 
     private fun loadConfirmed(context: Context, companyId: String): ConventionClassificationV2 {
+        val context = SalaryAccountScope.bindContext(context)
         val prefs = SalaryCompanyStore.prefs(context, companyId)
         fun text(key: String): String? = prefs.getString(key, "").orEmpty().trim().takeIf { it.isNotBlank() }
         return ConventionClassificationV2(

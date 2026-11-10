@@ -6,7 +6,7 @@ import com.amaury.pointage.v2.model.ContractV2
 /**
  * Base de proratisation explicitement confirmée pour un mois contenant plusieurs versions de contrat.
  *
- * HoraTrack n'invente jamais un prorata calendaire. La seule méthode supportée ici utilise des
+ * AGKGMG n'invente jamais un prorata calendaire. La seule méthode supportée ici utilise des
  * minutes planifiées de référence confirmées pour chaque segment. Ces minutes, leurs bornes et leur
  * source doivent être fournies par une couche amont (utilisateur, entreprise ou source fiable).
  */

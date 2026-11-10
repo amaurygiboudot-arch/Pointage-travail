@@ -52,65 +52,277 @@ final class SalaryV2Store: ObservableObject {
     typealias WorkSourceProvider = @MainActor () -> SalaryWorkSessionSourceV2
 
     @Published private(set) var selectedPeriod: YearMonthV2
-    @Published private(set) var snapshot: SalaryWorkspaceSnapshotV2
-    @Published private(set) var companies: SalaryCompanyReadResultV2
-    @Published private(set) var selectedCompanyId: String?
-    @Published private(set) var paidWork: SalaryPaidWorkAggregationV2?
-    @Published private(set) var contractSegmentPaidWork: SalaryContractSegmentPaidWorkResultV2?
-    @Published private(set) var conventionCoverage: SalaryConventionCoverageV2?
-    @Published private(set) var contractResolution: SalaryEmploymentContractPayrollSnapshotV2?
-    @Published private(set) var socialProfile: SalaryEmployeeSocialProfileResolutionV2?
-    @Published private(set) var absenceSource: SalaryAbsenceSourceV2?
-    @Published private(set) var segmentedProrationSource: SalarySegmentedProrationSourceV2?
-    @Published private(set) var segmentedMonthlyBase: SegmentedMonthlyBaseResultV2?
-    @Published private(set) var segmentedPayrollBoundary: SalarySegmentedPayrollBoundaryAssessmentV2?
-    @Published private(set) var segmentedWorkedGross: SalarySegmentedWorkedGrossDetailedBridgeResultV2?
-    @Published private(set) var segmentedCashGross: SalarySegmentedCashGrossAssemblyResultV2?
-    @Published private(set) var segmentedSocialCeiling: SalarySegmentedSocialSecurityCeilingResultV2?
-    @Published var segmentedProrationSourceText = ""
-    @Published private(set) var segmentedProrationDraftSegments: [SalarySegmentedProrationDraftSegmentV2] = []
-    @Published private(set) var segmentedProrationFeedback: String?
-    @Published var incomeTaxRateText = ""
-    @Published var incomeTaxSource = ""
-    @Published private(set) var incomeTaxFeedback: String?
+    @Published private var storedSnapshot: SalaryWorkspaceSnapshotV2
+    private(set) var snapshot: SalaryWorkspaceSnapshotV2 {
+        get { accountIsCurrent ? storedSnapshot : SalaryWorkspaceResolverV2.resolve(period: selectedPeriod, reference: nil) }
+        set { if accountIsCurrent { storedSnapshot = newValue } }
+    }
+    @Published private var storedCompanies: SalaryCompanyReadResultV2
+    private(set) var companies: SalaryCompanyReadResultV2 {
+        get { accountIsCurrent ? storedCompanies : SalaryCompanyReadResultV2(companies: [], reliable: false, repairedFromBackup: false, warnings: [SalaryAccountStorageV2.warning]) }
+        set { if accountIsCurrent { storedCompanies = newValue } }
+    }
+    @Published private var storedSelectedCompanyId: String?
+    private(set) var selectedCompanyId: String? {
+        get { accountIsCurrent ? storedSelectedCompanyId : nil }
+        set { if accountIsCurrent { storedSelectedCompanyId = newValue } }
+    }
+    @Published private var storedPaidWork: SalaryPaidWorkAggregationV2?
+    private(set) var paidWork: SalaryPaidWorkAggregationV2? {
+        get { accountIsCurrent ? storedPaidWork : nil }
+        set { if accountIsCurrent { storedPaidWork = newValue } }
+    }
+    @Published private var storedContractSegmentPaidWork: SalaryContractSegmentPaidWorkResultV2?
+    private(set) var contractSegmentPaidWork: SalaryContractSegmentPaidWorkResultV2? {
+        get { accountIsCurrent ? storedContractSegmentPaidWork : nil }
+        set { if accountIsCurrent { storedContractSegmentPaidWork = newValue } }
+    }
+    @Published private var storedConventionCoverage: SalaryConventionCoverageV2?
+    private(set) var conventionCoverage: SalaryConventionCoverageV2? {
+        get { accountIsCurrent ? storedConventionCoverage : nil }
+        set { if accountIsCurrent { storedConventionCoverage = newValue } }
+    }
+    @Published private var storedContractResolution: SalaryEmploymentContractPayrollSnapshotV2?
+    private(set) var contractResolution: SalaryEmploymentContractPayrollSnapshotV2? {
+        get { accountIsCurrent ? storedContractResolution : nil }
+        set { if accountIsCurrent { storedContractResolution = newValue } }
+    }
+    @Published private var storedSocialProfile: SalaryEmployeeSocialProfileResolutionV2?
+    private(set) var socialProfile: SalaryEmployeeSocialProfileResolutionV2? {
+        get { accountIsCurrent ? storedSocialProfile : nil }
+        set { if accountIsCurrent { storedSocialProfile = newValue } }
+    }
+    @Published private var storedConfirmedSicknessCash: SalaryConfirmedSicknessCashV2.Result?
+    private(set) var confirmedSicknessCash: SalaryConfirmedSicknessCashV2.Result? {
+        get { accountIsCurrent ? storedConfirmedSicknessCash : nil }
+        set { if accountIsCurrent { storedConfirmedSicknessCash = newValue } }
+    }
+    @Published private var storedAbsenceSource: SalaryAbsenceSourceV2?
+    private(set) var absenceSource: SalaryAbsenceSourceV2? {
+        get { accountIsCurrent ? storedAbsenceSource : nil }
+        set { if accountIsCurrent { storedAbsenceSource = newValue } }
+    }
+    @Published private var storedSegmentedProrationSource: SalarySegmentedProrationSourceV2?
+    private(set) var segmentedProrationSource: SalarySegmentedProrationSourceV2? {
+        get { accountIsCurrent ? storedSegmentedProrationSource : nil }
+        set { if accountIsCurrent { storedSegmentedProrationSource = newValue } }
+    }
+    @Published private var storedSegmentedMonthlyBase: SegmentedMonthlyBaseResultV2?
+    private(set) var segmentedMonthlyBase: SegmentedMonthlyBaseResultV2? {
+        get { accountIsCurrent ? storedSegmentedMonthlyBase : nil }
+        set { if accountIsCurrent { storedSegmentedMonthlyBase = newValue } }
+    }
+    @Published private var storedSegmentedPayrollBoundary: SalarySegmentedPayrollBoundaryAssessmentV2?
+    private(set) var segmentedPayrollBoundary: SalarySegmentedPayrollBoundaryAssessmentV2? {
+        get { accountIsCurrent ? storedSegmentedPayrollBoundary : nil }
+        set { if accountIsCurrent { storedSegmentedPayrollBoundary = newValue } }
+    }
+    @Published private var storedSegmentedWorkedGross: SalarySegmentedWorkedGrossDetailedBridgeResultV2?
+    private(set) var segmentedWorkedGross: SalarySegmentedWorkedGrossDetailedBridgeResultV2? {
+        get { accountIsCurrent ? storedSegmentedWorkedGross : nil }
+        set { if accountIsCurrent { storedSegmentedWorkedGross = newValue } }
+    }
+    @Published private var storedSegmentedCashGross: SalarySegmentedCashGrossAssemblyResultV2?
+    private(set) var segmentedCashGross: SalarySegmentedCashGrossAssemblyResultV2? {
+        get { accountIsCurrent ? storedSegmentedCashGross : nil }
+        set { if accountIsCurrent { storedSegmentedCashGross = newValue } }
+    }
+    @Published private var storedSegmentedSocialCeiling: SalarySegmentedSocialSecurityCeilingResultV2?
+    private(set) var segmentedSocialCeiling: SalarySegmentedSocialSecurityCeilingResultV2? {
+        get { accountIsCurrent ? storedSegmentedSocialCeiling : nil }
+        set { if accountIsCurrent { storedSegmentedSocialCeiling = newValue } }
+    }
+    @Published private var storedSegmentedProrationSourceText: String = ""
+    var segmentedProrationSourceText: String {
+        get { accountIsCurrent ? storedSegmentedProrationSourceText : "" }
+        set { if accountIsCurrent { storedSegmentedProrationSourceText = newValue } }
+    }
+    @Published private var storedSegmentedProrationDraftSegments: [SalarySegmentedProrationDraftSegmentV2] = []
+    private(set) var segmentedProrationDraftSegments: [SalarySegmentedProrationDraftSegmentV2] {
+        get { accountIsCurrent ? storedSegmentedProrationDraftSegments : [] }
+        set { if accountIsCurrent { storedSegmentedProrationDraftSegments = newValue } }
+    }
+    @Published private var storedSegmentedProrationFeedback: String?
+    private(set) var segmentedProrationFeedback: String? {
+        get { accountIsCurrent ? storedSegmentedProrationFeedback : nil }
+        set { if accountIsCurrent { storedSegmentedProrationFeedback = newValue } }
+    }
+    @Published private var storedIncomeTaxRateText: String = ""
+    var incomeTaxRateText: String {
+        get { accountIsCurrent ? storedIncomeTaxRateText : "" }
+        set { if accountIsCurrent { storedIncomeTaxRateText = newValue } }
+    }
+    @Published private var storedIncomeTaxSource: String = ""
+    var incomeTaxSource: String {
+        get { accountIsCurrent ? storedIncomeTaxSource : "" }
+        set { if accountIsCurrent { storedIncomeTaxSource = newValue } }
+    }
+    @Published private var storedIncomeTaxFeedback: String?
+    private(set) var incomeTaxFeedback: String? {
+        get { accountIsCurrent ? storedIncomeTaxFeedback : nil }
+        set { if accountIsCurrent { storedIncomeTaxFeedback = newValue } }
+    }
 
     // Saisie contractuelle canonique. Les deux dates sont volontairement indépendantes.
-    @Published var contractTypeSelection = ""
-    @Published var contractHireDateText = ""
-    @Published var contractEffectiveDateText = ""
-    @Published var contractWeeklyHoursText = ""
-    @Published var contractForfaitHoursText = ""
-    @Published var contractForfaitDaysText = ""
-    @Published var contractMonthlyGrossText = ""
-    @Published var contractHourlyRateText = ""
-    @Published var contractSourceText = ""
-    @Published private(set) var contractFeedback: String?
+    @Published private var storedContractTypeSelection: String = ""
+    var contractTypeSelection: String {
+        get { accountIsCurrent ? storedContractTypeSelection : "" }
+        set { if accountIsCurrent { storedContractTypeSelection = newValue } }
+    }
+    @Published private var storedContractHireDateText: String = ""
+    var contractHireDateText: String {
+        get { accountIsCurrent ? storedContractHireDateText : "" }
+        set { if accountIsCurrent { storedContractHireDateText = newValue } }
+    }
+    @Published private var storedContractEffectiveDateText: String = ""
+    var contractEffectiveDateText: String {
+        get { accountIsCurrent ? storedContractEffectiveDateText : "" }
+        set { if accountIsCurrent { storedContractEffectiveDateText = newValue } }
+    }
+    @Published private var storedContractWeeklyHoursText: String = ""
+    var contractWeeklyHoursText: String {
+        get { accountIsCurrent ? storedContractWeeklyHoursText : "" }
+        set { if accountIsCurrent { storedContractWeeklyHoursText = newValue } }
+    }
+    @Published private var storedContractForfaitHoursText: String = ""
+    var contractForfaitHoursText: String {
+        get { accountIsCurrent ? storedContractForfaitHoursText : "" }
+        set { if accountIsCurrent { storedContractForfaitHoursText = newValue } }
+    }
+    @Published private var storedContractForfaitDaysText: String = ""
+    var contractForfaitDaysText: String {
+        get { accountIsCurrent ? storedContractForfaitDaysText : "" }
+        set { if accountIsCurrent { storedContractForfaitDaysText = newValue } }
+    }
+    @Published private var storedContractMonthlyGrossText: String = ""
+    var contractMonthlyGrossText: String {
+        get { accountIsCurrent ? storedContractMonthlyGrossText : "" }
+        set { if accountIsCurrent { storedContractMonthlyGrossText = newValue } }
+    }
+    @Published private var storedContractHourlyRateText: String = ""
+    var contractHourlyRateText: String {
+        get { accountIsCurrent ? storedContractHourlyRateText : "" }
+        set { if accountIsCurrent { storedContractHourlyRateText = newValue } }
+    }
+    @Published private var storedContractSourceText: String = ""
+    var contractSourceText: String {
+        get { accountIsCurrent ? storedContractSourceText : "" }
+        set { if accountIsCurrent { storedContractSourceText = newValue } }
+    }
+    @Published private var storedContractFeedback: String?
+    private(set) var contractFeedback: String? {
+        get { accountIsCurrent ? storedContractFeedback : nil }
+        set { if accountIsCurrent { storedContractFeedback = newValue } }
+    }
 
     // Profil social salarié daté : aucune valeur n'est présumée.
-    @Published var socialProfessionalStatusSelection = ""
-    @Published var socialAlsaceMoselleSelection = ""
-    @Published var socialEffectiveDateText = ""
-    @Published var socialSourceText = ""
-    @Published private(set) var socialProfileFeedback: String?
+    @Published private var storedSocialProfessionalStatusSelection: String = ""
+    var socialProfessionalStatusSelection: String {
+        get { accountIsCurrent ? storedSocialProfessionalStatusSelection : "" }
+        set { if accountIsCurrent { storedSocialProfessionalStatusSelection = newValue } }
+    }
+    @Published private var storedSocialAlsaceMoselleSelection: String = ""
+    var socialAlsaceMoselleSelection: String {
+        get { accountIsCurrent ? storedSocialAlsaceMoselleSelection : "" }
+        set { if accountIsCurrent { storedSocialAlsaceMoselleSelection = newValue } }
+    }
+    @Published private var storedSocialEffectiveDateText: String = ""
+    var socialEffectiveDateText: String {
+        get { accountIsCurrent ? storedSocialEffectiveDateText : "" }
+        set { if accountIsCurrent { storedSocialEffectiveDateText = newValue } }
+    }
+    @Published private var storedSocialSourceText: String = ""
+    var socialSourceText: String {
+        get { accountIsCurrent ? storedSocialSourceText : "" }
+        set { if accountIsCurrent { storedSocialSourceText = newValue } }
+    }
+    @Published private var storedSocialProfileFeedback: String?
+    private(set) var socialProfileFeedback: String? {
+        get { accountIsCurrent ? storedSocialProfileFeedback : nil }
+        set { if accountIsCurrent { storedSocialProfileFeedback = newValue } }
+    }
 
     // Classification conventionnelle exacte : champs indépendants, aucun rapprochement approximatif.
-    @Published var classificationCoefficientText = ""
-    @Published var classificationLevelText = ""
-    @Published var classificationEchelonText = ""
-    @Published var classificationPositionText = ""
-    @Published var classificationGroupText = ""
-    @Published var classificationCategoryText = ""
-    @Published var classificationEmploymentText = ""
-    @Published private(set) var classificationFeedback: String?
+    @Published private var storedClassificationCoefficientText: String = ""
+    var classificationCoefficientText: String {
+        get { accountIsCurrent ? storedClassificationCoefficientText : "" }
+        set { if accountIsCurrent { storedClassificationCoefficientText = newValue } }
+    }
+    @Published private var storedClassificationLevelText: String = ""
+    var classificationLevelText: String {
+        get { accountIsCurrent ? storedClassificationLevelText : "" }
+        set { if accountIsCurrent { storedClassificationLevelText = newValue } }
+    }
+    @Published private var storedClassificationEchelonText: String = ""
+    var classificationEchelonText: String {
+        get { accountIsCurrent ? storedClassificationEchelonText : "" }
+        set { if accountIsCurrent { storedClassificationEchelonText = newValue } }
+    }
+    @Published private var storedClassificationPositionText: String = ""
+    var classificationPositionText: String {
+        get { accountIsCurrent ? storedClassificationPositionText : "" }
+        set { if accountIsCurrent { storedClassificationPositionText = newValue } }
+    }
+    @Published private var storedClassificationGroupText: String = ""
+    var classificationGroupText: String {
+        get { accountIsCurrent ? storedClassificationGroupText : "" }
+        set { if accountIsCurrent { storedClassificationGroupText = newValue } }
+    }
+    @Published private var storedClassificationCategoryText: String = ""
+    var classificationCategoryText: String {
+        get { accountIsCurrent ? storedClassificationCategoryText : "" }
+        set { if accountIsCurrent { storedClassificationCategoryText = newValue } }
+    }
+    @Published private var storedClassificationEmploymentText: String = ""
+    var classificationEmploymentText: String {
+        get { accountIsCurrent ? storedClassificationEmploymentText : "" }
+        set { if accountIsCurrent { storedClassificationEmploymentText = newValue } }
+    }
+    @Published private var storedClassificationFeedback: String?
+    private(set) var classificationFeedback: String? {
+        get { accountIsCurrent ? storedClassificationFeedback : nil }
+        set { if accountIsCurrent { storedClassificationFeedback = newValue } }
+    }
 
     // Absences V2 : saisie factuelle + confirmation d'exhaustivité du mois.
-    @Published var absenceTypeSelection = SalaryAbsencePayrollImpactV2.typeUnpaid
-    @Published var absenceStartDateText = ""
-    @Published var absenceEndDateText = ""
-    @Published var absenceTreatmentSelection = SalaryAbsenceTreatmentV2.unpaid.rawValue
-    @Published var absenceFullDay = true
-    @Published var absenceMonthSourceText = ""
-    @Published private(set) var absenceFeedback: String?
+    @Published private var storedAbsenceTypeSelection: String = SalaryAbsencePayrollImpactV2.typeUnpaid
+    var absenceTypeSelection: String {
+        get { accountIsCurrent ? storedAbsenceTypeSelection : "" }
+        set { if accountIsCurrent { storedAbsenceTypeSelection = newValue } }
+    }
+    @Published private var storedAbsenceStartDateText: String = ""
+    var absenceStartDateText: String {
+        get { accountIsCurrent ? storedAbsenceStartDateText : "" }
+        set { if accountIsCurrent { storedAbsenceStartDateText = newValue } }
+    }
+    @Published private var storedAbsenceEndDateText: String = ""
+    var absenceEndDateText: String {
+        get { accountIsCurrent ? storedAbsenceEndDateText : "" }
+        set { if accountIsCurrent { storedAbsenceEndDateText = newValue } }
+    }
+    @Published private var storedAbsenceTreatmentSelection: String = SalaryAbsenceTreatmentV2.unpaid.rawValue
+    var absenceTreatmentSelection: String {
+        get { accountIsCurrent ? storedAbsenceTreatmentSelection : "" }
+        set { if accountIsCurrent { storedAbsenceTreatmentSelection = newValue } }
+    }
+    @Published private var storedAbsenceFullDay: Bool = true
+    var absenceFullDay: Bool {
+        get { accountIsCurrent ? storedAbsenceFullDay : false }
+        set { if accountIsCurrent { storedAbsenceFullDay = newValue } }
+    }
+    @Published private var storedAbsenceMonthSourceText: String = ""
+    var absenceMonthSourceText: String {
+        get { accountIsCurrent ? storedAbsenceMonthSourceText : "" }
+        set { if accountIsCurrent { storedAbsenceMonthSourceText = newValue } }
+    }
+    @Published private var storedAbsenceFeedback: String?
+    private(set) var absenceFeedback: String? {
+        get { accountIsCurrent ? storedAbsenceFeedback : nil }
+        set { if accountIsCurrent { storedAbsenceFeedback = newValue } }
+    }
+
+    let accountLease: SalaryAccountSessionV2.Lease
+    var accountIsCurrent: Bool { accountLease.isCurrent }
 
     private let referenceProvider: ReferenceProvider
     private let segmentedProvider: SegmentedProvider
@@ -137,6 +349,10 @@ final class SalaryV2Store: ObservableObject {
             SalaryWorkSessionSourceV2(sessions: [], reliable: false)
         }
     ) {
+        let lease = SalaryAccountSessionV2.capture()
+        self.accountLease = lease
+        let operation = SalaryAccountSessionV2.pin(lease)
+        defer { operation.close() }
         let components = calendar.dateComponents([.year, .month], from: now)
         let period = YearMonthV2(
             year: components.year ?? 1970,
@@ -232,19 +448,19 @@ final class SalaryV2Store: ObservableObject {
         self.incomeTaxStore = incomeTaxStore
         self.calendar = calendar
         self.selectedPeriod = period
-        self.companies = storedCompanies
-        self.selectedCompanyId = companyId
-        self.paidWork = paidWork
-        self.contractSegmentPaidWork = contractSegmentPaidWork
-        self.conventionCoverage = conventionCoverage
-        self.contractResolution = contractResolution
-        self.socialProfile = socialProfile
-        self.absenceSource = absenceSource
-        self.segmentedProrationSource = segmentedProrationSource
-        self.segmentedMonthlyBase = segmentedMonthlyBase
-        self.segmentedPayrollBoundary = segmentedPayrollBoundary
-        self.segmentedProrationSourceText = segmentedProrationSource?.proration?.sourceId ?? ""
-        self.segmentedProrationDraftSegments = segmentedProrationDraftSegments
+        self.storedCompanies = storedCompanies
+        self.storedSelectedCompanyId = companyId
+        self.storedPaidWork = paidWork
+        self.storedContractSegmentPaidWork = contractSegmentPaidWork
+        self.storedConventionCoverage = conventionCoverage
+        self.storedContractResolution = contractResolution
+        self.storedSocialProfile = socialProfile
+        self.storedAbsenceSource = absenceSource
+        self.storedSegmentedProrationSource = segmentedProrationSource
+        self.storedSegmentedMonthlyBase = segmentedMonthlyBase
+        self.storedSegmentedPayrollBoundary = segmentedPayrollBoundary
+        self.storedSegmentedProrationSourceText = segmentedProrationSource?.proration?.sourceId ?? ""
+        self.storedSegmentedProrationDraftSegments = segmentedProrationDraftSegments
         let needsSegmentedSource =
             !(segmentedPayrollBoundary?.transitionEpochDays.isEmpty ?? true) ||
             ((contractResolution?.resolution?.calculationSegments.count ?? 0) > 1 &&
@@ -264,8 +480,8 @@ final class SalaryV2Store: ObservableObject {
                 now: now
             )
             : nil
-        self.segmentedWorkedGross = segmentedWorkedGross
-        self.segmentedCashGross = Self.resolveSegmentedCashGross(
+        self.storedSegmentedWorkedGross = segmentedWorkedGross
+        self.storedSegmentedCashGross = Self.resolveSegmentedCashGross(
             company: companyId.flatMap {
                 SalaryCompanyStoreV2.confirmedCompany(storedCompanies, companyId: $0)
             },
@@ -273,7 +489,7 @@ final class SalaryV2Store: ObservableObject {
             worked: segmentedWorkedGross,
             socialProfile: socialProfile
         )
-        self.segmentedSocialCeiling = needsSegmentedSource
+        self.storedSegmentedSocialCeiling = needsSegmentedSource
             ? Self.resolveSegmentedCeiling(
                 companyId: companyId,
                 period: period,
@@ -284,15 +500,15 @@ final class SalaryV2Store: ObservableObject {
                 calendar: calendar
             )
             : nil
-        self.snapshot = SalaryWorkspaceResolverV2.resolve(
+        self.storedSnapshot = SalaryWorkspaceResolverV2.resolve(
             period: period,
             requiresSegmentedSource: needsSegmentedSource,
             segmented: needsSegmentedSource ? companyId.flatMap { segmentedProvider($0, period) } : nil,
             reference: reference,
             incomeTaxRate: taxRate
         )
-        self.incomeTaxRateText = taxRate?.ratePercent.map { String(format: "%.2f", $0) } ?? ""
-        self.incomeTaxSource = taxRate?.source ?? ""
+        self.storedIncomeTaxRateText = taxRate?.ratePercent.map { String(format: "%.2f", $0) } ?? ""
+        self.storedIncomeTaxSource = taxRate?.source ?? ""
         hydrateContractForm(from: contractResolution?.resolution?.coverage?.singleSnapshotForWholePeriod)
         hydrateConventionClassification()
     }
@@ -316,6 +532,7 @@ final class SalaryV2Store: ObservableObject {
     }
 
     var displayWarnings: [String] {
+        guard accountIsCurrent else { return [SalaryAccountStorageV2.warning] }
         let companyWarnings = companies.warnings
         let conventionWarnings = conventionCoverage?.warnings ?? []
         let contractWarnings = contractResolution?.warnings ?? []
@@ -377,6 +594,9 @@ final class SalaryV2Store: ObservableObject {
     /// Appelé uniquement après confirmation explicite de l'utilisateur dans l'écran Salaire.
     @discardableResult
     func confirmPayrollCoverage() -> Bool {
+        guard accountIsCurrent else { return false }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
         let requestedCompany = selectedCompanyId
         synchronizeCompanySelectionWithLatestStore()
         guard selectedCompanyId == requestedCompany,
@@ -394,6 +614,9 @@ final class SalaryV2Store: ObservableObject {
     }
 
     func refresh() {
+        guard accountIsCurrent else { return  }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
         synchronizeCompanySelectionWithLatestStore()
         recompute()
     }
@@ -402,6 +625,9 @@ final class SalaryV2Store: ObservableObject {
     /// `nil` efface le choix ; un identifiant inconnu ou un stockage non fiable est rejeté.
     @discardableResult
     func selectCompany(_ requestedCompanyId: String?) -> Bool {
+        guard accountIsCurrent else { return false }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
         companies = companiesProvider()
 
         guard let requestedCompanyId else {
@@ -439,6 +665,9 @@ final class SalaryV2Store: ObservableObject {
 
     @discardableResult
     func confirmEmploymentContract() -> Bool {
+        guard accountIsCurrent else { return false }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
         let targetBeforeReconciliation = selectedCompanyId
         synchronizeCompanySelectionWithLatestStore()
         guard let companyId = SalaryCompanySelectionV2.stableMutationTarget(
@@ -535,6 +764,9 @@ final class SalaryV2Store: ObservableObject {
 
     @discardableResult
     func confirmSocialProfile() -> Bool {
+        guard accountIsCurrent else { return false }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
         let targetBeforeReconciliation = selectedCompanyId
         synchronizeCompanySelectionWithLatestStore()
         guard let companyId = SalaryCompanySelectionV2.stableMutationTarget(
@@ -598,6 +830,9 @@ final class SalaryV2Store: ObservableObject {
 
     @discardableResult
     func confirmConventionClassification() -> Bool {
+        guard accountIsCurrent else { return false }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
         let targetBeforeReconciliation = selectedCompanyId
         synchronizeCompanySelectionWithLatestStore()
         guard let companyId = SalaryCompanySelectionV2.stableMutationTarget(
@@ -622,6 +857,9 @@ final class SalaryV2Store: ObservableObject {
         }
 
         func value(_ raw: String) -> String? {
+        guard accountIsCurrent else { return nil }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }
@@ -655,6 +893,9 @@ final class SalaryV2Store: ObservableObject {
 
     @discardableResult
     func saveAbsence() -> Bool {
+        guard accountIsCurrent else { return false }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
         let targetBeforeReconciliation = selectedCompanyId
         synchronizeCompanySelectionWithLatestStore()
         guard let companyId = SalaryCompanySelectionV2.stableMutationTarget(
@@ -712,6 +953,9 @@ final class SalaryV2Store: ObservableObject {
 
     @discardableResult
     func removeAbsence(_ id: String) -> Bool {
+        guard accountIsCurrent else { return false }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
         guard let companyId = selectedCompanyId,
               SalaryAbsenceStoreV2.remove(
                 companyId: companyId,
@@ -727,6 +971,9 @@ final class SalaryV2Store: ObservableObject {
 
     @discardableResult
     func confirmAbsenceMonthCoverage() -> Bool {
+        guard accountIsCurrent else { return false }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
         let source = absenceMonthSourceText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let companyId = selectedCompanyId, !source.isEmpty else {
             absenceFeedback = "Absences : indiquez la source de confirmation du mois."
@@ -746,6 +993,9 @@ final class SalaryV2Store: ObservableObject {
     }
 
     func updateSegmentedProrationMinutes(segmentId: String, text: String) {
+        guard accountIsCurrent else { return  }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
         guard let index = segmentedProrationDraftSegments.firstIndex(where: { $0.id == segmentId }) else {
             return
         }
@@ -755,6 +1005,9 @@ final class SalaryV2Store: ObservableObject {
 
     @discardableResult
     func confirmSegmentedProration() -> Bool {
+        guard accountIsCurrent else { return false }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
         let targetBeforeReconciliation = selectedCompanyId
         synchronizeCompanySelectionWithLatestStore()
         guard let companyId = SalaryCompanySelectionV2.stableMutationTarget(
@@ -828,6 +1081,9 @@ final class SalaryV2Store: ObservableObject {
 
     @discardableResult
     func removeSegmentedProration() -> Bool {
+        guard accountIsCurrent else { return false }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
         guard let companyId = selectedCompanyId,
               SalarySegmentedProrationStoreV2.remove(
                 companyId: companyId,
@@ -843,6 +1099,9 @@ final class SalaryV2Store: ObservableObject {
 
     @discardableResult
     func confirmIncomeTaxRate() -> Bool {
+        guard accountIsCurrent else { return false }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
         let normalized = incomeTaxRateText.replacingOccurrences(of: ",", with: ".")
         let targetBeforeReconciliation = selectedCompanyId
 
@@ -873,6 +1132,9 @@ final class SalaryV2Store: ObservableObject {
 
     @discardableResult
     func removeIncomeTaxRate() -> Bool {
+        guard accountIsCurrent else { return false }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
         let targetBeforeReconciliation = selectedCompanyId
         synchronizeCompanySelectionWithLatestStore()
         guard let companyId = SalaryCompanySelectionV2.stableMutationTarget(
@@ -896,6 +1158,9 @@ final class SalaryV2Store: ObservableObject {
     }
 
     func moveMonth(by delta: Int) {
+        guard accountIsCurrent else { return  }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
         guard delta != 0 else { return }
         let zeroBased = selectedPeriod.year * 12 + selectedPeriod.month - 1 + delta
         guard zeroBased >= 0 else { return }
@@ -910,6 +1175,9 @@ final class SalaryV2Store: ObservableObject {
     }
 
     private func synchronizeCompanySelectionWithLatestStore() {
+        guard accountIsCurrent else { return  }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
         let previousWasExplicit = selectedCompanyWasExplicit
         companies = companiesProvider()
         let reconciled = SalaryCompanySelectionV2.reconcile(
@@ -925,10 +1193,14 @@ final class SalaryV2Store: ObservableObject {
     }
 
     private func recompute() {
+        guard accountIsCurrent else { return  }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
         let companyId = selectedCompanyId
         let taxRate = companyId.map { incomeTaxStore.snapshot(companyId: $0, for: selectedPeriod) }
 
         if let companyId {
+            confirmedSicknessCash = SalaryConfirmedSicknessCashV2.read(companyId: companyId, period: selectedPeriod)
             let source = workSourceProvider()
             paidWork = SalaryPaidWorkAggregatorV2.aggregate(
                 sessions: source.sessions,
@@ -1027,6 +1299,7 @@ final class SalaryV2Store: ObservableObject {
             contractResolution = nil
             socialProfile = nil
             absenceSource = nil
+            confirmedSicknessCash = nil
             segmentedProrationSource = nil
             segmentedMonthlyBase = nil
             segmentedPayrollBoundary = nil
@@ -1159,6 +1432,9 @@ final class SalaryV2Store: ObservableObject {
     }
 
     private func hydrateConventionClassification() {
+        guard accountIsCurrent else { return  }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
         guard let companyId = selectedCompanyId else {
             classificationCoefficientText = ""
             classificationLevelText = ""
@@ -1180,6 +1456,9 @@ final class SalaryV2Store: ObservableObject {
     }
 
     private func hydrateContractForm(from stored: SalaryEmploymentContractSnapshotV2?) {
+        guard accountIsCurrent else { return  }
+        let operation = SalaryAccountSessionV2.pin(accountLease)
+        defer { operation.close() }
         guard let stored else {
             contractTypeSelection = ""
             contractHireDateText = ""

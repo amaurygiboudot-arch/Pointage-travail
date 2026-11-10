@@ -3,7 +3,7 @@ import Foundation
 /// Cotisation patronale accidents du travail / maladies professionnelles.
 ///
 /// Le taux dépend de l'établissement. Il doit donc provenir d'une source employeur
-/// confirmée : HoraTrack ne sélectionne jamais un taux collectif par défaut. Cette
+/// confirmée : AGKGMG ne sélectionne jamais un taux collectif par défaut. Cette
 /// cotisation reste exclusivement patronale et ne diminue jamais le net salarié.
 enum EmployerAtMpContributionV2 {
     struct Result: Equatable {

@@ -71,32 +71,31 @@ object V2ValidationSuite {
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
 
-        val slotMs = 30L * 60_000L
         val base = localTime(7)
         val expectedEnd = localTime(16)
 
         addCheck(
-            "Entrée 07:00 -> 07:00",
+            "Entrée réelle 07:00 conservée",
             HoraTrackV2.time.countedEntryFromRealArrival(base) == base
         )
         addCheck(
-            "Entrée 07:10 -> 07:00",
-            HoraTrackV2.time.countedEntryFromRealArrival(base + 10L * 60_000L) == base
+            "Entrée réelle 07:10 conservée sans arrondi",
+            HoraTrackV2.time.countedEntryFromRealArrival(base + 10L * 60_000L) == base + 10L * 60_000L
         )
         addCheck(
-            "Entrée 07:11 -> 07:30",
-            HoraTrackV2.time.countedEntryFromRealArrival(base + 11L * 60_000L) == base + slotMs
+            "Entrée réelle 07:11 conservée sans grille",
+            HoraTrackV2.time.countedEntryFromRealArrival(base + 11L * 60_000L) == base + 11L * 60_000L
         )
         addCheck(
-            "Sortie +20 -> prévue",
-            HoraTrackV2.time.countedExitFromRealExit(expectedEnd + 20L * 60_000L, expectedEnd) == expectedEnd
+            "Sortie réelle +20 conservée malgré heure prévue",
+            HoraTrackV2.time.countedExitFromRealExit(expectedEnd + 20L * 60_000L, expectedEnd) == expectedEnd + 20L * 60_000L
         )
         addCheck(
-            "Sortie +21 -> réelle",
+            "Sortie réelle +21 conservée",
             HoraTrackV2.time.countedExitFromRealExit(expectedEnd + 21L * 60_000L, expectedEnd) == expectedEnd + 21L * 60_000L
         )
         addCheck(
-            "Sortie sans horaire prévu -> réelle",
+            "Sortie réelle sans horaire prévu conservée",
             HoraTrackV2.time.countedExitFromRealExit(expectedEnd + 5L * 60_000L, null) == expectedEnd + 5L * 60_000L
         )
         addCheck(

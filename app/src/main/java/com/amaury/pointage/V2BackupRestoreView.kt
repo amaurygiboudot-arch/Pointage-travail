@@ -10,6 +10,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.V2BackupManager
+import com.amaury.pointage.v2.SalaryAccountScope
 
 class V2BackupRestoreView @JvmOverloads constructor(
     context: Context,
@@ -28,11 +29,16 @@ class V2BackupRestoreView @JvmOverloads constructor(
         })
         addView(button("SAUVEGARDER MAINTENANT") { backupNow() })
         addView(button("RESTAURER UNE SAUVEGARDE") {
-            (context as? Activity)?.startActivity(Intent(context, V2RestoreActivity::class.java))
+            val lease = SalaryAccountScope.lease(context)
+            if (SalaryAccountScope.isCurrent(lease)) SalaryAccountUi.activity(context)?.startActivity(
+                SalaryAccountUi.attach(Intent(context, V2RestoreActivity::class.java), lease)
+            )
         })
     }
 
     private fun backupNow() {
+        val ownerContext = SalaryAccountScope.bindContext(context)
+        if (!SalaryAccountScope.available(ownerContext)) return
         if (!DriveBackupManager.isConfigured(context)) {
             Toast.makeText(context, "Choisis d'abord ton dossier Google Drive", Toast.LENGTH_LONG).show()
             (context as? Activity)?.startActivity(Intent(context, DriveFolderPickerActivity::class.java))
@@ -40,8 +46,9 @@ class V2BackupRestoreView @JvmOverloads constructor(
         }
         Toast.makeText(context, "Sauvegarde en cours…", Toast.LENGTH_SHORT).show()
         Thread {
-            val result = V2BackupManager.backupToConfiguredDrive(context)
+            val result = V2BackupManager.backupToConfiguredDrive(ownerContext)
             post {
+                if (!SalaryAccountScope.available(ownerContext)) return@post
                 Toast.makeText(
                     context,
                     if (result.isSuccess) "Sauvegarde terminée" else "Sauvegarde impossible : ${result.exceptionOrNull()?.message ?: "erreur"}",

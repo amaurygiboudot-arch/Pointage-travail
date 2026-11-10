@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.animation.StateListAnimator
@@ -209,7 +211,7 @@ object ButtonReliefInstaller {
     }
 
     private fun isDarkMode(activity: Activity): Boolean {
-        val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(activity, PREFS, Context.MODE_PRIVATE)
         val mode = prefs.getString("mode", "auto") ?: "auto"
         val systemDark = (activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         return when (mode) {
@@ -220,10 +222,10 @@ object ButtonReliefInstaller {
     }
 
     private fun isSolarEnabled(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(PREF_SOLAR, false)
+        RestoreGuardedPreferences.open(context, PREFS, Context.MODE_PRIVATE).getBoolean(PREF_SOLAR, false)
 
     private fun setSolarEnabled(activity: Activity, enabled: Boolean) {
-        activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(PREF_SOLAR, enabled).apply()
+        RestoreGuardedPreferences.open(activity, PREFS, Context.MODE_PRIVATE).edit().putBoolean(PREF_SOLAR, enabled).apply()
         configureSolarLighting(activity, activity.window.decorView)
     }
 
@@ -274,7 +276,7 @@ object ButtonReliefInstaller {
             .setTitle("💎 Activer le moteur Diamant 3D ?")
             .setMessage(
                 "Le thème Diamant utilise un moteur de simulation 3D dédié pour les trois boutons de pointage : Entrée, Pause et Sortie.\n\n" +
-                    "Les autres boutons conservent l'apparence standard HoraTrack."
+                    "Les autres boutons conservent l'apparence standard AGKGMG."
             )
             .setPositiveButton("ACTIVER LE DIAMANT 3D") { _, _ ->
                 AppThemeCatalog.set(activity, targetTheme)

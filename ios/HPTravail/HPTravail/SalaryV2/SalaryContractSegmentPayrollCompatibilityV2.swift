@@ -14,7 +14,7 @@ enum SalaryContractSegmentPayrollCompatibilityV2 {
     static let equivalentVersionsWarning =
         "Contrat de paie : plusieurs versions datées couvrent le mois mais leurs paramètres de paie sont identiques ; le calcul mensuel unique peut être conservé."
     static let changedPayrollInputsWarning =
-        "Contrat de paie : un paramètre de paie change en cours de mois ; HoraTrack conserve le temps payé exact par segment mais ne prorate pas le salaire sans règle de proratisation ou planning confirmé."
+        "Contrat de paie : un paramètre de paie change en cours de mois ; AGKGMG conserve le temps payé exact par segment mais ne prorate pas le salaire sans règle de proratisation ou planning confirmé."
 
     static func resolve(
         _ segments: [SalaryEmploymentContractCoverageSegmentV2]

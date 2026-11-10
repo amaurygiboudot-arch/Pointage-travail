@@ -7,7 +7,7 @@ import java.time.LocalDate
  * Accord du 27 juin 2024, étendu, applicable à compter du 01/01/2025.
  *
  * La catégorie est déduite du coefficient conventionnel : aucune saisie ANI
- * parallèle n'est créée dans HoraTrack.
+ * parallèle n'est créée dans AGKGMG.
  */
 object PlasturgieProtectionCategoryV2 {
     const val IDCC = "292"
@@ -44,7 +44,7 @@ object PlasturgieProtectionCategoryV2 {
                 Category.TO_CONFIRM,
                 false,
                 coefficient,
-                listOf("Catégorie prévoyance Plasturgie : le classement ANI automatique utilisé par HoraTrack est applicable à compter du 01/01/2025.")
+                listOf("Catégorie prévoyance Plasturgie : le classement ANI automatique utilisé par AGKGMG est applicable à compter du 01/01/2025.")
             )
         }
         if (coefficient == null) {

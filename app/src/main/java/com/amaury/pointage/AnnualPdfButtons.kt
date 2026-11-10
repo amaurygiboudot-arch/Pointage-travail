@@ -9,6 +9,7 @@ import android.util.AttributeSet
 import android.widget.Button
 import android.widget.Toast
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.SalaryAccountScope
 import java.io.File
 import java.util.Calendar
 
@@ -24,22 +25,26 @@ class AnnualWorkPdfButton @JvmOverloads constructor(
 
     private fun open() {
         val activity = context as? MainActivity ?: return
+        val sourceContext = SalaryAccountScope.bindContext(activity)
+        val lease = SalaryAccountScope.lease(sourceContext)
+        if (!SalaryAccountUi.current(sourceContext)) return
         val year = Calendar.getInstance().get(Calendar.YEAR)
         runCatching {
             val name = "AGKGMG_Bilan_travail_$year.pdf"
             val file = File.createTempFile("annual_preview_", ".pdf", activity.cacheDir)
             file.outputStream().use { output ->
                 if (HoraTrackV2.ENABLED) {
-                    AnnualPdfReports.writeWork(activity, year, output)
+                    AnnualPdfReports.writeWork(sourceContext, year, output)
                 } else {
-                    AnnualPdfReports.writeWork(activity, PointageStore.load(activity), year, output)
+                    AnnualPdfReports.writeWork(sourceContext, PointageStore.load(activity), year, output)
                 }
             }
-            BillingPdfGate.require(activity, file, name) { authorizedFile ->
-                activity.startActivity(Intent(activity, PdfPreviewActivity::class.java).apply {
+            BillingPdfGate.require(activity, file, name, accountLease = lease) { authorizedFile ->
+                if (!SalaryAccountScope.isCurrent(lease)) return@require
+                activity.startActivity(SalaryAccountUi.attach(Intent(activity, PdfPreviewActivity::class.java).apply {
                     putExtra("pdf_path", authorizedFile.absolutePath)
                     putExtra("pdf_name", name)
-                })
+                }, lease))
             }
         }.onFailure {
             Toast.makeText(activity, "Impossible de générer le bilan annuel", Toast.LENGTH_LONG).show()
@@ -59,7 +64,8 @@ class AnnualSalaryPdfButton @JvmOverloads constructor(
 
     private fun chooseCompanyAndOpen() {
         val activity = context as? MainActivity ?: return
-        val stored = SalaryCompanyStore.readConfirmed(activity)
+        val sourceContext = SalaryAccountScope.bindContext(activity)
+        val stored = SalaryCompanyStore.readConfirmed(sourceContext)
         if (!stored.reliable) {
             Toast.makeText(
                 activity,
@@ -75,18 +81,20 @@ class AnnualSalaryPdfButton @JvmOverloads constructor(
                 "Ajoute d'abord une entreprise dans Salaire",
                 Toast.LENGTH_LONG
             ).show()
-            companies.size == 1 -> open(activity, companies.single())
-            else -> AlertDialog.Builder(activity)
+            companies.size == 1 -> open(activity, sourceContext, companies.single())
+            else -> SalaryAccountUi.dialog(sourceContext)
                 .setTitle("Entreprise pour l'estimation annuelle")
                 .setItems(companies.map(::companyLabel).toTypedArray()) { _, which ->
-                    open(activity, companies[which])
+                    open(activity, sourceContext, companies[which])
                 }
                 .setNegativeButton("ANNULER", null)
                 .show()
         }
     }
 
-    private fun open(activity: MainActivity, company: SalaryCompanyStore.Company) {
+    private fun open(activity: MainActivity, sourceContext: Context, company: SalaryCompanyStore.Company) {
+        val lease = SalaryAccountScope.lease(sourceContext)
+        if (!SalaryAccountUi.current(sourceContext)) return
         val year = Calendar.getInstance().get(Calendar.YEAR)
         val token = company.siret
             .ifBlank { company.id }
@@ -98,10 +106,10 @@ class AnnualSalaryPdfButton @JvmOverloads constructor(
             val file = File.createTempFile("annual_preview_", ".pdf", activity.cacheDir)
             file.outputStream().use { output ->
                 if (HoraTrackV2.ENABLED) {
-                    AnnualPdfReports.writeSalary(activity, year, output, company)
+                    AnnualPdfReports.writeSalary(sourceContext, year, output, company)
                 } else {
                     AnnualPdfReports.writeSalary(
-                        activity,
+                        sourceContext,
                         PointageStore.load(activity),
                         year,
                         output,
@@ -109,11 +117,12 @@ class AnnualSalaryPdfButton @JvmOverloads constructor(
                     )
                 }
             }
-            BillingPdfGate.require(activity, file, name) { authorizedFile ->
-                activity.startActivity(Intent(activity, PdfPreviewActivity::class.java).apply {
+            BillingPdfGate.require(activity, file, name, accountLease = lease) { authorizedFile ->
+                if (!SalaryAccountScope.isCurrent(lease)) return@require
+                activity.startActivity(SalaryAccountUi.attach(Intent(activity, PdfPreviewActivity::class.java).apply {
                     putExtra("pdf_path", authorizedFile.absolutePath)
                     putExtra("pdf_name", name)
-                })
+                }, lease))
             }
         }.onFailure {
             Toast.makeText(

@@ -363,29 +363,44 @@ object CompanyAgreementDocumentReaderV2 {
 
 /** Keeps the selected original in private app storage and exposes only that narrow directory. */
 object CompanyAgreementDocumentStoreV2 {
-    data class Persisted(val relativePath: String, val createdNew: Boolean)
+    data class Persisted internal constructor(
+        val relativePath: String,
+        val createdNew: Boolean,
+        internal val owner: SalaryAccountScope.Lease,
+        internal val companyId: String
+    )
 
     fun persist(context: Context, companyId: String, result: CompanyAgreementDocumentReaderV2.Result): Persisted {
-        val root = File(context.filesDir, "company_agreements").apply {
-            if (!exists() && !mkdirs()) throw CompanyAgreementDocumentReaderV2.ImportException("Impossible de conserver le document.")
-        }
+        val ownerContext = SalaryAccountScope.bindContext(context)
+        val owner = SalaryAccountScope.lease(ownerContext)
+        if (!SalaryAccountScope.available(ownerContext)) throw CompanyAgreementDocumentReaderV2.ImportException(SalaryAccountScope.AUTH_WARNING)
+        val ownerDirectory = V2RuntimeAccountScope.fileName("owner", owner.scope)
+            ?: throw CompanyAgreementDocumentReaderV2.ImportException(SalaryAccountScope.AUTH_WARNING)
+        require(result.sha256.matches(Regex("[a-f0-9]{64}"))) { "Empreinte du document invalide" }
         val companySegment = companyId.filter { it.isLetterOrDigit() || it == '-' || it == '_' }.take(80).ifBlank { "company" }
-        val directory = File(root, companySegment).apply {
+        val directory = File(context.filesDir, "company_agreements/$ownerDirectory/$companySegment").apply {
             if (!exists() && !mkdirs()) throw CompanyAgreementDocumentReaderV2.ImportException("Impossible de conserver le document.")
         }
-        val extension = imageAwareExtension(result)
-        val target = File(directory, "${result.sha256}.$extension")
-        val createdNew = !target.exists()
-        if (createdNew) {
-            if (!result.temporaryFile.renameTo(target)) {
-                result.temporaryFile.copyTo(target, overwrite = false)
-                result.temporaryFile.delete()
+        // Each import owns its file, so an interrupted import cannot delete another import's copy.
+        val target = File(directory, "${java.util.UUID.randomUUID()}_${result.sha256}.${imageAwareExtension(result)}")
+        val staging = File.createTempFile("agreement-", ".pending", directory)
+        try {
+            java.io.FileOutputStream(staging).use { output ->
+                result.temporaryFile.inputStream().use { it.copyTo(output) }
+                output.fd.sync()
             }
-        } else {
+            check(hash(staging) == result.sha256) { "Le document a changé pendant l'import" }
+            check(SalaryAccountScope.available(ownerContext)) { SalaryAccountScope.AUTH_WARNING }
+            check(staging.renameTo(target)) { "Impossible de conserver le document" }
+            if (!SalaryAccountScope.available(ownerContext)) {
+                target.delete()
+                throw CompanyAgreementDocumentReaderV2.ImportException(SalaryAccountScope.AUTH_WARNING)
+            }
             result.temporaryFile.delete()
+            return Persisted(target.relativeTo(context.filesDir).invariantSeparatorsPath, true, owner, companyId)
+        } finally {
+            staging.delete()
         }
-        val relative = target.relativeTo(context.filesDir).invariantSeparatorsPath
-        return Persisted(relativePath = relative, createdNew = createdNew)
     }
 
     fun discard(result: CompanyAgreementDocumentReaderV2.Result?) {
@@ -393,24 +408,79 @@ object CompanyAgreementDocumentStoreV2 {
     }
 
     fun contentUri(context: Context, relativePath: String): Uri? {
-        val file = resolve(context, relativePath) ?: return null
-        return runCatching {
-            FileProvider.getUriForFile(context, "${context.packageName}.agreement-files", file)
+        val ownerContext = SalaryAccountScope.bindContext(context)
+        val file = resolveOwnedDocument(ownerContext, relativePath) ?: return null
+        val uri = runCatching {
+            FileProvider.getUriForFile(ownerContext, "${ownerContext.packageName}.agreement-files", file)
         }.getOrNull()
+        return uri.takeIf { SalaryAccountScope.available(ownerContext) }
     }
 
     fun rollback(context: Context, persisted: Persisted) {
-        if (!persisted.createdNew) return
-        resolve(context, persisted.relativePath)?.delete()
+        if (!persisted.createdNew || SalaryAccountScope.lease(context) != persisted.owner) return
+        // A metadata commit can succeed before the account recheck reports failure. Preserve
+        // the original whenever ownership or reference state can no longer be established.
+        if (!SalaryAccountScope.available(context)) return
+        val references = CompanyAgreementStoreV2.read(context, persisted.companyId)
+        if (!references.reliable || references.agreements.any { it.documentPath == persisted.relativePath }) return
+        if (!SalaryAccountScope.available(context)) return
+        ownedFile(context, persisted.relativePath, persisted.owner.scope)?.delete()
     }
 
-    private fun resolve(context: Context, relativePath: String): File? {
-        if (relativePath.isBlank() || relativePath.startsWith('/') || relativePath.split('/').any { it == ".." }) return null
-        val root = File(context.filesDir, "company_agreements").canonicalFile
-        val candidate = File(context.filesDir, relativePath).canonicalFile
-        val inside = candidate.path.startsWith(root.path + File.separator)
-        return candidate.takeIf { inside && it.isFile }
+    internal fun resolveOwnedDocument(context: Context, relativePath: String): File? {
+        val context = SalaryAccountScope.bindContext(context)
+        if (!SalaryAccountScope.available(context)) return null
+        val owner = SalaryAccountScope.lease(context)
+        ownedFile(context, relativePath, owner.scope)?.let { file ->
+            val expected = file.name.substringAfterLast('_').substringBefore('.')
+            return file.takeIf { expected.matches(Regex("[a-f0-9]{64}")) && hash(it) == expected &&
+                SalaryAccountScope.available(context) }
+        }
+        // Historical paths have no owner. Only an explicit local attribution plus an exact
+        // owner-scoped metadata reference and content hash authorizes opening the original.
+        if (!SalaryLegacyRecovery.ownsOriginalHistory(context)) return null
+        val parts = relativePath.split('/')
+        if (parts.size != 3 || parts.first() != "company_agreements") return null
+        val file = safeFile(context, relativePath) ?: return null
+        val companies = com.amaury.pointage.SalaryCompanyStore.readConfirmed(context)
+        if (!companies.reliable) return null
+        val expectedHashes = companies.companies.flatMap { company ->
+            val records = CompanyAgreementStoreV2.read(context, company.id)
+            if (!records.reliable) emptyList() else records.agreements
+                .filter { it.documentPath == relativePath }.map { it.documentSha256 }
+        }.filter { it.matches(Regex("[a-f0-9]{64}")) }.toSet()
+        if (expectedHashes.size != 1 || hash(file) != expectedHashes.single()) return null
+        return file.takeIf { SalaryAccountScope.available(context) }
     }
+
+    private fun ownedFile(context: Context, relativePath: String, scope: String?): File? {
+        val ownerDirectory = V2RuntimeAccountScope.fileName("owner", scope) ?: return null
+        if (!relativePath.startsWith("company_agreements/$ownerDirectory/")) return null
+        val ownerRoot = File(File(context.filesDir, "company_agreements").canonicalFile, ownerDirectory)
+        return safeFile(context, relativePath)?.takeIf { it.path.startsWith(ownerRoot.path + File.separator) }
+    }
+
+    private fun safeFile(context: Context, relativePath: String): File? {
+        if (relativePath.isBlank() || relativePath.startsWith('/') || relativePath.split('/').any { it == ".." }) return null
+        return runCatching {
+            val root = File(context.filesDir, "company_agreements").canonicalFile
+            val candidate = File(context.filesDir, relativePath).canonicalFile
+            candidate.takeIf { it.path.startsWith(root.path + File.separator) && it.isFile }
+        }.getOrNull()
+    }
+
+    private fun hash(file: File): String? = runCatching {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(8192)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
+    }.getOrNull()
 
     private fun imageAwareExtension(result: CompanyAgreementDocumentReaderV2.Result): String {
         if (result.kind != CompanyAgreementImportPolicyV2.Kind.IMAGE) {

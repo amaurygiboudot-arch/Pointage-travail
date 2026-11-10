@@ -133,9 +133,9 @@ else:
         errors.append(f"Firebase MCP expose des outils d'écriture: {exposed_forbidden}")
 
 if errors:
-    print("CONFIG CODEX HORATRACK: FAIL")
+    print("CONFIG CODEX AGKGMG: FAIL")
     for error in errors:
         print(f"- {error}")
     sys.exit(1)
 
-print(f"CONFIG CODEX HORATRACK: PASS — {len(expected)} agents câblés")
+print(f"CONFIG CODEX AGKGMG: PASS — {len(expected)} agents câblés")

@@ -27,7 +27,7 @@ import java.util.Locale
 import java.util.concurrent.Executors
 
 /** A destination is requested only after server authorization of immutable PDF bytes. */
-class V2MonthlyPdfActivity : Activity() {
+class V2MonthlyPdfActivity : SalaryAccountActivity() {
     companion object {
         private const val REQUEST_CREATE = 9401
         // Serialize restarted copies with the departing instance: never two writers for one URI.
@@ -38,7 +38,7 @@ class V2MonthlyPdfActivity : Activity() {
     private var authorizedFile: File? = null
     private var authorizedHash: String? = null
     private var destinationRequested = false
-    private var fileName = "HoraTrack.pdf"
+    private var fileName = "AGKGMG.pdf"
     private var previewMode = false
     private var phase = MonthlyPdfRecovery.Phase.CHOOSE
     private var selectedYear = -1
@@ -50,8 +50,25 @@ class V2MonthlyPdfActivity : Activity() {
     private lateinit var resumeButton: Button
     private lateinit var offersButton: Button
 
+    override fun initialAccountLease(state: Bundle?): com.amaury.pointage.v2.SalaryAccountScope.Lease? {
+        if (state == null) return SalaryAccountUi.read(intent)
+        SalaryAccountUi.read(state)?.let { return it }
+        // A new process may only reverify already frozen bytes owned by this UID.
+        if (state.getString("phase") !in setOf("AUTHORIZING", "WAIT_PICKER", "COPYING")) return null
+        val uid = state.getString("owner_uid") ?: return null
+        val file = state.getString("file")?.let(::File) ?: return null
+        val hash = state.getString("hash") ?: return null
+        val owned = runCatching {
+            listOf("monthly_pdf_pending", "billing_pdf_archive").any { root ->
+                file.canonicalPath.startsWith(File(filesDir, "$root/${BillingContract.accountId(uid)}").canonicalPath + File.separator)
+            } && BillingContract.documentId(file) == hash
+        }.getOrDefault(false)
+        return if (owned) SalaryAccountUi.frozenPdfResume(state, uid) else null
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!accountReady()) { cleanupRestoredDestination(savedInstanceState); return }
         previewMode = savedInstanceState?.getBoolean("preview_mode") ?: intent.getBooleanExtra("report_preview", false)
         ownerUid = savedInstanceState?.getString("owner_uid") ?: currentUid()
         if (ownerUid == null || ownerUid != currentUid()) { cleanupRestoredDestination(savedInstanceState); toast("Connecte ton compte avant l'export PDF."); finish(); return }
@@ -113,7 +130,7 @@ class V2MonthlyPdfActivity : Activity() {
         }
         val months = List(36) { (cursor.clone() as Calendar).also { cursor.add(Calendar.MONTH, -1) } }
         val format = SimpleDateFormat("MMMM yyyy", Locale.FRANCE)
-        AlertDialog.Builder(this).setTitle("Mois du rapport")
+        SalaryAccountUi.dialog(this).setTitle("Mois du rapport")
             .setItems(months.map { format.format(it.time).replaceFirstChar(Char::uppercase) }.toTypedArray()) { _, index -> prepare(months[index]) }
             .setNegativeButton("Annuler") { _, _ -> if (!isChangingConfigurations && !isDestroyed) finish() }
             .setOnCancelListener { if (!isChangingConfigurations && !isDestroyed) finish() }.show()
@@ -121,13 +138,14 @@ class V2MonthlyPdfActivity : Activity() {
 
     private fun prepare(selected: Calendar) {
         val uid = ownerUid ?: return finish()
+        if (!accountReady()) return
         val year = selected.get(Calendar.YEAR); val month = selected.get(Calendar.MONTH)
         selectedYear = year; selectedMonth = month; phase = MonthlyPdfRecovery.Phase.PREPARING
-        fileName = "HoraTrack_${SimpleDateFormat("yyyy_MM", Locale.FRANCE).format(selected.time)}.pdf"
+        fileName = "AGKGMG_${SimpleDateFormat("yyyy_MM", Locale.FRANCE).format(selected.time)}.pdf"
         status.text = "Préparation privée et vérification des droits PDF…"
         worker.execute {
             val prepared = runCatching {
-                check(currentUid() == uid && !isFinishing && !isDestroyed)
+                check(accountReady() && currentUid() == uid)
                 val sessions = V2RuntimeReader.allSessions(this).requireReliable().filter { session ->
                     session.realArrivalMs?.let { at -> Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = at }.let {
                         it.get(Calendar.YEAR) == year && it.get(Calendar.MONTH) == month
@@ -143,6 +161,7 @@ class V2MonthlyPdfActivity : Activity() {
                     try { temp.outputStream().use { MonthlyPdfReportV2.write(sessions, year, month, it) }; check(temp.renameTo(file)) }
                     finally { temp.delete() }
                 }
+                check(accountReady() && currentUid() == uid)
                 check(file.isFile && file.length() > 0)
                 file
             }
@@ -189,13 +208,13 @@ class V2MonthlyPdfActivity : Activity() {
             }
             if (result.isFailure && !isChangingConfigurations) cleanup(uri)
             runOnUiThread {
-                if (!isDestroyed && !isChangingConfigurations) { toast(if (result.isSuccess) "PDF HoraTrack enregistré" else "Export annulé : droits, compte ou fichier à vérifier."); finish() }
+                if (!isDestroyed && !isChangingConfigurations) { toast(if (result.isSuccess) "PDF AGKGMG enregistré" else "Export annulé : droits, compte ou fichier à vérifier."); finish() }
             }
         }
     }
 
     private fun currentUid() = runCatching { FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
-    private fun active(uid: String) = !isFinishing && !isDestroyed && !isChangingConfigurations && currentUid() == uid
+    private fun active(uid: String) = accountReady() && !isFinishing && !isDestroyed && !isChangingConfigurations && currentUid() == uid
     private fun cleanup(uri: Uri) {
         if (uri.scheme == "content") runCatching { DocumentsContract.deleteDocument(contentResolver, uri) }
     }
@@ -221,7 +240,7 @@ class V2MonthlyPdfActivity : Activity() {
     private fun restoreExport(state: Bundle) {
         selectedYear = state.getInt("year", -1); selectedMonth = state.getInt("month", -1)
         phase = runCatching { MonthlyPdfRecovery.Phase.valueOf(state.getString("phase") ?: "CHOOSE") }.getOrDefault(MonthlyPdfRecovery.Phase.CHOOSE)
-        fileName = state.getString("name") ?: "HoraTrack.pdf"
+        fileName = state.getString("name") ?: "AGKGMG.pdf"
         val uid = ownerUid ?: return finish()
         val file = state.getString("file")?.let(::File)
         authorizedHash = state.getString("hash")
@@ -283,10 +302,11 @@ class V2MonthlyPdfActivity : Activity() {
             if (!active(uid)) return
             runCatching {
                 destinationRequested = true
-                startActivity(Intent(this, PdfPreviewActivity::class.java).apply {
+                val lease = salaryAccountLease ?: return
+                startActivity(SalaryAccountUi.attach(Intent(this, PdfPreviewActivity::class.java).apply {
                     putExtra("pdf_path", file.absolutePath)
                     putExtra("pdf_name", fileName)
-                })
+                }, lease))
                 finish()
             }.onFailure { toast("Impossible d'ouvrir l'aperçu PDF."); finish() }
             return

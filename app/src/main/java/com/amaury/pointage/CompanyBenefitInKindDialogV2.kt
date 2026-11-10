@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.app.AlertDialog
 import android.content.Context
 import android.text.InputType
@@ -35,7 +37,7 @@ object CompanyBenefitInKindDialogV2 {
             setPadding(dp(context, 16), dp(context, 8), dp(context, 16), dp(context, 8))
         }
         box.addView(TextView(context).apply {
-            text = "Renseigne la valeur brute soumise à cotisations de l’avantage en nature telle qu’elle est confirmée par l’employeur, le bulletin ou une règle officielle. HoraTrack ne calcule pas automatiquement un forfait véhicule/logement/repas à partir d’informations incomplètes."
+            text = "Renseigne la valeur brute soumise à cotisations de l’avantage en nature telle qu’elle est confirmée par l’employeur, le bulletin ou une règle officielle. AGKGMG ne calcule pas automatiquement un forfait véhicule/logement/repas à partir d’informations incomplètes."
             textSize = 13f
             setPadding(0, 0, 0, dp(context, 8))
         })
@@ -118,7 +120,7 @@ object CompanyBenefitInKindDialogV2 {
             }
         }, rowParams(context))
 
-        listDialog = AlertDialog.Builder(context)
+        listDialog = SalaryAccountUi.dialog(context)
             .setTitle("Avantages en nature")
             .setView(box)
             .setNegativeButton("FERMER", null)
@@ -137,7 +139,7 @@ object CompanyBenefitInKindDialogV2 {
             setPadding(dp(context, 20), dp(context, 8), dp(context, 20), 0)
         }
         box.addView(TextView(context).apply {
-            text = "Confirmer signifie que tous les avantages en nature soumis à cotisations pour ${period.format(monthFormatter)} sont enregistrés dans HoraTrack. Si la liste est vide, cette confirmation établit explicitement 0 €. Sans confirmation, le moteur conserve la donnée comme inconnue."
+            text = "Confirmer signifie que tous les avantages en nature soumis à cotisations pour ${period.format(monthFormatter)} sont enregistrés dans AGKGMG. Si la liste est vide, cette confirmation établit explicitement 0 €. Sans confirmation, le moteur conserve la donnée comme inconnue."
             textSize = 13f
             setPadding(0, 0, 0, dp(context, 8))
         })
@@ -145,7 +147,7 @@ object CompanyBenefitInKindDialogV2 {
         source.setText(existingSource.orEmpty())
         box.addView(source, rowParams(context))
 
-        val dialog = AlertDialog.Builder(context)
+        val dialog = SalaryAccountUi.dialog(context)
             .setTitle("Exhaustivité des avantages en nature")
             .setView(box)
             .setPositiveButton("CONFIRMER", null)
@@ -212,7 +214,7 @@ object CompanyBenefitInKindDialogV2 {
         }
         updateFields()
 
-        val builder = AlertDialog.Builder(context)
+        val builder = SalaryAccountUi.dialog(context)
             .setTitle(if (existing == null) "Ajouter un avantage" else "Modifier l’avantage")
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)
@@ -274,7 +276,7 @@ object CompanyBenefitInKindDialogV2 {
     }
 
     private fun selectedPayrollMonth(context: Context): YearMonth {
-        val ms = context.getSharedPreferences("navigation_state", Context.MODE_PRIVATE)
+        val ms = RestoreGuardedPreferences.open(context, "navigation_state", Context.MODE_PRIVATE)
             .getLong("report_month_ms", -1L)
         val calendar = Calendar.getInstance(Locale.FRANCE)
         if (ms > 0L) calendar.timeInMillis = ms

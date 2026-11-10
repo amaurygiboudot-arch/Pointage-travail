@@ -19,10 +19,13 @@ import com.amaury.pointage.V2AppLock
 class V2InitProvider : ContentProvider() {
     private var runtimePrefs: SharedPreferences? = null
     private var iconStateListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
+    private var accountListener: com.google.firebase.auth.FirebaseAuth.AuthStateListener? = null
+    private var observedLease: SalaryAccountScope.Lease? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onCreate(): Boolean {
         val app = context?.applicationContext as? Application ?: return true
+        V2RestoreTransaction.recover(app)
         if (HoraTrackV2.ENABLED) {
             V2RuntimeStore.bind(app)
             V2TestDataPolicy.ensurePreservation(app)
@@ -38,13 +41,11 @@ class V2InitProvider : ContentProvider() {
     }
 
     private fun installIconStateSync(app: Application) {
-        val prefs = app.getSharedPreferences("horatrack_v2_test_runtime", Context.MODE_PRIVATE)
-        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        observeCurrentAccount(app)
+        SalaryAccountScope.addListener {
+            observeCurrentAccount(app)
             syncIconNowAndAfterStateCommit(app)
         }
-        runtimePrefs = prefs
-        iconStateListener = listener
-        prefs.registerOnSharedPreferenceChangeListener(listener)
 
         app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             override fun onActivityPaused(activity: Activity) = syncIconNowAndAfterStateCommit(app)
@@ -52,6 +53,7 @@ class V2InitProvider : ContentProvider() {
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
             override fun onActivityStarted(activity: Activity) = Unit
             override fun onActivityResumed(activity: Activity) {
+                observeCurrentAccount(app)
                 // Une alarme de fin peut être retardée par Android/HyperOS.
                 // Au retour dans l'app, on réconcilie immédiatement l'état avec le créneau prévu.
                 PauseScheduleManager.applyCurrentWindow(app)
@@ -63,6 +65,33 @@ class V2InitProvider : ContentProvider() {
 
         PauseScheduleManager.applyCurrentWindow(app)
         syncIconNowAndAfterStateCommit(app)
+    }
+
+    private fun observeCurrentAccount(app: Application) {
+        if (accountListener == null) {
+            runCatching {
+                val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
+                val listener = com.google.firebase.auth.FirebaseAuth.AuthStateListener {
+                    observeCurrentAccount(app)
+                    syncIconNowAndAfterStateCommit(app)
+                }
+                accountListener = listener
+                auth.addAuthStateListener(listener)
+            }
+        }
+        V2RuntimeAccountScope.monitoringEpoch(app)
+        val lease = SalaryAccountScope.capture()
+        if (lease == observedLease && runtimePrefs != null) return
+        iconStateListener?.let { runtimePrefs?.unregisterOnSharedPreferenceChangeListener(it) }
+        observedLease = lease
+        com.amaury.pointage.CompanyPauseAlarmManager.scheduleAll(SalaryAccountScope.bindContext(app))
+        val prefs = V2RuntimeAccountScope.preferences(app, "horatrack_v2_test_runtime")
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            syncIconNowAndAfterStateCommit(app)
+        }
+        runtimePrefs = prefs
+        iconStateListener = listener
+        prefs.registerOnSharedPreferenceChangeListener(listener)
     }
 
     private fun syncIconNowAndAfterStateCommit(app: Application) {
