@@ -89,6 +89,21 @@ final class SalarySegmentedCashGrossAssemblyV2Tests: XCTestCase {
         XCTAssertTrue(result.warnings.contains("fixed-warning"))
     }
 
+    func testConfirmedComponentLabelsSurviveCashAssembly() {
+        let components: [SalaryConfirmedCashGrossComponentV2] = [
+            .init(id: "seniority-premium", amount: 20, reliable: true, label: "Ancienneté"),
+            .init(id: "company-premium:production", amount: 30, reliable: true, label: "Production")
+        ]
+        let result = SalarySegmentedCashGrossAssemblerV2.assemble(worked: worked(1000),
+            fixed: .init(components: components, exhaustive: true, sourceId: "confirmed-month"))
+        XCTAssertEqual(result.confirmedComponents, components)
+        XCTAssertEqual(result.additionalCashGross, 50)
+        XCTAssertEqual(result.cashGross, 1050)
+        let blocked = SalarySegmentedCashGrossAssemblerV2.assemble(worked: worked(1000),
+            fixed: .init(components: components, exhaustive: false, sourceId: ""))
+        XCTAssertTrue(blocked.confirmedComponents.isEmpty)
+    }
+
     private func worked(
         _ amount: Double,
         reliable: Bool = true,

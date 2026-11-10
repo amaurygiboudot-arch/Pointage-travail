@@ -185,7 +185,8 @@ enum SalaryCanonicalReferenceProviderV2 {
                 protectionCategory: input.protectionCategory,
                 companyDeductions: input.companyDeductions,
                 period: deductionPeriod,
-                incomeTaxRate: input.incomeTaxRate
+                incomeTaxRate: input.incomeTaxRate,
+                companyId: companyId
             )
         )
 
@@ -193,7 +194,9 @@ enum SalaryCanonicalReferenceProviderV2 {
             payroll: payroll,
             benefits: input.benefits,
             projection: projection,
-            additionalWarnings: weeklyBoundary?.warnings ?? []
+            additionalWarnings: weeklyBoundary?.warnings ?? [],
+            expectedCompanyId: companyId,
+            expectedPeriod: input.period
         )
     }
 

@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.app.AlertDialog
 import android.content.Context
 import android.content.SharedPreferences
@@ -14,7 +16,7 @@ import android.widget.Toast
 class GpsZoneTypeView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) :
     LinearLayout(context, attrs), SharedPreferences.OnSharedPreferenceChangeListener {
     companion object { const val TAG = "gps_zone_type_v2" }
-    private val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+    private val prefs = RestoreGuardedPreferences.open(context, "gps_settings", Context.MODE_PRIVATE)
     init { tag = TAG; orientation = VERTICAL; setPadding(0, dp(10), 0, dp(6)); rebuild() }
     override fun onAttachedToWindow() {
         super.onAttachedToWindow(); prefs.registerOnSharedPreferenceChangeListener(this); rebuild()
@@ -29,7 +31,7 @@ class GpsZoneTypeView @JvmOverloads constructor(context: Context, attrs: Attribu
         removeAllViews()
         addView(TextView(context).apply { text = "RÔLE DES ZONES GPS"; textSize = 14f })
         addView(TextView(context).apply {
-            text = "Travail, parking, pause ou autre contexte. Le GPS ne décide pas à lui seul du temps payé."
+            text = "Travail, domicile, parking, pause ou autre contexte. Le domicile exclut les trajets domicile–travail ; il ne déclenche aucun pointage."
             textSize = 12f; setPadding(0, dp(4), 0, dp(6))
         })
         val snapshot = GpsZoneEditorStoreV2.read(prefs)

@@ -21,37 +21,44 @@ object ConfirmedCashGrossComponentsBridgeV2 {
         period: YearMonth,
         actualMonthlyBaseGross: Double?
     ): ConfirmedCashGrossComponentsV2 {
-        val minimum = V2ConventionMinimumSalaryBridge.load(
-            context = context,
-            companyId = companyId,
-            idcc = idcc,
-            referenceDate = referenceDate
-        )
-        val seniority = V2ConventionSeniorityPremiumBridge.load(
-            context = context,
-            companyId = companyId,
-            idcc = idcc,
-            referenceDate = referenceDate,
-            actualMonthlyBaseGross = actualMonthlyBaseGross,
-            conventionalMinimumMonthlyGross = minimum.selectedMonthlyGross
-        ).result
-        val companyPremiums = CompanyPremiumStoreV2.resolve(
-            context = context,
-            companyId = companyId,
-            period = period
-        )
-        val coverage = CompanyPremiumStoreV2.monthCoverage(
-            context = context,
-            companyId = companyId,
-            period = period
-        )
-        return assemble(
-            period = period,
-            seniority = seniority,
-            companyPremiums = companyPremiums,
-            coverage = coverage,
-            upstreamWarnings = minimum.resolution.warnings
-        )
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ConfirmedCashGrossComponentsV2 = ConfirmedCashGrossComponentsV2(components = emptyList(), exhaustive = false, sourceId = "", warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun calculateInScope(): ConfirmedCashGrossComponentsV2 {
+            val minimum = V2ConventionMinimumSalaryBridge.load(
+                context = context,
+                companyId = companyId,
+                idcc = idcc,
+                referenceDate = referenceDate
+            )
+            val seniority = V2ConventionSeniorityPremiumBridge.load(
+                context = context,
+                companyId = companyId,
+                idcc = idcc,
+                referenceDate = referenceDate,
+                actualMonthlyBaseGross = actualMonthlyBaseGross,
+                conventionalMinimumMonthlyGross = minimum.selectedMonthlyGross
+            ).result
+            val companyPremiums = CompanyPremiumStoreV2.resolve(
+                context = context,
+                companyId = companyId,
+                period = period
+            )
+            val coverage = CompanyPremiumStoreV2.monthCoverage(
+                context = context,
+                companyId = companyId,
+                period = period
+            )
+            return assemble(
+                period = period,
+                seniority = seniority,
+                companyPremiums = companyPremiums,
+                coverage = coverage,
+                upstreamWarnings = minimum.resolution.warnings
+            )
+        }
+        val result = SalaryAccountScope.withLease(SalaryAccountScope.lease(context)) { calculateInScope() }
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     internal fun assemble(
@@ -84,6 +91,7 @@ object ConfirmedCashGrossComponentsBridgeV2 {
                 add(
                     ConfirmedCashGrossComponentV2(
                         id = "seniority-premium",
+                        label = "Prime d’ancienneté",
                         amount = seniorityAmount!!,
                         reliable = true,
                         warnings = seniority.warnings
@@ -95,6 +103,7 @@ object ConfirmedCashGrossComponentsBridgeV2 {
                     add(
                         ConfirmedCashGrossComponentV2(
                             id = "company-premium:${premium.id}",
+                            label = premium.label,
                             amount = premium.grossAmount,
                             reliable = true
                         )

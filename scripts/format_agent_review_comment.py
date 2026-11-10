@@ -27,7 +27,7 @@ def main() -> int:
     ) or "- Aucun contrôle local déclaré."
 
     print(f"<!-- HORATRACK_AGENT_REVIEW_V1:{marker} -->")
-    print("## 🤖 Revue multi-agents HoraTrack")
+    print("## 🤖 Revue multi-agents AGKGMG")
     print()
     print(f"**HEAD :** `{report.get('head_sha', '')}`")
     print(f"**BASE :** `{report.get('base_sha', '')}`")

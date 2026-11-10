@@ -61,7 +61,7 @@ enum CelestialEngineError: Error, Equatable {
     case invalidObserverAltitude
 }
 
-/// Canonical, deterministic iOS astronomy source for HoraTrack.
+/// Canonical, deterministic iOS astronomy source for AGKGMG.
 ///
 /// This is a deliberately bounded low-cost model, ported from the validated
 /// Android V2 equations. It provides geometric topocentric positions; visual

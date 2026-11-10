@@ -86,4 +86,27 @@ class PayslipEngineV2Test {
             }.isFailure
         )
     }
+
+    @Test fun `unrepresentable inputs never saturate into false conformity`() {
+        val invalid = listOf(1e17, 1e308, Double.MAX_VALUE, Double.POSITIVE_INFINITY, Double.NaN, -0.001,
+            90_071_992_547_409.92)
+        for (value in invalid) {
+            assertTrue(runCatching { PayslipEngineV2.compare(mapOf("gross" to value), mapOf("gross" to value)) }.isFailure)
+            assertTrue(runCatching { PayslipEngineV2.compare(mapOf("gross" to 1.0), mapOf("gross" to value)) }.isFailure)
+            assertTrue(runCatching { PayslipEngineV2.compare(mapOf("gross" to 1.0), mapOf("gross" to 1.0), value) }.isFailure)
+        }
+        assertTrue(runCatching { PayslipEngineV2.compare(mapOf("gross" to 1e17), mapOf("gross" to 2e17)) }.isFailure)
+    }
+
+    @Test fun `comparison uses canonical decimal half up without changing ordinary cents`() {
+        assertTrue(PayslipEngineV2.compare(mapOf("gross" to 1.005), mapOf("gross" to 1.01), 0.0).conforming)
+        assertFalse(PayslipEngineV2.compare(mapOf("gross" to 1.005), mapOf("gross" to 1.00), 0.0).conforming)
+        assertTrue(PayslipEngineV2.compare(mapOf("gross" to 2.675), mapOf("gross" to 2.68), 0.0).conforming)
+        assertTrue(PayslipEngineV2.compare(mapOf("gross" to 0.0), mapOf("gross" to 0.0), 0.0).conforming)
+        val upper = 90_071_992_547_409.9
+        assertTrue(PayslipEngineV2.isValidAmount(upper))
+        assertTrue(PayslipEngineV2.compare(mapOf("gross" to upper), mapOf("gross" to upper), 0.0).conforming)
+        assertFalse(PayslipEngineV2.compare(mapOf("gross" to 0.0), mapOf("gross" to upper), 0.0).conforming)
+    }
+
 }

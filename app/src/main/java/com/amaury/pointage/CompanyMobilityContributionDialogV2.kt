@@ -31,7 +31,7 @@ object CompanyMobilityContributionDialogV2 {
             setPadding(dp(context, 16), dp(context, 8), dp(context, 16), dp(context, 8))
         }
         box.addView(TextView(context).apply {
-            text = "Le versement mobilité est une contribution patronale. Enregistre uniquement une applicabilité et un taux confirmés pour la période (Urssaf, DSN, notification ou autre source fiable). HoraTrack ne déduit aucun taux de l'adresse seule."
+            text = "Le versement mobilité est une contribution patronale. Enregistre uniquement une applicabilité et un taux confirmés pour la période (Urssaf, DSN, notification ou autre source fiable). AGKGMG ne déduit aucun taux de l'adresse seule."
             textSize = 13f
             setPadding(0, 0, 0, dp(context, 8))
         })
@@ -68,7 +68,7 @@ object CompanyMobilityContributionDialogV2 {
             }
         }, rowParams(context))
 
-        listDialog = AlertDialog.Builder(context)
+        listDialog = SalaryAccountUi.dialog(context)
             .setTitle("Versement mobilité employeur")
             .setView(box)
             .setNegativeButton("FERMER", null)
@@ -124,7 +124,7 @@ object CompanyMobilityContributionDialogV2 {
         }
         updateFields()
 
-        val builder = AlertDialog.Builder(context)
+        val builder = SalaryAccountUi.dialog(context)
             .setTitle(if (existing == null) "Ajouter une règle VM" else "Modifier la règle VM")
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)

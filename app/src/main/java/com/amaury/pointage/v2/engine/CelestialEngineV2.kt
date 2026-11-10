@@ -11,7 +11,7 @@ import kotlin.math.sqrt
 import kotlin.math.tan
 
 /**
- * Pure astronomy engine for HoraTrack V2.
+ * Pure astronomy engine for AGKGMG V2.
  *
  * Goals:
  * - one deterministic source of truth for Sun/Moon positions;

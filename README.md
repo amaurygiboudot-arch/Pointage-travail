@@ -1,4 +1,14 @@
-# PointageTravail
+# AGKGMG
+
+Application de pointage et de suivi du salaire. Le dépôt et certains identifiants techniques conservent leurs noms historiques pour préserver la compatibilité.
+
+## Documentation active
+
+- [Maître et checkpoints](docs/AGKGMG_MASTER.txt)
+- [Nom du produit et références de compatibilité](docs/AGKGMG_NOM_ET_COMPATIBILITE.md)
+- [Commandes officielles de développement et de validation](docs/CODEX_AGENT_TOOLBOX.md)
+
+Les instructions de compilation ci-dessous sont l’historique du 21 août 2026. Elles ne remplacent pas les commandes actuelles du dépôt ni la distribution par Google Play.
 
 Projet Android prêt à être compilé automatiquement par GitHub Actions.
 

@@ -14,9 +14,9 @@ class EmployerHealthFamilyIntegrationV2Test {
         employerProtectionTaxableAmount=0.0, employeeProvidentNonDeductibleAmount=0.0,
         incomeTaxRate=0.05, professionalStatus="NON_CADRE",
         protectionCategory=PlasturgieProtectionCategoryV2.classify(null,LocalDate.of(2026,1,31),null), warnings=emptyList(),
-        alsaceMoselleLocalRegime=false, atMpEmployerRate=0.0, benefitsInKindGross=0.0,
-        employerMobilityRate=0.0, employerUnemploymentRate=0.0, employerAgsRate=0.0,
-        employerUnemploymentAgsWarnings=emptyList(), employerWorkforceBand=EmployerWorkforceContributionsV2.Band.UNDER_11,
+        alsaceMoselleLocalRegime=false, atMpEmployerRate=0.0, atMpEmployerSource = "Synthetic confirmed fixture", benefitsInKindReliable=true, benefitsInKindGross=0.0,
+        employerMobilityRate=0.0, employerMobilitySource = "Synthetic confirmed fixture", employerUnemploymentRate=0.0, employerUnemploymentAgsSource = "Synthetic confirmed fixture", employerAgsRate=0.0,
+        employerUnemploymentAgsWarnings=emptyList(), employerWorkforceBand=EmployerWorkforceContributionsV2.Band.UNDER_11, employerWorkforceSource = "Synthetic confirmed fixture",
         employerWorkforceWarnings=emptyList(), employerHealthRate=healthRate, employerFamilyRate=familyRate,
         employerHealthFamilySource="DSN", employerHealthFamilyWarnings=emptyList()
     )
@@ -28,7 +28,7 @@ class EmployerHealthFamilyIntegrationV2Test {
 
         assertEquals(325.0,general.employerHealthContribution!!,0.001)
         assertEquals(131.25,general.employerFamilyContribution!!,0.001)
-        assertEquals(456.25,general.knownEmployerContributions-zero.knownEmployerContributions,0.001)
+        assertEquals(456.25,general.knownEmployerContributions!!-zero.knownEmployerContributions!!,0.001)
         assertEquals(zero.netBeforeIncomeTax,general.netBeforeIncomeTax,0.001)
         assertEquals(zero.netTaxable!!,general.netTaxable!!,0.001)
         assertEquals(zero.netAfterIncomeTax!!,general.netAfterIncomeTax!!,0.001)
