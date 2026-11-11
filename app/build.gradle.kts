@@ -112,7 +112,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.appcompat:appcompat:1.8.0")
     implementation("androidx.biometric:biometric:1.1.0")
-    implementation("androidx.work:work-runtime-ktx:2.12.0")
+    implementation("androidx.work:work-runtime-ktx:2.11.2")
     implementation("io.sentry:sentry-android:8.63.0")
 
     testImplementation("junit:junit:4.13.2")
