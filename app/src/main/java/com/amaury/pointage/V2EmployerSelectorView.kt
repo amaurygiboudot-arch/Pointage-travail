@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.SalaryAccountScope
+
 import android.app.AlertDialog
 import android.content.Context
 import android.content.SharedPreferences
@@ -18,8 +20,15 @@ class V2EmployerSelectorView @JvmOverloads constructor(
 ) : LinearLayout(context, attrs), SharedPreferences.OnSharedPreferenceChangeListener {
     companion object { const val TAG = "v2_employer_selector" }
 
-    private val companiesPrefs = context.getSharedPreferences("salary_companies_v2", Context.MODE_PRIVATE)
-    private val integrationPrefs = context.getSharedPreferences("horatrack_v2_integration", Context.MODE_PRIVATE)
+    private var companiesPrefs: SharedPreferences? = null
+    private var integrationPrefs: SharedPreferences? = null
+    private var observedLease: SalaryAccountScope.Lease? = null
+    private var selectionDialog: AlertDialog? = null
+    private val accountListener: () -> Unit = { post {
+        selectionDialog?.dismiss()
+        observeAccount()
+        refresh()
+    }; Unit }
     private val label = TextView(context)
     private val button = Button(context)
 
@@ -41,14 +50,17 @@ class V2EmployerSelectorView @JvmOverloads constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        companiesPrefs.registerOnSharedPreferenceChangeListener(this)
-        integrationPrefs.registerOnSharedPreferenceChangeListener(this)
+        SalaryAccountScope.addListener(accountListener)
+        observeAccount()
         refresh()
     }
 
     override fun onDetachedFromWindow() {
-        companiesPrefs.unregisterOnSharedPreferenceChangeListener(this)
-        integrationPrefs.unregisterOnSharedPreferenceChangeListener(this)
+        SalaryAccountScope.removeListener(accountListener)
+        companiesPrefs?.unregisterOnSharedPreferenceChangeListener(this)
+        integrationPrefs?.unregisterOnSharedPreferenceChangeListener(this)
+        selectionDialog?.dismiss()
+        observedLease = null
         super.onDetachedFromWindow()
     }
 
@@ -56,7 +68,21 @@ class V2EmployerSelectorView @JvmOverloads constructor(
         post { refresh() }
     }
 
+    private fun observeAccount() {
+        val lease = SalaryAccountScope.lease(context)
+        if (lease == observedLease) return
+        companiesPrefs?.unregisterOnSharedPreferenceChangeListener(this)
+        integrationPrefs?.unregisterOnSharedPreferenceChangeListener(this)
+        observedLease = lease
+        val ownerContext = SalaryAccountScope.bindContext(context, lease)
+        companiesPrefs = SalaryAccountScope.preferences(ownerContext, "salary_companies_v2")
+        integrationPrefs = SalaryAccountScope.preferences(ownerContext, "horatrack_v2_integration")
+        companiesPrefs?.registerOnSharedPreferenceChangeListener(this)
+        integrationPrefs?.registerOnSharedPreferenceChangeListener(this)
+    }
+
     fun refresh() {
+        val context = SalaryAccountScope.bindContext(this.context)
         val stored = SalaryCompanyStore.readConfirmed(context)
         if (!stored.reliable) {
             visibility = View.VISIBLE
@@ -90,7 +116,8 @@ class V2EmployerSelectorView @JvmOverloads constructor(
     }
 
     private fun chooseCompany() {
-        val stored = SalaryCompanyStore.readConfirmed(context)
+        val ownerContext = SalaryAccountScope.bindContext(context)
+        val stored = SalaryCompanyStore.readConfirmed(ownerContext)
         if (!stored.reliable) return
         val companies = stored.companies
         if (companies.size <= 1) return
@@ -103,11 +130,12 @@ class V2EmployerSelectorView @JvmOverloads constructor(
             }
         }.toTypedArray()
 
-        AlertDialog.Builder(context)
+        selectionDialog = SalaryAccountUi.dialog(ownerContext)
             .setTitle("Entreprise du pointage")
             .setSingleChoiceItems(labels, selected) { dialog, which ->
+                if (!SalaryAccountScope.available(ownerContext)) { dialog.dismiss(); refresh(); return@setSingleChoiceItems }
                 val company = companies.getOrNull(which) ?: return@setSingleChoiceItems
-                V2ProfileStore.setActiveCompanyId(context, company.id)
+                V2ProfileStore.setActiveCompanyId(ownerContext, company.id)
                 refresh()
                 dialog.dismiss()
             }

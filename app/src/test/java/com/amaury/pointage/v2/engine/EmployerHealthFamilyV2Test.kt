@@ -50,4 +50,22 @@ class EmployerHealthFamilyV2Test {
             assertTrue(result.warnings.any { it.contains("assiette brute invalide", ignoreCase = true) })
         }
     }
+    @Test
+    fun `finite extreme and overflowing sums remain unavailable`() {
+        for (gross in listOf(Double.MAX_VALUE, 80_000_000_000_000.0)) {
+            val result = EmployerHealthFamilyV2.calculate(gross, 1.0, 1.0)
+            assertFalse(result.complete)
+            assertNull(result.healthAmount)
+            assertNull(result.familyAmount)
+            assertNull(result.totalEmployerAmount)
+        }
+    }
+
+    @Test
+    fun `each confirmed contribution rounds in decimal cents before sum`() {
+        val result = EmployerHealthFamilyV2.calculate(1.005, 1.0, 1.0)
+        assertTrue(result.complete)
+        assertEquals(1.01, result.healthAmount!!, 0.0)
+        assertEquals(2.02, result.totalEmployerAmount!!, 0.0)
+    }
 }

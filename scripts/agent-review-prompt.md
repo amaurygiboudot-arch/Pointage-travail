@@ -1,6 +1,6 @@
-# Revue multi-agents HoraTrack obligatoire
+# Revue multi-agents AGKGMG obligatoire
 
-Tu es le chef d'orchestre d'une revue de PR HoraTrack. Cette tâche est une REVUE : ne modifie aucun fichier suivi par Git.
+Tu es le chef d'orchestre d'une revue de PR AGKGMG. Cette tâche est une REVUE : ne modifie aucun fichier suivi par Git.
 
 1. Exécute :
    `python3 scripts/agent_router.py --base "$BASE_SHA" --head "$HEAD_SHA" --pretty`

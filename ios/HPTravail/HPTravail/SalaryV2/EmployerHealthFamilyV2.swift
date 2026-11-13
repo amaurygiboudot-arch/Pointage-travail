@@ -135,12 +135,20 @@ enum EmployerHealthFamilyV2 {
             )
         }
 
-        let health = grossSocial * healthRate
-        let family = grossSocial * familyRate
+        guard PayrollMoneyV2.cents(grossSocial) != nil,
+              let healthCents = PayrollMoneyV2.contribution(base: grossSocial, rate: healthRate),
+              let familyCents = PayrollMoneyV2.contribution(base: grossSocial, rate: familyRate),
+              let totalCents = PayrollMoneyV2.sum([healthCents, familyCents]),
+              let health = PayrollMoneyV2.amount(healthCents),
+              let family = PayrollMoneyV2.amount(familyCents),
+              let total = PayrollMoneyV2.amount(totalCents) else {
+            return Result(healthAmount: nil, familyAmount: nil, totalEmployerAmount: nil, complete: false,
+                          warnings: ["Maladie/allocations familiales employeur : montant non représentable au centime ; aucun total n'est calculé."])
+        }
         return Result(
             healthAmount: health,
             familyAmount: family,
-            totalEmployerAmount: health + family,
+            totalEmployerAmount: total,
             complete: true,
             warnings: []
         )

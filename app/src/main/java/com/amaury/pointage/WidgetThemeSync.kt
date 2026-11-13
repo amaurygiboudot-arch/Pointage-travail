@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.content.Context
 import android.content.SharedPreferences
 
@@ -10,7 +12,7 @@ object WidgetThemeSync {
     fun install(context: Context) {
         if (installed) return
         val appContext = context.applicationContext
-        val prefs = appContext.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(appContext, "appearance_settings", Context.MODE_PRIVATE)
         val l = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (
                 key == "mode" ||

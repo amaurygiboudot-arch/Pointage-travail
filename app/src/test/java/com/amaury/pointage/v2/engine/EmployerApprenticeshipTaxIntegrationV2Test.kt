@@ -14,10 +14,10 @@ class EmployerApprenticeshipTaxIntegrationV2Test {
         employerProtectionTaxableAmount=0.0, employeeProvidentNonDeductibleAmount=0.0,
         incomeTaxRate=0.05, professionalStatus="NON_CADRE",
         protectionCategory=PlasturgieProtectionCategoryV2.classify(null,LocalDate.of(2026,1,31),null), warnings=emptyList(),
-        alsaceMoselleLocalRegime=false, atMpEmployerRate=0.0, benefitsInKindGross=0.0,
-        employerMobilityRate=0.0, employerUnemploymentRate=0.0, employerAgsRate=0.0,
-        employerUnemploymentAgsWarnings=emptyList(), employerWorkforceBand=EmployerWorkforceContributionsV2.Band.UNDER_11,
-        employerWorkforceWarnings=emptyList(), employerHealthRate=0.0, employerFamilyRate=0.0,
+        alsaceMoselleLocalRegime=false, atMpEmployerRate=0.0, atMpEmployerSource = "Synthetic confirmed fixture", benefitsInKindReliable=true, benefitsInKindGross=0.0,
+        employerMobilityRate=0.0, employerMobilitySource = "Synthetic confirmed fixture", employerUnemploymentRate=0.0, employerUnemploymentAgsSource = "Synthetic confirmed fixture", employerAgsRate=0.0,
+        employerUnemploymentAgsWarnings=emptyList(), employerWorkforceBand=EmployerWorkforceContributionsV2.Band.UNDER_11, employerWorkforceSource = "Synthetic confirmed fixture",
+        employerWorkforceWarnings=emptyList(), employerHealthRate=0.0, employerHealthFamilySource = "Synthetic confirmed fixture", employerFamilyRate=0.0,
         employerHealthFamilyWarnings=emptyList(), employerApprenticeshipPrincipalRate=principalRate,
         employerApprenticeshipBalanceRate=balanceRate, employerApprenticeshipSource="Urssaf",
         employerApprenticeshipWarnings=emptyList()
@@ -30,7 +30,7 @@ class EmployerApprenticeshipTaxIntegrationV2Test {
 
         assertEquals(14.75,general.employerApprenticeshipPrincipalContribution!!,0.001)
         assertEquals(2.25,general.employerApprenticeshipBalanceAccrual!!,0.001)
-        assertEquals(17.0,general.knownEmployerContributions-zero.knownEmployerContributions,0.001)
+        assertEquals(17.0,general.knownEmployerContributions!!-zero.knownEmployerContributions!!,0.001)
         assertEquals(zero.netBeforeIncomeTax,general.netBeforeIncomeTax,0.001)
         assertEquals(zero.netTaxable!!,general.netTaxable!!,0.001)
         assertEquals(zero.netAfterIncomeTax!!,general.netAfterIncomeTax!!,0.001)

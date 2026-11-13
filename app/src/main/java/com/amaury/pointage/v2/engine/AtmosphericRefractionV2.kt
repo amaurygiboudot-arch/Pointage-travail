@@ -28,7 +28,7 @@ object AtmosphericRefractionV2 {
     /**
      * Correction positive en degrés à ajouter à l'altitude géométrique.
      *
-     * Pour HoraTrack, aucune extrapolation n'est faite sous -1° : le cadran ne
+     * Pour AGKGMG, aucune extrapolation n'est faite sous -1° : le cadran ne
      * doit pas prétendre connaître les mirages/réfractions anormales très basses.
      */
     fun correctionDeg(geometricAltitudeDeg: Double): Double {

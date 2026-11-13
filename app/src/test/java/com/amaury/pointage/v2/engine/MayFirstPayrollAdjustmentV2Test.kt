@@ -8,6 +8,18 @@ import org.junit.Test
 
 class MayFirstPayrollAdjustmentV2Test {
     @Test
+    fun invalidDurationAndOverflowNeverProveZeroIndemnity() {
+        val negative = MayFirstPayrollAdjustmentV2.calculate(MayFirstPayrollAdjustmentV2.Input(-1, 12.0, 1.0))
+        assertFalse(negative.reliable)
+        assertEquals(0.0, negative.extraGross, 0.0)
+        assertTrue(negative.warning != null)
+        val overflow = MayFirstPayrollAdjustmentV2.calculate(MayFirstPayrollAdjustmentV2.Input(120, Double.MAX_VALUE, 1.0))
+        assertFalse(overflow.reliable)
+        assertTrue(overflow.extraGross.isFinite())
+        assertTrue(overflow.warning != null)
+    }
+
+    @Test
     fun `aucun travail le 1er mai ne cree aucune indemnité`() {
         val result = MayFirstPayrollAdjustmentV2.calculate(
             MayFirstPayrollAdjustmentV2.Input(0, 12.0, 1.0)

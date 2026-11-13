@@ -6,10 +6,18 @@ import UIKit
 /// Le PDF ne calcule aucun montant : il rend uniquement le snapshot canonique déjà exposé
 /// par SalaryV2Store. Une valeur absente reste affichée « À confirmer ».
 enum SalaryV2PdfExporter {
+    private static var directory: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("AGKGMG-salary-exports", isDirectory: true)
+    }
+    static func clearTemporaryExports() {
+        try? FileManager.default.removeItem(at: directory)
+    }
     static func export(
         snapshot: SalaryWorkspaceSnapshotV2,
-        company: SalaryCompanyV2?
+        company: SalaryCompanyV2?,
+        lease: SalaryAccountSessionV2.Lease
     ) throws -> URL {
+        guard lease.isCurrent else { throw SalaryAccountStorageV2.RecoveryError.unavailable }
         let data = render(snapshot: snapshot, company: company)
         let companyToken = company?.id
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -21,8 +29,14 @@ enum SalaryV2PdfExporter {
             .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
         let suffix = (companyToken?.isEmpty == false ? companyToken! : "entreprise")
         let name = "AGKGMG_Salaire_\(snapshot.period.description)_\(suffix).pdf"
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
-        try data.write(to: url, options: .atomic)
+        guard lease.isCurrent else { throw SalaryAccountStorageV2.RecoveryError.unavailable }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(UUID().uuidString + "_" + name)
+        try data.write(to: url, options: [.atomic, .completeFileProtection])
+        guard lease.isCurrent else {
+            try? FileManager.default.removeItem(at: url)
+            throw SalaryAccountStorageV2.RecoveryError.unavailable
+        }
         return url
     }
 
@@ -135,15 +149,28 @@ enum SalaryV2PdfExporter {
                 company.map(companyLabel) ?? "À confirmer"
             )
 
-            section("SYNTHÈSE DU SALAIRE")
-            row("Brut social estimé", money(snapshot.socialGross))
-            row("Net estimé avant impôt", money(snapshot.netBeforeIncomeTax))
-            row("Net imposable estimé", money(snapshot.netTaxable))
-            row(
-                "Prélèvement à la source",
-                snapshot.incomeTax.map { "-\(money($0))" } ?? "À confirmer"
-            )
-            row("Net après impôt", money(snapshot.netAfterIncomeTax), emphasized: true)
+            for detailSection in SalaryCalculatedPayslipPresentationV2.sections(
+                snapshot: snapshot, companyId: company?.id
+            ) {
+                section(detailSection.title.uppercased())
+                for detailRow in detailSection.rows {
+                    row(detailRow.label, detailRow.value)
+                }
+            }
+
+            section("COTISATIONS PATRONALES CONNUES — PARTIELLES")
+            if let employer = snapshot.employerContributions,
+               employer.matches(companyId: company?.id, year: snapshot.period.year, month: snapshot.period.month, gross: snapshot.socialGross) {
+                for line in employer.lines {
+                    row(line.family.label, line.state == .notApplicable ? "Non applicable confirmé" : money(line.state == .known ? line.amountCents.flatMap(PayrollMoneyV2.amount) : nil))
+                }
+                row("Sous-total connu avant réductions", money(employer.knownSubtotalBeforeReductions))
+                row("Sous-total connu après réductions", money(employer.knownSubtotalAfterReductions))
+            } else {
+                row("Cotisations patronales connues", "À confirmer")
+            }
+            row("Coût employeur complet", "Indisponible — couverture partielle")
+            for warning in snapshot.employerWarnings { row("À vérifier — cotisations patronales", warning) }
 
             section("FIABILITÉ")
             row(

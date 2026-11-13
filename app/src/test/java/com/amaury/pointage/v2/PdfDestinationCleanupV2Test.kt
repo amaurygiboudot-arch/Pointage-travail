@@ -11,6 +11,7 @@ import android.provider.DocumentsContract
 import com.amaury.pointage.billing.BillingContract
 import com.amaury.pointage.DriveBackupManager
 import com.amaury.pointage.V2MonthlyPdfActivity
+import com.amaury.pointage.SalaryAccountUi
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import org.junit.Assert.*
@@ -99,6 +100,7 @@ class PdfDestinationCleanupV2Test {
         DestinationDocumentsShadow.files["partial.pdf"] = byteArrayOf()
         DestinationDocumentsShadow.onWrite = { change(file, auth) }
         val state = Bundle().apply {
+            SalaryAccountUi.save(this, SalaryAccountScope.capture())
             putString("owner_uid", uid); putString("phase", "COPYING")
             putString("file", file.absolutePath); putString("hash", BillingContract.documentId(file))
             putString("destination", DestinationDocumentsShadow.uri("partial.pdf").toString())
@@ -112,16 +114,21 @@ class PdfDestinationCleanupV2Test {
     }
     @Test fun actualMonthlyRecreationUnderDifferentAccountDeletesSavedDestination() {
         val user = Mockito.mock(FirebaseUser::class.java)
-        Mockito.`when`(user.uid).thenReturn("new-account")
+        Mockito.`when`(user.uid).thenReturn("old-account")
         val auth = Mockito.mock(FirebaseAuth::class.java)
         Mockito.`when`(auth.currentUser).thenReturn(user)
         PdfIntegrationAuthShadow.auth = auth
         DestinationDocumentsShadow.files["partial.pdf"] = byteArrayOf(1)
         val state = Bundle().apply {
+            SalaryAccountUi.save(this, SalaryAccountScope.capture())
             putString("owner_uid", "old-account")
             putString("phase", "COPYING")
             putString("destination", DestinationDocumentsShadow.uri("partial.pdf").toString())
         }
+        val nextUser = Mockito.mock(FirebaseUser::class.java)
+        Mockito.`when`(nextUser.uid).thenReturn("new-account")
+        Mockito.`when`(auth.currentUser).thenReturn(nextUser)
+        SalaryAccountScope.capture()
         val controller = Robolectric.buildActivity(V2MonthlyPdfActivity::class.java).create(state)
         try {
             assertTrue(controller.get().isFinishing)

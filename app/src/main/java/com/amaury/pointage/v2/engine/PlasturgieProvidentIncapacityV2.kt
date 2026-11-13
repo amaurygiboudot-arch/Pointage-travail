@@ -139,7 +139,7 @@ object PlasturgieProvidentIncapacityV2 {
                 if (seniorityMonths < 12) {
                     add("Entre 3 mois et moins d'1 an d'ancienneté : relais à partir du 91e jour d'arrêt continu.")
                 } else if (relayDay != null) {
-                    add("Début du relais calculé après le maintien employeur restant : ${relayDay}e jour d'arrêt continu selon les arrêts enregistrés dans HoraTrack.")
+                    add("Début du relais calculé après le maintien employeur restant : ${relayDay}e jour d'arrêt continu selon les arrêts enregistrés dans AGKGMG.")
                 } else {
                     add("Début exact du relais : maintien employeur restant impossible à déterminer avec les données actuelles.")
                 }

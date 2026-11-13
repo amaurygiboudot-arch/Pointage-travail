@@ -163,13 +163,13 @@ internal fun groupGpsZonesByPlace(zonesResult: GpsZonesReadResult, savedAddresse
     }
 }
 
-internal data class GpsPlaceTypeSummary(val workZones: Int, val parkingZones: Int, val pauseZones: Int, val otherZones: Int)
+internal data class GpsPlaceTypeSummary(val workZones: Int, val parkingZones: Int, val pauseZones: Int, val otherZones: Int, val homeZones: Int = 0)
 
 internal fun summarizeGpsPlaceTypes(group: GpsPlaceGroup): GpsPlaceTypeSummary {
     val roles = group.zones.map { it.roleForContextV2() }
     return GpsPlaceTypeSummary(roles.count { it == GpsZoneRoleV2.WORK },
         roles.count { it == GpsZoneRoleV2.PARKING }, roles.count { it == GpsZoneRoleV2.BREAK },
-        roles.count { it == GpsZoneRoleV2.OTHER })
+        roles.count { it == GpsZoneRoleV2.OTHER }, roles.count { it == GpsZoneRoleV2.HOME })
 }
 
 internal fun uniqueGpsPlaceLabel(group: GpsPlaceGroup): String? {

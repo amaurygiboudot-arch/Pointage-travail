@@ -11,6 +11,8 @@ import com.amaury.pointage.V2SalaryAdapter
 import com.amaury.pointage.V2SalaryNetBridgeV2
 import com.amaury.pointage.V2SalaryNetPresentationV2
 import com.amaury.pointage.v2.BoccPayrollSourceStoreV2
+import com.amaury.pointage.v2.ConfirmedMonthlyPayrollSettlementV2
+import com.amaury.pointage.v2.SalaryAccountScope
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.LegalPayrollSourceStoreV2
 import com.amaury.pointage.v2.NetSalaryReferencePolicyV2
@@ -167,6 +169,10 @@ object SalaryExamplePdfV2 {
         fields: Set<Field>,
         output: OutputStream
     ) {
+        val context = SalaryAccountScope.bindContext(context)
+        require(SalaryAccountScope.available(context)) { SalaryAccountScope.AUTH_WARNING }
+        val settlementPeriod = java.time.YearMonth.of(year, month + 1).toString()
+        val settlementSource = company?.let { ConfirmedMonthlyPayrollSettlementV2.read(context, it.id, settlementPeriod) }
         val legacyProfile = if (company == null) V2ProfileStore.load(context, 1) else null
         val legacyContract = legacyProfile?.contract
         val legacyEmployer = legacyProfile?.employer
@@ -224,6 +230,11 @@ object SalaryExamplePdfV2 {
         }
         val payrollReferenceDate = PayrollPeriodV2.month(year, month).referenceDate
         val payroll = canonical?.net?.projection?.payroll ?: salaryNet?.payroll
+        val canonicalForPdf = canonicalForSelection(canonical, company?.id, year, month + 1)
+        val employerForPdf = (if (segmentedConsumer) canonicalForPdf?.employerProjection else payroll?.employerProjection)
+            ?.takeIf { it.context.valid && it.context.companyId == company?.id &&
+                it.context.year == year && it.context.month == month + 1 }
+        val monthlyNetForPdf = salaryNet?.copy(payroll = salaryNet.payroll.copy(employerProjection = employerForPdf))
 
         val timeSection = if (segmentedConsumer) timeSectionValues(canonical)
             else timeSectionValues(salary, salary?.unpaidPauseMs)
@@ -282,11 +293,31 @@ object SalaryExamplePdfV2 {
 
             if (Field.ESTIMATED_GROSS in fields) {
                 add(PdfSection("ESTIMATION DE RÉMUNÉRATION",
-                    if (segmentedConsumer) estimatedGrossLines(canonical) else estimatedGrossLines(salary, salaryNet)))
+                    if (segmentedConsumer) estimatedGrossLines(canonicalForPdf) else estimatedGrossLines(salary, monthlyNetForPdf)))
                 add(PdfSection("COTISATIONS — SALARIÉ / EMPLOYEUR", contributionLines(payroll?.takeIf {
                     if (segmentedConsumer) canonical?.cashGrossReliable == true
                     else salaryNet?.salary?.let { it.monthlyGrossReliable && it.paidTimeReliable } == true
-                })))
+                }, employerForPdf, if (segmentedConsumer) canonicalForPdf?.employerWarnings.orEmpty()
+                else if (payroll?.employerProjection != null && employerForPdf == null)
+                    listOf(SegmentedSalaryCanonicalOutputAssemblerV2.EMPLOYER_CONTEXT_WARNING)
+                else employerForPdf?.warnings.orEmpty())))
+                add(PdfSection("DÉTAIL DU BRUT", if (segmentedConsumer)
+                    CalculatedPayslipDetailsV2.earnings(canonicalForPdf) else CalculatedPayslipDetailsV2.earnings(salaryNet?.salary)))
+                val contributionDetails = CalculatedPayslipDetailsV2.contributions(payroll,
+                    if (segmentedConsumer) canonicalForPdf?.cashGrossReliable == true
+                    else salaryNet?.salary?.let { it.monthlyGrossReliable && it.paidTimeReliable } == true,
+                    employerForPdf, company?.id.orEmpty(), year, month + 1)
+                if (contributionDetails.isNotEmpty()) {
+                    add(PdfSection("DÉTAIL DES COTISATIONS CONNUES", emptyList(), contributionDetails))
+                    add(PdfSection("SOURCES DU DÉTAIL DES COTISATIONS", listOf("Lecture" to "Ces lignes détaillent les groupes de cotisations ; elles ne s’ajoutent pas une seconde fois aux totaux.") + contributionDetails.map { it.label to it.source }))
+                }
+                add(PdfSection("DÉTAIL DES RETENUES SALARIALES", CalculatedPayslipDetailsV2.deductions(payroll,
+                    if (segmentedConsumer) canonicalForPdf?.cashGrossReliable == true else salaryNet?.salary?.let { it.monthlyGrossReliable && it.paidTimeReliable } == true,
+                    company?.id.orEmpty(),year,month+1)))
+                add(PdfSection("FRAIS, RETENUES ET VERSEMENT", CalculatedPayslipDetailsV2.settlementLines(settlementSource,
+                    company?.id.orEmpty(), settlementPeriod, MonthlyPayrollSettlementProjectionV2.netBasis(payroll,
+                        if (segmentedConsumer) canonicalForPdf?.netAfterIncomeTax else monthlyNetForPdf?.netAfterIncomeTax,
+                        company?.id.orEmpty(), settlementPeriod))))
             }
 
             if (Field.COUNTERS in fields) {
@@ -414,6 +445,7 @@ object SalaryExamplePdfV2 {
                 PdfVisualStyle.footer(canvas, 595, 842, pageNumber)
                 pdf.finishPage(page)
             }
+            require(SalaryAccountScope.available(context)) { SalaryAccountScope.AUTH_WARNING }
             pdf.writeTo(output)
         } finally {
             pdf.close()
@@ -442,7 +474,10 @@ object SalaryExamplePdfV2 {
             rows.map { listOf(it.first, it.second) }
         )
         val tables = sections.flatMap { section ->
-            when (section.name) {
+            if (section.contributionDetails.isNotEmpty()) listOf(PresentationTable(section.name,
+                listOf("Rubrique", "Base", "Taux sal.", "Part sal.", "Taux emp.", "Part emp."),
+                listOf(209f, 66f, 66f, 66f, 66f, 66f), section.contributionDetails.map { it.cells() }))
+            else when (section.name) {
                 "ESTIMATION DE RÉMUNÉRATION" -> {
                     val remuneration = mutableListOf<Pair<String, String>>()
                     val expenses = mutableListOf<Pair<String, String>>()
@@ -521,34 +556,38 @@ object SalaryExamplePdfV2 {
         return lines
     }
 
-    internal fun contributionLines(payroll: NetSalaryEngineV2.Result?): List<Pair<String, String>> {
-        fun amount(value: Double?, confirmed: Boolean = payroll?.employerCostComplete == true): String = value?.takeIf {
-            confirmed && payroll?.grossReliable == true && it.isFinite() && it >= 0.0
+    internal fun contributionLines(
+        payroll: NetSalaryEngineV2.Result?,
+        employerProjection: EmployerContributionProjectionV2.Result? = payroll?.employerProjection,
+        employerWarnings: List<String> = employerProjection?.warnings.orEmpty()
+    ): List<Pair<String, String>> {
+        fun employee(value: Double?): String = value?.takeIf {
+            payroll?.complete == true && payroll.grossReliable && it.isFinite() && it >= 0.0
         }?.let(::money) ?: "À confirmer"
-        fun row(label: String, employee: Double?, employer: Double?) =
-            label to "${amount(employee, payroll?.complete == true)} / ${amount(employer)}"
+        val projection = employerProjection?.takeIf { payroll?.grossReliable == true && it.context.valid }
+        fun employer(family: EmployerContributionProjectionV2.Family): String =
+            if (projection?.lines?.singleOrNull { it.family == family }?.state == EmployerContributionProjectionV2.State.NOT_APPLICABLE)
+                "Non applicable confirmé"
+            else projection?.amount(family)?.let(::money) ?: "À confirmer"
         return listOf(
-            "Lecture des montants" to "Part salarié / part employeur",
-            "Socle légal (sécurité sociale, CSG/CRDS)" to "${amount(payroll?.statutory, payroll?.complete == true)} / ${amount(payroll?.statutoryEmployerContributions)}",
-            row("Retraite complémentaire", payroll?.complementaryRetirement, payroll?.complementaryRetirementEmployer),
-            row("Prévoyance conventionnelle", payroll?.conventionProvidentEmployee, payroll?.conventionProvidentEmployer),
-            "Retenues propres à l'entreprise" to amount(payroll?.companyEmployeeDeductions, payroll?.complete == true),
-            "Cotisations patronales liées au statut" to amount(payroll?.employerStatusContributions),
-            "Accidents du travail / maladies professionnelles" to amount(payroll?.employerAtMpContribution),
-            "Versement mobilité (employeur)" to amount(payroll?.employerMobilityContribution),
-            "Assurance chômage (employeur)" to amount(payroll?.employerUnemploymentContribution),
-            "AGS (employeur)" to amount(payroll?.employerAgsContribution),
-            "FNAL (employeur)" to amount(payroll?.employerFnalContribution),
-            "Formation professionnelle (employeur)" to amount(payroll?.employerTrainingContribution),
-            "Maladie (employeur)" to amount(payroll?.employerHealthContribution),
-            "Famille (employeur)" to amount(payroll?.employerFamilyContribution),
-            "Apprentissage — part principale" to amount(payroll?.employerApprenticeshipPrincipalContribution),
-            "Apprentissage — provision du solde" to amount(payroll?.employerApprenticeshipBalanceAccrual),
-            "Réductions / exonérations patronales" to amount(payroll?.confirmedEmployerReductions),
-            "Sous-total patronal connu avant réductions" to amount(payroll?.knownEmployerContributions),
-            "Sous-total patronal connu après réductions" to amount(payroll?.knownEmployerContributionsAfterReductions),
+            "Lecture des montants" to "Part salarié / part employeur connue (couverture partielle)",
+            "Socle légal (sécurité sociale, CSG/CRDS)" to "${employee(payroll?.statutory)} / ${employer(EmployerContributionProjectionV2.Family.STATUTORY)}",
+            "Retraite complémentaire" to "${employee(payroll?.complementaryRetirement)} / ${employer(EmployerContributionProjectionV2.Family.COMPLEMENTARY_RETIREMENT)}",
+            "Prévoyance conventionnelle" to "${employee(payroll?.conventionProvidentEmployee)} / ${employer(EmployerContributionProjectionV2.Family.CONVENTION_PROVIDENT)}",
+            "Retenues propres à l'entreprise" to employee(payroll?.companyEmployeeDeductions),
+            "Cotisations patronales liées au statut" to employer(EmployerContributionProjectionV2.Family.STATUS),
+            "Accidents du travail / maladies professionnelles" to employer(EmployerContributionProjectionV2.Family.AT_MP),
+            "Versement mobilité (employeur)" to employer(EmployerContributionProjectionV2.Family.MOBILITY),
+            "Assurance chômage et AGS (employeur)" to employer(EmployerContributionProjectionV2.Family.UNEMPLOYMENT_AGS),
+            "FNAL et formation professionnelle (employeur)" to employer(EmployerContributionProjectionV2.Family.WORKFORCE),
+            "Maladie et famille (employeur)" to employer(EmployerContributionProjectionV2.Family.HEALTH_FAMILY),
+            "Apprentissage — part principale et provision du solde" to employer(EmployerContributionProjectionV2.Family.APPRENTICESHIP),
+            "Réductions / exonérations patronales" to (if (projection?.reductions?.state == EmployerContributionProjectionV2.State.NOT_APPLICABLE) "Non applicable confirmé" else projection?.reductions?.amountCents?.let(PayrollMoneyV2::amount)?.let(::money) ?: "À confirmer"),
+            "Sous-total patronal connu avant réductions" to (projection?.knownSubtotalBeforeReductions?.let(::money) ?: "À confirmer"),
+            "Sous-total patronal connu après réductions" to (projection?.knownSubtotalAfterReductions?.let(::money) ?: "À confirmer"),
             "Fiabilité des retenues salarié" to if (payroll?.complete == true) "Calcul complet" else "À confirmer — calcul partiel",
-            "Fiabilité du coût employeur" to if (payroll?.employerCostComplete == true) "Calcul complet" else "À confirmer — sous-total partiel",
+            "Fiabilité du coût employeur" to "À confirmer — sous-total partiel",
+            "Informations patronales" to employerWarnings.joinToString(" ").ifBlank { "Contexte et couverture patronale à confirmer" },
             "Bases et taux détaillés" to "Non exposés par ce moteur ; à confirmer"
         )
     }
@@ -563,7 +602,8 @@ object SalaryExamplePdfV2 {
 
     internal data class PdfSection(
         val name: String,
-        val lines: List<Pair<String, String>>
+        val lines: List<Pair<String, String>>,
+        val contributionDetails: List<CalculatedPayslipDetailsV2.Row> = emptyList()
     )
 
     internal data class PdfSectionFragment(
@@ -635,6 +675,26 @@ object SalaryExamplePdfV2 {
     private const val PDF_ROW_HEIGHT = 14f
     private const val PDF_SECTION_TAIL_HEIGHT = 23f
 
+    /** One selected employer view feeds both PDF summary and contribution details. Month is one-based. */
+    internal fun canonicalForSelection(
+        canonical: SegmentedSalaryCanonicalOutputV2?,
+        companyId: String?,
+        year: Int,
+        month: Int
+    ): SegmentedSalaryCanonicalOutputV2? {
+        canonical ?: return null
+        val employer = canonical.employerProjection?.takeIf {
+            it.context.valid && it.context.companyId == companyId &&
+                it.context.year == year && it.context.month == month
+        }
+        return canonical.copy(
+            employerProjection = employer,
+            employerWarnings = if (canonical.employerProjection != null && employer == null)
+                listOf(SegmentedSalaryCanonicalOutputAssemblerV2.EMPLOYER_CONTEXT_WARNING)
+            else canonical.employerWarnings
+        )
+    }
+
     internal fun estimatedGrossLines(
         canonical: SegmentedSalaryCanonicalOutputV2?
     ): List<Pair<String, String>> {
@@ -647,6 +707,8 @@ object SalaryExamplePdfV2 {
             ?.let(NetSalaryReferencePolicyV2::socialGross)
 
         return buildList {
+            if (!canonical?.employerWarnings.isNullOrEmpty())
+                add("Informations patronales" to canonical!!.employerWarnings.joinToString(" "))
             add(
                 "Brut social estimé AGKGMG hors paniers" to
                     (socialGross?.let(::money) ?: "À confirmer")
@@ -682,17 +744,17 @@ object SalaryExamplePdfV2 {
 
             add(
                 "Réductions / exonérations patronales" to
-                    (payroll
-                        ?.takeIf { reliablePayrollGross }
-                        ?.confirmedEmployerReductions
+                    (canonical?.employerProjection
+                        ?.takeIf { reliablePayrollGross && it.context.valid }
+                        ?.reductions?.amountCents?.let(PayrollMoneyV2::amount)
                         ?.let(::money)
                         ?: "À confirmer")
             )
             add(
                 "Sous-total patronal connu après réductions" to
-                    (payroll
-                        ?.takeIf { reliablePayrollGross }
-                        ?.knownEmployerContributionsAfterReductions
+                    (canonical?.employerProjection
+                        ?.takeIf { reliablePayrollGross && it.context.valid }
+                        ?.knownSubtotalAfterReductions
                         ?.let(::money)
                         ?: "À confirmer")
             )
@@ -749,7 +811,8 @@ object SalaryExamplePdfV2 {
                 "Réductions / exonérations patronales" to
                     (payroll
                         ?.takeIf { reliablePayrollGross }
-                        ?.confirmedEmployerReductions
+                        ?.employerProjection?.takeIf { it.context.valid }
+                        ?.reductions?.amountCents?.let(PayrollMoneyV2::amount)
                         ?.let(::money)
                         ?: "À confirmer")
             )
@@ -757,7 +820,8 @@ object SalaryExamplePdfV2 {
                 "Sous-total patronal connu après réductions" to
                     (payroll
                         ?.takeIf { reliablePayrollGross }
-                        ?.knownEmployerContributionsAfterReductions
+                        ?.employerProjection?.takeIf { it.context.valid }
+                        ?.knownSubtotalAfterReductions
                         ?.let(::money)
                         ?: "À confirmer")
             )

@@ -61,7 +61,8 @@ enum SalarySegmentedWorkedGrossProductionV2 {
             variables = SalarySegmentedWorkedVariableGrossSourceResultV2(
                 pieces: calculated.pieces,
                 reliable: calculated.reliable,
-                warnings: unique(evidence.warnings + calculated.warnings)
+                warnings: unique(evidence.warnings + calculated.warnings),
+                breakdowns: calculated.breakdowns
             )
         } else {
             variables = SalarySegmentedWorkedVariableGrossSourceResultV2(
