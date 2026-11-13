@@ -41,6 +41,8 @@ enum EmployeeNetProjectionV2 {
         let traces: [String]
         var employerContributions: EmployerContributionProjectionV2.Result? = nil
         var benefitsInKindGross: Double? = nil
+        /// False when the displayed zero hides a negative pre-tax cash balance.
+        var settlementBaseReliable = false
         // Exact cent values already consumed by the monetary projection; presentation never re-rounds products.
         var statutoryEmployeeCents: [Int64?] = []
         var retirementEmployeeCents: [Int64?] = []
@@ -255,6 +257,7 @@ enum EmployeeNetProjectionV2 {
             traces: traces,
             employerContributions: employer,
             benefitsInKindGross: grossReliable ? benefitsCents.flatMap(PayrollMoneyV2.amount) : nil,
+            settlementBaseReliable: beforeTaxComplete && (rawBeforeCents.map { $0 >= 0 } ?? false) && withholding.netAfterIncomeTax != nil,
             statutoryEmployeeCents: statutoryCents, retirementEmployeeCents: retirementCents,
             statutoryEmployerCents: statutoryEmployerCents, retirementEmployerCents: retirementEmployerCents
         )

@@ -46,6 +46,21 @@ struct SalaryV2View: View {
     @State private var sicknessFeedback: String?
     @State private var sicknessDeleteConfirmation = false
 
+    private struct SettlementScope: Equatable {
+        let companyId: String
+        let period: YearMonthV2
+    }
+    @State private var settlementAmounts: [SalaryMonthlyPayrollSettlementV2.Field: String] = [:]
+    @State private var settlementSource = ""
+    @State private var settlementComplete = false
+    @State private var settlementConfirmed = false
+    @State private var settlementFeedback: String?
+    @State private var settlementScope: SettlementScope?
+    @State private var settlementOriginal: SalaryMonthlyPayrollSettlementV2.Result?
+    @State private var settlementDeleteSource: SalaryMonthlyPayrollSettlementV2.Result?
+    @State private var settlementDeleteScope: SettlementScope?
+    @State private var settlementDeleteConfirmation = false
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -65,6 +80,7 @@ struct SalaryV2View: View {
                     paidWorkCard
                     absenceCard
                     confirmedSicknessCashCard
+                    confirmedSettlementCard
                     referenceCard
                     incomeTaxCard
                     warningsCard
@@ -86,6 +102,7 @@ struct SalaryV2View: View {
             }
             .onDisappear {
                 clearImportDraft()
+                resetSettlementDraft()
                 clearSalaryPdf()
                 recoveryPreview = nil
                 showSalaryRecoveryConfirmation = false
@@ -108,15 +125,22 @@ struct SalaryV2View: View {
             }
             .onChange(of: salaryStore.selectedPeriod) { _ in
                 resetSicknessCashDraft()
+                resetSettlementDraft()
+                loadSettlementDraft()
                 resetPayslipComparison()
                 resetPayrollCoverageConfirmation()
                 clearSalaryPdf()
             }
             .onChange(of: salaryStore.selectedCompany) { _ in
                 resetSicknessCashDraft()
+                resetSettlementDraft()
+                loadSettlementDraft()
                 resetPayslipComparison()
                 resetPayrollCoverageConfirmation()
                 clearSalaryPdf()
+            }
+            .onChange(of: accountIsCurrent) { current in
+                if !current { resetSettlementDraft(); clearSalaryPdf() }
             }
             .onChange(of: salaryStore.snapshot) { _ in
                 clearPayslipComparisonResult()
@@ -1343,6 +1367,126 @@ struct SalaryV2View: View {
     private func clearPayslipComparisonResult() {
         payslipComparisonResult = nil
         payslipComparisonFeedback = nil
+    }
+
+    private var currentSettlementScope: SettlementScope? {
+        guard accountIsCurrent, let id = salaryStore.selectedCompanyId else { return nil }
+        return .init(companyId: id, period: salaryStore.selectedPeriod)
+    }
+    private func settlementBinding(_ field: SalaryMonthlyPayrollSettlementV2.Field) -> Binding<String> {
+        Binding(get: { settlementAmounts[field] ?? "" }, set: {
+            settlementAmounts[field] = $0
+            settlementComplete = false
+            settlementConfirmed = false
+        })
+    }
+    private var confirmedSettlementCard: some View {
+        GroupBox("Frais, retenues et versement confirmés du mois") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Entreprise : \(salaryStore.selectedCompany?.name ?? "À choisir") • \(salaryStore.selectedPeriod.description)")
+                Text("Recopie les montants de la source de ce mois. Un champ vide reste inconnu ; zéro doit être saisi explicitement. Les nets constatés ne remplacent pas les calculs AGKGMG.").font(.footnote)
+                ForEach(SalaryMonthlyPayrollSettlementV2.Field.allCases) { field in
+                    TextField(field.label, text: settlementBinding(field)).keyboardType(.decimalPad)
+                }
+                TextField("Source vérifiable : document, date et référence", text: Binding(
+                    get: { settlementSource }, set: { settlementSource = $0; settlementComplete = false; settlementConfirmed = false }))
+                Toggle(SalaryMonthlyPayrollSettlementV2.completenessLabel, isOn: Binding(
+                    get: { settlementComplete }, set: { settlementComplete = $0; settlementConfirmed = false }))
+                Toggle("Je confirme l’entreprise, le mois, la source et les montants saisis", isOn: $settlementConfirmed)
+                Button("Enregistrer les montants de ce mois") { saveSettlement() }
+                    .disabled(!settlementConfirmed || currentSettlementScope == nil)
+                Button("Recharger les montants confirmés") { loadSettlementDraft() }
+                Button("Supprimer cette source mensuelle") {
+                    guard let scope = currentSettlementScope else { return }
+                    let operation = SalaryAccountSessionV2.pin(salaryStore.accountLease)
+                    defer { operation.close() }
+                    settlementDeleteScope = scope
+                    settlementDeleteSource = SalaryMonthlyPayrollSettlementV2.read(companyId: scope.companyId, period: scope.period)
+                    settlementDeleteConfirmation = true
+                }
+                .disabled(salaryStore.monthlySettlement?.record == nil && salaryStore.monthlySettlement?.reliable != false)
+                .confirmationDialog("Supprimer uniquement les montants confirmés de cette entreprise et de ce mois ?", isPresented: $settlementDeleteConfirmation) {
+                    Button("Supprimer", role: .destructive) {
+                        guard accountIsCurrent, let scope = settlementDeleteScope, scope == currentSettlementScope,
+                              let expected = settlementDeleteSource else { return }
+                        let operation = SalaryAccountSessionV2.pin(salaryStore.accountLease)
+                        defer { operation.close() }
+                        guard SalaryCompanyStoreV2.confirmedCompany(SalaryCompanyStoreV2.readConfirmed(), companyId: scope.companyId) != nil else { return }
+                        if SalaryMonthlyPayrollSettlementV2.remove(companyId: scope.companyId, period: scope.period, expected: expected) {
+                            salaryStore.refresh(); loadSettlementDraft()
+                            settlementFeedback = "Source mensuelle supprimée."
+                        } else { settlementFeedback = "Suppression non vérifiée ; recharge les données." }
+                    }
+                }
+                if let source = salaryStore.monthlySettlement {
+                    ForEach(source.warnings, id: \.self) { Text($0).font(.footnote) }
+                }
+                if let settlementFeedback { Text(settlementFeedback).font(.footnote) }
+            }
+            .onAppear { loadSettlementDraft() }
+        }
+    }
+    private func resetSettlementDraft() {
+        settlementAmounts = [:]; settlementSource = ""; settlementComplete = false
+        settlementConfirmed = false; settlementFeedback = nil; settlementScope = nil
+        settlementOriginal = nil; settlementDeleteSource = nil; settlementDeleteScope = nil; settlementDeleteConfirmation = false
+    }
+    private func loadSettlementDraft() {
+        resetSettlementDraft()
+        guard let scope = currentSettlementScope else { return }
+        let operation = SalaryAccountSessionV2.pin(salaryStore.accountLease)
+        defer { operation.close() }
+        let source = SalaryMonthlyPayrollSettlementV2.read(companyId: scope.companyId, period: scope.period)
+        guard source.reliable, accountIsCurrent, currentSettlementScope == scope else {
+            settlementFeedback = "Source indisponible ou illisible : aucune saisie ne peut l’écraser."
+            return
+        }
+        settlementScope = scope
+        settlementOriginal = source
+        if let record = source.record {
+            for field in SalaryMonthlyPayrollSettlementV2.Field.allCases {
+                settlementAmounts[field] = record[field].map { NSDecimalNumber(decimal: $0).stringValue } ?? ""
+            }
+            settlementSource = record.source
+            settlementComplete = record.adjustmentsComplete
+        }
+    }
+    private func saveSettlement() {
+        guard accountIsCurrent, settlementConfirmed, let scope = settlementScope, currentSettlementScope == scope else {
+            settlementConfirmed = false; settlementFeedback = "Entreprise ou mois modifié : recharge la saisie."
+            return
+        }
+        let operation = SalaryAccountSessionV2.pin(salaryStore.accountLease)
+        defer { operation.close() }
+        guard SalaryCompanyStoreV2.confirmedCompany(SalaryCompanyStoreV2.readConfirmed(), companyId: scope.companyId) != nil else {
+            settlementConfirmed = false; settlementFeedback = "Entreprise absente ou non fiable : aucun enregistrement."
+            return
+        }
+        let stored = SalaryMonthlyPayrollSettlementV2.read(companyId: scope.companyId, period: scope.period)
+        guard stored.reliable, stored == settlementOriginal else {
+            settlementConfirmed = false; settlementFeedback = "La source a changé ou est illisible. Recharge les montants avant de confirmer."
+            return
+        }
+        var values: [SalaryMonthlyPayrollSettlementV2.Field: Decimal] = [:]
+        for field in SalaryMonthlyPayrollSettlementV2.Field.allCases {
+            let parsed = SalaryMonthlyPayrollSettlementV2.parse(settlementAmounts[field] ?? "")
+            guard parsed.valid else { settlementFeedback = "Montant invalide : deux décimales maximum, aucun arrondi implicite."; return }
+            values[field] = parsed.value
+        }
+        let record = SalaryMonthlyPayrollSettlementV2.Record(
+            companyId: scope.companyId, period: scope.period,
+            transportReimbursement: values[.transportReimbursement], garnishment: values[.garnishment],
+            otherAddition: values[.otherAddition], otherDeduction: values[.otherDeduction],
+            netSocialObserved: values[.netSocialObserved], netPaidObserved: values[.netPaidObserved],
+            source: settlementSource.trimmingCharacters(in: .whitespacesAndNewlines),
+            confirmedAt: Int64(Date().timeIntervalSince1970 * 1000), adjustmentsComplete: settlementComplete)
+        guard SalaryMonthlyPayrollSettlementV2.save(record, confirmed: true, expected: stored) else {
+            settlementFeedback = "Source requise (500 caractères maximum), au moins un montant valide ; les quatre ajustements doivent être renseignés pour confirmer leur exhaustivité."
+            return
+        }
+        salaryStore.refresh(); loadSettlementDraft()
+        settlementFeedback = "Montants mensuels enregistrés, distincts des règles et du calcul de paie."
+        clearSalaryPdf()
     }
 
     private var confirmedSicknessCashCard: some View {

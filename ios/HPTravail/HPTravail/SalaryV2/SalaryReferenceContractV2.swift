@@ -322,6 +322,7 @@ struct SalaryReferenceContractV2 {
     var employerContributions: EmployerContributionProjectionV2.Result? = nil
     var employerWarnings: [String] = []
     var payslipDetails: SalaryCalculatedPayslipDetailsV2? = nil
+    var settlementBaseReliable = false
 
     static func build(
         cashGross: Double,

@@ -97,6 +97,11 @@ final class SalaryV2Store: ObservableObject {
         get { accountIsCurrent ? storedConfirmedSicknessCash : nil }
         set { if accountIsCurrent { storedConfirmedSicknessCash = newValue } }
     }
+    @Published private var storedMonthlySettlement: SalaryMonthlyPayrollSettlementV2.Result?
+    private(set) var monthlySettlement: SalaryMonthlyPayrollSettlementV2.Result? {
+        get { accountIsCurrent ? storedMonthlySettlement : nil }
+        set { if accountIsCurrent { storedMonthlySettlement = newValue } }
+    }
     @Published private var storedAbsenceSource: SalaryAbsenceSourceV2?
     private(set) var absenceSource: SalaryAbsenceSourceV2? {
         get { accountIsCurrent ? storedAbsenceSource : nil }
@@ -1202,6 +1207,7 @@ final class SalaryV2Store: ObservableObject {
 
         if let companyId {
             confirmedSicknessCash = SalaryConfirmedSicknessCashV2.read(companyId: companyId, period: selectedPeriod)
+            monthlySettlement = SalaryMonthlyPayrollSettlementV2.read(companyId: companyId, period: selectedPeriod)
             let source = workSourceProvider()
             paidWork = SalaryPaidWorkAggregatorV2.aggregate(
                 sessions: source.sessions,
@@ -1301,6 +1307,7 @@ final class SalaryV2Store: ObservableObject {
             socialProfile = nil
             absenceSource = nil
             confirmedSicknessCash = nil
+            monthlySettlement = nil
             segmentedProrationSource = nil
             segmentedMonthlyBase = nil
             segmentedPayrollBoundary = nil
@@ -1322,6 +1329,7 @@ final class SalaryV2Store: ObservableObject {
             incomeTaxRate: taxRate,
             expectedCompanyId: companyId
         )
+        snapshot.monthlySettlement = monthlySettlement
         incomeTaxRateText = taxRate?.ratePercent.map { String(format: "%.2f", $0) } ?? ""
         incomeTaxSource = taxRate?.source ?? ""
         hydrateContractForm(from: contractResolution?.resolution?.coverage?.singleSnapshotForWholePeriod)

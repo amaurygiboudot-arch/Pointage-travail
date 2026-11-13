@@ -58,7 +58,9 @@ object NetSalaryEngineV2 {
         val employerProjection: EmployerContributionProjectionV2.Result? = null,
         /** Original lines from this calculation; presentation must retain the reliability guards. */
         val contributionDetails: List<CalculatedContributionLineV2> = emptyList(),
-        val employeeDeductionDetails: List<CalculatedEmployeeDeductionV2> = emptyList()
+        val employeeDeductionDetails: List<CalculatedEmployeeDeductionV2> = emptyList(),
+        /** False when a negative cash balance was clamped, so settlement cannot hide an unresolved debt. */
+        val settlementBaseReliable: Boolean = false
     )
 
     fun calculate(
@@ -517,6 +519,7 @@ object NetSalaryEngineV2 {
             confirmedEmployerReductions = reductionAmount,
             knownEmployerContributionsAfterReductions = knownAfterReductions,
             employeeAmountsReliable = employeeAmountsReliable,
+            settlementBaseReliable = grossReliable && employeeAmountsReliable && rawBeforeCents != null && rawBeforeCents >= 0L && afterCents != null,
             employerProjection = employerProjection,
             employeeDeductionDetails = listOf(
                 CalculatedEmployeeDeductionV2("mutual", "Mutuelle — part salariale", company.mutualEmployeeAmount),

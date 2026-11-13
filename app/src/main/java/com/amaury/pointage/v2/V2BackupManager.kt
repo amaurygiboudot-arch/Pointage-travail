@@ -40,6 +40,7 @@ object V2BackupManager {
         "horatrack_v2_payslips",
         SalaryBackupPayloadsV2.CONTRACTS,
         SalaryBackupPayloadsV2.SICKNESS,
+        SalaryBackupPayloadsV2.SETTLEMENT,
         SalaryBackupPayloadsV2.DATED_RULES,
         V2PayrollCoverageStore.PREFS,
         V2SegmentedProrationStore.PREFS,
@@ -298,6 +299,7 @@ object V2BackupManager {
                 }
                 SalaryBackupPayloadsV2.CONTRACTS -> SalaryBackupPayloadsV2.mergeContracts(local, saved)
                 SalaryBackupPayloadsV2.SICKNESS -> SalaryBackupPayloadsV2.mergeSickness(local, saved)
+                SalaryBackupPayloadsV2.SETTLEMENT -> SalaryBackupPayloadsV2.mergeSettlement(local, saved)
                 SalaryBackupPayloadsV2.DATED_RULES -> SalaryBackupPayloadsV2.mergeRules(local, saved, scope)
                 else -> (local + saved).mapValues { it.value }
             }
@@ -565,7 +567,7 @@ object V2BackupManager {
                 val raw = item?.opt("v") as? String
                 item?.optString("t") == "s" && raw != null && V2SegmentedProrationStore.decode(raw) != null
             }
-            SalaryBackupPayloadsV2.CONTRACTS, SalaryBackupPayloadsV2.SICKNESS, SalaryBackupPayloadsV2.DATED_RULES ->
+            SalaryBackupPayloadsV2.CONTRACTS, SalaryBackupPayloadsV2.SICKNESS, SalaryBackupPayloadsV2.SETTLEMENT, SalaryBackupPayloadsV2.DATED_RULES ->
                 runCatching { SalaryBackupPayloadsV2.valid(name, V2PreferenceValues.decode(saved)) }.getOrDefault(false)
             else -> true
         }

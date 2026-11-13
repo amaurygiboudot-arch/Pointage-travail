@@ -106,7 +106,11 @@ object CalculatedPayslipDetailsV2 {
         else add("Détail des primes d’entreprise" to UNKNOWN)
     }
 
-    /** No source currently proves these settlement amounts in the calculated payroll chain. */
+    fun settlementLines(source: com.amaury.pointage.v2.ConfirmedMonthlyPayrollSettlementV2.Result?,
+                        companyId: String, period: String, basis: MonthlyPayrollSettlementProjectionV2.NetBasis?): List<Pair<String, String>> =
+        MonthlyPayrollSettlementProjectionV2.lines(source, companyId, period, basis)
+
+    /** Legacy callers without a selected monthly source retain explicitly unknown amounts. */
     fun settlementLines(): List<Pair<String, String>> = listOf(
         "Prime / remboursement de transport" to "$UNKNOWN — montant distinct des primes brutes",
         "Saisie-arrêt / autres retenues sur versement" to "$UNKNOWN — hors cotisations",

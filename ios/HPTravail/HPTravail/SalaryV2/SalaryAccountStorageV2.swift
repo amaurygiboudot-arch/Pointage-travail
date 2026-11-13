@@ -90,6 +90,7 @@ enum SalaryAccountStorageV2 {
         "salary_company_", "employee_deductions_v2.", "salary_absences_v2.", "salary_employee_social_profile_v2.",
         "salary_convention_classification_v2.", "salary_convention_seniority_input_v2.",
         "salary_segmented_proration_v2.", "salary_confirmed_sickness_cash_v2.",
+        "salary_monthly_payroll_settlement_v2.",
         "salary_payslip_observed_v2.", "salary_payroll_source_knowledge_v2."
     ]
     private static func isSharedKey(_ key: String) -> Bool {

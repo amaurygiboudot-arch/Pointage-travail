@@ -12,6 +12,7 @@ import org.json.JSONObject
 internal object SalaryBackupPayloadsV2 {
     const val CONTRACTS = "horatrack_v2_employment_contract_history"
     const val SICKNESS = "salary_confirmed_sickness_cash_v2"
+    const val SETTLEMENT = ConfirmedMonthlyPayrollSettlementV2.PREFS
     const val DATED_RULES = "dated_work_applicability_v2"
 
     fun valid(name: String, values: Map<String, *>): Boolean = runCatching {
@@ -21,6 +22,11 @@ internal object SalaryBackupPayloadsV2 {
                 val parts = key.split('|')
                 require(parts.size == 2 && value is String)
                 require(ConfirmedMonthlySicknessCashV2.decode(value, parts[0], parts[1]).reliable)
+            }
+            SETTLEMENT -> values.forEach { (key, value) ->
+                val parts = key.split('|')
+                require(parts.size == 2 && value is String)
+                require(ConfirmedMonthlyPayrollSettlementV2.decode(value, parts[0], parts[1]).reliable)
             }
             DATED_RULES -> values.forEach { (key, value) -> datedOwner(key, value) }
         }
@@ -119,6 +125,19 @@ internal object SalaryBackupPayloadsV2 {
                 DatedWorkRuleContractScopeV2.verifiedApplicability(it, contract)
             }) { "Règle individuelle hors du contrat confirmé" }
         }
+    }
+
+    fun mergeSettlement(local: Map<String, *>, saved: Map<String, *>): Map<String, Any?> {
+        require(valid(SETTLEMENT, local) && valid(SETTLEMENT, saved)) { "Frais et versements sauvegardés incohérents" }
+        saved.forEach { (key, value) ->
+            val parts = key.split('|')
+            val old = local[key]
+            require(old == null || ConfirmedMonthlyPayrollSettlementV2.decode(old as String, parts[0], parts[1]).record ==
+                ConfirmedMonthlyPayrollSettlementV2.decode(value as String, parts[0], parts[1]).record) {
+                "Des frais ou versements confirmés diffèrent de la sauvegarde ; aucune saisie remplacée"
+            }
+        }
+        return (local + saved).mapValues { it.value }
     }
 
     fun mergeSickness(local: Map<String, *>, saved: Map<String, *>): Map<String, Any?> {

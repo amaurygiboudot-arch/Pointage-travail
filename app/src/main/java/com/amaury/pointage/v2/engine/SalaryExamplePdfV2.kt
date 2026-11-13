@@ -11,6 +11,8 @@ import com.amaury.pointage.V2SalaryAdapter
 import com.amaury.pointage.V2SalaryNetBridgeV2
 import com.amaury.pointage.V2SalaryNetPresentationV2
 import com.amaury.pointage.v2.BoccPayrollSourceStoreV2
+import com.amaury.pointage.v2.ConfirmedMonthlyPayrollSettlementV2
+import com.amaury.pointage.v2.SalaryAccountScope
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.LegalPayrollSourceStoreV2
 import com.amaury.pointage.v2.NetSalaryReferencePolicyV2
@@ -167,6 +169,10 @@ object SalaryExamplePdfV2 {
         fields: Set<Field>,
         output: OutputStream
     ) {
+        val context = SalaryAccountScope.bindContext(context)
+        require(SalaryAccountScope.available(context)) { SalaryAccountScope.AUTH_WARNING }
+        val settlementPeriod = java.time.YearMonth.of(year, month + 1).toString()
+        val settlementSource = company?.let { ConfirmedMonthlyPayrollSettlementV2.read(context, it.id, settlementPeriod) }
         val legacyProfile = if (company == null) V2ProfileStore.load(context, 1) else null
         val legacyContract = legacyProfile?.contract
         val legacyEmployer = legacyProfile?.employer
@@ -308,7 +314,10 @@ object SalaryExamplePdfV2 {
                 add(PdfSection("DÉTAIL DES RETENUES SALARIALES", CalculatedPayslipDetailsV2.deductions(payroll,
                     if (segmentedConsumer) canonicalForPdf?.cashGrossReliable == true else salaryNet?.salary?.let { it.monthlyGrossReliable && it.paidTimeReliable } == true,
                     company?.id.orEmpty(),year,month+1)))
-                add(PdfSection("FRAIS, RETENUES ET VERSEMENT", CalculatedPayslipDetailsV2.settlementLines()))
+                add(PdfSection("FRAIS, RETENUES ET VERSEMENT", CalculatedPayslipDetailsV2.settlementLines(settlementSource,
+                    company?.id.orEmpty(), settlementPeriod, MonthlyPayrollSettlementProjectionV2.netBasis(payroll,
+                        if (segmentedConsumer) canonicalForPdf?.netAfterIncomeTax else monthlyNetForPdf?.netAfterIncomeTax,
+                        company?.id.orEmpty(), settlementPeriod))))
             }
 
             if (Field.COUNTERS in fields) {
@@ -436,6 +445,7 @@ object SalaryExamplePdfV2 {
                 PdfVisualStyle.footer(canvas, 595, 842, pageNumber)
                 pdf.finishPage(page)
             }
+            require(SalaryAccountScope.available(context)) { SalaryAccountScope.AUTH_WARNING }
             pdf.writeTo(output)
         } finally {
             pdf.close()

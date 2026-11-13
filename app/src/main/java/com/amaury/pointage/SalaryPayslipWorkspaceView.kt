@@ -21,6 +21,8 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.ConfirmedMonthlySicknessCashV2
+import com.amaury.pointage.v2.ConfirmedMonthlyPayrollSettlementV2
+import com.amaury.pointage.v2.engine.MonthlyPayrollSettlementProjectionV2
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.NetSalaryReferencePolicyV2
 import com.amaury.pointage.v2.V2EmploymentContractPayrollBridge
@@ -51,6 +53,7 @@ import kotlin.math.abs
 /** Espace V2 : estimation AGKGMG + nombre illimité de bulletins réels. */
 class SalaryPayslipWorkspaceView(hostContext:Context,private val company:SalaryCompanyStore.Company):SalaryAccountLayout(hostContext){
  private var page=0
+ private var settlementSource=ConfirmedMonthlyPayrollSettlementV2.Result(null,true)
  private val pageBox=LinearLayout(context)
  private val indicator=TextView(context)
  private val gesture=GestureDetector(context,object:GestureDetector.SimpleOnGestureListener(){override fun onDown(e:MotionEvent)=true;override fun onFling(e1:MotionEvent?,e2:MotionEvent,velocityX:Float,velocityY:Float):Boolean{if(e1==null||abs(e2.x-e1.x)<80)return false;if(e2.x<e1.x)next() else previous();return true}})
@@ -101,7 +104,19 @@ class SalaryPayslipWorkspaceView(hostContext:Context,private val company:SalaryC
   };dialog.show()
  }
  private fun records()=V2PayslipStore.forCompany(context,company.id)
- private fun render(){if(!accountCurrent())return;val total=records().size+1;page=page.coerceIn(0,total-1);pageBox.removeAllViews();renderConfirmedSicknessCash();if(page==0)renderEstimate() else renderReal(records()[page-1]);indicator.text="${page+1} / $total"}
+ private fun render(){if(!accountCurrent())return;val total=records().size+1;page=page.coerceIn(0,total-1);pageBox.removeAllViews();renderConfirmedSicknessCash();if(page==0){settlementSource=ConfirmedMonthlyPayrollSettlementV2.read(context,company.id,cashPeriod());renderSettlementAction();renderEstimate()} else renderReal(records()[page-1]);indicator.text="${page+1} / $total"}
+ private fun renderSettlementAction(){
+  val period=cashPeriod()
+  add(TextView(context).apply{text="Frais et versement confirmés — ${company.name}, $period\nLes champs vides restent inconnus. Les observations n’altèrent pas le calcul de paie.";textSize=12f})
+  addButton("RENSEIGNER LES FRAIS, RETENUES ET VERSEMENTS DU MOIS"){
+   SalaryMonthlySettlementFormV2.show(context,company,period,{accountCurrent()&&cashPeriod()==period}){render()}
+  }
+ }
+ private fun renderSettlement(payroll:NetSalaryEngineV2.Result?,netAfterTax:Double?){
+  val period=cashPeriod()
+  val basis=MonthlyPayrollSettlementProjectionV2.netBasis(payroll,netAfterTax,company.id,period)
+  add(TextView(context).apply{text="\nFRAIS, RETENUES ET VERSEMENT\n"+CalculatedPayslipDetailsV2.settlementLines(settlementSource,company.id,period,basis).joinToString("\n"){"${it.first} : ${it.second}"};textSize=14f})
+ }
  private fun selectedPeriod():Pair<Int,Int>{val ms=RestoreGuardedPreferences.open(context, "navigation_state", Context.MODE_PRIVATE).getLong("report_month_ms",-1L);val c=Calendar.getInstance(Locale.FRANCE);if(ms>0)c.timeInMillis=ms;return c.get(Calendar.YEAR) to c.get(Calendar.MONTH)}
  private fun choosePeriod(){
   val(year,month)=selectedPeriod()
@@ -193,6 +208,7 @@ class SalaryPayslipWorkspaceView(hostContext:Context,private val company:SalaryC
     }
     textSize=14f
    })
+   renderSettlement(null,null)
   }else{
    val payroll=canonical.net.projection?.payroll
    val payrollPeriod=PayrollPeriodV2.month(year,month)
@@ -269,7 +285,7 @@ class SalaryPayslipWorkspaceView(hostContext:Context,private val company:SalaryC
    add(TextView(context).apply{text=lines;textSize=14f})
    val selectedCanonical=SalaryExamplePdfV2.canonicalForSelection(canonical,company.id,year,month+1)
    renderCalculatedDetails(CalculatedPayslipDetailsV2.earnings(selectedCanonical),payroll,
-    canonical.cashGrossReliable,selectedCanonical?.employerProjection)
+    canonical.cashGrossReliable,selectedCanonical?.employerProjection,selectedCanonical?.netAfterIncomeTax)
 
 
    if(agreementRules.hasApplicableRules)add(TextView(context).apply{text=buildString{
@@ -307,7 +323,7 @@ class SalaryPayslipWorkspaceView(hostContext:Context,private val company:SalaryC
   add(TextView(context).apply{text="FICHE DE PAIE ESTIMATIVE";textSize=17f;setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER;setPadding(0,dp(10),0,dp(4))})
   val seniority=contractPresentation.seniorityLabel;add(TextView(context).apply{text="Période : $period\nEntreprise : ${company.name.ifBlank{"Non renseignée"}}\nSIRET : ${company.siret.ifBlank{"Non renseigné"}}\nAncienneté : $seniority";textSize=14f;setPadding(0,0,0,dp(10))})
   val convention=contractPresentation.conventionId?.let{ConventionCatalog.findByIdcc(context,it)};val salaryNet=if(HoraTrackV2.ENABLED&&convention!=null)runCatching{V2SalaryNetBridgeV2.calculateForCompany(context,company,year,month,convention)}.getOrNull() else null
-  if(salaryNet==null){add(TextView(context).apply{text="Calcul détaillé indisponible : complète le contrat et la convention de cette entreprise. AGKGMG n’invente aucune majoration.";textSize=14f})}else{
+  if(salaryNet==null){add(TextView(context).apply{text="Calcul détaillé indisponible : complète le contrat et la convention de cette entreprise. AGKGMG n’invente aucune majoration.";textSize=14f});renderSettlement(null,null)}else{
    val calc=salaryNet.salary;val payroll=salaryNet.payroll;val netPresentation=V2SalaryNetPresentationV2.from(salaryNet);val mealCount=calc.mealBasketCount;val mealAmount=calc.mealBasketAmount;val mealTotal=calc.mealBasketTotal;val payrollPeriod=PayrollPeriodV2.month(year,month);val referenceDate=payrollPeriod.referenceDate;val agreementRules=CompanyAgreementPayrollBridgeV2.load(context,company.id,referenceDate,payrollPeriod)
    val conventionMinimum=calc.conventionMinimumMonthlyGross;val conventionClassification=calc.conventionClassificationLabel
    val lines=buildString{
@@ -326,20 +342,20 @@ class SalaryPayslipWorkspaceView(hostContext:Context,private val company:SalaryC
    add(TextView(context).apply{text=lines;textSize=14f})
    val employer=payroll.employerProjection?.takeIf{it.context.valid&&it.context.companyId==company.id&&it.context.year==year&&it.context.month==month+1}
    renderCalculatedDetails(CalculatedPayslipDetailsV2.earnings(calc),payroll,
-    calc.monthlyGrossReliable&&calc.paidTimeReliable,employer)
+    calc.monthlyGrossReliable&&calc.paidTimeReliable,employer,salaryNet.netAfterIncomeTax)
 ;if(agreementRules.hasApplicableRules)add(TextView(context).apply{text=buildString{append("\nRÈGLES D’ENTREPRISE APPLICABLES\n• ");append(agreementRules.applicableRules.joinToString("\n• "){"${it.category.name} : ${it.excerpt}"});append('\n');when{agreementRules.hasOvertimeConflicts->append("Les règles d’heures supplémentaires en conflit sont bloquées et exclues du calcul. Les autres catégories restent informatives tant qu’elles ne sont pas structurées de façon sûre.");agreementRules.hasPeriodChanges->append("Une règle change pendant le mois : les taux d’heures supplémentaires d’entreprise ne sont pas appliqués automatiquement pour cette période. Les autres catégories restent informatives.");agreementRules.hasSafeOvertimeRules->append("Les taux d’heures supplémentaires vérifiés et non conflictuels sont intégrés au calcul. Les autres catégories restent informatives tant qu’elles ne sont pas structurées de façon sûre.");else->append("Aucune règle d’entreprise n’est actuellement assez structurée pour modifier automatiquement le calcul.")}};textSize=12f});if(agreementRules.hasPeriodChanges)add(TextView(context).apply{text="\n⚠ CHANGEMENT DE RÈGLE PENDANT LE MOIS\n"+agreementRules.periodSegments.joinToString("\n"){segment->"• ${segment.start.format(DateTimeFormatter.ofPattern("dd/MM/uuuu"))} → ${segment.endInclusive.format(DateTimeFormatter.ofPattern("dd/MM/uuuu"))} : ${segment.applicableRules.size} règle(s) applicable(s)"}+"\nLes taux d’heures supplémentaires d’entreprise restent bloqués pour ce mois tant que la période n’est pas calculée par segments.";textSize=12f;setTypeface(typeface,Typeface.BOLD)});if(agreementRules.hasOvertimeConflicts)add(TextView(context).apply{text="\n⚠ CONFLIT D’HEURES SUPPLÉMENTAIRES — BLOQUÉ\n"+agreementRules.conflictingOvertimeRules.joinToString("\n"){rule->val end=rule.band.toHourInclusive?.let{"${it}e heure"}?:"sans limite déterminée";"• ${rule.band.fromHourInclusive}e → $end : +${String.format(Locale.FRANCE,"%.2f",rule.percent)} %\n  ${rule.source.source.excerpt}"}+"\nCes règles restent enregistrées mais sont exclues du calcul tant que le conflit n’est pas résolu.";textSize=12f;setTypeface(typeface,Typeface.BOLD)});ConventionNightRules.forIdcc(convention?.idcc.orEmpty())?.let{rule->add(TextView(context).apply{text="\nRègle nuit : ${rule.note}";textSize=12f})};val conventionWarnings=mutableListOf<String>();if(conventionMinimum!=null&&calc.monthlyGrossReliable&&calc.regularGross+1e-6<conventionMinimum)conventionWarnings+="Salaire de base estimé inférieur au minimum conventionnel résolu : vérifier l’assiette de comparaison avant conclusion.";val warnings=salaryNet.warnings+conventionWarnings;if(warnings.isNotEmpty())add(TextView(context).apply{text="\nÀ vérifier :\n• "+warnings.distinct().joinToString("\n• ");textSize=12f})
    val monthStartMs=LocalDate.of(year,month+1,1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();val monthEndMs=LocalDate.of(year,month+1,1).plusMonths(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();val sicknessAbsences=V2RightsStore.absencesForCompany(context,company.id).filter{it.type==AbsencePayrollImpactV2.TYPE_SICKNESS&&it.endMs>monthStartMs&&it.startMs<monthEndMs};if(sicknessAbsences.isNotEmpty())add(TextView(context).apply{text=buildString{append("\nARRÊT MALADIE / IJSS\n");sicknessAbsences.forEach{absence->val start=Instant.ofEpochMilli(absence.startMs).atZone(ZoneId.systemDefault()).toLocalDate();val end=Instant.ofEpochMilli(absence.endMs-1L).atZone(ZoneId.systemDefault()).toLocalDate();val allowance=V2PayslipStore.sicknessAllowanceForAbsence(context,company.id,absence);val flow=SicknessPaymentFlowV2.resolve(absence,allowance);append("• ").append(start.format(DateTimeFormatter.ofPattern("dd/MM/uuuu"))).append(" → ").append(end.format(DateTimeFormatter.ofPattern("dd/MM/uuuu"))).append(" • ").append(absenceTreatmentLabel(absence.salaryTreatment)).append('\n');when(flow.ijssRecipient){SicknessPaymentFlowV2.IjssRecipient.EMPLOYER->{append("  IJSS → employeur");flow.employerIjssReimbursementGross?.let{append(" : ").append(eur(it)).append(" brut estimés")};append(" — non ajoutées une 2e fois au salarié\n")};SicknessPaymentFlowV2.IjssRecipient.EMPLOYEE->{append("  IJSS → salarié séparément");flow.directEmployeeIjssGross?.let{append(" : ").append(eur(it)).append(" brut estimés")};append(" — hors net de la fiche employeur\n")};SicknessPaymentFlowV2.IjssRecipient.TO_CONFIRM->append("  Destination IJSS : à confirmer\n")};flow.warnings.firstOrNull()?.let{append("  ⚠ ").append(it).append('\n')}}};textSize=12f})
   }
   add(TextView(context).apply{text="\nDurée hebdomadaire contractuelle : ${contractPresentation.weeklyLabel}\nCette fiche est une estimation AGKGMG, pas un bulletin officiel.";textSize=12f});renderImportActions()
  }
- private fun renderCalculatedDetails(earnings:List<Pair<String,String>>,payroll:NetSalaryEngineV2.Result?,grossReliable:Boolean,employer:EmployerContributionProjectionV2.Result?){
+ private fun renderCalculatedDetails(earnings:List<Pair<String,String>>,payroll:NetSalaryEngineV2.Result?,grossReliable:Boolean,employer:EmployerContributionProjectionV2.Result?,netAfterTax:Double?=null){
   add(TextView(context).apply{text="\nDÉTAIL DU BRUT\n"+earnings.joinToString("\n"){"${it.first} : ${it.second}"};textSize=14f})
   val (year,month)=selectedPeriod()
   val details=CalculatedPayslipDetailsV2.contributions(payroll,grossReliable,employer,company.id,year,month+1)
   if(details.isNotEmpty())add(TextView(context).apply{text="\nDÉTAIL DES COTISATIONS CONNUES\n"+details.joinToString("\n\n"){it.text()}+"\nCes lignes détaillent les groupes de cotisations ; elles ne s’ajoutent pas une seconde fois aux totaux.";textSize=12f})
   add(TextView(context).apply{text="\nCOTISATIONS ET SYNTHÈSE EMPLOYEUR\n"+SalaryExamplePdfV2.contributionLines(payroll?.takeIf{grossReliable},employer).joinToString("\n"){"${it.first} : ${it.second}"};textSize=12f})
   add(TextView(context).apply{text="\nDÉTAIL DES RETENUES SALARIALES\n"+CalculatedPayslipDetailsV2.deductions(payroll,grossReliable,company.id,year,month+1).joinToString("\n"){"${it.first} : ${it.second}"};textSize=12f})
-  add(TextView(context).apply{text="\nFRAIS, RETENUES ET VERSEMENT\n"+CalculatedPayslipDetailsV2.settlementLines().joinToString("\n"){"${it.first} : ${it.second}"};textSize=14f})
+  renderSettlement(payroll,netAfterTax.takeIf{grossReliable})
  }
  private fun renderReal(r:V2PayslipStore.Record){val month=DateFormatSymbols(Locale.FRANCE).months.getOrNull(r.month).orEmpty().replaceFirstChar{it.uppercase()};val gross=r.gross?.let{eur(it)}?:"à confirmer";val net=r.net?.let{eur(it)}?:"non renseigné";add(TextView(context).apply{text="BULLETIN RÉEL — $month ${r.year}";textSize=17f;setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER;setPadding(0,dp(10),0,dp(10))});add(TextView(context).apply{text="Brut : $gross\nNet : $net\nDocument original conservé.";textSize=14f});val observed=com.amaury.pointage.v2.PayslipObservedValuesStoreV2.getAll(context,r.id);val evidence=com.amaury.pointage.v2.PayslipObservedValuesStoreV2.evidence(context,r.id).filterKeys{it in observed};if(evidence.isNotEmpty())add(TextView(context).apply{text="Sources des valeurs confirmées\n"+evidence.entries.joinToString("\n\n"){(key,excerpt)->"$key : ${eur(observed.getValue(key))}\n$excerpt"};textSize=12f});addButton("OUVRIR LE DOCUMENT"){val uri=Uri.parse(r.sourceUri);runCatching{context.startActivity(Intent(Intent.ACTION_VIEW).apply{setDataAndType(uri,r.sourceMime?:"*/*");addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)})}.onFailure{Toast.makeText(context,"Impossible d’ouvrir le document",Toast.LENGTH_LONG).show()}};if(observed.isEmpty())addButton("COMPLÉTER LES VALEURS DU BULLETIN"){launchRecordResume(r.id)};addButton("COMPARAISON RAPIDE GRATUITE"){showBasicComparison(r)};addButton("SUPPRIMER CE BULLETIN"){SalaryAccountUi.dialog(context).setTitle("Supprimer ce bulletin ?").setMessage("Le bulletin sera retiré de l’historique AGKGMG. Le fichier original extérieur à AGKGMG n’est pas modifié.").setNegativeButton("ANNULER",null).setPositiveButton("SUPPRIMER"){_,_->V2PayslipStore.remove(context,r.id);page=(page-1).coerceAtLeast(0);render()}.show()}}
  private fun launchRecordResume(recordId:String){

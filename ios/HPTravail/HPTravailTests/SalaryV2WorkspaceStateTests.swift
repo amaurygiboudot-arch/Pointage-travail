@@ -135,7 +135,8 @@ final class SalaryV2WorkspaceStateTests: XCTestCase {
         XCTAssertTrue(sections[1].rows[0].value.contains("144,00"))
         XCTAssertEqual(sections[2].rows.first { $0.id == "pas" }?.value, "0,00 €")
         XCTAssertTrue(sections[2].rows.first { $0.id == "paid" }!.value.hasPrefix("À confirmer"))
-        XCTAssertTrue(sections[2].rows.first { $0.id == "transport" }!.value.contains("distinct"))
+        XCTAssertEqual(sections[2].rows.first { $0.id == "transportReimbursement" }?.value, "À confirmer")
+        XCTAssertTrue(sections[2].rows.first { $0.id == "transportReimbursement" }?.label.contains("hors brut") == true)
     }
 
     func testForeignOrStaleDetailNeverAppearsInPresentation() {
@@ -154,7 +155,7 @@ final class SalaryV2WorkspaceStateTests: XCTestCase {
         let snapshot = SalaryWorkspaceResolverV2.resolve(period: month, reference: nil)
         let rows = SalaryCalculatedPayslipPresentationV2.sections(snapshot: snapshot, companyId: "company-a").flatMap(\.rows)
         XCTAssertFalse(rows.contains { $0.value == "0,00 €" })
-        XCTAssertTrue(rows.first { $0.id == "social" }!.value.hasPrefix("À confirmer"))
+        XCTAssertEqual(rows.first { $0.id == "netSocialObserved" }?.value, "À confirmer")
     }
 
     func testPresentationUsesCanonicalCentRoundingAndRejectsInvalidMoney() {

@@ -502,6 +502,17 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
         )
         XCTAssertEqual(result.knownNetBeforeIncomeTax, 0, accuracy: 0.0001)
         XCTAssertEqual(result.netTaxable ?? -1, 771.27, accuracy: 0.0001)
+        XCTAssertFalse(result.settlementBaseReliable)
+    }
+
+    func testZeroTaxDoesNotTurnClampedNegativeCashIntoSettlementBase() {
+        let rate = CompanyIncomeTaxRateResolverV2.Snapshot(rate: 0, ratePercent: 0, source: "Synthetic zero PAS", hasDatedRecords: true, reliable: true, warnings: [])
+        let result = EmployeeNetProjectionV2.calculate(input(cashGross: 0, benefits: benefits(total: 1000), incomeTaxRate: rate))
+        XCTAssertEqual(result.netAfterIncomeTax, 0)
+        XCTAssertFalse(result.settlementBaseReliable)
+        let month = salaryPeriod()
+        let observed = SalaryMonthlyPayrollSettlementV2.Record(companyId: "synthetic-company", period: month, transportReimbursement: 50, garnishment: 0, otherAddition: 0, otherDeduction: 0, netSocialObserved: nil, netPaidObserved: nil, source: "Synthetic monthly adjustment", confirmedAt: 1790000000000, adjustmentsComplete: true)
+        XCTAssertNil(SalaryMonthlyPayrollSettlementV2.project(.init(record: observed, reliable: true, warnings: []), companyId: observed.companyId, period: month, netAfterIncomeTax: result.netAfterIncomeTax, baseReliable: result.settlementBaseReliable).projectedPaid)
     }
 
     func testConfirmedIncomeTaxRatePublishesTaxAndNetAfterTax() {
@@ -516,6 +527,7 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
         let result = EmployeeNetProjectionV2.calculate(input(incomeTaxRate: rate))
         XCTAssertEqual(result.incomeTax ?? -1, 77.17, accuracy: 0.0001)
         XCTAssertEqual(result.netAfterIncomeTax ?? -1, 2236.45, accuracy: 0.0001)
+        XCTAssertTrue(result.settlementBaseReliable)
     }
 
     func testConfirmedIncomeTaxRateReachesPresentationAdapter() {

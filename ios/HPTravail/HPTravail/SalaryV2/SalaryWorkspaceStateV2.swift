@@ -17,6 +17,8 @@ struct SalaryWorkspaceSnapshotV2: Equatable {
     var employerContributions: EmployerContributionProjectionV2.Result? = nil
     var employerWarnings: [String] = []
     var payslipDetails: SalaryCalculatedPayslipDetailsV2? = nil
+    var settlementBaseReliable = false
+    var monthlySettlement: SalaryMonthlyPayrollSettlementV2.Result? = nil
 
     var hasReliableGross: Bool { socialGross != nil }
     var hasReliableNet: Bool { netBeforeIncomeTax != nil }
@@ -113,7 +115,9 @@ enum SalaryWorkspaceResolverV2 {
             employerWarnings: segmented.employerContributions?.matches(companyId: expectedCompanyId, year: period.year, month: period.month, gross: socialGross) == true && sourceReady
                 ? segmented.employerWarnings
                 : unique(segmented.employerWarnings + ["Cotisations patronales : contexte de l'entreprise ou du mois sélectionné non concordant ; affichage bloqué."]),
-            payslipDetails: sourceReady ? SalaryCalculatedPayslipDetailsV2.segmented(segmented, companyId: expectedCompanyId) : nil
+            payslipDetails: sourceReady ? SalaryCalculatedPayslipDetailsV2.segmented(segmented, companyId: expectedCompanyId) : nil,
+            settlementBaseReliable: netComplete && segmented.net.projection?.settlementBaseReliable == true &&
+                segmented.employerContributions?.matches(companyId: expectedCompanyId, year: period.year, month: period.month, gross: socialGross) == true
         )
     }
 
@@ -173,7 +177,9 @@ enum SalaryWorkspaceResolverV2 {
             employerWarnings: reference.employerContributions?.matches(companyId: expectedCompanyId, year: period.year, month: period.month, gross: socialGross) == true
                 ? reference.employerWarnings
                 : unique(reference.employerWarnings + ["Cotisations patronales : contexte de l'entreprise ou du mois sélectionné non concordant ; affichage bloqué."]),
-            payslipDetails: reference.payslipDetails?.matches(companyId: expectedCompanyId, period: period, gross: socialGross) == true ? reference.payslipDetails : nil
+            payslipDetails: reference.payslipDetails?.matches(companyId: expectedCompanyId, period: period, gross: socialGross) == true ? reference.payslipDetails : nil,
+            settlementBaseReliable: reference.settlementBaseReliable && withholding.netAfterIncomeTax != nil &&
+                reference.employerContributions?.matches(companyId: expectedCompanyId, year: period.year, month: period.month, gross: socialGross) == true
         )
     }
 
@@ -382,27 +388,38 @@ enum SalaryCalculatedPayslipPresentationV2 {
             Row(id: "\(index)", label: line.label,
                 value: "Base : \(money(line.base)) · Salarié : \(rate(line.employeeRate)) / \(money(line.employeeAmount)) · Employeur : \(rate(line.employerRate)) / \(money(line.employerAmount))\nSource : \(line.source)")
         } ?? [.init(id: "missing", label: "Cotisations détaillées", value: "À confirmer — sources de calcul incomplètes")]
+        let monthly = SalaryMonthlyPayrollSettlementV2.project(snapshot.monthlySettlement, companyId: companyId, period: snapshot.period,
+            netAfterIncomeTax: snapshot.netAfterIncomeTax, baseReliable: snapshot.sourceReady && snapshot.settlementBaseReliable)
         var settlement = rows(detail?.companyDeductions ?? [])
         settlement += [
             .init(id: "benefits", label: "Avantages en nature non versés en espèces",
                   value: detail?.benefitsInKindGross.map { $0 > 0 ? "-" + money($0) : money($0) } ?? "À confirmer"),
-            .init(id: "transport", label: "Prime / remboursement de transport", value: "À confirmer — versement distinct des retenues transport"),
-            .init(id: "garnishment", label: "Saisie-arrêt et autres retenues sur versement", value: "À confirmer"),
-            .init(id: "social", label: "Montant net social", value: "À confirmer — référence non disponible"),
             .init(id: "before", label: "Net estimé avant impôt", value: money(snapshot.netBeforeIncomeTax)),
             .init(id: "taxable", label: "Net imposable estimé", value: money(snapshot.netTaxable)),
             .init(id: "pas", label: "Prélèvement à la source", value: money(snapshot.incomeTax)),
             .init(id: "after", label: "Net estimé après PAS, avant ajustements de versement", value: money(snapshot.netAfterIncomeTax)),
-            .init(id: "paid", label: "Net à payer après tous ajustements", value: "À confirmer — transport et retenues sur versement non raccordés")
+            .init(id: "paid", label: "Versement estimé après les ajustements confirmés", value: money(monthly.projectedPaid))
         ]
+        settlement += SalaryMonthlyPayrollSettlementV2.Field.allCases.map { field in
+            .init(id: field.rawValue, label: field.label + " — constaté",
+                  value: money(monthly.record?[field].flatMap(SalaryMonthlyPayrollSettlementV2.cents).flatMap(PayrollMoneyV2.amount)))
+        }
+        if let record = monthly.record {
+            settlement.append(.init(id: "settlement-source", label: "Source mensuelle confirmée", value: record.source))
+            settlement.append(.init(id: "settlement-complete", label: "Ajustements exhaustifs et non déjà inclus", value: record.adjustmentsComplete ? "Confirmés pour ce mois" : "À confirmer"))
+        }
+        settlement.append(.init(id: "settlement-difference", label: "Écart net payé constaté − versement estimé", value: money(monthly.observedMinusProjected, allowNegative: true)))
+        settlement += monthly.warnings.enumerated().map { .init(id: "settlement-warning-\($0.offset)", label: "Contrôle du versement", value: $0.element) }
         return [.init(id: "gross", title: "Rémunération brute", rows: rows(gross)),
                 .init(id: "contributions", title: "Cotisations détaillées connues", rows: contributions),
                 .init(id: "settlement", title: "Retenues et synthèse du net", rows: settlement)]
     }
     static func money(_ value: Double?, allowNegative: Bool = false) -> String {
         guard let value, (value >= 0 || allowNegative), let cents = PayrollMoneyV2.cents(value),
-              let canonical = PayrollMoneyV2.amount(cents) else { return "À confirmer" }
-        return String(format: "%.2f €", locale: Locale(identifier: "fr_FR"), canonical)
+              PayrollMoneyV2.amount(cents) != nil else { return "À confirmer" }
+        // Formatting a large binary Double with %.2f can change the last cent.
+        let absolute = cents < 0 ? -cents : cents
+        return "\(cents < 0 ? "-" : "")\(absolute / 100),\(String(format: "%02lld", absolute % 100)) €"
     }
     private static func rate(_ value: Double?) -> String {
         guard let value, value.isFinite, (0...1).contains(value) else { return "À confirmer" }

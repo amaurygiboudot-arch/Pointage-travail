@@ -9,7 +9,7 @@ object SalaryPreferenceRegistry {
     val personalFiles: Set<String> = linkedSetOf(
         "salary_companies_v2", "salary_settings", "horatrack_v2_integration", "shift_profiles",
         "horatrack_v2_payslips", "horatrack_v2_employment_contract_history",
-        "salary_confirmed_sickness_cash_v2", "horatrack_v2_rights",
+        "salary_confirmed_sickness_cash_v2", "salary_confirmed_payroll_settlement_v2", "horatrack_v2_rights",
         "horatrack_v2_payroll_coverage", "horatrack_v2_segmented_proration",
         "horatrack_v2_meal_fact_journal", "horatrack_local_provident_documents",
         "horatrack_v2_company_meal_basket_rules", "horatrack_v2_company_meal_basket_audit_state",
@@ -54,7 +54,7 @@ object SalaryPreferenceRegistry {
 
     /** Legacy files are inspected only by explicit recovery, never by ordinary reads or backups. */
     internal fun legacyNames(context: Context): Set<String> {
-        val result = personalFiles.filterNot { it == "dated_work_applicability_v2" }.toMutableSet()
+        val result = personalFiles.filterNot { it == "dated_work_applicability_v2" || it == "salary_confirmed_payroll_settlement_v2" }.toMutableSet()
         File(SalaryAccountScope.rawContext(context).applicationInfo.dataDir, "shared_prefs")
             .listFiles().orEmpty().filter { it.name.endsWith(".xml") }.forEach { file ->
                 val name = file.name.removeSuffix(".xml")

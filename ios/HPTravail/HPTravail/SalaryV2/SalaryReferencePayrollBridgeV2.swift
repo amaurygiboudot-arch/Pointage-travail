@@ -100,7 +100,8 @@ extension SalaryReferenceContractV2 {
             employerWarnings: employer?.warnings ?? ["Cotisations patronales : contexte entreprise/période/brut non concordant ou absent ; projection indisponible."],
             payslipDetails: expectedPeriod.flatMap { period in
                 SalaryCalculatedPayslipDetailsV2.monthly(payroll: payroll, projection: projection, companyId: expectedCompanyId, period: period)
-            }
+            },
+            settlementBaseReliable: base.complete && employer != nil && projection.settlementBaseReliable
         )
     }
 

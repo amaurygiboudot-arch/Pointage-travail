@@ -48,9 +48,21 @@ enum SalaryCompanyStoreV2 {
     private static let primaryKey = "salary_companies_v2.companies"
     private static let backupKey = "salary_companies_v2.companies_last_known_good"
     private static let corruptBackupKey = "salary_companies_v2.companies_corrupt_backup"
-    private static let lock = NSLock()
+    private static let lock = NSRecursiveLock()
+
+    /// Bind a monthly-source operation to a still-confirmed employer under the same
+    /// lock as create/update/remove; no deletion can interleave with the write.
+    static func withConfirmedCompany<T>(
+        companyId: String, defaults: UserDefaults, unavailable: T, _ operation: () -> T
+    ) -> T {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        lock.lock(); defer { lock.unlock() }
+        guard confirmedCompany(readConfirmed(defaults: defaults), companyId: companyId) != nil else { return unavailable }
+        return SalaryAccountStorageV2.readConsistently(defaults, unavailable: unavailable, operation)
+    }
 
     static func readConfirmed(defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults) -> SalaryCompanyReadResultV2 {
+        lock.lock(); defer { lock.unlock() }
         let defaults = SalaryAccountStorageV2.scoped(defaults)
         return SalaryAccountStorageV2.readConsistently(defaults, unavailable: SalaryCompanyReadResultV2(companies: [], reliable: false, repairedFromBackup: false, warnings: [SalaryAccountStorageV2.warning])) {
             guard SalaryAccountStorageV2.available(defaults) else { return SalaryCompanyReadResultV2(companies: [], reliable: false, repairedFromBackup: false, warnings: [SalaryAccountStorageV2.warning]) }
