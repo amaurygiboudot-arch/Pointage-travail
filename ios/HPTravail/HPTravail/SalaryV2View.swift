@@ -52,6 +52,7 @@ struct SalaryV2View: View {
     }
     @State private var settlementAmounts: [SalaryMonthlyPayrollSettlementV2.Field: String] = [:]
     @State private var settlementSource = ""
+    @State private var settlementSourcePeriod = ""
     @State private var settlementComplete = false
     @State private var settlementConfirmed = false
     @State private var settlementFeedback: String?
@@ -69,6 +70,12 @@ struct SalaryV2View: View {
                     salaryRecoveryCard
                     periodSelector
                     companySelectorCard
+                    if let company = salaryStore.selectedCompany {
+                        GroupBox("Bulletin constaté — indépendant de l’estimation") {
+                            SalaryObservedDocumentViewV2(company: company, period: salaryStore.selectedPeriod, lease: viewLease)
+                                .id(company.id + "|" + salaryStore.selectedPeriod.description)
+                        }
+                    }
                     contractCard
                     payrollCoverageCard
                     segmentedProrationCard
@@ -1023,13 +1030,13 @@ struct SalaryV2View: View {
                     .disabled(!observationsConfirmed || salaryStore.selectedCompanyId == nil)
                 Button("Restaurer les valeurs confirmées de ce mois") { restoreObservedPayslip() }
                     .disabled(salaryStore.selectedCompanyId == nil)
-                Button("Supprimer les valeurs confirmées de ce mois", role: .destructive) { observationsDeleteConfirmation = true }
+                Button("Supprimer les totaux et extraits importés de ce mois", role: .destructive) { observationsDeleteConfirmation = true }
                     .disabled(salaryStore.selectedCompanyId == nil)
                     .confirmationDialog("Supprimer les valeurs confirmées du bulletin ?", isPresented: $observationsDeleteConfirmation) {
                         Button("Supprimer", role: .destructive) { removeObservedPayslip() }
                         Button("Annuler", role: .cancel) { }
                     } message: {
-                        Text("Entreprise : \(salaryStore.selectedCompany?.name ?? "À choisir") — mois : \(salaryStore.selectedPeriod.description). Les montants et leurs extraits seront supprimés.")
+                        Text("Entreprise : \(salaryStore.selectedCompany?.name ?? "À choisir") — mois : \(salaryStore.selectedPeriod.description). Les totaux et leurs extraits seront supprimés. Une transcription détaillée existante reste conservée, à reconfirmer.")
                     }
 
                 Button("Comparer avec AGKGMG") {
@@ -1388,6 +1395,8 @@ struct SalaryV2View: View {
                 ForEach(SalaryMonthlyPayrollSettlementV2.Field.allCases) { field in
                     TextField(field.label, text: settlementBinding(field)).keyboardType(.decimalPad)
                 }
+                Text("Mois indiqué sur le document (MM/AAAA)").font(.caption)
+                TextField("MM/AAAA", text: Binding(get: { settlementSourcePeriod }, set: { settlementSourcePeriod = $0; settlementComplete = false; settlementConfirmed = false }))
                 TextField("Source vérifiable : document, date et référence", text: Binding(
                     get: { settlementSource }, set: { settlementSource = $0; settlementComplete = false; settlementConfirmed = false }))
                 Toggle(SalaryMonthlyPayrollSettlementV2.completenessLabel, isOn: Binding(
@@ -1427,7 +1436,7 @@ struct SalaryV2View: View {
         }
     }
     private func resetSettlementDraft() {
-        settlementAmounts = [:]; settlementSource = ""; settlementComplete = false
+        settlementAmounts = [:]; settlementSource = ""; settlementSourcePeriod = ""; settlementComplete = false
         settlementConfirmed = false; settlementFeedback = nil; settlementScope = nil
         settlementOriginal = nil; settlementDeleteSource = nil; settlementDeleteScope = nil; settlementDeleteConfirmation = false
     }
@@ -1456,6 +1465,9 @@ struct SalaryV2View: View {
             settlementConfirmed = false; settlementFeedback = "Entreprise ou mois modifié : recharge la saisie."
             return
         }
+        guard SalaryObservedDocumentV2.period(settlementSourcePeriod) == scope.period else {
+            settlementConfirmed = false; settlementFeedback = "Le mois indiqué sur la source doit correspondre à \(SalaryObservedDocumentV2.periodText(scope.period)). Votre saisie est conservée."; return
+        }
         let operation = SalaryAccountSessionV2.pin(salaryStore.accountLease)
         defer { operation.close() }
         guard SalaryCompanyStoreV2.confirmedCompany(SalaryCompanyStoreV2.readConfirmed(), companyId: scope.companyId) != nil else {
@@ -1480,7 +1492,7 @@ struct SalaryV2View: View {
             netSocialObserved: values[.netSocialObserved], netPaidObserved: values[.netPaidObserved],
             source: settlementSource.trimmingCharacters(in: .whitespacesAndNewlines),
             confirmedAt: Int64(Date().timeIntervalSince1970 * 1000), adjustmentsComplete: settlementComplete)
-        guard SalaryMonthlyPayrollSettlementV2.save(record, confirmed: true, expected: stored) else {
+        guard SalaryMonthlyPayrollSettlementV2.saveFromSource(record, sourcePeriod: SalaryObservedDocumentV2.period(settlementSourcePeriod), confirmed: true, expected: stored) else {
             settlementFeedback = "Source requise (500 caractères maximum), au moins un montant valide ; les quatre ajustements doivent être renseignés pour confirmer leur exhaustivité."
             return
         }

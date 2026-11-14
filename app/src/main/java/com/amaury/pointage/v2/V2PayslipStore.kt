@@ -358,7 +358,9 @@ object V2PayslipStore {
    if(!stored.reliable)return@withStorageAccess false
    if(stored.records.none{it.id==id})return@withStorageAccess false
    val kept=stored.records.filterNot{it.id==id}
-   if(!saveRecords(context,kept))return@withStorageAccess false
+   val encoded = encodeRecords(kept) ?: return@withStorageAccess false
+   if(!SalaryAccountScope.preferences(context, PREFS).edit().putString(KEY_ITEMS, encoded)
+       .remove(ObservedPayslipDetailsV2.PREFIX + id).commit())return@withStorageAccess false
    PayslipObservedValuesStoreV2.remove(context,id)
    true
   }

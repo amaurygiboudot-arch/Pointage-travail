@@ -43,6 +43,7 @@ class SalaryMonthlySettlementFormV2Test {
     private fun consent(dialog:AlertDialog)=children(dialog.window!!.decorView).filterIsInstance<CheckBox>().single{it.text.contains("montants constatés")}
     private fun exhaustive(dialog:AlertDialog)=children(dialog.window!!.decorView).filterIsInstance<CheckBox>().single{it.text.toString()==Settlement.ADJUSTMENTS_CONFIRMATION}
     private fun fillObservation(dialog:AlertDialog) {
+        inputs(dialog).single{it.hint.contains("Mois concerné")}.setText("04/2026")
         inputs(dialog).single{it.hint.contains("Net réellement")}.setText("1245.67")
         inputs(dialog).single{it.hint.contains("Source vérifiable")}.setText("Synthetic source 17")
     }
@@ -106,4 +107,22 @@ class SalaryMonthlySettlementFormV2Test {
             assertNull(Settlement.read(app,company.id,"2026-04").record)
         } finally { controller.pause().stop().destroy() }
     }
+    @Test fun sourceMonthMismatchKeepsAllFieldsAndDoesNotWriteEitherMonth() {
+        val controller=Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            SalaryMonthlySettlementFormV2.show(controller.get(),company,"2026-04",{true}){}
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            val dialog=ShadowAlertDialog.getLatestAlertDialog();fillObservation(dialog)
+            val month=inputs(dialog).single{it.hint.contains("Mois concerné")}
+            month.setText("03/2026");consent(dialog).isChecked=true
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+            assertTrue(dialog.isShowing);assertNotNull(month.error);assertFalse(consent(dialog).isChecked)
+            assertEquals("1245.67",inputs(dialog).single{it.hint.contains("Net réellement")}.text.toString())
+            assertNull(Settlement.read(app,company.id,"2026-03").record);assertNull(Settlement.read(app,company.id,"2026-04").record)
+            month.setText("04/2026");consent(dialog).isChecked=true
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+            assertNotNull(Settlement.read(app,company.id,"2026-04").record)
+        } finally { controller.pause().stop().destroy() }
+    }
+
 }

@@ -189,6 +189,13 @@ enum SalaryMonthlyPayrollSettlementV2 {
         guard visit(object, depth: 0) else { return nil }
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
+    /// Interactive entry requires the document month independently of the selected target.
+    static func saveFromSource(_ record: Record, sourcePeriod: YearMonthV2?, confirmed: Bool, expected: Result,
+                               defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults) -> Bool {
+        guard sourcePeriod == record.period else { return false }
+        return save(record, confirmed: confirmed, expected: expected, defaults: defaults)
+    }
+
     static func save(_ record: Record, confirmed: Bool, expected: Result? = nil, defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults) -> Bool {
         let defaults = SalaryAccountStorageV2.scoped(defaults)
         return SalaryCompanyStoreV2.withConfirmedCompany(companyId: record.companyId, defaults: defaults, unavailable: false) {

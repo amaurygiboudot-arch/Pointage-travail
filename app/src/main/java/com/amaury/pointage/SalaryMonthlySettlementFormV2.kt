@@ -43,6 +43,7 @@ object SalaryMonthlySettlementFormV2 {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             value?.let { setText(BigDecimal.valueOf(it).toPlainString()) }
         } }
+        val sourcePeriod = EditText(context).apply { hint = "Mois concerné par la source — MM/AAAA"; inputType = InputType.TYPE_CLASS_DATETIME }
         val source = EditText(context).apply { hint = "Source vérifiable : bulletin, date et référence (500 caractères maximum)"; setText(initial.record?.source.orEmpty()) }
         val exhaustive = CheckBox(context).apply { text = Settlement.ADJUSTMENTS_CONFIRMATION; isChecked = initial.record?.adjustmentsComplete == true }
         val confirmed = CheckBox(context).apply { text = "Je confirme l’entreprise ${company.name}, le mois $period, la source et les montants constatés. Un champ vide reste inconnu ; zéro doit être saisi explicitement." }
@@ -51,13 +52,13 @@ object SalaryMonthlySettlementFormV2 {
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { confirmed.isChecked = false; exhaustive.isChecked = false }
             override fun afterTextChanged(s: Editable?) = Unit
         }
-        (inputs + source).forEach { it.addTextChangedListener(listener) }
+        (inputs + source + sourcePeriod).forEach { it.addTextChangedListener(listener) }
         exhaustive.setOnCheckedChangeListener { _, _ -> confirmed.isChecked = false }
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             addView(TextView(context).apply { text = "${company.name} — $period\nCes faits restent propres à ce mois. Le net social et le net payé constatés ne remplacent pas le calcul AGKGMG. Montants exacts au centime ; ne pas saisir les IJSS versées séparément ici." })
             inputs.forEach { addView(TextView(context).apply { text = it.hint }); addView(it) }
-            addView(source); addView(exhaustive); addView(confirmed)
+            addView(TextView(context).apply { text = "Mois concerné par la source (à recopier explicitement)" }); addView(sourcePeriod); addView(source); addView(exhaustive); addView(confirmed)
         }
         val dialog = SalaryAccountUi.dialog(context).setTitle("Frais, retenues et versement — $period")
             .setView(ScrollView(context).apply { addView(content) })
@@ -65,6 +66,10 @@ object SalaryMonthlySettlementFormV2 {
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 if (!current() || !confirmed.isChecked) { confirmed.isChecked = false; message("Confirme le compte, l’entreprise, le mois et la saisie avant d’enregistrer."); return@setOnClickListener }
+                if (SalaryPayslipPeriodSelectionV2.parse(sourcePeriod.text.toString())?.toString() != period) {
+                    sourcePeriod.error = "La source doit concerner $period. Les montants sont conservés ; change le mois affiché si nécessaire."
+                    confirmed.isChecked = false; return@setOnClickListener
+                }
                 val texts = inputs.map { it.text.toString().trim() }
                 val values = texts.map { if (it.isBlank()) null else Settlement.parseAmount(it.replace(',', '.')) }
                 if (texts.indices.any { texts[it].isNotBlank() && values[it] == null }) { message("Montant invalide : utilise des centimes exacts, un montant positif ou zéro, ou laisse le champ vide."); return@setOnClickListener }

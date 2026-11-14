@@ -57,7 +57,7 @@ class SalaryPayslipWorkspaceView(hostContext:Context,private val company:SalaryC
  private val pageBox=LinearLayout(context)
  private val indicator=TextView(context)
  private val gesture=GestureDetector(context,object:GestureDetector.SimpleOnGestureListener(){override fun onDown(e:MotionEvent)=true;override fun onFling(e1:MotionEvent?,e2:MotionEvent,velocityX:Float,velocityY:Float):Boolean{if(e1==null||abs(e2.x-e1.x)<80)return false;if(e2.x<e1.x)next() else previous();return true}})
- init{orientation=VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(12));addView(TextView(context).apply{text="FICHE DE SALAIRE";textSize=18f;setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER});addView(TextView(context).apply{text="L’estimation utilise le moteur V2 et les données de cette entreprise uniquement.";textSize=12f;setPadding(0,dp(5),0,dp(8))});addButtonTop("CHOISIR LE MOIS"){choosePeriod()};addButtonTop("CRÉER UNE FICHE DE PAIE EXEMPLE"){choosePdfFields()};pageBox.orientation=VERTICAL;pageBox.setOnTouchListener{_,e->gesture.onTouchEvent(e)};addView(pageBox,LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));indicator.gravity=Gravity.CENTER;indicator.textSize=14f;indicator.setPadding(0,dp(8),0,dp(8));indicator.setOnClickListener{choosePage()};addView(indicator);render()}
+ init{orientation=VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(12));addView(TextView(context).apply{text="FICHE DE SALAIRE";textSize=18f;setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER});addView(TextView(context).apply{text="L’estimation utilise le moteur V2 et les données de cette entreprise uniquement.";textSize=12f;setPadding(0,dp(5),0,dp(8))});addButtonTop("CHOISIR LE MOIS"){choosePeriod()};addButtonTop("BULLETINS RÉELS DU MOIS"){chooseObservedMonth()};addButtonTop("EXPORTER L’ESTIMATION AGKGMG"){choosePdfFields()};pageBox.orientation=VERTICAL;pageBox.setOnTouchListener{_,e->gesture.onTouchEvent(e)};addView(pageBox,LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));indicator.gravity=Gravity.CENTER;indicator.textSize=14f;indicator.setPadding(0,dp(8),0,dp(8));indicator.setOnClickListener{choosePage()};addView(indicator);render()}
  private fun cashPeriod():String { val(y,m)=selectedPeriod();return java.time.YearMonth.of(y,m+1).toString() }
  private fun renderConfirmedSicknessCash(){
   val source=ConfirmedMonthlySicknessCashV2.read(context,company.id,cashPeriod())
@@ -104,7 +104,7 @@ class SalaryPayslipWorkspaceView(hostContext:Context,private val company:SalaryC
   };dialog.show()
  }
  private fun records()=V2PayslipStore.forCompany(context,company.id)
- private fun render(){if(!accountCurrent())return;val total=records().size+1;page=page.coerceIn(0,total-1);pageBox.removeAllViews();renderConfirmedSicknessCash();if(page==0){settlementSource=ConfirmedMonthlyPayrollSettlementV2.read(context,company.id,cashPeriod());renderSettlementAction();renderEstimate()} else renderReal(records()[page-1]);indicator.text="${page+1} / $total"}
+ private fun render(){if(!accountCurrent())return;val total=records().size+1;page=page.coerceIn(0,total-1);pageBox.removeAllViews();if(page==0){renderConfirmedSicknessCash();settlementSource=ConfirmedMonthlyPayrollSettlementV2.read(context,company.id,cashPeriod());renderSettlementAction();renderEstimate()} else renderReal(records()[page-1]);indicator.text="${page+1} / $total"}
  private fun renderSettlementAction(){
   val period=cashPeriod()
   add(TextView(context).apply{text="Frais et versement confirmés — ${company.name}, $period\nLes champs vides restent inconnus. Les observations n’altèrent pas le calcul de paie.";textSize=12f})
@@ -129,7 +129,7 @@ class SalaryPayslipWorkspaceView(hostContext:Context,private val company:SalaryC
    if(!accountCurrent())return@setOnClickListener
    val ms=period.atDay(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
    RestoreGuardedPreferences.open(context,"navigation_state",Context.MODE_PRIVATE).edit().putLong("report_month_ms",ms).apply()
-   dialog.dismiss();render()
+   page=0;dialog.dismiss();render()
   }}
   dialog.show()
  }
@@ -357,7 +357,68 @@ class SalaryPayslipWorkspaceView(hostContext:Context,private val company:SalaryC
   add(TextView(context).apply{text="\nDÉTAIL DES RETENUES SALARIALES\n"+CalculatedPayslipDetailsV2.deductions(payroll,grossReliable,company.id,year,month+1).joinToString("\n"){"${it.first} : ${it.second}"};textSize=12f})
   renderSettlement(payroll,netAfterTax.takeIf{grossReliable})
  }
- private fun renderReal(r:V2PayslipStore.Record){val month=DateFormatSymbols(Locale.FRANCE).months.getOrNull(r.month).orEmpty().replaceFirstChar{it.uppercase()};val gross=r.gross?.let{eur(it)}?:"à confirmer";val net=r.net?.let{eur(it)}?:"non renseigné";add(TextView(context).apply{text="BULLETIN RÉEL — $month ${r.year}";textSize=17f;setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER;setPadding(0,dp(10),0,dp(10))});add(TextView(context).apply{text="Brut : $gross\nNet : $net\nDocument original conservé.";textSize=14f});val observed=com.amaury.pointage.v2.PayslipObservedValuesStoreV2.getAll(context,r.id);val evidence=com.amaury.pointage.v2.PayslipObservedValuesStoreV2.evidence(context,r.id).filterKeys{it in observed};if(evidence.isNotEmpty())add(TextView(context).apply{text="Sources des valeurs confirmées\n"+evidence.entries.joinToString("\n\n"){(key,excerpt)->"$key : ${eur(observed.getValue(key))}\n$excerpt"};textSize=12f});addButton("OUVRIR LE DOCUMENT"){val uri=Uri.parse(r.sourceUri);runCatching{context.startActivity(Intent(Intent.ACTION_VIEW).apply{setDataAndType(uri,r.sourceMime?:"*/*");addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)})}.onFailure{Toast.makeText(context,"Impossible d’ouvrir le document",Toast.LENGTH_LONG).show()}};if(observed.isEmpty())addButton("COMPLÉTER LES VALEURS DU BULLETIN"){launchRecordResume(r.id)};addButton("COMPARAISON RAPIDE GRATUITE"){showBasicComparison(r)};addButton("SUPPRIMER CE BULLETIN"){SalaryAccountUi.dialog(context).setTitle("Supprimer ce bulletin ?").setMessage("Le bulletin sera retiré de l’historique AGKGMG. Le fichier original extérieur à AGKGMG n’est pas modifié.").setNegativeButton("ANNULER",null).setPositiveButton("SUPPRIMER"){_,_->V2PayslipStore.remove(context,r.id);page=(page-1).coerceAtLeast(0);render()}.show()}}
+ private fun renderReal(r:V2PayslipStore.Record){
+  renderObservedDetails(r)
+  val detailed=ObservedPayslipPresentationV2.available(com.amaury.pointage.v2.ObservedPayslipDetailsV2.read(context,r.id))
+  val observed=com.amaury.pointage.v2.PayslipObservedValuesStoreV2.getAll(context,r.id)
+  if(!detailed){
+   val gross=r.gross?.let{eur(it)}?:"à confirmer";val net=r.net?.let{eur(it)}?:"non renseigné"
+   add(TextView(context).apply{text="Brut : $gross\nNet : $net\nDocument original conservé.";textSize=14f})
+   val evidence=com.amaury.pointage.v2.PayslipObservedValuesStoreV2.evidence(context,r.id).filterKeys{it in observed}
+   if(evidence.isNotEmpty())add(TextView(context).apply{text="Sources des valeurs confirmées\n"+evidence.entries.joinToString("\n\n"){(key,excerpt)->"$key : ${eur(observed.getValue(key))}\n$excerpt"};textSize=12f})
+  }
+  addButton("OUVRIR LE DOCUMENT ORIGINAL"){
+   val uri=Uri.parse(r.sourceUri)
+   runCatching{context.startActivity(Intent(Intent.ACTION_VIEW).apply{setDataAndType(uri,r.sourceMime?:"*/*");addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)})}
+    .onFailure{Toast.makeText(context,"Impossible d’ouvrir le document",Toast.LENGTH_LONG).show()}
+  }
+  addButton(if(observed.isEmpty())"COMPLÉTER LES TOTAUX IMPORTÉS" else "VÉRIFIER / CORRIGER LES TOTAUX IMPORTÉS"){launchRecordResume(r.id)}
+  addButton("COMPARAISON RAPIDE GRATUITE"){showBasicComparison(r)}
+  addButton("SUPPRIMER CE BULLETIN"){
+   SalaryAccountUi.dialog(context).setTitle("Supprimer ce bulletin ?")
+    .setMessage("Le bulletin sera retiré de l’historique AGKGMG. Le fichier original extérieur à AGKGMG n’est pas modifié.")
+    .setNegativeButton("ANNULER",null).setPositiveButton("SUPPRIMER"){_,_->V2PayslipStore.remove(context,r.id);page=(page-1).coerceAtLeast(0);render()}.show()
+  }
+ }
+ private fun chooseObservedMonth(){
+  val(y,m)=selectedPeriod();val matching=records().filter{it.year==y&&it.month==m}
+  if(matching.isEmpty()){SalaryAccountUi.dialog(context).setTitle("Aucun bulletin réel pour ${cashPeriod()}")
+   .setMessage("Importe le document de ce mois pour afficher ses chiffres sans dépendre du calcul AGKGMG.")
+   .setPositiveButton("IMPORTER LE BULLETIN"){_,_->launchImport()}.setNegativeButton("ANNULER",null).show();return}
+  SalaryAccountUi.dialog(context).setTitle("Bulletins réels — ${cashPeriod()}")
+   .setItems(matching.mapIndexed{i,r->"Bulletin ${i+1} — ${r.gross?.let{eur(it)}?:"montants à confirmer"}"}.toTypedArray()){_,index->
+    val id=matching[index].id;val current=records();val found=current.indexOfFirst{it.id==id&&it.year==y&&it.month==m}
+    if(found>=0){page=found+1;render()}
+   }.setNegativeButton("ANNULER",null).show()
+ }
+ private fun renderObservedDetails(r:V2PayslipStore.Record){
+  val snapshot=com.amaury.pointage.v2.ObservedPayslipDetailsV2.read(context,r.id)
+  add(TextView(context).apply{text="BULLETIN CONSTATÉ — ${r.month+1}/${r.year}\nLes chiffres de ce document restent distincts de l’estimation et des pointages.";textSize=16f})
+  if(snapshot.needsReconfirmation)add(TextView(context).apply{text="Le bulletin importé a changé. La transcription précédente reste conservée, mais doit être vérifiée avant export."})
+  if(!snapshot.reliable)add(TextView(context).apply{text="Transcription indisponible : stockage ou source à vérifier."})
+  if(ObservedPayslipPresentationV2.available(snapshot)){
+   ObservedPayslipPresentationV2.sections(snapshot).forEach{section->
+    add(TextView(context).apply{text="\n${section.title}";setTypeface(typeface,Typeface.BOLD)})
+    section.rows.forEach{cells->add(TextView(context).apply{text=cells[0]+"\n"+listOf("Base salarié","Taux salarié","Montant salarié","Base employeur","Taux employeur","Montant employeur").zip(cells.drop(1)).filter{it.second.isNotBlank()&&it.second!="—"}.joinToString(" · "){"${it.first} : ${it.second}"};textSize=12f})}
+   }
+   addButton("EXPORTER LE BULLETIN CONSTATÉ"){exportObserved(r.id,snapshot)}
+  }
+  addButton("TRANSCRIRE / CORRIGER LES LIGNES DU BULLETIN"){ObservedPayslipDetailsFormV2.show(context,r.id){render()}}
+ }
+ private fun exportObserved(recordId:String,expected:com.amaury.pointage.v2.ObservedPayslipDetailsV2.Snapshot){
+  val activity=SalaryAccountUi.activity(context)?:return
+  val current=com.amaury.pointage.v2.ObservedPayslipDetailsV2.read(context,recordId)
+  if(!accountCurrent()||current!=expected||!ObservedPayslipPresentationV2.available(current)){Toast.makeText(context,"Bulletin modifié : vérifie sa transcription avant export.",Toast.LENGTH_LONG).show();return}
+  runCatching{
+   val file=File.createTempFile("observed_payslip_",".pdf",activity.cacheDir)
+   file.outputStream().use{ObservedPayslipPresentationV2.write(current,company.name,it)}
+   val name="Bulletin_constate_AGKGMG_${current.document!!.sourcePeriod}.pdf"
+   BillingPdfGate.require(activity,file,name,accountLease=com.amaury.pointage.v2.SalaryAccountScope.lease(context)){authorizedFile->
+    if(accountCurrent()&&com.amaury.pointage.v2.ObservedPayslipDetailsV2.read(context,recordId)==expected)
+     activity.startActivity(SalaryAccountUi.attach(Intent(activity,PdfPreviewActivity::class.java).apply{putExtra("pdf_path",authorizedFile.absolutePath);putExtra("pdf_name",name)},com.amaury.pointage.v2.SalaryAccountScope.lease(context)))
+   }
+  }.onFailure{Toast.makeText(context,"Impossible de préparer le bulletin constaté.",Toast.LENGTH_LONG).show()}
+ }
  private fun launchRecordResume(recordId:String){
   if(!accountCurrent())return
   val activity=SalaryAccountUi.activity(context)?:return

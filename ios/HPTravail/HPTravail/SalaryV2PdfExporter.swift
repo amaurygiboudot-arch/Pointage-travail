@@ -40,6 +40,58 @@ enum SalaryV2PdfExporter {
         return url
     }
 
+    static func exportObserved(record: SalaryPayslipObservedStoreV2.Record, company: SalaryCompanyV2,
+                               lease: SalaryAccountSessionV2.Lease) throws -> URL {
+        guard lease.isCurrent, record.companyId == company.id, SalaryPayslipObservedStoreV2.valid(record),
+              SalaryObservedDocumentV2.current(record),
+              SalaryCompanyStoreV2.confirmedCompany(SalaryCompanyStoreV2.readConfirmed(), companyId: company.id) != nil,
+              SalaryPayslipObservedStoreV2.read(companyId: company.id, period: record.period).record == record else {
+            throw SalaryAccountStorageV2.RecoveryError.unavailable
+        }
+        let data = renderObserved(record: record, company: company)
+        guard lease.isCurrent else { throw SalaryAccountStorageV2.RecoveryError.unavailable }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(UUID().uuidString + "_AGKGMG_Bulletin_constate_" + record.period.description + ".pdf")
+        try data.write(to: url, options: [.atomic, .completeFileProtection])
+        guard lease.isCurrent else { try? FileManager.default.removeItem(at: url); throw SalaryAccountStorageV2.RecoveryError.unavailable }
+        return url
+    }
+    static func renderObserved(record: SalaryPayslipObservedStoreV2.Record, company: SalaryCompanyV2) -> Data {
+        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 595, height: 842))
+        return renderer.pdfData { context in
+            guard let document = record.detailedDocument, record.companyId == company.id,
+                  SalaryPayslipObservedStoreV2.valid(record), SalaryObservedDocumentV2.current(record) else { return }
+            var page = 0
+            var y: CGFloat = 100
+            func begin() {
+                context.beginPage(); page += 1; y = 100
+                draw("AGKGMG — BULLETIN CONSTATÉ", x: 32, y: 24, width: 531, font: .boldSystemFont(ofSize: 18))
+                draw("\(company.name) — \(record.period.description)", x: 32, y: 52, width: 531, font: .systemFont(ofSize: 12))
+                draw("Transcription personnelle non officielle — aucun recalcul — page \(page)", x: 32, y: 813, width: 531, font: .systemFont(ofSize: 8))
+            }
+            func row(_ label: String, _ value: String) {
+                let font = UIFont.systemFont(ofSize: 10)
+                let height = max(textHeight(label, width: 190, font: font), textHeight(value, width: 315, font: font)) + 18
+                if y + height > 790 { begin() }
+                UIColor(white: 0.96, alpha: 1).setFill()
+                context.cgContext.fill(CGRect(x: 32, y: y, width: 531, height: height))
+                draw(label, x: 40, y: y + 8, width: 190, font: font)
+                draw(value, x: 240, y: y + 8, width: 315, font: font)
+                y += height + 2
+            }
+            begin()
+            row("Lecture", SalaryObservedDocumentV2.notice)
+            row("Source du document", document.source)
+            row("Mois du document", document.sourcePeriod.description)
+            row("Signes", "Signes recopiés tels qu’imprimés ; le libellé précise à payer ou à déduire si nécessaire. Aucun montant n’est automatiquement soustrait. Les cellules vides ne signifient pas zéro.")
+            for field in SalaryPayslipFieldV2.allCases {
+                if let value = record.amounts[field.rawValue] { row(field.label + " — total importé", String(format: "%.2f €", value)) }
+            }
+            row("Transcription détaillée", "Lignes recopiées de la source. Les totaux importés ci-dessus restent distincts ; aucun total n’est déduit des libellés ni additionné aux lignes.")
+            for item in SalaryObservedDocumentV2.rows(document) { row(item.label, item.value) }
+        }
+    }
+
     static func render(
         snapshot: SalaryWorkspaceSnapshotV2,
         company: SalaryCompanyV2?
