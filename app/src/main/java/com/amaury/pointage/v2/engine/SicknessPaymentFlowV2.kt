@@ -40,7 +40,7 @@ object SicknessPaymentFlowV2 {
             warnings += "Subrogation déclarée alors qu'aucun maintien employeur n'est déclaré : combinaison à vérifier."
         }
         if (absence.subrogation == AbsenceSubrogationV2.TO_CONFIRM) {
-            warnings += "Subrogation à confirmer : HoraTrack ne sait pas encore si les IJSS vont au salarié ou à l'employeur."
+            warnings += "Subrogation à confirmer : AGKGMG ne sait pas encore si les IJSS vont au salarié ou à l'employeur."
         }
         if (allowance == null || !allowance.complete || ijss == null) {
             warnings += "Montant IJSS non confirmé : aucun flux monétaire n'est ajouté automatiquement."

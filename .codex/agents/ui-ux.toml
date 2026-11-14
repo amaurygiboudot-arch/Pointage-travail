@@ -1,7 +1,7 @@
 default_permissions = "horatrack-dev"
 
 developer_instructions = """
-Tu es le spécialiste UI/UX et rendu de HoraTrack.
+Tu es le spécialiste UI/UX et rendu de AGKGMG.
 
 Ton objectif est une interface clinique, cohérente, rapide et compréhensible.
 Audite écrans, boutons visibles ou masqués, navigation, états de chargement, messages d'erreur, widgets et responsive.

@@ -27,16 +27,24 @@ object CompanyProfessionalStatusStoreV2 {
     )
 
     fun read(context: Context, companyId: String): ReadResult {
-        if (companyId.isBlank()) return companyUnavailableResult()
-        return SalaryCompanyStore.withConfirmedCompany(context, companyId) { company ->
-            readConfirmed(context, company.id)
-        } ?: companyUnavailableResult()
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(records = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            if (companyId.isBlank()) return companyUnavailableResult()
+            return SalaryCompanyStore.withConfirmedCompany(context, companyId) { company ->
+                readConfirmed(context, company.id)
+            } ?: companyUnavailableResult()
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     fun list(context: Context, companyId: String): List<CompanyProfessionalStatusResolverV2.Record> =
         read(context, companyId).records
 
     fun save(context: Context, companyId: String, record: CompanyProfessionalStatusResolverV2.Record): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank() || !valid(record)) return false
         return SalaryCompanyStore.withConfirmedCompany(context, companyId) { company ->
             val stored = readConfirmed(context, company.id)
@@ -49,6 +57,7 @@ object CompanyProfessionalStatusStoreV2 {
     }
 
     fun remove(context: Context, companyId: String, id: String): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank() || id.isBlank()) return false
         return SalaryCompanyStore.withConfirmedCompany(context, companyId) { company ->
             val stored = readConfirmed(context, company.id)
@@ -58,6 +67,7 @@ object CompanyProfessionalStatusStoreV2 {
     }
 
     fun resolve(context: Context, companyId: String, period: YearMonth): CompanyProfessionalStatusResolverV2.Snapshot {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank()) return resolve(companyUnavailableResult(), period)
         return SalaryCompanyStore.withConfirmedCompany(context, companyId) { company ->
             resolve(readConfirmed(context, company.id), period)
@@ -90,9 +100,16 @@ object CompanyProfessionalStatusStoreV2 {
     }
 
     private fun readConfirmed(context: Context, companyId: String): ReadResult {
-        val raw = runCatching { SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]") }.getOrNull()
-            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
-        return decode(raw)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(records = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            val raw = runCatching { SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]") }.getOrNull()
+                ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+            return decode(raw)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     private fun writeConfirmed(
@@ -100,6 +117,7 @@ object CompanyProfessionalStatusStoreV2 {
         companyId: String,
         items: List<CompanyProfessionalStatusResolverV2.Record>
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (items.any { !valid(it) } || items.groupingBy { it.id }.eachCount().any { it.value > 1 }) return false
         val array = JSONArray()
         items.forEach { array.put(toJson(it)) }

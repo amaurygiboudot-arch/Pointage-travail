@@ -15,6 +15,7 @@ import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.provider.DocumentsProvider
 import com.amaury.pointage.PdfPreviewActivity
+import com.amaury.pointage.SalaryAccountUi
 import com.amaury.pointage.billing.BillingContract
 import com.amaury.pointage.billing.BillingPdfGate
 import com.google.firebase.auth.FirebaseAuth
@@ -93,11 +94,13 @@ class PdfPreviewSaveIntegrationV2Test {
     @Test fun changedHashRejectsAndDeletesDestinationBeforeAuthorization() = runSave("hash")
 
     @Test fun restoredCopyWithChangedAccountQueuesActualDocumentCleanup() {
-        val state = Bundle().apply {
+        account("former-user")
+        val state = currentSessionState().apply {
             putString("pdf_owner", "former-user"); putString("save_file", source.absolutePath)
             putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true); putBoolean("save_read_only_return", true)
             putString("save_uri", uri.toString())
         }
+        account("save-user")
         destination.writeText("interrupted partial export")
         val intent = Intent(RuntimeEnvironment.getApplication(), PdfPreviewActivity::class.java)
             .putExtra("pdf_path", source.absolutePath)
@@ -112,8 +115,34 @@ class PdfPreviewSaveIntegrationV2Test {
         } finally { controller.destroy() }
     }
 
+    @Test fun restoredCopyCannotReviveAfterAccountRoundTripAndCleansPartialDestination() {
+        val state = currentSessionState().apply {
+            putString("pdf_owner", "save-user"); putString("save_file", source.absolutePath)
+            putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true)
+            putString("save_uri", uri.toString())
+        }
+        val original = source.readBytes()
+        account("another-user")
+        account("save-user")
+        destination.writeText("interrupted partial export")
+        val intent = Intent(RuntimeEnvironment.getApplication(), PdfPreviewActivity::class.java)
+            .putExtra("pdf_path", source.absolutePath)
+        val controller = Robolectric.buildActivity(PdfPreviewActivity::class.java, intent).create(state)
+        try {
+            assertTrue("Returning to the same UID cannot resume an expired copy", controller.get().isFinishing)
+            drainExportWorker()
+            shadowOf(Looper.getMainLooper()).idle()
+            assertFalse(destination.exists())
+            assertEquals(1, PdfSaveDocumentsProvider.deletions.get())
+            assertEquals(0, PdfSaveGateShadow.calls.get())
+            assertEquals(0, PdfSaveGateShadow.interactiveCalls.get())
+            assertArrayEquals("Cleanup preserves the private original", original, source.readBytes())
+            assertNull(shadowOf(controller.get()).nextStartedActivity)
+        } finally { controller.destroy() }
+    }
+
     @Test fun resumeDuringSaveUsesNoInteractiveGateAndAllowsManualRetryAfterRefusal() {
-        val state = Bundle().apply {
+        val state = currentSessionState().apply {
             putString("pdf_owner", "save-user"); putString("save_file", source.absolutePath)
             putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true); putBoolean("save_read_only_return", true)
         }
@@ -143,7 +172,7 @@ class PdfPreviewSaveIntegrationV2Test {
     @Test fun cancelAfterResumeRestoresManualRetryWithoutInteractiveGate() {
         PdfSaveGateShadow.allow = false
         PdfSaveGateShadow.completed = CountDownLatch(1)
-        val state = Bundle().apply {
+        val state = currentSessionState().apply {
             putString("pdf_owner", "save-user"); putString("save_file", source.absolutePath)
             putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true); putBoolean("save_read_only_return", true)
         }
@@ -174,7 +203,7 @@ class PdfPreviewSaveIntegrationV2Test {
 
     @Test fun cancelBeforeResumeAndFurtherResumesStayReadOnly() {
         PdfSaveGateShadow.allow = false
-        val state = Bundle().apply {
+        val state = currentSessionState().apply {
             putString("pdf_owner", "save-user"); putString("save_file", source.absolutePath)
             putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true)
             putBoolean("save_read_only_return", true)
@@ -211,7 +240,7 @@ class PdfPreviewSaveIntegrationV2Test {
     @Test fun refusedReadOnlyAuthorizationKeepsPagesHiddenAfterResumeDuringCopy() = assertFailureRestoresPages("denied", false)
 
     private fun assertFailureRestoresPages(mode: String, authorized: Boolean) {
-        val state = Bundle().apply {
+        val state = currentSessionState().apply {
             putString("pdf_owner", "save-user"); putString("save_file", source.absolutePath)
             putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true)
             putBoolean("save_read_only_return", true)
@@ -251,6 +280,16 @@ class PdfPreviewSaveIntegrationV2Test {
         } finally { PdfSaveGateShadow.release?.countDown(); drainExportWorker(); controller.destroy() }
     }
 
+    private fun account(uid: String) {
+        val user = Mockito.mock(FirebaseUser::class.java)
+        Mockito.`when`(user.uid).thenReturn(uid)
+        Mockito.`when`(PdfSaveAuthShadow.auth.currentUser).thenReturn(user)
+        SalaryAccountScope.capture()
+    }
+
+    /** A real picker-state recreation includes the original account session written by the activity. */
+    private fun currentSessionState() = Bundle().also { SalaryAccountUi.save(it, SalaryAccountScope.capture()) }
+
     private fun exportWorker(): java.util.concurrent.ExecutorService =
         PdfPreviewActivity::class.java.getDeclaredField("exportWorker").apply { isAccessible = true }
             .get(null) as java.util.concurrent.ExecutorService
@@ -273,7 +312,7 @@ class PdfPreviewSaveIntegrationV2Test {
 
     private fun runSave(mode: String) {
         // Restore the non-authoritative state saved when the actual picker was launched.
-        val state = Bundle().apply {
+        val state = currentSessionState().apply {
             putString("pdf_owner", "save-user"); putString("save_file", source.absolutePath)
             putString("save_hash", BillingContract.documentId(source)); putBoolean("save_picker", true); putBoolean("save_read_only_return", true)
         }

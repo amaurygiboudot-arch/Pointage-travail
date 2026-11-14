@@ -19,7 +19,7 @@
 }
 
 # PDFBox-Android sait éventuellement déléguer le décodage JPEG2000 à Gemalto.
-# HoraTrack n'utilise ici que l'extraction de texte des PDF APEC : ce décodeur d'image
+# AGKGMG n'utilise ici que l'extraction de texte des PDF APEC : ce décodeur d'image
 # optionnel n'est ni embarqué ni requis. R8 peut donc ignorer cette référence facultative.
 -dontwarn com.gemalto.jp2.JP2Decoder
 

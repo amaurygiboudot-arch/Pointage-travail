@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.Manifest
 import android.app.AlertDialog
 import android.content.Context
@@ -35,7 +37,7 @@ class GpsPointPickerView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : LinearLayout(context, attrs, defStyleAttr), SharedPreferences.OnSharedPreferenceChangeListener {
 
-    private val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+    private val prefs = RestoreGuardedPreferences.open(context, "gps_settings", Context.MODE_PRIVATE)
     private var promptScheduled = false
     private var applyingOverride = false
     private var activeMapDialog: AlertDialog? = null

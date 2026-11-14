@@ -3,7 +3,7 @@ package com.amaury.pointage.v2.engine
 /**
  * Contrôle un décompte réel de prévoyance Plasturgie sur une même période/base.
  *
- * HoraTrack ne transforme jamais seul un salaire annuel en prestation journalière.
+ * AGKGMG ne transforme jamais seul un salaire annuel en prestation journalière.
  * L'utilisateur renseigne le montant correspondant à 60 % du salaire brut de
  * référence POUR LA PÉRIODE CONTRÔLÉE, les prestations SS brutes déduites sur
  * cette même période et la prestation de prévoyance brute réellement observée.

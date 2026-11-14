@@ -6,7 +6,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import android.app.Application
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35], application = Application::class)
 class PayslipObservedValuesStoreV2Test {
     private fun values(
         gross: Double = 2_000.0,
@@ -101,5 +107,20 @@ class PayslipObservedValuesStoreV2Test {
         assertTrue(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX in comparable)
         assertFalse(PayslipDocumentParserV2.KEY_PREMIUMS_GROSS in comparable)
         assertFalse(PayslipDocumentParserV2.KEY_COMPLEMENTARY_RETIREMENT_EMPLOYEE in comparable)
+    }
+
+    @Test fun `legacy out of range observed amount blocks all partial comparison`() {
+        val raw = JSONObject().put("good", JSONObject().put(PayslipDocumentParserV2.KEY_GROSS, 2000.0))
+            .put("bad", JSONObject().put(PayslipDocumentParserV2.KEY_GROSS, 1e17)).toString()
+        val result = PayslipObservedValuesStoreV2.decodeValues(raw)
+        assertFalse(result.reliable)
+        assertTrue(result.warnings.isNotEmpty())
+        assertTrue(PayslipObservedValuesStoreV2.comparisonValues(result, "good").isEmpty())
+    }
+
+
+    @Test fun `decimal token cannot lose a cent before stored value validation`() {
+        val raw = "{\"old\":{\"Brut\":90071992547409.91}}"
+        assertFalse(PayslipObservedValuesStoreV2.decodeValues(raw).reliable)
     }
 }

@@ -3,6 +3,8 @@ package com.amaury.pointage
 import android.content.Context
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2BackupManager
+import com.amaury.pointage.v2.V2RuntimeAccountScope
+import com.amaury.pointage.v2.SalaryAccountScope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -22,16 +24,33 @@ object CloudPointageBackup {
     private const val V2_DOCUMENT = "v2_complete"
 
     fun saveAll(context: Context, onDone: (Boolean, String) -> Unit) {
+        val lease = SalaryAccountScope.lease(context)
+        val context = SalaryAccountScope.bindContext(context, lease)
         val user = FirebaseAuth.getInstance().currentUser
             ?: return onDone(false, "Aucun compte Google connecté")
         if (HoraTrackV2.ENABLED) {
             val payload = runCatching { V2BackupManager.snapshot(context.applicationContext).toString() }
                 .getOrElse { return onDone(false, "Impossible de préparer la sauvegarde : ${it.localizedMessage ?: it.javaClass.simpleName}") }
-            FirebaseFirestore.getInstance()
+            if (!SalaryAccountScope.isCurrent(lease) || lease.scope != "uid:${user.uid}" ||
+                !V2BackupManager.backupOwnerMatches(JSONObject(payload), "uid:${user.uid}")) {
+                return onDone(false, "Compte modifié pendant la sauvegarde")
+            }
+            val db = FirebaseFirestore.getInstance()
+            val document = db
                 .collection("users").document(user.uid).collection("pointages").document(V2_DOCUMENT)
-                .set(hashMapOf("format" to "horatrack_v2", "payload" to payload, "updatedAt" to FieldValue.serverTimestamp()))
-                .addOnSuccessListener { onDone(true, "Sauvegarde AGKGMG complète enregistrée") }
-                .addOnFailureListener { onDone(false, it.localizedMessage ?: "Échec de la sauvegarde AGKGMG") }
+            // A Firestore transaction retries if another device changes the old document;
+            // every observed historical payload is preserved durably before its replacement.
+            db.runTransaction { transaction ->
+                check(SalaryAccountScope.isCurrent(lease)) { "Compte modifié pendant la sauvegarde" }
+                val previous = transaction.get(document)
+                previous.getString("payload")?.takeIf { it.isNotBlank() }?.let {
+                    V2BackupManager.preservePriorBackup(context, it, "uid:${user.uid}")
+                }
+                check(SalaryAccountScope.isCurrent(lease)) { "Compte modifié pendant la sauvegarde" }
+                transaction.set(document, hashMapOf("format" to "horatrack_v2", "payload" to payload, "updatedAt" to FieldValue.serverTimestamp()))
+                true
+            }.addOnSuccessListener { if (SalaryAccountScope.isCurrent(lease)) onDone(true, "Sauvegarde des données du compte AGKGMG enregistrée") }
+                .addOnFailureListener { onDone(false, "Sauvegarde non confirmée : ${it.localizedMessage ?: "réessaie"}") }
             return
         }
 
@@ -58,6 +77,8 @@ object CloudPointageBackup {
     }
 
     fun restoreAll(context: Context, onDone: (Boolean, String) -> Unit) {
+        val lease = SalaryAccountScope.lease(context)
+        val context = SalaryAccountScope.bindContext(context, lease)
         val user = FirebaseAuth.getInstance().currentUser
             ?: return onDone(false, "Aucun compte Google connecté")
         val db = FirebaseFirestore.getInstance()
@@ -66,16 +87,24 @@ object CloudPointageBackup {
         if (HoraTrackV2.ENABLED) {
             collection.document(V2_DOCUMENT).get()
                 .addOnSuccessListener { doc ->
+                    if (!SalaryAccountScope.isCurrent(lease) || lease.scope != "uid:${user.uid}") {
+                        onDone(false, "Compte modifié pendant la restauration")
+                        return@addOnSuccessListener
+                    }
                     val payload = doc.getString("payload")
                     if (!payload.isNullOrBlank()) {
-                        val result = V2BackupManager.restoreFromJson(context.applicationContext, payload)
+                        val result = V2BackupManager.restoreFromJson(context.applicationContext, payload, authenticatedSourceScope = "uid:${user.uid}")
                         if (result.isSuccess) {
                             val r = result.getOrThrow()
-                            onDone(true, "AGKGMG restaurée sans effacer les données locales (${r.mergedSessions} session(s) ajoutée(s))")
-                        } else onDone(false, "Sauvegarde AGKGMG illisible : rien n'a été remplacé")
-                    } else restoreLegacyIntoV2(collection, context, onDone)
+                            if (SalaryAccountScope.capture().scope == lease.scope) onDone(true, r.summary())
+                        } else onDone(false, "Restauration interrompue : ${result.exceptionOrNull()?.message ?: "vérifie la sauvegarde et réessaie"}")
+                    } else restoreLegacyIntoV2(collection, context, user.uid, onDone)
                 }
-                .addOnFailureListener { restoreLegacyIntoV2(collection, context, onDone) }
+                .addOnFailureListener {
+                    if (SalaryAccountScope.isCurrent(lease))
+                        restoreLegacyIntoV2(collection, context, user.uid, onDone)
+                    else onDone(false, "Compte modifié pendant la restauration")
+                }
             return
         }
 
@@ -91,8 +120,13 @@ object CloudPointageBackup {
         }.addOnFailureListener { onDone(false, it.localizedMessage ?: "Firestore refuse la restauration") }
     }
 
-    private fun restoreLegacyIntoV2(collection: com.google.firebase.firestore.CollectionReference, context: Context, onDone: (Boolean, String) -> Unit) {
+    private fun restoreLegacyIntoV2(collection: com.google.firebase.firestore.CollectionReference, context: Context, expectedUid: String, onDone: (Boolean, String) -> Unit) {
+        val lease = SalaryAccountScope.lease(context)
         collection.orderBy("index").get().addOnSuccessListener { snapshot ->
+            if (!SalaryAccountScope.isCurrent(lease) || lease.scope != "uid:$expectedUid") {
+                onDone(false, "Compte modifié pendant la restauration")
+                return@addOnSuccessListener
+            }
             val restored = JSONArray()
             for (doc in snapshot.documents) {
                 val payload = doc.getString("payload") ?: continue

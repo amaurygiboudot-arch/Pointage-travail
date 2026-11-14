@@ -145,7 +145,7 @@ object KaliWeekdayPremiumAuditV2 {
                             if (sectionCandidates.isNotEmpty()) {
                                 add(
                                     "KALI ${label(kind)} : ${sectionCandidates.size} section(s) KALISCTA restent des pistes ; " +
-                                        "aucune route de consultation de section n'est supposée par HoraTrack."
+                                        "aucune route de consultation de section n'est supposée par AGKGMG."
                                 )
                             }
                             add("KALI ${label(kind)} : ${articleCandidates.size} article(s) KALIARTI unique(s) à consulter.")
@@ -261,7 +261,7 @@ object KaliWeekdayPremiumAuditV2 {
                     "KALI ${label(kind)} : aucune majoration simple, datée et non conditionnelle n'a pu être structurée."
                 )
                 structured.size > 1 -> add(
-                    "KALI ${label(kind)} : ${structured.size} règles simples applicables ont été trouvées ; HoraTrack refuse d'en choisir une automatiquement."
+                    "KALI ${label(kind)} : ${structured.size} règles simples applicables ont été trouvées ; AGKGMG refuse d'en choisir une automatiquement."
                 )
                 saved -> add(
                     "KALI ${label(kind)} : règle unique vérifiée et enregistrée (+${formatPercent(selected!!.percentage)} %)."

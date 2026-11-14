@@ -30,6 +30,7 @@
         <provider android:name=".GoogleAccountPromptProvider" android:authorities="${applicationId}.google-account-prompt" android:exported="false" android:initOrder="60" />
         <provider android:name=".PrimaryDiamond3DInitProvider" android:authorities="${applicationId}.primary-diamond-3d-init" android:exported="false" android:initOrder="55" />
         <provider android:name=".FirstStepsInitProvider" android:authorities="${applicationId}.first-steps-init" android:exported="false" android:initOrder="50" />
+        <provider android:name=".DailyDiagnosticFileProvider" android:authorities="${applicationId}.daily-diagnostic-files" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/daily_diagnostic_file_paths" /></provider>
         <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.update-files" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_file_paths" /></provider>
         <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.agreement-files" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/company_agreement_file_paths" /></provider>
         <service android:name=".HpFirebaseMessagingService" android:exported="false"><intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter></service>
@@ -57,6 +58,7 @@
         <activity android:name=".PdfPreviewActivity" android:exported="false" />
         <activity android:name=".DiamondLabActivity" android:exported="false" />
         <activity android:name=".SecurityInfoActivity" android:exported="false" />
+        <activity android:name=".GpsSiteJourneyActivityV2" android:exported="false" />
         <receiver android:name=".PointageWidgetProvider" android:exported="false"><intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /><action android:name="android.intent.action.CONFIGURATION_CHANGED" /></intent-filter><meta-data android:name="android.appwidget.provider" android:resource="@xml/pointage_widget_info" /></receiver>
         <receiver android:name=".QuickActionsWidgetProvider" android:exported="false"><intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /><action android:name="android.intent.action.CONFIGURATION_CHANGED" /></intent-filter><meta-data android:name="android.appwidget.provider" android:resource="@xml/quick_actions_widget_info" /></receiver>
         <receiver android:name=".WidgetLocationExpiryReceiver" android:exported="false" />

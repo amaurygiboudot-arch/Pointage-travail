@@ -16,6 +16,8 @@ enum SalaryPaidOverlapPolicyV2 {
         "Temps majorable : pointage incohérent ; chevauchement payé non certifiable."
     static let unresolvedPauseWarning =
         "Temps majorable : pause sans statut payé/non payé fiable ; chevauchement non certifiable."
+    static let unresolvedSegmentWarning =
+        "Temps majorable : qualification de présence à confirmer ; chevauchement non certifiable."
     static let conflictingPauseWarning =
         "Temps majorable : pauses superposées avec statuts contradictoires ; chevauchement non certifiable."
 
@@ -67,7 +69,12 @@ enum SalaryPaidOverlapPolicyV2 {
             sessionStart: start,
             sessionEnd: end,
             pauses: pauses,
-            until: end
+            until: end,
+            segments: PaidWorkSegmentClippingV2.clip(
+                session.segments, sessionStart: session.entry, sessionEnd: sessionEnd,
+                rangeStart: start, rangeEnd: end
+            ),
+            enforcePauseSessionBounds: false // Full-session geometry checked above.
         )
         guard assessment.paidDuration.isFinite else {
             return blocked([invalidSessionWarning])
@@ -76,7 +83,7 @@ enum SalaryPaidOverlapPolicyV2 {
             return SalaryPaidOverlapResultV2(
                 paidDuration: max(0, assessment.paidDuration),
                 reliable: false,
-                warnings: [unresolvedPauseWarning]
+                warnings: [session.segments.isEmpty ? unresolvedPauseWarning : unresolvedSegmentWarning]
             )
         }
 

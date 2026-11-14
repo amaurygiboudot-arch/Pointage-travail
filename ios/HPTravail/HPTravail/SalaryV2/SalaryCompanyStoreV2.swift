@@ -48,78 +48,94 @@ enum SalaryCompanyStoreV2 {
     private static let primaryKey = "salary_companies_v2.companies"
     private static let backupKey = "salary_companies_v2.companies_last_known_good"
     private static let corruptBackupKey = "salary_companies_v2.companies_corrupt_backup"
-    private static let lock = NSLock()
+    private static let lock = NSRecursiveLock()
 
-    static func readConfirmed(defaults: UserDefaults = .standard) -> SalaryCompanyReadResultV2 {
-        let primaryObject = defaults.object(forKey: primaryKey)
-        let backupObject = defaults.object(forKey: backupKey)
+    /// Bind a monthly-source operation to a still-confirmed employer under the same
+    /// lock as create/update/remove; no deletion can interleave with the write.
+    static func withConfirmedCompany<T>(
+        companyId: String, defaults: UserDefaults, unavailable: T, _ operation: () -> T
+    ) -> T {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        lock.lock(); defer { lock.unlock() }
+        guard confirmedCompany(readConfirmed(defaults: defaults), companyId: companyId) != nil else { return unavailable }
+        return SalaryAccountStorageV2.readConsistently(defaults, unavailable: unavailable, operation)
+    }
 
-        if primaryObject == nil {
-            if let backupObject {
-                guard let backupRaw = backupObject as? String else {
-                    return unreliableBackupResult()
-                }
-                let backup = decodeCompanies(backupRaw)
-                guard backup.reliable else { return unreliableBackupResult(companies: backup.companies) }
-                guard writeVerified(backupRaw, forKey: primaryKey, defaults: defaults) else {
+    static func readConfirmed(defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults) -> SalaryCompanyReadResultV2 {
+        lock.lock(); defer { lock.unlock() }
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return SalaryAccountStorageV2.readConsistently(defaults, unavailable: SalaryCompanyReadResultV2(companies: [], reliable: false, repairedFromBackup: false, warnings: [SalaryAccountStorageV2.warning])) {
+            guard SalaryAccountStorageV2.available(defaults) else { return SalaryCompanyReadResultV2(companies: [], reliable: false, repairedFromBackup: false, warnings: [SalaryAccountStorageV2.warning]) }
+            let primaryObject = defaults.object(forKey: primaryKey)
+            let backupObject = defaults.object(forKey: backupKey)
+
+            if primaryObject == nil {
+                if let backupObject {
+                    guard let backupRaw = backupObject as? String else {
+                        return unreliableBackupResult()
+                    }
+                    let backup = decodeCompanies(backupRaw)
+                    guard backup.reliable else { return unreliableBackupResult(companies: backup.companies) }
+                    guard writeVerified(backupRaw, forKey: primaryKey, defaults: defaults) else {
+                        return SalaryCompanyReadResultV2(
+                            companies: backup.companies,
+                            reliable: false,
+                            repairedFromBackup: false,
+                            warnings: [storageWarning, "La copie valide a été trouvée mais sa restauration a échoué."]
+                        )
+                    }
+                    defaults.removeObject(forKey: corruptBackupKey)
                     return SalaryCompanyReadResultV2(
                         companies: backup.companies,
-                        reliable: false,
-                        repairedFromBackup: false,
-                        warnings: [storageWarning, "La copie valide a été trouvée mais sa restauration a échoué."]
+                        reliable: true,
+                        repairedFromBackup: true,
+                        warnings: [repairedWarning]
                     )
                 }
-                defaults.removeObject(forKey: corruptBackupKey)
                 return SalaryCompanyReadResultV2(
-                    companies: backup.companies,
+                    companies: [],
                     reliable: true,
-                    repairedFromBackup: true,
-                    warnings: [repairedWarning]
+                    repairedFromBackup: false,
+                    warnings: []
                 )
             }
-            return SalaryCompanyReadResultV2(
-                companies: [],
-                reliable: true,
-                repairedFromBackup: false,
-                warnings: []
-            )
-        }
 
-        let primaryRaw = primaryObject as? String
-        let primary = primaryRaw.map(decodeCompanies)
-            ?? SalaryCompanyReadResultV2(
-                companies: [],
-                reliable: false,
-                repairedFromBackup: false,
-                warnings: [storageWarning]
-            )
+            let primaryRaw = primaryObject as? String
+            let primary = primaryRaw.map(decodeCompanies)
+                ?? SalaryCompanyReadResultV2(
+                    companies: [],
+                    reliable: false,
+                    repairedFromBackup: false,
+                    warnings: [storageWarning]
+                )
 
-        if primary.reliable, let primaryRaw {
-            if defaults.string(forKey: backupKey) != primaryRaw {
-                _ = writeVerified(primaryRaw, forKey: backupKey, defaults: defaults)
+            if primary.reliable, let primaryRaw {
+                if defaults.string(forKey: backupKey) != primaryRaw {
+                    _ = writeVerified(primaryRaw, forKey: backupKey, defaults: defaults)
+                }
+                defaults.removeObject(forKey: corruptBackupKey)
+                return primary
+            }
+
+            guard let backupRaw = backupObject as? String else { return primary }
+            let backup = decodeCompanies(backupRaw)
+            guard backup.reliable else { return primary }
+            guard writeVerified(backupRaw, forKey: primaryKey, defaults: defaults) else {
+                return SalaryCompanyReadResultV2(
+                    companies: backup.companies,
+                    reliable: false,
+                    repairedFromBackup: false,
+                    warnings: [storageWarning, "La copie valide a été trouvée mais sa restauration a échoué."]
+                )
             }
             defaults.removeObject(forKey: corruptBackupKey)
-            return primary
-        }
-
-        guard let backupRaw = backupObject as? String else { return primary }
-        let backup = decodeCompanies(backupRaw)
-        guard backup.reliable else { return primary }
-        guard writeVerified(backupRaw, forKey: primaryKey, defaults: defaults) else {
             return SalaryCompanyReadResultV2(
                 companies: backup.companies,
-                reliable: false,
-                repairedFromBackup: false,
-                warnings: [storageWarning, "La copie valide a été trouvée mais sa restauration a échoué."]
+                reliable: true,
+                repairedFromBackup: true,
+                warnings: [repairedWarning]
             )
         }
-        defaults.removeObject(forKey: corruptBackupKey)
-        return SalaryCompanyReadResultV2(
-            companies: backup.companies,
-            reliable: true,
-            repairedFromBackup: true,
-            warnings: [repairedWarning]
-        )
     }
 
     static func confirmedCompany(
@@ -133,19 +149,22 @@ enum SalaryCompanyStoreV2 {
 
     static func createOrUpdate(
         _ company: SalaryCompanyV2,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
-        mutate(company, allowInsert: true, defaults: defaults)
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return mutate(company, allowInsert: true, defaults: defaults)
     }
 
     static func upsertExisting(
         _ company: SalaryCompanyV2,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
-        mutate(company, allowInsert: false, defaults: defaults)
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return mutate(company, allowInsert: false, defaults: defaults)
     }
 
-    static func remove(companyId: String, defaults: UserDefaults = .standard) -> Bool {
+    static func remove(companyId: String, defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let id = companyId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty else { return false }
         lock.lock()
@@ -191,6 +210,7 @@ enum SalaryCompanyStoreV2 {
         allowInsert: Bool,
         defaults: UserDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         lock.lock()
         defer { lock.unlock() }
 
@@ -235,6 +255,7 @@ enum SalaryCompanyStoreV2 {
     }
 
     private static func save(_ companies: [SalaryCompanyV2], defaults: UserDefaults) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard companies.allSatisfy({ !$0.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
               Set(companies.map(\.id)).count == companies.count,
               let raw = encodeCompanies(companies) else {
@@ -295,6 +316,7 @@ enum SalaryCompanyStoreV2 {
     }
 
     private static func writeVerified(_ value: String, forKey key: String, defaults: UserDefaults) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         defaults.set(value, forKey: key)
         return defaults.string(forKey: key) == value
     }

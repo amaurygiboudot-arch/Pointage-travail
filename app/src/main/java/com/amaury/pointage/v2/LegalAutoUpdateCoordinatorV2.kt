@@ -46,7 +46,7 @@ object LegalAutoUpdateCoordinatorV2 {
     }
 
     fun referenceDate(context: Context): LocalDate {
-        val prefs = context.getSharedPreferences("navigation_state", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, "navigation_state", Context.MODE_PRIVATE)
         val selectedMs = prefs.getLong("report_month_ms", -1L)
         val calendar = Calendar.getInstance(Locale.FRANCE)
         if (selectedMs > 0L) calendar.timeInMillis = selectedMs

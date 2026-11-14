@@ -15,6 +15,28 @@ final class PayrollEngineV2Tests: XCTestCase {
         )
     }
 
+    func testInvalidComponentAmountsAndOverflowAreRejected() {
+        for amount in [Double.nan, Double.infinity, -1] {
+            XCTAssertThrowsError(try PayrollEngineV2.calculate(
+                contract: hourlyContract(), weeks: [], rules: PayrollRulesV2(),
+                premiums: [PremiumV2(id: "p", label: "Prime", amount: amount, periodicity: .monthly)]
+            ))
+            XCTAssertThrowsError(try PayrollEngineV2.calculate(
+                contract: hourlyContract(), weeks: [], rules: PayrollRulesV2(),
+                baskets: [BasketV2(id: "b", label: "Panier", amount: amount)]
+            ))
+            XCTAssertThrowsError(try PayrollEngineV2.calculate(
+                contract: hourlyContract(), weeks: [], rules: PayrollRulesV2(),
+                deductions: [DeductionV2(id: "d", label: "Retenue", amount: amount, recurring: false)]
+            ))
+        }
+        XCTAssertThrowsError(try PayrollEngineV2.calculate(
+            contract: hourlyContract(), weeks: [], rules: PayrollRulesV2(),
+            baskets: [BasketV2(id: "a", label: "A", amount: .greatestFiniteMagnitude),
+                      BasketV2(id: "b", label: "B", amount: .greatestFiniteMagnitude)]
+        ))
+    }
+
     func testNoOvertimeRuleNeverInventsOvertimePremium() throws {
         let result = try PayrollEngineV2.calculate(
             contract: hourlyContract(),
@@ -179,6 +201,7 @@ final class PayrollEngineV2Tests: XCTestCase {
 
         XCTAssertEqual(result.regularGross, 2_500, accuracy: 0.001)
         XCTAssertEqual(result.fixedPremiumsGross, 100, accuracy: 0.001)
+        XCTAssertEqual(result.confirmedPremiums.map(\.label), ["Prime"])
         XCTAssertEqual(result.grossEstimate, 2_600, accuracy: 0.001)
         XCTAssertEqual(result.baskets, 20, accuracy: 0.001)
         XCTAssertEqual(result.netBeforeUnknownContributions, 2_550, accuracy: 0.001)

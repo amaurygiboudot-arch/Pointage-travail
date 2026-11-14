@@ -20,6 +20,7 @@ internal data class GpsPlaceScopeV2 private constructor(
 /** Le rôle d'un lieu ne constitue jamais une qualification de rémunération. */
 internal enum class GpsZoneRoleV2(val token: String, val title: String) {
     WORK("POSTE", "Travail / pointage"),
+    HOME("HOME", "Domicile — trajets exclus"),
     PARKING("PARKING", "Parking"),
     BREAK("PAUSE", "Pause — à confirmer"),
     OTHER("OTHER", "Autre / à confirmer");
@@ -27,6 +28,7 @@ internal enum class GpsZoneRoleV2(val token: String, val title: String) {
     companion object {
         fun fromToken(raw: String?): GpsZoneRoleV2 = when (raw?.trim()?.uppercase(Locale.ROOT)) {
             "POSTE", "WORK", "WORKSITE", "WORKPLACE" -> WORK
+            "HOME", "DOMICILE" -> HOME
             "PARKING" -> PARKING
             "PAUSE", "BREAK" -> BREAK
             else -> OTHER

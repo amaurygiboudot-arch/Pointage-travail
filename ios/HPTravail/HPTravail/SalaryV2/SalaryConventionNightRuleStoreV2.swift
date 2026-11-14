@@ -90,8 +90,9 @@ enum SalaryConventionNightRuleStoreV2 {
     private static let maxExactJSONInteger = 9_007_199_254_740_991.0
 
     static func readConfirmed(
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> SalaryConventionNightRuleReadResultV2 {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let primaryObject = defaults.object(forKey: primaryKey)
         let backupObject = defaults.object(forKey: backupKey)
 
@@ -171,8 +172,9 @@ enum SalaryConventionNightRuleStoreV2 {
     @discardableResult
     static func saveConfirmed(
         _ snapshot: SalaryConventionNightRuleSnapshotV2,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard validSnapshotPayload(snapshot) else { return false }
         let candidate = normalizedSnapshot(snapshot)
 
@@ -200,11 +202,12 @@ enum SalaryConventionNightRuleStoreV2 {
     }
 
     static func resolve(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults,
         idcc: String?,
         period: YearMonthV2
     ) -> SalaryConventionNightRulePeriodResolutionV2 {
-        resolve(
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return resolve(
             stored: readConfirmed(defaults: defaults),
             idcc: idcc,
             period: period
@@ -550,6 +553,7 @@ enum SalaryConventionNightRuleStoreV2 {
         forKey key: String,
         defaults: UserDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         defaults.set(value, forKey: key)
         return defaults.string(forKey: key) == value
     }

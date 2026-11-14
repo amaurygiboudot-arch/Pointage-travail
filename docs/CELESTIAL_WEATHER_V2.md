@@ -58,7 +58,7 @@ Les builds DEV peuvent recevoir l'endpoint Open-Meteo par variable de build.
 
 L'endpoint n'est pas codé en dur comme vérité de production.
 
-La version de production doit utiliser un endpoint explicitement configuré et disposant d'une licence compatible avec l'usage commercial de HoraTrack. Si aucun endpoint conforme n'est configuré, la couche météo reste désactivée.
+La version de production doit utiliser un endpoint explicitement configuré et disposant d'une licence compatible avec l'usage commercial d’AGKGMG. Si aucun endpoint conforme n'est configuré, la couche météo reste désactivée.
 
 Lorsque Open-Meteo est actif en DEV, l'attribution utilisateur « Données météo : Open-Meteo • CC BY 4.0 » est affichée dans les paramètres.
 

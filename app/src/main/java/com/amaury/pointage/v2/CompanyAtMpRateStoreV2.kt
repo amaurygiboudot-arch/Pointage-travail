@@ -17,13 +17,21 @@ object CompanyAtMpRateStoreV2 {
     data class ReadResult(val records: List<EmployerAtMpRateHistoryV2.Record>, val reliable: Boolean, val warnings: List<String>)
 
     fun read(context: Context, companyId: String): ReadResult {
-        val id = companyId.trim()
-        if (id.isBlank()) return companyUnavailable()
-        return SalaryCompanyStore.withConfirmedCompany(context, id) { readConfirmed(context, it.id) }
-            ?: companyUnavailable()
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(records = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            val id = companyId.trim()
+            if (id.isBlank()) return companyUnavailable()
+            return SalaryCompanyStore.withConfirmedCompany(context, id) { readConfirmed(context, it.id) }
+                ?: companyUnavailable()
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     fun save(context: Context, companyId: String, record: EmployerAtMpRateHistoryV2.Record): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val id = companyId.trim()
         if (id.isBlank() || !EmployerAtMpRateHistoryV2.structurallyValid(record)) return false
         return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
@@ -35,6 +43,7 @@ object CompanyAtMpRateStoreV2 {
     }
 
     fun remove(context: Context, companyId: String, recordId: String): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val id = companyId.trim()
         if (id.isBlank() || recordId.isBlank()) return false
         return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
@@ -45,6 +54,7 @@ object CompanyAtMpRateStoreV2 {
     }
 
     fun resolve(context: Context, companyId: String, period: YearMonth): EmployerAtMpRateHistoryV2.Snapshot {
+        val context = SalaryAccountScope.bindContext(context)
         val id = companyId.trim()
         if (id.isBlank()) return EmployerAtMpRateHistoryV2.unavailable(companyUnavailable().warnings.single())
         return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
@@ -65,10 +75,17 @@ object CompanyAtMpRateStoreV2 {
     }
 
     private fun readConfirmed(context: Context, companyId: String): ReadResult {
-        val prefs = SalaryCompanyStore.prefs(context, companyId)
-        if (!prefs.contains(KEY)) return ReadResult(emptyList(), true, emptyList())
-        val raw = runCatching { prefs.getString(KEY, null) }.getOrNull() ?: return corrupted()
-        return decodeRecords(raw)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(records = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            val prefs = SalaryCompanyStore.prefs(context, companyId)
+            if (!prefs.contains(KEY)) return ReadResult(emptyList(), true, emptyList())
+            val raw = runCatching { prefs.getString(KEY, null) }.getOrNull() ?: return corrupted()
+            return decodeRecords(raw)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     internal fun encodeRecords(records: List<EmployerAtMpRateHistoryV2.Record>): String {
@@ -110,6 +127,7 @@ object CompanyAtMpRateStoreV2 {
     }.getOrElse { corrupted() }
 
     private fun writeConfirmed(context: Context, companyId: String, records: List<EmployerAtMpRateHistoryV2.Record>): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val raw = encodeRecords(records)
         val prefs = SalaryCompanyStore.prefs(context, companyId)
         if (!prefs.edit().putString(KEY, raw).commit()) return false

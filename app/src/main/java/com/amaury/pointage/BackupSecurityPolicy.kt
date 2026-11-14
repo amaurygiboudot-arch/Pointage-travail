@@ -25,6 +25,8 @@ object BackupSecurityPolicy {
     fun canTransferPreferenceFile(name: String): Boolean {
         val normalized = name.trim().lowercase(Locale.ROOT)
         if (normalized.isBlank() || normalized in deviceLocalPreferenceFiles) return false
+        if (normalized.startsWith("horatrack_v2_gps_state_account_") ||
+            normalized == "horatrack_v2_gps_state_auth_unavailable") return false
         return !normalized.startsWith("com.google.firebase") &&
             !normalized.startsWith("firebase") &&
             !normalized.contains("google_sign_in") &&
@@ -77,6 +79,7 @@ object BackupPreferenceKeyPolicy {
         if (!BackupSecurityPolicy.canTransferPreferenceFile(fileName)) return false
         if (!GpsPresenceStateKeysV2.isTransferablePreferenceKey(fileName, normalizedKey)) return false
 
+        if (fileName == "horatrack_v2_payslips" && normalizedKey == "import_drafts_v2") return false
         if (fileName == "appearance_settings" && normalizedKey in appearanceDeviceLocalKeys) return false
         if (fileName == "navigation_state" && normalizedKey == "active_tab") return false
         if (fileName == "smart_setup") {

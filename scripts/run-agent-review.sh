@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 if [[ -f ".codex/AGENTS_DISABLED_BY_OWNER" ]]; then
-  echo "Agents HoraTrack désactivés par le propriétaire. Réactivation explicite requise." >&2
+  echo "Agents AGKGMG désactivés par le propriétaire. Réactivation explicite requise." >&2
   exit 3
 fi
 

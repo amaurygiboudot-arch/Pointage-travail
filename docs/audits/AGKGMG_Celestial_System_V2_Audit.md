@@ -1,4 +1,4 @@
-# HoraTrack — Audit ciblé horloge / suivi céleste → V2
+# AGKGMG — Audit ciblé horloge / suivi céleste → V2
 
 ## Périmètre
 
@@ -11,7 +11,7 @@ Cet audit concerne uniquement :
 - la phase lunaire et son terminateur ;
 - l’ombre de la Terre pendant une éclipse lunaire ;
 - le GPS, les capteurs d’orientation et l’éclairage naturel reliés à ce système ;
-- le raccordement de ce sous-système à HoraTrack V2.
+- le raccordement de ce sous-système à AGKGMG V2.
 
 Sont volontairement hors périmètre : pointage métier, pauses, paie, conventions, paniers, droits, PDF et moteurs juridiques.
 

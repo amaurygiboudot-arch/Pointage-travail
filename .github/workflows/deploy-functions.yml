@@ -64,5 +64,5 @@ jobs:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
           GOOGLE_CLOUD_PROJECT: pointage-travail
           BACKEND_RELEASE_REVISION: ${{ github.sha }}
-          BACKEND_RELEASE_MESSAGE: ${{ github.event.head_commit.message || 'Déploiement Firebase HoraTrack' }}
+          BACKEND_RELEASE_MESSAGE: ${{ github.event.head_commit.message || 'Déploiement Firebase AGKGMG' }}
         run: node functions/scripts/publishBackendRelease.js

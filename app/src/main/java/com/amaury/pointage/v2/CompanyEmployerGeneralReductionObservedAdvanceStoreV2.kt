@@ -34,11 +34,18 @@ object CompanyEmployerGeneralReductionObservedAdvanceStoreV2 {
     }
 
     fun read(context: Context, companyId: String): ReadResult {
-        val id = companyId.trim()
-        if (id.isBlank()) return companyUnavailableResult(id)
-        return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
-            readConfirmed(context, company.id)
-        } ?: companyUnavailableResult(id)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(records = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            val id = companyId.trim()
+            if (id.isBlank()) return companyUnavailableResult(id)
+            return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
+                readConfirmed(context, company.id)
+            } ?: companyUnavailableResult(id)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     fun list(context: Context, companyId: String): List<EmployerGeneralReductionObservedAdvanceV2.Record> =
@@ -49,6 +56,7 @@ object CompanyEmployerGeneralReductionObservedAdvanceStoreV2 {
         companyId: String,
         record: EmployerGeneralReductionObservedAdvanceV2.Record
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val id = companyId.trim()
         if (id.isBlank()) return false
         if (!record.amount.isFinite() || record.amount < 0.0 || record.id.isBlank() || record.source.isBlank()) {
@@ -66,6 +74,7 @@ object CompanyEmployerGeneralReductionObservedAdvanceStoreV2 {
     }
 
     fun remove(context: Context, companyId: String, id: String): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val companyIdNormalized = companyId.trim()
         if (companyIdNormalized.isBlank() || id.isBlank()) return false
         return SalaryCompanyStore.withConfirmedCompany(context, companyIdNormalized) { company ->
@@ -80,6 +89,7 @@ object CompanyEmployerGeneralReductionObservedAdvanceStoreV2 {
         companyId: String,
         year: Int
     ): EmployerGeneralReductionObservedAdvanceV2.YearSnapshot {
+        val context = SalaryAccountScope.bindContext(context)
         val id = companyId.trim()
         if (id.isBlank()) return resolveYear(companyUnavailableResult(id), year)
         return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
@@ -120,9 +130,16 @@ object CompanyEmployerGeneralReductionObservedAdvanceStoreV2 {
     }
 
     private fun readConfirmed(context: Context, companyId: String): ReadResult {
-        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
-            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
-        return decode(raw)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(records = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
+                ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+            return decode(raw)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     private fun writeConfirmed(
@@ -130,6 +147,7 @@ object CompanyEmployerGeneralReductionObservedAdvanceStoreV2 {
         companyId: String,
         items: List<EmployerGeneralReductionObservedAdvanceV2.Record>
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val array = JSONArray()
         items.forEach { array.put(toJson(it)) }
         return SalaryCompanyStore.prefs(context, companyId)

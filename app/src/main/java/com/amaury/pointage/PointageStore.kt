@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -12,7 +14,7 @@ import org.json.JSONObject
 /**
  * Stockage historique conservé pour rollback.
  *
- * Quand HoraTrack V2 est actif, cette classe devient uniquement une façade de
+ * Quand AGKGMG V2 est actif, cette classe devient uniquement une façade de
  * compatibilité pour les anciens widgets/exports encore en migration : aucune
  * mutation métier n'est faite dans l'ancienne base de pointage.
  */
@@ -72,7 +74,7 @@ object PointageStore {
         else synchronized(storageLock) { loadUnlocked(context) }
 
     fun save(context: Context, data: JSONArray) = synchronized(storageLock) {
-        check(!v2Active()) { "Écriture PointageStore interdite : HoraTrack V2 est actif" }
+        check(!v2Active()) { "Écriture PointageStore interdite : AGKGMG V2 est actif" }
         val last = if (data.length() > 0) data.optJSONObject(data.length() - 1) else null
         if (last?.optBoolean("manual", false) == true && !last.has("autoPauseMinutes")) {
             val slot = last.optInt("companySlot", 0)
@@ -83,7 +85,7 @@ object PointageStore {
     }
 
     internal fun <T> update(context: Context, block: (JSONArray) -> T): T = synchronized(storageLock) {
-        check(!v2Active()) { "Mutation PointageStore interdite : HoraTrack V2 est actif" }
+        check(!v2Active()) { "Mutation PointageStore interdite : AGKGMG V2 est actif" }
         val data = loadUnlocked(context)
         val result = block(data)
         saveUnlocked(context, data)
@@ -408,7 +410,7 @@ object PointageStore {
     }
 
     private fun resolveCompanySlot(context: Context, rawAddress: String?): Int {
-        val gps = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val gps = RestoreGuardedPreferences.open(context, "gps_settings", Context.MODE_PRIVATE)
         val address = rawAddress?.trim().orEmpty()
         if (address.isNotBlank()) {
             val map = runCatching { JSONObject(gps.getString("address_company_slots", "{}") ?: "{}") }.getOrNull()
@@ -419,7 +421,7 @@ object PointageStore {
     }
 
     private fun currentActiveZone(context: Context): Pair<String, String>? {
-        val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, "gps_settings", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("enabled", false)) return null
         val ids = prefs.getStringSet("active_zones", emptySet()).orEmpty()
         if (ids.isEmpty()) return null

@@ -124,6 +124,249 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
         )
     }
 
+    func testEmployerProjectionUsesSameGrossAndDoesNotChangeEmployeeNet() throws {
+        let original = input()
+        let withoutOwner = EmployeeNetProjectionV2.calculate(original)
+        var owned = original
+        owned.companyId = "company-a"
+        let result = EmployeeNetProjectionV2.calculate(owned)
+        let employer = try XCTUnwrap(result.employerContributions)
+        XCTAssertEqual(employer.context.companyId, "company-a")
+        XCTAssertEqual(employer.context.year, owned.period.year)
+        XCTAssertEqual(employer.context.month, owned.period.month)
+        XCTAssertEqual(employer.context.contributionGrossCents, PayrollMoneyV2.cents(result.contributionGross))
+        XCTAssertNotNil(employer.knownSubtotalBeforeReductionsCents)
+        XCTAssertNil(employer.knownSubtotalAfterReductionsCents)
+        XCTAssertFalse(employer.coverageComplete)
+        XCTAssertEqual(employer.lines.filter { $0.state == .known }.map(\.family), [.statutory, .complementaryRetirement])
+        XCTAssertEqual(employer.lines.filter { $0.state == .missing }.count, 8)
+        XCTAssertNil(withoutOwner.employerContributions?.knownSubtotalBeforeReductionsCents)
+        XCTAssertEqual(result.netBeforeIncomeTax, withoutOwner.netBeforeIncomeTax)
+        XCTAssertEqual(result.netTaxable, withoutOwner.netTaxable)
+        XCTAssertEqual(result.incomeTax, withoutOwner.incomeTax)
+        XCTAssertEqual(result.netAfterIncomeTax, withoutOwner.netAfterIncomeTax)
+        XCTAssertEqual(result.warnings, withoutOwner.warnings)
+        XCTAssertEqual(result.netBeforeIncomeTaxComplete, withoutOwner.netBeforeIncomeTaxComplete)
+    }
+
+    func testUnknownApecEligibilityKeepsProvedRetirementLinesAndDiagnostics() throws {
+        let unknownAni = ProtectionCategoryV2.Result(aniCategory: .toConfirm, confirmed: false, source: "Fixture ANI inconnue")
+        for original in [input(cashGross: 2500, professionalStatus: "CADRE", protectionCategory: unknownAni),
+                         input(cashGross: 2500, professionalStatus: nil)] {
+            let unowned = EmployeeNetProjectionV2.calculate(original)
+            var owned = original
+            owned.companyId = "company-a"
+            let result = EmployeeNetProjectionV2.calculate(owned)
+            let employer = try XCTUnwrap(result.employerContributions)
+            let retirement = try XCTUnwrap(employer.lines.first { $0.family == .complementaryRetirement })
+            XCTAssertEqual(retirement.state, .known)
+            XCTAssertEqual(retirement.amountCents, 15025) // T1 118 + CEG 32.25, synthetic existing-catalog fixture.
+            XCTAssertFalse(result.complementaryRetirement.lines.contains { $0.id == "apec" })
+            XCTAssertTrue(employer.warnings.contains { $0.contains("APEC") })
+            XCTAssertTrue(employer.warnings.contains { $0.contains("partielle") })
+            XCTAssertFalse(employer.coverageComplete)
+            XCTAssertEqual(result.netBeforeIncomeTax, unowned.netBeforeIncomeTax)
+            XCTAssertEqual(result.netTaxable, unowned.netTaxable)
+            XCTAssertEqual(result.incomeTax, unowned.incomeTax)
+            XCTAssertEqual(result.netAfterIncomeTax, unowned.netAfterIncomeTax)
+            XCTAssertEqual(result.netBeforeIncomeTaxComplete, unowned.netBeforeIncomeTaxComplete)
+            XCTAssertEqual(result.warnings, unowned.warnings)
+        }
+        var known = input(cashGross: 2500, professionalStatus: "CADRE",
+                          protectionCategory: .init(aniCategory: .article2_1, confirmed: true, source: "Fixture ANI confirmée"))
+        known.companyId = "company-a"
+        let result = EmployeeNetProjectionV2.calculate(known)
+        XCTAssertEqual(result.employerContributions?.lines.first { $0.family == .complementaryRetirement }?.amountCents, 15115)
+        XCTAssertEqual(result.complementaryRetirement.lines.filter { $0.id == "agirc_t1" }.count, 1)
+        XCTAssertEqual(result.complementaryRetirement.lines.filter { $0.id == "ceg_t1" }.count, 1)
+        XCTAssertEqual(result.complementaryRetirement.lines.filter { $0.id == "apec" }.count, 1)
+        XCTAssertFalse(result.employerContributions?.warnings.contains { $0.contains("APEC non appliquée") } ?? true)
+    }
+
+    func testEmployerReferenceAndWorkspaceRejectAnotherCompanyOrMonth() throws {
+        var owned = input()
+        owned.companyId = "company-a"
+        let projection = EmployeeNetProjectionV2.calculate(owned)
+        let payroll = try confirmedForfaitPayroll()
+        let period = try XCTUnwrap(YearMonthV2(year: 2026, month: 4))
+        let reference = SalaryReferenceContractV2.buildFromPayroll(payroll: payroll, benefits: owned.benefits,
+            projection: projection, expectedCompanyId: "company-a", expectedPeriod: period)
+        XCTAssertNotNil(reference.employerContributions)
+        let workspace = SalaryWorkspaceResolverV2.resolve(period: period, reference: reference, expectedCompanyId: "company-a")
+        XCTAssertNotNil(workspace.employerContributions)
+        let mismatch = SalaryWorkspaceResolverV2.resolve(period: period, reference: reference, expectedCompanyId: "company-b")
+        XCTAssertNil(mismatch.employerContributions)
+        XCTAssertFalse(mismatch.employerWarnings.isEmpty)
+        XCTAssertEqual(mismatch.warnings, workspace.warnings)
+        XCTAssertEqual(mismatch.netBeforeIncomeTax, workspace.netBeforeIncomeTax)
+        XCTAssertNil(SalaryWorkspaceResolverV2.resolve(period: YearMonthV2(year: 2026, month: 5)!, reference: reference,
+                                                       expectedCompanyId: "company-a").employerContributions)
+        let wrongReference = SalaryReferenceContractV2.buildFromPayroll(payroll: payroll, benefits: owned.benefits,
+            projection: projection, expectedCompanyId: "company-b", expectedPeriod: period)
+        XCTAssertNil(wrongReference.employerContributions)
+        XCTAssertFalse(wrongReference.employerWarnings.isEmpty)
+        XCTAssertEqual(wrongReference.warnings, reference.warnings)
+        XCTAssertEqual(wrongReference.complete, reference.complete)
+    }
+
+    func testDetailedPayslipUsesExactCanonicalLinesAndRejectsForeignCash() throws {
+        var owned = input()
+        owned.companyId = "company-a"
+        let projection = EmployeeNetProjectionV2.calculate(owned)
+        let payroll = try confirmedForfaitPayroll()
+        let period = salaryPeriod()
+        let detail = try XCTUnwrap(SalaryCalculatedPayslipDetailsV2.monthly(payroll: payroll,
+            projection: projection, companyId: "company-a", period: period))
+        let statutory = try XCTUnwrap(projection.statutory.lines.first)
+        let shown = try XCTUnwrap(detail.contributions.first { $0.label == statutory.label })
+        XCTAssertEqual(shown.base, statutory.baseAmount)
+        XCTAssertEqual(shown.employeeAmount, statutory.employeeAmount)
+        XCTAssertEqual(shown.employeeRate, statutory.rate)
+        XCTAssertEqual(shown.employerAmount, 63.30) // Canonical cents, not the raw Double product 63.300000000000004.
+        XCTAssertNil(SalaryCalculatedPayslipDetailsV2.monthly(payroll: payroll,
+            projection: projection, companyId: "foreign", period: period))
+        XCTAssertNil(SalaryCalculatedPayslipDetailsV2.monthly(payroll: try confirmedForfaitPayroll(monthlyGross: 1234),
+            projection: projection, companyId: "company-a", period: period))
+    }
+
+    func testInconsistentEmployerFamilyDoesNotExposeContradictoryDetails() throws {
+        var owned = input()
+        owned.companyId = "company-a"
+        var projection = EmployeeNetProjectionV2.calculate(owned)
+        let employer = try XCTUnwrap(projection.employerContributions)
+        var lines = employer.lines
+        let index = try XCTUnwrap(lines.firstIndex { $0.family == .statutory })
+        lines[index] = .init(family: .statutory, state: .known, amountCents: 1, source: "Synthetic mismatch")
+        projection.employerContributions = EmployerContributionProjectionV2.calculate(context: employer.context,
+            lines: lines, reductions: employer.reductions)
+        let detail = try XCTUnwrap(SalaryCalculatedPayslipDetailsV2.monthly(payroll: try confirmedForfaitPayroll(),
+            projection: projection, companyId: "company-a", period: salaryPeriod()))
+        let statutoryLabels = Set(projection.statutory.lines.map(\.label))
+        XCTAssertTrue(detail.contributions.filter { statutoryLabels.contains($0.label) }.allSatisfy {
+            $0.employerAmount == nil && $0.employerRate == nil
+        })
+    }
+
+    func testDetailedPayslipRejectsUnprovenSourceAndInvalidBase() throws {
+        var owned = input()
+        owned.companyId = "company-a"
+        let original = EmployeeNetProjectionV2.calculate(owned)
+        let first = try XCTUnwrap(original.statutory.lines.first)
+        for bad in [
+            SocialContributionCatalogV2.Line(id: first.id, label: first.label, baseAmount: first.baseAmount,
+                rate: first.rate, employeeAmount: first.employeeAmount, source: " ",
+                employerRate: first.employerRate, employerAmount: first.employerAmount),
+            SocialContributionCatalogV2.Line(id: first.id, label: first.label, baseAmount: .infinity,
+                rate: first.rate, employeeAmount: first.employeeAmount, source: first.source,
+                employerRate: first.employerRate, employerAmount: first.employerAmount)
+        ] {
+            let stat = SocialContributionCatalogV2.Estimate(gross: original.statutory.gross,
+                employeeDeductions: original.statutory.employeeDeductions,
+                netBeforeIncomeTax: original.statutory.netBeforeIncomeTax,
+                lines: [bad] + Array(original.statutory.lines.dropFirst()), warnings: [],
+                employerContributions: original.statutory.employerContributions)
+            let changed = EmployeeNetProjectionV2.Result(cashGross: original.cashGross,
+                contributionGross: original.contributionGross, grossReliable: original.grossReliable,
+                statutory: stat, complementaryRetirement: original.complementaryRetirement,
+                companyCashDeductions: original.companyCashDeductions,
+                knownNetBeforeIncomeTax: original.knownNetBeforeIncomeTax,
+                netBeforeIncomeTax: original.netBeforeIncomeTax, netTaxable: original.netTaxable,
+                incomeTax: original.incomeTax, netAfterIncomeTax: original.netAfterIncomeTax,
+                netBeforeIncomeTaxComplete: original.netBeforeIncomeTaxComplete,
+                netTaxableComplete: original.netTaxableComplete, warnings: [], traces: [],
+                employerContributions: original.employerContributions)
+            XCTAssertNil(SalaryCalculatedPayslipDetailsV2.monthly(payroll: try confirmedForfaitPayroll(),
+                projection: changed, companyId: "company-a", period: salaryPeriod()))
+        }
+    }
+
+    func testMonthlyNamedPremiumsAreDisplayedOnceAndMismatchedTotalIsRejected() throws {
+        let payroll = PayrollResultV2(regularGross: 2900, overtimeGross: 0, premiumsGross: 0,
+            fixedPremiumsGross: 100, baskets: 0, grossEstimate: 3000, deductions: 0,
+            netBeforeUnknownContributions: 3000, complementaryMinutes: 0, grossReliable: true, traces: [],
+            confirmedPremiums: [.init(id: "production", label: "Production confirmée", amount: 100, periodicity: .monthly)])
+        var owned = input()
+        owned.companyId = "company-a"
+        let projection = EmployeeNetProjectionV2.calculate(owned)
+        let details = try XCTUnwrap(SalaryCalculatedPayslipDetailsV2.monthly(payroll: payroll,
+            projection: projection, companyId: "company-a", period: salaryPeriod()))
+        XCTAssertEqual(details.grossLines.filter { $0.label == "Production confirmée" }.count, 1)
+        XCTAssertFalse(details.grossLines.contains { $0.label == "Primes fixes — total calculé" })
+        var bad = payroll
+        bad.confirmedPremiums = [.init(id: "production", label: "Production confirmée", amount: 101, periodicity: .monthly)]
+        XCTAssertNil(SalaryCalculatedPayslipDetailsV2.monthly(payroll: bad,
+            projection: projection, companyId: "company-a", period: salaryPeriod()))
+    }
+
+    func testNativeFractionalPremiumsRemainVisibleWithExplicitRoundingAdjustment() throws {
+        let payroll = try PayrollEngineV2.calculate(
+            contract: ContractV2(id: "fractional", employerId: "company-a", type: .forfaitDays,
+                contractualWeeklyMinutes: nil, grossHourlyRate: nil, hireDateEpochDay: nil,
+                forfaitAnnualDays: 218, monthlyGrossSalary: 10.005),
+            weeks: [], rules: PayrollRulesV2(),
+            premiums: [.init(id: "production", label: "Production", amount: 1.005, periodicity: .monthly)],
+            evidence: .fullyConfirmed)
+        var owned = input(cashGross: payroll.grossEstimate)
+        owned.companyId = "company-a"
+        let projection = EmployeeNetProjectionV2.calculate(owned)
+        let detail = try XCTUnwrap(SalaryCalculatedPayslipDetailsV2.monthly(payroll: payroll,
+            projection: projection, companyId: "company-a", period: salaryPeriod()))
+        XCTAssertEqual(detail.grossLines.first { $0.label == "Production" }?.amount, 1.005)
+        let adjustment = try XCTUnwrap(detail.grossLines.first { $0.roundingAdjustment })
+        XCTAssertEqual(adjustment.amount, -0.01)
+        let cents = detail.grossLines.compactMap { $0.amount.flatMap(PayrollMoneyV2.cents) }
+        XCTAssertEqual(PayrollMoneyV2.sum(cents), PayrollMoneyV2.cents(projection.cashGross))
+        XCTAssertEqual(SalaryCalculatedPayslipPresentationV2.money(adjustment.amount, allowNegative: true), "-0,01 €")
+    }
+
+    func testBenefitsInKindArePreservedSeparatelyFromCashInSharedPayslip() throws {
+        var owned = input(benefits: benefits(total: 100))
+        owned.companyId = "company-a"
+        let projection = EmployeeNetProjectionV2.calculate(owned)
+        let reference = SalaryReferenceContractV2.buildFromPayroll(payroll: try confirmedForfaitPayroll(),
+            benefits: owned.benefits, projection: projection, expectedCompanyId: "company-a", expectedPeriod: salaryPeriod())
+        let snapshot = SalaryWorkspaceResolverV2.resolve(period: salaryPeriod(), reference: reference, expectedCompanyId: "company-a")
+        let details = try XCTUnwrap(snapshot.payslipDetails)
+        XCTAssertEqual(details.benefitsInKindGross, 100)
+        XCTAssertEqual(details.socialGross, 3100)
+        XCTAssertEqual(details.grossLines.compactMap(\.amount).reduce(0, +), 3000)
+        let sections = SalaryCalculatedPayslipPresentationV2.sections(snapshot: snapshot, companyId: "company-a")
+        XCTAssertTrue(sections[0].rows.contains { $0.label == "Avantages en nature soumis aux cotisations" && $0.value == "100,00 €" })
+        XCTAssertEqual(sections[2].rows.first { $0.id == "benefits" }?.value, "-100,00 €")
+        var inconsistent = projection
+        inconsistent.benefitsInKindGross = 101
+        XCTAssertNil(SalaryCalculatedPayslipDetailsV2.monthly(payroll: try confirmedForfaitPayroll(),
+            projection: inconsistent, companyId: "company-a", period: salaryPeriod()))
+    }
+
+    func testEmployerHalfCentDetailsUseTheExactCentsAlreadyUsedByProjection() throws {
+        var owned = input(cashGross: 118.75)
+        owned.companyId = "company-a"
+        let projection = EmployeeNetProjectionV2.calculate(owned)
+        let retirement = try XCTUnwrap(projection.complementaryRetirement.lines.first { $0.id == "agirc_t1" })
+        let index = try XCTUnwrap(projection.complementaryRetirement.lines.firstIndex { $0.id == "agirc_t1" })
+        XCTAssertEqual(projection.retirementEmployerCents[index], 561)
+        let detail = try XCTUnwrap(SalaryCalculatedPayslipDetailsV2.monthly(
+            payroll: try confirmedForfaitPayroll(monthlyGross: 118.75), projection: projection,
+            companyId: "company-a", period: salaryPeriod()))
+        XCTAssertEqual(detail.contributions.first { $0.label == retirement.label }?.employerAmount, 5.61)
+        let displayed = detail.contributions.filter { projection.complementaryRetirement.lines.map(\.label).contains($0.label) }
+        XCTAssertEqual(PayrollMoneyV2.sum(displayed.compactMap { $0.employerAmount.flatMap(PayrollMoneyV2.cents) }),
+                       projection.employerContributions?.lines.first { $0.family == .complementaryRetirement }?.amountCents)
+    }
+
+    func testEmployeeAlsaceHalfCentDetailUsesCanonical150Cents() throws {
+        var owned = input(cashGross: 115, alsaceMoselle: true)
+        owned.companyId = "company-a"
+        let projection = EmployeeNetProjectionV2.calculate(owned)
+        let index = try XCTUnwrap(projection.statutory.lines.firstIndex { $0.rate == 0.013 })
+        XCTAssertEqual(projection.statutoryEmployeeCents[index], 150)
+        let detail = try XCTUnwrap(SalaryCalculatedPayslipDetailsV2.monthly(
+            payroll: try confirmedForfaitPayroll(monthlyGross: 115), projection: projection,
+            companyId: "company-a", period: salaryPeriod()))
+        XCTAssertEqual(detail.contributions.first { $0.label == projection.statutory.lines[index].label }?.employeeAmount, 1.5)
+    }
+
     func testCompleteInputsPublishBeforeTaxAndTaxableNet() {
         let result = EmployeeNetProjectionV2.calculate(
             input(benefits: benefits(total: 100))
@@ -168,31 +411,14 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
 
     func testNonDeductibleProvidentShareIsNotSubtractedTwiceFromCashNet() {
         let result = EmployeeNetProjectionV2.calculate(input())
-        let expectedCashDeductions = 42.0 + 18.0
-        let statutoryRounded = result.statutory.lines.reduce(0) {
-            $0 + (($1.employeeAmount * 100).rounded() / 100)
-        }
-        let retirementRounded = result.complementaryRetirement.lines.reduce(0) {
-            $0 + (($1.employeeAmount * 100).rounded() / 100)
-        }
-        let expected = 3_000 -
-            statutoryRounded -
-            retirementRounded -
-            expectedCashDeductions
-
         XCTAssertEqual(result.companyCashDeductions.deductions.reduce(0) { $0 + $1.amount }, 60, accuracy: 0.001)
-        XCTAssertEqual(result.knownNetBeforeIncomeTax, expected, accuracy: 0.001)
-        XCTAssertEqual(result.netBeforeIncomeTax ?? -1, expected, accuracy: 0.001)
+        XCTAssertEqual(result.knownNetBeforeIncomeTax, 2313.62, accuracy: 0.0001)
+        XCTAssertEqual(result.netBeforeIncomeTax ?? -1, 2313.62, accuracy: 0.0001)
     }
 
     func testNonDeductibleProvidentShareIsReintegratedOnlyIntoTaxableNet() {
         let result = EmployeeNetProjectionV2.calculate(input())
-        let nonDeductibleCsgCrds = result.statutory.lines
-            .filter { $0.id == "csg_taxable" || $0.id == "crds" }
-            .reduce(0) { $0 + $1.employeeAmount }
-        let expectedTaxable = result.knownNetBeforeIncomeTax + nonDeductibleCsgCrds + 8 + 4
-
-        XCTAssertEqual(result.netTaxable ?? -1, expectedTaxable, accuracy: 0.001)
+        XCTAssertEqual(result.netTaxable ?? -1, 2411.45, accuracy: 0.0001)
     }
 
     func testMissingTaxOnlyDataKeepsBeforeTaxNetButBlocksTaxableNet() {
@@ -264,44 +490,30 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
 
     func testCanonicalNetUsesCentRoundedContributionLines() {
         let result = EmployeeNetProjectionV2.calculate(input())
-        let statutoryRounded = result.statutory.lines.reduce(0) {
-            $0 + (($1.employeeAmount * 100).rounded() / 100)
-        }
-        let retirementRounded = result.complementaryRetirement.lines.reduce(0) {
-            $0 + (($1.employeeAmount * 100).rounded() / 100)
-        }
-        let directRounded = result.companyCashDeductions.deductions.reduce(0) {
-            $0 + (($1.amount * 100).rounded() / 100)
-        }
-        let expected = max(0, 3_000 - statutoryRounded - retirementRounded - directRounded)
-
-        XCTAssertEqual(result.knownNetBeforeIncomeTax, expected, accuracy: 0.0001)
-        XCTAssertEqual(result.netBeforeIncomeTax ?? -1, expected, accuracy: 0.0001)
+        XCTAssertEqual(result.statutory.employeeDeductions, 506.08, accuracy: 0.0001)
+        XCTAssertEqual(result.complementaryRetirement.employeeDeductions, 120.30, accuracy: 0.0001)
+        XCTAssertEqual(result.knownNetBeforeIncomeTax, 2313.62, accuracy: 0.0001)
+        XCTAssertEqual(result.netBeforeIncomeTax ?? -1, 2313.62, accuracy: 0.0001)
     }
 
     func testTaxableNetKeepsNegativeUnclampedPreTaxBalance() {
         let result = EmployeeNetProjectionV2.calculate(
             input(cashGross: 0, benefits: benefits(total: 1_000))
         )
-        let statutoryRounded = result.statutory.lines.reduce(0) {
-            $0 + (($1.employeeAmount * 100).rounded() / 100)
-        }
-        let retirementRounded = result.complementaryRetirement.lines.reduce(0) {
-            $0 + (($1.employeeAmount * 100).rounded() / 100)
-        }
-        let directRounded = result.companyCashDeductions.deductions.reduce(0) {
-            $0 + (($1.amount * 100).rounded() / 100)
-        }
-        let rawBeforeTax = -statutoryRounded - retirementRounded - directRounded
-        let nonDeductibleCsgCrds = result.statutory.lines
-            .filter { $0.id == "csg_taxable" || $0.id == "crds" }
-            .reduce(0) { $0 + $1.employeeAmount }
-        let expectedTaxable = max(0, rawBeforeTax + 1_000 + nonDeductibleCsgCrds + 8 + 4)
-
         XCTAssertEqual(result.knownNetBeforeIncomeTax, 0, accuracy: 0.0001)
-        XCTAssertEqual(result.netTaxable ?? -1, expectedTaxable, accuracy: 0.0001)
+        XCTAssertEqual(result.netTaxable ?? -1, 771.27, accuracy: 0.0001)
+        XCTAssertFalse(result.settlementBaseReliable)
     }
 
+    func testZeroTaxDoesNotTurnClampedNegativeCashIntoSettlementBase() {
+        let rate = CompanyIncomeTaxRateResolverV2.Snapshot(rate: 0, ratePercent: 0, source: "Synthetic zero PAS", hasDatedRecords: true, reliable: true, warnings: [])
+        let result = EmployeeNetProjectionV2.calculate(input(cashGross: 0, benefits: benefits(total: 1000), incomeTaxRate: rate))
+        XCTAssertEqual(result.netAfterIncomeTax, 0)
+        XCTAssertFalse(result.settlementBaseReliable)
+        let month = salaryPeriod()
+        let observed = SalaryMonthlyPayrollSettlementV2.Record(companyId: "synthetic-company", period: month, transportReimbursement: 50, garnishment: 0, otherAddition: 0, otherDeduction: 0, netSocialObserved: nil, netPaidObserved: nil, source: "Synthetic monthly adjustment", confirmedAt: 1790000000000, adjustmentsComplete: true)
+        XCTAssertNil(SalaryMonthlyPayrollSettlementV2.project(.init(record: observed, reliable: true, warnings: []), companyId: observed.companyId, period: month, netAfterIncomeTax: result.netAfterIncomeTax, baseReliable: result.settlementBaseReliable).projectedPaid)
+    }
 
     func testConfirmedIncomeTaxRatePublishesTaxAndNetAfterTax() {
         let rate = CompanyIncomeTaxRateResolverV2.Snapshot(
@@ -313,14 +525,9 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
             warnings: []
         )
         let result = EmployeeNetProjectionV2.calculate(input(incomeTaxRate: rate))
-        let expectedTax = ((result.netTaxable! * 0.032) * 100).rounded() / 100
-
-        XCTAssertEqual(result.incomeTax ?? -1, expectedTax, accuracy: 0.0001)
-        XCTAssertEqual(
-            result.netAfterIncomeTax ?? -1,
-            max(0, result.knownNetBeforeIncomeTax - expectedTax),
-            accuracy: 0.0001
-        )
+        XCTAssertEqual(result.incomeTax ?? -1, 77.17, accuracy: 0.0001)
+        XCTAssertEqual(result.netAfterIncomeTax ?? -1, 2236.45, accuracy: 0.0001)
+        XCTAssertTrue(result.settlementBaseReliable)
     }
 
     func testConfirmedIncomeTaxRateReachesPresentationAdapter() {

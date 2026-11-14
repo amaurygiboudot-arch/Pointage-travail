@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.content.Context
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
@@ -13,15 +15,15 @@ object CloudSettingsBackup {
     private const val COLLECTION="app_backup";private const val DOCUMENT="settings";private const val SCHEMA_VERSION=2L
     fun saveAll(context:Context,onDone:(Boolean,String)->Unit){val user=FirebaseAuth.getInstance().currentUser?:return onDone(false,"Aucun compte Google connecté");val app=context.applicationContext;val payload=runCatching{exportPreferences(app)}.getOrElse{return onDone(false,"Impossible de lire les réglages : ${it.localizedMessage?:it.javaClass.simpleName}")};FirebaseFirestore.getInstance().collection("users").document(user.uid).collection(COLLECTION).document(DOCUMENT).set(hashMapOf("schemaVersion" to SCHEMA_VERSION,"payload" to payload.toString(),"updatedAt" to FieldValue.serverTimestamp())).addOnSuccessListener{onDone(true,"réglages sauvegardés")}.addOnFailureListener{onDone(false,it.localizedMessage?:"Firestore refuse la sauvegarde des réglages")}}
     fun restoreAll(context:Context,onDone:(Boolean,String)->Unit){val user=FirebaseAuth.getInstance().currentUser?:return onDone(false,"Aucun compte Google connecté");val app=context.applicationContext;FirebaseFirestore.getInstance().collection("users").document(user.uid).collection(COLLECTION).document(DOCUMENT).get().addOnSuccessListener{doc->if(!doc.exists())return@addOnSuccessListener onDone(false,"Aucune sauvegarde de réglages trouvée");val payload=doc.getString("payload");if(payload.isNullOrBlank())return@addOnSuccessListener onDone(false,"Sauvegarde de réglages vide : rien n'a été remplacé");val root=runCatching{JSONObject(payload)}.getOrNull();if(root==null||root.length()==0)return@addOnSuccessListener onDone(false,"Sauvegarde de réglages illisible : rien n'a été remplacé");val result=runCatching{importPreferences(app,root)};if(result.isSuccess)onDone(true,"réglages fusionnés sans effacer les données locales") else onDone(false,"Restauration des réglages impossible : ${result.exceptionOrNull()?.localizedMessage?:"erreur inconnue"}")}.addOnFailureListener{onDone(false,it.localizedMessage?:"Firestore refuse la restauration des réglages")}}
-    private fun exportPreferences(context:Context):JSONObject{val root=JSONObject();val dir=File(context.applicationInfo.dataDir,"shared_prefs");dir.listFiles().orEmpty().filter{it.isFile&&it.name.endsWith(".xml")}.map{it.name.removeSuffix(".xml")}.filter(::shouldBackup).sorted().forEach{name->val values=JSONObject();context.getSharedPreferences(name,Context.MODE_PRIVATE).all.forEach{(k,v)->if(BackupPreferenceKeyPolicy.canTransfer(name,k))when(v){null->Unit;is Boolean,is Int,is Long,is Float,is String->values.put(k,v);is Set<*>->values.put(k,JSONArray(v.filterIsInstance<String>().sorted()))}};root.put(name,values)};return root}
+    private fun exportPreferences(context:Context):JSONObject{val root=JSONObject();val dir=File(context.applicationInfo.dataDir,"shared_prefs");dir.listFiles().orEmpty().filter{it.isFile&&it.name.endsWith(".xml")}.map{it.name.removeSuffix(".xml")}.filter(::shouldBackup).sorted().forEach{name->val values=JSONObject();RestoreGuardedPreferences.open(context,name).all.forEach{(k,v)->if(BackupPreferenceKeyPolicy.canTransfer(name,k))when(v){null->Unit;is Boolean,is Int,is Long,is Float,is String->values.put(k,v);is Set<*>->values.put(k,JSONArray(v.filterIsInstance<String>().sorted()))}};root.put(name,values)};return root}
     private fun importPreferences(context: Context, root: JSONObject) {
         val files = validateImport(root)
-        val gpsEditor = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE).edit()
+        val gpsEditor = RestoreGuardedPreferences.open(context, "gps_settings", Context.MODE_PRIVATE).edit()
         GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach(gpsEditor::remove)
         if (!gpsEditor.commit()) error("Échec de réinitialisation de la présence GPS")
 
         for ((name, values) in files) {
-            val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE)
+            val prefs = RestoreGuardedPreferences.open(context, name)
             val editor = prefs.edit()
             if (name == "gps_settings") {
                 GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach(editor::remove)

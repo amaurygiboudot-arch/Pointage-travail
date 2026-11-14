@@ -1,4 +1,4 @@
-name: HoraTrack DEV - APK unique
+name: AGKGMG DEV - APK unique
 
 on:
   workflow_dispatch:
@@ -45,7 +45,7 @@ jobs:
       - name: Lancer les tests unitaires
         run: gradle :app:testDebugUnitTest --build-cache --parallel --stacktrace
 
-      - name: Restaurer la cle de signature HoraTrack
+      - name: Restaurer la cle de signature AGKGMG
         env:
           KEYSTORE_B64: ${{ secrets.POINTAGE_KEYSTORE_B64 }}
           KEYSTORE_PASSWORD: ${{ secrets.POINTAGE_KEYSTORE_PASSWORD }}
@@ -148,7 +148,7 @@ jobs:
 
           if gh release view dev-latest >/dev/null 2>&1; then
             gh release edit dev-latest \
-              --title "HoraTrack DEV - derniere APK" \
+              --title "AGKGMG DEV - derniere APK" \
               --notes "$NOTES" \
               --prerelease
             gh release upload dev-latest \
@@ -166,7 +166,7 @@ jobs:
               SHA256-AAB-dev.txt \
               HoraTrack-dev-version.txt \
               --target "$GITHUB_SHA" \
-              --title "HoraTrack DEV - derniere APK" \
+              --title "AGKGMG DEV - derniere APK" \
               --notes "$NOTES" \
               --prerelease
           fi

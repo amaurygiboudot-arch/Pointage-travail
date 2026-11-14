@@ -10,13 +10,14 @@ enum SalarySegmentedFixedCashComponentsBridgeV2 {
         "Brut fixe segmenté : entreprise, convention ou mois non confirmé."
 
     static func load(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults,
         companyId: String,
         idcc: String,
         period: YearMonthV2,
         actualMonthlyBaseGross: Double?,
         professionalStatus: String?
     ) -> SalaryConfirmedCashGrossComponentsV2 {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let companies = SalaryCompanyStoreV2.readConfirmed(defaults: defaults)
         guard let company = SalaryCompanyStoreV2.confirmedCompany(
             companies, companyId: companyId

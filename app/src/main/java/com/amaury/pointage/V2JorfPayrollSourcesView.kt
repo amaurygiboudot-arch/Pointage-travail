@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.content.Context
 import android.graphics.Typeface
 import android.view.ViewGroup
@@ -16,7 +18,7 @@ import java.util.Calendar
 import java.util.Locale
 
 /** Vue JORF : piste récente de publications légales susceptibles d'affecter la paie. */
-class V2JorfPayrollSourcesView(context: Context) : LinearLayout(context) {
+class V2JorfPayrollSourcesView(hostContext: Context) : SalaryAccountLayout(hostContext) {
     private val status = TextView(context)
     private val verifyButton = Button(context)
 
@@ -29,7 +31,7 @@ class V2JorfPayrollSourcesView(context: Context) : LinearLayout(context) {
             setTypeface(typeface, Typeface.BOLD)
         })
         addView(TextView(context).apply {
-            text = "HoraTrack parcourt les journaux officiels récents, repère les textes dont le titre touche potentiellement la paie ou le temps de travail, puis consulte le JORFTEXT officiel avant de conserver la référence. Cette piste sert à détecter des publications nouvelles ; elle ne transforme jamais un simple titre en règle chiffrée."
+            text = "AGKGMG parcourt les journaux officiels récents, repère les textes dont le titre touche potentiellement la paie ou le temps de travail, puis consulte le JORFTEXT officiel avant de conserver la référence. Cette piste sert à détecter des publications nouvelles ; elle ne transforme jamais un simple titre en règle chiffrée."
             textSize = 12f
             setPadding(0, dp(6), 0, dp(10))
         })
@@ -100,7 +102,7 @@ class V2JorfPayrollSourcesView(context: Context) : LinearLayout(context) {
     private data class Reference(val atMs: Long, val label: String)
 
     private fun referenceDate(): Reference {
-        val prefs = context.getSharedPreferences("navigation_state", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, "navigation_state", Context.MODE_PRIVATE)
         val selectedMs = prefs.getLong("report_month_ms", -1L)
         val calendar = Calendar.getInstance(Locale.FRANCE)
         if (selectedMs > 0L) calendar.timeInMillis = selectedMs

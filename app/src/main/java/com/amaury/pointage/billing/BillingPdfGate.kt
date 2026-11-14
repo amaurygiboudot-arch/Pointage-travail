@@ -1,5 +1,6 @@
 package com.amaury.pointage.billing
 
+import com.amaury.pointage.v2.SalaryAccountScope
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
@@ -17,7 +18,8 @@ object BillingPdfGate {
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
 
-    fun require(activity: Activity, file: File, displayName: String = file.name, usePlusCredit: Boolean = false, useAnalysisCredit: Boolean = false, onDenied: () -> Unit = {}, onAuthorized: (File) -> Unit) {
+    fun require(activity: Activity, file: File, displayName: String = file.name, usePlusCredit: Boolean = false, useAnalysisCredit: Boolean = false, onDenied: () -> Unit = {}, accountLease: SalaryAccountScope.Lease = SalaryAccountScope.lease(activity), onAuthorized: (File) -> Unit) {
+        if (!SalaryAccountScope.isCurrent(accountLease)) { onDenied(); return }
         HoraTrackBilling.initialize(activity)
         val uid = BillingBackend.uid()
         if (uid == null) { message(activity, "Connecte ton compte pour vérifier les droits PDF."); onDenied(); return }
@@ -33,28 +35,29 @@ object BillingPdfGate {
         }
         io.execute {
             val preserved = runCatching {
-                check(BillingBackend.uid() == uid)
+                check(BillingBackend.uid() == uid && SalaryAccountScope.isCurrent(accountLease))
                 val snapshot = PdfPendingVault.capture(activity.filesDir, BillingContract.accountId(uid), file, displayName)
-                check(BillingBackend.uid() == uid)
+                check(BillingBackend.uid() == uid && SalaryAccountScope.isCurrent(accountLease))
                 snapshot to BillingContract.documentId(snapshot)
             }.getOrNull()
             main.post {
-                if (!active(activity) || BillingBackend.uid() != uid) { onDenied(); return@post }
+                if (!active(activity) || BillingBackend.uid() != uid || !SalaryAccountScope.isCurrent(accountLease)) { onDenied(); return@post }
                 if (preserved == null) { message(activity, "PDF introuvable, corrompu ou impossible à conserver. Aucun achat lancé."); onDenied(); return@post }
                 val file = preserved.first
                 val hash = preserved.second
-                val service = BillingServiceFlow.prepared(activity, uid, hash)
+                val service = BillingServiceFlow.prepared(SalaryAccountScope.bindContext(activity, accountLease), uid, hash)
                 val endpoint = if (service == null) "billingAuthorizePdf" else "billingAuthorizeReport"
                 val payload = if (service == null) mapOf("documentSha256" to hash)
                     else mapOf("documentSha256" to hash, "reportId" to service.reportId, "usePlusCredit" to usePlusCredit, "useAnalysisCredit" to useAnalysisCredit)
                 BillingBackend.call(endpoint, payload).addOnCompleteListener { task ->
-                    if (!active(activity) || BillingBackend.uid() != uid) { onDenied(); return@addOnCompleteListener }
+                    if (!active(activity) || BillingBackend.uid() != uid || !SalaryAccountScope.isCurrent(accountLease)) { onDenied(); return@addOnCompleteListener }
                     val response = if (task.isSuccessful) task.result as? Map<*, *> else null
                     val serviceMatches = service == null || (response != null && response["reportId"] == service.reportId && response["productId"] == service.productId)
                     if (task.isSuccessful && BillingContract.authorizedPdf(task.result, hash) && serviceMatches) {
                         // Preserve the exact purchased bytes for later downloads. Never trust this cache as an entitlement.
                         io.execute {
                             val verifiedSnapshot = runCatching {
+                                check(SalaryAccountScope.isCurrent(accountLease) && BillingBackend.uid() == uid)
                                 check(BillingContract.documentId(file) == hash)
                                 val snapshot = PdfPendingVault.publish(activity.filesDir, BillingContract.accountId(uid), file, hash, "billing_pdf_archive")
                                 check(BillingContract.documentId(snapshot) == hash)
@@ -63,7 +66,7 @@ object BillingPdfGate {
                                 snapshot
                             }.getOrNull()
                             main.post {
-                                if (active(activity) && BillingBackend.uid() == uid) {
+                                if (active(activity) && BillingBackend.uid() == uid && SalaryAccountScope.isCurrent(accountLease)) {
                                     if (verifiedSnapshot != null) onAuthorized(verifiedSnapshot) else { message(activity, "Le PDF a changé : vérifie de nouveau ses droits."); onDenied() }
                                 } else onDenied()
                             }
@@ -74,22 +77,23 @@ object BillingPdfGate {
                         if (denied && service != null) {
                             if (usePlusCredit || useAnalysisCredit) message(activity, "Crédit demandé indisponible ou déjà utilisé. Aucun rapport débloqué.")
                             BillingOffers.showServicePurchase(activity, service,
-                                onUsePlusCredit = { require(activity, file, displayName, usePlusCredit = true, onDenied = onDenied, onAuthorized = onAuthorized) },
-                                onUseLegacyCredit = { require(activity, file, displayName, useAnalysisCredit = true, onDenied = onDenied, onAuthorized = onAuthorized) },
-                                onClosed = onDenied, onVerified = { require(activity, file, displayName, onDenied = onDenied, onAuthorized = onAuthorized) })
+                                onUsePlusCredit = { require(activity, file, displayName, usePlusCredit = true, onDenied = onDenied, accountLease = accountLease, onAuthorized = onAuthorized) },
+                                onUseLegacyCredit = { require(activity, file, displayName, useAnalysisCredit = true, onDenied = onDenied, accountLease = accountLease, onAuthorized = onAuthorized) },
+                                onClosed = onDenied, accountLease = accountLease, onVerified = { require(activity, file, displayName, onDenied = onDenied, accountLease = accountLease, onAuthorized = onAuthorized) })
                         } else if (denied) {
                             val details = (task.exception as? FirebaseFunctionsException)?.details as? Map<*, *>
                             val productId = details?.get("productId") as? String
                             val reportId = details?.get("reportId") as? String
                             if (productId in BillingContract.serviceProducts && reportId != null) {
-                                BillingServiceFlow.recover(activity, uid, file, hash, reportId, productId!!, displayName) { recovered ->
+                                BillingServiceFlow.recover(activity, uid, file, hash, reportId, productId!!, displayName, accountLease = accountLease) { recovered ->
+                                    if (!active(activity) || BillingBackend.uid() != uid || !SalaryAccountScope.isCurrent(accountLease)) { onDenied(); return@recover }
                                     if (recovered == null) { message(activity, "Rapport indisponible : aucune offre PDF ordinaire ne peut le débloquer."); onDenied() }
                                     else BillingOffers.showServicePurchase(activity, recovered,
-                                        onUsePlusCredit = { require(activity, recovered.file, displayName, usePlusCredit = true, onDenied = onDenied, onAuthorized = onAuthorized) },
-                                        onUseLegacyCredit = { require(activity, recovered.file, displayName, useAnalysisCredit = true, onDenied = onDenied, onAuthorized = onAuthorized) },
-                                        onClosed = onDenied, onVerified = { require(activity, recovered.file, displayName, onDenied = onDenied, onAuthorized = onAuthorized) })
+                                        onUsePlusCredit = { require(activity, recovered.file, displayName, usePlusCredit = true, onDenied = onDenied, accountLease = accountLease, onAuthorized = onAuthorized) },
+                                        onUseLegacyCredit = { require(activity, recovered.file, displayName, useAnalysisCredit = true, onDenied = onDenied, accountLease = accountLease, onAuthorized = onAuthorized) },
+                                        onClosed = onDenied, accountLease = accountLease, onVerified = { require(activity, recovered.file, displayName, onDenied = onDenied, accountLease = accountLease, onAuthorized = onAuthorized) })
                                 }
-                            } else BillingOffers.show(activity, hash, onClosed = onDenied) { require(activity, file, displayName, onDenied = onDenied, onAuthorized = onAuthorized) }
+                            } else BillingOffers.show(activity, hash, onClosed = onDenied, accountLease = accountLease) { require(activity, file, displayName, onDenied = onDenied, accountLease = accountLease, onAuthorized = onAuthorized) }
                         } else { message(activity, "Vérification PDF indisponible. Aucun aperçu ni export débloqué."); onDenied() }
                     }
                 }
@@ -100,6 +104,8 @@ object BillingPdfGate {
     /** Workers only; finite timeout, no local premium/owner flag and no purchase UI. */
     fun authorizeBackgroundBlocking(context: Context, file: File): Boolean {
         check(Looper.myLooper() != Looper.getMainLooper()) { "La vérification PDF ne doit pas bloquer l'interface." }
+        val accountLease = SalaryAccountScope.lease(context)
+        if (!SalaryAccountScope.isCurrent(accountLease)) return false
         val uid = BillingBackend.uid() ?: return false
         return runCatching {
             val requested = file.canonicalFile
@@ -110,7 +116,7 @@ object BillingPdfGate {
             })
             val hash = PdfPendingVault.validate(context.filesDir, BillingContract.accountId(uid), file)
             val result = Tasks.await(BillingBackend.call("billingAuthorizePdf", mapOf("documentSha256" to hash)), 20, TimeUnit.SECONDS)
-            BillingBackend.uid() == uid && BillingContract.authorizedPdf(result, hash) && BillingContract.documentId(file) == hash
+            SalaryAccountScope.isCurrent(accountLease) && BillingBackend.uid() == uid && BillingContract.authorizedPdf(result, hash) && BillingContract.documentId(file) == hash
         }.getOrDefault(false)
     }
 

@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.app.AlertDialog
 import android.content.Context
 import android.text.InputType
@@ -199,7 +201,7 @@ object CompanyPremiumDialogV2 {
             }
         }, rowParams(context))
 
-        listDialog = AlertDialog.Builder(context)
+        listDialog = SalaryAccountUi.dialog(context)
             .setTitle("Primes contractuelles / personnelles")
             .setView(box)
             .setNegativeButton("FERMER", null)
@@ -218,7 +220,7 @@ object CompanyPremiumDialogV2 {
             setPadding(dp(context, 20), dp(context, 8), dp(context, 20), 0)
         }
         box.addView(TextView(context).apply {
-            text = "Confirmer signifie que toutes les primes contractuelles/personnelles entrant dans le brut de ${period.format(monthFormatter)} sont enregistrées dans HoraTrack. Si la liste est vide, cette confirmation établit explicitement 0 €. Sans confirmation, le moteur conserve le total comme inconnu."
+            text = "Confirmer signifie que toutes les primes contractuelles/personnelles entrant dans le brut de ${period.format(monthFormatter)} sont enregistrées dans AGKGMG. Si la liste est vide, cette confirmation établit explicitement 0 €. Sans confirmation, le moteur conserve le total comme inconnu."
             textSize = 13f
             setPadding(0, 0, 0, dp(context, 8))
         })
@@ -226,7 +228,7 @@ object CompanyPremiumDialogV2 {
         source.setText(existingSource.orEmpty())
         box.addView(source, rowParams(context))
 
-        val dialog = AlertDialog.Builder(context)
+        val dialog = SalaryAccountUi.dialog(context)
             .setTitle("Exhaustivité des primes")
             .setView(box)
             .setPositiveButton("CONFIRMER", null)
@@ -293,7 +295,7 @@ object CompanyPremiumDialogV2 {
         }
         updateFields()
 
-        val builder = AlertDialog.Builder(context)
+        val builder = SalaryAccountUi.dialog(context)
             .setTitle(if (existing == null) "Ajouter une prime" else "Modifier la prime")
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)
@@ -355,7 +357,7 @@ object CompanyPremiumDialogV2 {
     }
 
     private fun selectedPayrollMonth(context: Context): YearMonth {
-        val ms = context.getSharedPreferences("navigation_state", Context.MODE_PRIVATE)
+        val ms = RestoreGuardedPreferences.open(context, "navigation_state", Context.MODE_PRIVATE)
             .getLong("report_month_ms", -1L)
         val calendar = Calendar.getInstance(Locale.FRANCE)
         if (ms > 0L) calendar.timeInMillis = ms

@@ -39,7 +39,7 @@ object CompanyIncomeTaxRateDialogV2 {
 
         if (!stored.reliable) {
             box.addView(TextView(context).apply {
-                text = "⚠ Stockage des taux PAS incohérent. Le calcul après impôt reste bloqué et HoraTrack ne réutilise pas l'ancien taux sans date.\n• " +
+                text = "⚠ Stockage des taux PAS incohérent. Le calcul après impôt reste bloqué et AGKGMG ne réutilise pas l'ancien taux sans date.\n• " +
                     stored.warnings.joinToString("\n• ")
                 textSize = 12f
                 setPadding(0, 0, 0, dp(context, 8))
@@ -80,7 +80,7 @@ object CompanyIncomeTaxRateDialogV2 {
             }
         }, rowParams(context))
 
-        listDialog = AlertDialog.Builder(context)
+        listDialog = SalaryAccountUi.dialog(context)
             .setTitle("Prélèvement à la source — taux datés")
             .setView(box)
             .setNegativeButton("FERMER", null)
@@ -124,7 +124,7 @@ object CompanyIncomeTaxRateDialogV2 {
             source.setText(record.source.orEmpty())
         }
 
-        val builder = AlertDialog.Builder(context)
+        val builder = SalaryAccountUi.dialog(context)
             .setTitle(if (existing == null) "Ajouter un taux PAS" else "Modifier le taux PAS")
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)

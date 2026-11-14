@@ -13,7 +13,7 @@ object V2SessionPlaceStore {
 
     fun setCurrent(context: Context, placeId: String?, placeLabel: String?): Boolean {
         return V2RuntimeStore.withTransaction {
-            val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val prefs = V2RuntimeAccountScope.preferences(context, PREFS)
             val editor = prefs.edit()
             placeId?.trim()?.takeIf { it.isNotBlank() }?.let { editor.putString(KEY_PLACE_ID, it) } ?: editor.remove(KEY_PLACE_ID)
             placeLabel?.trim()?.takeIf { it.isNotBlank() }?.let { editor.putString(KEY_PLACE_LABEL, it) } ?: editor.remove(KEY_PLACE_LABEL)
@@ -22,16 +22,16 @@ object V2SessionPlaceStore {
     }
 
     fun clearCurrent(context: Context): Boolean = V2RuntimeStore.withTransaction {
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        V2RuntimeAccountScope.preferences(context, PREFS).edit()
             .remove(KEY_PLACE_ID)
             .remove(KEY_PLACE_LABEL)
             .commit()
     }
 
-    fun currentId(context: Context): String? = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    fun currentId(context: Context): String? = V2RuntimeAccountScope.preferences(context, PREFS)
         .getString(KEY_PLACE_ID, null)?.trim()?.takeIf { it.isNotBlank() }
 
-    fun currentLabel(context: Context): String? = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    fun currentLabel(context: Context): String? = V2RuntimeAccountScope.preferences(context, PREFS)
         .getString(KEY_PLACE_LABEL, null)?.trim()?.takeIf { it.isNotBlank() }
 
     fun enrichLatestHistory(context: Context): Boolean {

@@ -2,7 +2,7 @@
 
 ## Bright Star Catalogue (BSC5P)
 
-HoraTrack embarque un fichier compact dérivé du **Bright Star Catalogue, 5th Edition, preliminary** (Hoffleit & Warren, 1991), à partir des champs J2000 et de magnitude visuelle publiés par HEASARC/CDS.
+AGKGMG embarque un fichier compact dérivé du **Bright Star Catalogue, 5th Edition, preliminary** (Hoffleit & Warren, 1991), à partir des champs J2000 et de magnitude visuelle publiés par HEASARC/CDS.
 
 - Catalogue de référence : NASA/HEASARC BSC5P.
 - Copie de travail utilisée pour la génération : `frostoven/BSC5P-JSON`, branche `primary`, révision `1018c1d32c85cd02d7bbdade5726bc828f5388bd`, fichier original fixe `original_bsc5p/catalog` (blob `6a5fe242dd2d7f3014871ec81ba40032d888772a`).
@@ -18,11 +18,11 @@ Les tracés utilisent **ConstellationLines** de Marc van der Sluys (2005–2023)
 - Source : `MarcvdSluys/ConstellationLines`, révision `1505f7acccd8dee279affed224a46281d26f544c`, fichier `ConstellationLines.csv`.
 - DOI : 10.5281/zenodo.10397192
 - Licence : **Creative Commons Attribution 4.0 International (CC BY 4.0)**.
-- Les tracés référencent directement les numéros HR du BSC ; HoraTrack ne fabrique aucun point intermédiaire.
+- Les tracés référencent directement les numéros HR du BSC ; AGKGMG ne fabrique aucun point intermédiaire.
 
 Les fichiers embarqués ont été compactés pour le mobile sans modifier l'identité HR ni les coordonnées astronomiques utilisées par le moteur Céleste V2.
 
-## Transformation HoraTrack
+## Transformation AGKGMG
 
 La génération mobile est volontairement minimale et reproductible :
 

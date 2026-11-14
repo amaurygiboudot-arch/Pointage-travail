@@ -9,7 +9,7 @@ import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.model.SessionStatusV2
 
 /**
- * Point d'entrée unique de l'environnement des icônes launcher HoraTrack.
+ * Point d'entrée unique de l'environnement des icônes launcher AGKGMG.
  *
  * Pour ajouter ou retirer une icône à l'avenir, modifier uniquement [icons] puis
  * déclarer/retirer l'alias Android correspondant dans le manifeste avec sa ressource.
@@ -43,7 +43,7 @@ object IconSwitcher {
 
     private val fallbackIcon: LauncherIcon
         get() = icons.firstOrNull { it.state == IconState.DEFAULT }
-            ?: error("HoraTrack launcher icon registry requires a DEFAULT icon")
+            ?: error("AGKGMG launcher icon registry requires a DEFAULT icon")
 
     fun setWorking(context: Context, working: Boolean) = sync(context)
     fun applyPending(context: Context) = sync(context)

@@ -84,6 +84,16 @@ final class SalaryCanonicalReferenceProviderV2Tests: XCTestCase {
         XCTAssertTrue(reference.complete)
         XCTAssertNotNil(SalaryReferenceContractV2.socialGross(reference))
         XCTAssertNotNil(SalaryReferenceContractV2.beforeIncomeTax(reference))
+        let employer = try XCTUnwrap(reference.employerContributions)
+        XCTAssertEqual(employer.context.companyId, companyId)
+        XCTAssertEqual(employer.context.year, period.year)
+        XCTAssertEqual(employer.context.month, period.month)
+        XCTAssertNotNil(employer.knownSubtotalBeforeReductionsCents)
+        XCTAssertFalse(employer.coverageComplete)
+        XCTAssertEqual(employer.lines.filter { $0.state == .missing }.count, 8)
+        let workspace = SalaryWorkspaceResolverV2.resolve(period: period, reference: reference, expectedCompanyId: companyId)
+        XCTAssertEqual(workspace.employerContributions, employer)
+        XCTAssertNotNil(workspace.netBeforeIncomeTax)
     }
 
     func testUnpaidAbsenceBlocksGrossUntilSalaryImpactIsImplemented() throws {

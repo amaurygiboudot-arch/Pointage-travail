@@ -209,6 +209,48 @@ class SegmentedWorkedVariableGrossSourceV2Test {
     }
 
     @Test
+    fun partTimeConfirmedScheduleFeedsCanonicalVariableGross() {
+        val contracts = contracts(
+            periodStart = 4,
+            periodEnd = 10,
+            snapshots = listOf(
+                contract("c1", 4, null, 12.0, ContractTypeV2.PART_TIME, 20 * 60)
+            )
+        )
+        val rules = rules(
+            periodStart = 4,
+            periodEnd = 10,
+            snapshots = listOf(
+                rule(
+                    version = "r1",
+                    from = 4,
+                    to = null,
+                    weeklyRegularMinutes = 20 * 60,
+                    complementarySchedule = PartTimeComplementaryHoursV2.ConfirmedSchedule("rule-test", 1200, 4, null, listOf(OvertimeTierV2(1200, 1320, 1.2)))
+                )
+            )
+        )
+        val timeline = PayrollCalculationTimelineV2.align(contracts, rules)
+
+        val result = SegmentedWorkedVariableGrossSourceV2.calculate(
+            contracts = contracts,
+            rules = rules,
+            sliceEvidence = listOf(
+                evidence(
+                    slice = timeline.slices.single(),
+                    weekYear = 1970,
+                    weekOfYear = 2,
+                    paidMinutes = 22 * 60
+                )
+            )
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(28.8, result.breakdowns.single().complementaryGross, 0.001)
+        assertEquals(120, result.breakdowns.single().complementaryMinutes)
+    }
+
+    @Test
     fun unreliableWeekContextNeverBecomesZero() {
         val contracts = contracts(
             periodStart = 4,
@@ -536,7 +578,8 @@ class SegmentedWorkedVariableGrossSourceV2Test {
         version: String,
         from: Long,
         to: Long?,
-        weeklyRegularMinutes: Int = 35 * 60
+        weeklyRegularMinutes: Int = 35 * 60,
+        complementarySchedule: PartTimeComplementaryHoursV2.ConfirmedSchedule? = null
     ) = ConventionRuleSnapshotV2(
         idcc = "0292",
         versionId = version,
@@ -545,6 +588,7 @@ class SegmentedWorkedVariableGrossSourceV2Test {
         effectiveToEpochDay = to,
         rules = PayrollRulesV2(
             weeklyRegularMinutes = weeklyRegularMinutes,
+            complementarySchedule = complementarySchedule,
             overtimeTiers = listOf(
                 OvertimeTierV2(
                     fromMinutes = 35 * 60,

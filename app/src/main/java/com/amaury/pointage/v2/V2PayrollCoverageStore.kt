@@ -38,12 +38,17 @@ object V2PayrollCoverageStore {
         checkedAtMs: Long,
         timeZoneId: String,
         nowMs: Long = System.currentTimeMillis()
-    ): PayrollCoverageAttestationV2? = saveConfirmed(
-        employerId, coveredStartEpochDay, coveredEndEpochDay, checkedAtMs, timeZoneId, nowMs,
-        readSessions = { V2RuntimeReader.allSessions(context, nowMs) },
-        readCoverage = { read(context) },
-        writeCoverage = { write(context, it) }
-    )
+    ): PayrollCoverageAttestationV2? {
+        val context = SalaryAccountScope.bindContext(context)
+        if (!SalaryAccountScope.available(context)) return null
+        val result = saveConfirmed(
+            employerId, coveredStartEpochDay, coveredEndEpochDay, checkedAtMs, timeZoneId, nowMs,
+            readSessions = { V2RuntimeReader.allSessions(context, nowMs) },
+            readCoverage = { read(context) },
+            writeCoverage = { write(context, it) }
+        )
+        return result.takeIf { SalaryAccountScope.available(context) }
+    }
 
     /** The same runtime transaction protects both restoration and explicit confirmations. */
     internal fun saveConfirmed(
@@ -98,13 +103,20 @@ object V2PayrollCoverageStore {
     }
 
     fun read(context: Context): PayrollCoverageReadResultV2 {
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (!prefs.contains(KEY_ITEMS)) {
-            return PayrollCoverageReadResultV2(emptyList(), true, emptyList())
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): PayrollCoverageReadResultV2 = PayrollCoverageReadResultV2(attestations = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): PayrollCoverageReadResultV2 {
+            val prefs = SalaryAccountScope.preferences(context, PREFS)
+            if (!prefs.contains(KEY_ITEMS)) {
+                return PayrollCoverageReadResultV2(emptyList(), true, emptyList())
+            }
+            val raw = runCatching { prefs.getString(KEY_ITEMS, null) }.getOrNull()
+                ?: return corrupt()
+            return decode(raw)
         }
-        val raw = runCatching { prefs.getString(KEY_ITEMS, null) }.getOrNull()
-            ?: return corrupt()
-        return decode(raw)
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     fun resolve(
@@ -116,40 +128,47 @@ object V2PayrollCoverageStore {
         timeZoneId: String,
         nowMs: Long = System.currentTimeMillis()
     ): PayrollCoverageResolutionV2 {
-        if (!sessionsRead.reliable) {
-            return PayrollCoverageResolutionV2(
-                reliable = false,
-                exhaustive = false,
-                coveredStartEpochDay = requestedStartEpochDay,
-                coveredEndEpochDay = requestedEndEpochDay,
-                checkedAtMs = nowMs.coerceAtLeast(0L),
-                sourceId = "",
-                warnings = sessionsRead.warnings.ifEmpty {
-                    listOf(V2RuntimeReader.UNRELIABLE_MESSAGE)
-                }
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): PayrollCoverageResolutionV2 = PayrollCoverageResolutionV2(reliable = false, exhaustive = false, coveredStartEpochDay = 0L, coveredEndEpochDay = 0L, checkedAtMs = 0L, sourceId = "", warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): PayrollCoverageResolutionV2 {
+            if (!sessionsRead.reliable) {
+                return PayrollCoverageResolutionV2(
+                    reliable = false,
+                    exhaustive = false,
+                    coveredStartEpochDay = requestedStartEpochDay,
+                    coveredEndEpochDay = requestedEndEpochDay,
+                    checkedAtMs = nowMs.coerceAtLeast(0L),
+                    sourceId = "",
+                    warnings = sessionsRead.warnings.ifEmpty {
+                        listOf(V2RuntimeReader.UNRELIABLE_MESSAGE)
+                    }
+                )
+            }
+            val stored = read(context)
+            if (!stored.reliable) {
+                return PayrollCoverageResolutionV2(
+                    reliable = false,
+                    exhaustive = false,
+                    coveredStartEpochDay = requestedStartEpochDay,
+                    coveredEndEpochDay = requestedEndEpochDay,
+                    checkedAtMs = nowMs.coerceAtLeast(0L),
+                    sourceId = "",
+                    warnings = stored.warnings
+                )
+            }
+            return resolve(
+                attestations = stored.attestations,
+                sessions = sessionsRead.sessions,
+                employerId = employerId,
+                requestedStartEpochDay = requestedStartEpochDay,
+                requestedEndEpochDay = requestedEndEpochDay,
+                timeZoneId = timeZoneId,
+                nowMs = nowMs
             )
         }
-        val stored = read(context)
-        if (!stored.reliable) {
-            return PayrollCoverageResolutionV2(
-                reliable = false,
-                exhaustive = false,
-                coveredStartEpochDay = requestedStartEpochDay,
-                coveredEndEpochDay = requestedEndEpochDay,
-                checkedAtMs = nowMs.coerceAtLeast(0L),
-                sourceId = "",
-                warnings = stored.warnings
-            )
-        }
-        return resolve(
-            attestations = stored.attestations,
-            sessions = sessionsRead.sessions,
-            employerId = employerId,
-            requestedStartEpochDay = requestedStartEpochDay,
-            requestedEndEpochDay = requestedEndEpochDay,
-            timeZoneId = timeZoneId,
-            nowMs = nowMs
-        )
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     internal fun resolve(
@@ -230,6 +249,7 @@ object V2PayrollCoverageStore {
         timeZoneId: String,
         nowMs: Long = System.currentTimeMillis()
     ): SegmentedPayrollSessionSourceV2 {
+        val context = SalaryAccountScope.bindContext(context)
         val runtime = V2RuntimeReader.allSessions(context, nowMs)
         val coverage = resolve(
             context = context,
@@ -306,8 +326,9 @@ object V2PayrollCoverageStore {
     }
 
     private fun write(context: Context, items: List<PayrollCoverageAttestationV2>): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val raw = encode(items) ?: return false
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = SalaryAccountScope.preferences(context, PREFS)
         if (!prefs.edit().putString(KEY_ITEMS, raw).commit()) return false
         return read(context) == PayrollCoverageReadResultV2(
             items.sortedWith(compareBy({ it.employerId }, { it.coveredStartEpochDay },

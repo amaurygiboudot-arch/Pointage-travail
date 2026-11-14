@@ -18,6 +18,8 @@ class BackupSecurityPolicyTest {
             "firebase_device_registry",
             "horatrack_v2_backup",
             "horatrack_v2_gps_state",
+            "horatrack_v2_gps_state_account_" + "a".repeat(64),
+            "horatrack_v2_gps_state_auth_unavailable",
             "horatrack_v2_test_policy",
             "icon_switch_diagnostics",
             "location_onboarding",

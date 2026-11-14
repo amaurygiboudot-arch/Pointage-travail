@@ -1,12 +1,14 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.app.Activity
 import android.content.Context
 
 /**
  * Évite que la détection intelligente devienne intrusive.
  * Une proposition de lieu de travail ne peut être affichée que deux fois maximum
- * pour une même zone candidate. Après la deuxième tentative, HoraTrack n'insiste plus.
+ * pour une même zone candidate. Après la deuxième tentative, AGKGMG n'insiste plus.
  */
 object WorkplaceProposalLimiter {
     private const val PREFS = "smart_setup"
@@ -14,7 +16,7 @@ object WorkplaceProposalLimiter {
 
     fun showIfAllowed(activity: Activity) {
         if (activity.isFinishing || activity.isDestroyed) return
-        val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(activity, PREFS, Context.MODE_PRIVATE)
         val zoneId = prefs.getString("pending_workplace_zone", "").orEmpty()
         if (zoneId.isBlank()) return
 

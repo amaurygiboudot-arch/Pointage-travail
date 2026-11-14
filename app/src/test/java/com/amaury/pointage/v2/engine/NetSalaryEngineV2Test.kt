@@ -62,7 +62,8 @@ class NetSalaryEngineV2Test {
         assertNotNull(base.netTaxable)
         assertNotNull(enriched.netTaxable)
         assertEquals(55.0,enriched.netTaxable!!-base.netTaxable!!,0.001)
-        assertEquals(enriched.netTaxable!!*0.05,enriched.incomeTax!!,0.001)
+        // RNF 2105,22 × 5 % = 105,261 : le PAS individuel est arrondi au centime.
+        assertEquals(105.26,enriched.incomeTax!!,1e-9)
     }
 
     @Test

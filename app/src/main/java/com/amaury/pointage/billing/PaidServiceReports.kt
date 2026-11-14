@@ -1,5 +1,7 @@
 package com.amaury.pointage.billing
 
+import android.content.Context
+import com.amaury.pointage.SalaryAccountUi
 import android.app.Activity
 import android.app.AlertDialog
 import android.graphics.Color
@@ -33,49 +35,52 @@ object PaidServiceReports {
     private val worker = Executors.newSingleThreadExecutor()
     private fun uid() = runCatching { FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
 
-    fun prepare(activity: Activity, productId: String, onPrepared: (Prepared) -> Unit) {
+    fun prepare(activity: Activity, productId: String, accountLease: SalaryAccountScope.Lease = SalaryAccountScope.lease(activity), onPrepared: (Prepared) -> Unit) {
         val user = uid() ?: return message(activity, "Connecte ton compte avant de préparer un service.")
-        val companies = SalaryCompanyStore.readConfirmed(activity)
+        val sourceContext = SalaryAccountScope.bindContext(activity, accountLease)
+        if (!active(activity, user, sourceContext)) return
+        val companies = SalaryCompanyStore.readConfirmed(sourceContext)
         if (!companies.reliable || companies.companies.isEmpty()) { message(activity, "Confirme d'abord une entreprise et ses bulletins."); return }
-        AlertDialog.Builder(activity).setTitle("Entreprise du rapport")
+        SalaryAccountUi.dialog(sourceContext).setTitle("Entreprise du rapport")
             .setItems(companies.companies.map { it.name }.toTypedArray()) { _, selected ->
-                if (uid() != user) return@setItems
-                selectPeriod(activity, user, productId, companies.companies[selected], onPrepared)
+                if (!active(activity, user, sourceContext)) return@setItems
+                selectPeriod(activity, user, sourceContext, productId, companies.companies[selected], onPrepared)
             }.setNegativeButton("Annuler", null).show()
     }
 
-    private fun selectPeriod(activity: Activity, user: String, product: String, company: SalaryCompanyStore.Company, ready: (Prepared) -> Unit) {
-        val read = V2PayslipStore.readResult(activity)
+    private fun selectPeriod(activity: Activity, user: String, sourceContext: Context, product: String, company: SalaryCompanyStore.Company, ready: (Prepared) -> Unit) {
+        if (!active(activity, user, sourceContext)) return
+        val read = V2PayslipStore.readResult(sourceContext)
         if (!read.reliable) { message(activity, "Stockage des bulletins à vérifier : aucun achat proposé."); return }
         val records = read.records.filter { it.companyId == company.id && it.confirmedByUser && it.gross != null }
         if (records.isEmpty()) { message(activity, "Importe et confirme un bulletin avec son brut dans cette entreprise."); return }
         if (product == "horatrack_annual_review") {
             val years = records.map { it.year }.distinct().sortedDescending()
-            AlertDialog.Builder(activity).setTitle("Année du bilan")
+            SalaryAccountUi.dialog(sourceContext).setTitle("Année du bilan")
                 .setItems(years.map(Int::toString).toTypedArray()) { _, index ->
                     val selected = records.filter { it.year == years[index] }
-                    selectAnnualReferences(activity, user, product, company, selected, ready)
+                    selectAnnualReferences(activity, user, sourceContext, product, company, selected, ready)
                 }.setNegativeButton("Annuler", null).show()
         } else {
             val sorted = records.sortedWith(compareByDescending<V2PayslipStore.Record> { it.year }.thenByDescending { it.month })
-            AlertDialog.Builder(activity).setTitle("Bulletin de référence")
+            SalaryAccountUi.dialog(sourceContext).setTitle("Bulletin de référence")
                 .setItems(sorted.map(::recordLabel).toTypedArray()) { _, index ->
                     val selected = sorted[index]
-                    load(activity, user, product, company, listOf(selected), ready)
+                    load(activity, user, sourceContext, product, company, listOf(selected), ready)
                 }.setNegativeButton("Annuler", null).show()
         }
     }
 
-    private fun selectAnnualReferences(activity: Activity, user: String, product: String, company: SalaryCompanyStore.Company,
+    private fun selectAnnualReferences(activity: Activity, user: String, sourceContext: Context, product: String, company: SalaryCompanyStore.Company,
                                        candidates: List<V2PayslipStore.Record>, ready: (Prepared) -> Unit) {
         val groups = candidates.groupBy { it.month }.toSortedMap().values.toList()
         val chosen = mutableListOf<V2PayslipStore.Record>()
         fun next(index: Int) {
-            if (!active(activity, user)) return
-            if (index == groups.size) { load(activity, user, product, company, chosen.toList(), ready); return }
+            if (!active(activity, user, sourceContext)) return
+            if (index == groups.size) { load(activity, user, sourceContext, product, company, chosen.toList(), ready); return }
             val records = groups[index].sortedByDescending { it.importedAtMs }
             if (records.size == 1) { chosen += records.single(); next(index + 1); return }
-            AlertDialog.Builder(activity).setTitle("Choisir la référence %02d/%d".format(records.first().month + 1, records.first().year))
+            SalaryAccountUi.dialog(sourceContext).setTitle("Choisir la référence %02d/%d".format(records.first().month + 1, records.first().year))
                 .setItems(records.map(::recordLabel).toTypedArray()) { _, selected -> chosen += records[selected]; next(index + 1) }
                 .setNegativeButton("Annuler", null).show()
         }
@@ -88,23 +93,23 @@ object PaidServiceReports {
         return "%02d/%d — importé le %s — réf. %s".format(record.month + 1, record.year, imported, record.id.take(8))
     }
 
-    private fun load(activity: Activity, user: String, product: String, company: SalaryCompanyStore.Company,
+    private fun load(activity: Activity, user: String, sourceContext: Context, product: String, company: SalaryCompanyStore.Company,
                      records: List<V2PayslipStore.Record>, ready: (Prepared) -> Unit) {
         message(activity, "Vérification des pièces et des calculs, avant tout paiement…")
         worker.execute {
-            val result = runCatching {
-                check(uid() == user) { "Le compte connecté a changé." }
-                val companies = SalaryCompanyStore.readConfirmed(activity)
+            val result = runCatching { SalaryAccountScope.withLease(SalaryAccountScope.lease(sourceContext)) {
+                check(active(activity, user, sourceContext)) { "Le compte connecté a changé." }
+                val companies = SalaryCompanyStore.readConfirmed(sourceContext)
                 check(companies.reliable && companies.companies.singleOrNull { it.id == company.id } == company) { "Entreprise à confirmer de nouveau." }
-                val currentRecords = V2PayslipStore.readResult(activity)
+                val currentRecords = V2PayslipStore.readResult(sourceContext)
                 check(currentRecords.reliable && records.all { record -> currentRecords.records.singleOrNull { it.id == record.id } == record }) { "Le bulletin a changé : sélection à refaire." }
                 check(records.map { it.year to it.month }.distinct().size == records.size) { "Des mois ont plusieurs bulletins : référence ambiguë." }
-                val observed = PayslipObservedValuesStoreV2.readResult(activity)
+                val observed = PayslipObservedValuesStoreV2.readResult(sourceContext)
                 check(observed.reliable) { "Montants observés illisibles." }
                 val annual = product == "horatrack_annual_review"
                 val omitted = mutableListOf<String>()
                 val months = records.sortedBy { it.month }.mapNotNull { record ->
-                    val month = runCatching { evidence(activity, company, record, observed, product == "horatrack_analysis") }
+                    val month = runCatching { evidence(sourceContext, company, record, observed, product == "horatrack_analysis") }
                     if (month.isFailure && annual) {
                         omitted += "%02d/%d : %s".format(record.month + 1, record.year, month.exceptionOrNull()?.message ?: "preuves insuffisantes")
                         null
@@ -113,19 +118,20 @@ object PaidServiceReports {
                 val input = PaidServiceReportBuilder.Input(product, company.id, company.name, company.siret, company.idcc,
                     records.first().year, months.map { if (annual) it.copy(warnings = it.warnings + omitted) else it })
                 if (product == "horatrack_claim_dossier") input.copy(claimLetter = PaidServiceReportBuilder.claimTemplate(company.name, months.single())) else input
-            }
+            } }
             activity.runOnUiThread {
-                if (!active(activity, user)) return@runOnUiThread
+                if (!active(activity, user, sourceContext)) return@runOnUiThread
                 result.onSuccess { input ->
-                    if (product == "horatrack_claim_dossier") editLetter(activity, user, input, ready)
-                    else preflight(activity, user, input, ready)
+                    if (product == "horatrack_claim_dossier") editLetter(activity, user, sourceContext, input, ready)
+                    else preflight(activity, user, sourceContext, input, ready)
                 }.onFailure { message(activity, "Service non préparé : ${it.message ?: "données insuffisantes"}. Aucun achat proposé.") }
             }
         }
     }
 
-    private fun evidence(activity: Activity, company: SalaryCompanyStore.Company, record: V2PayslipStore.Record,
+    private fun evidence(activity: Context, company: SalaryCompanyStore.Company, record: V2PayslipStore.Record,
                          observed: PayslipObservedValuesStoreV2.ReadResult, analysis: Boolean): PaidServiceReportBuilder.Month {
+        check(SalaryAccountUi.current(activity)) { SalaryAccountScope.AUTH_WARNING }
         check(record.confirmedByUser && record.gross != null && record.companyId == company.id)
         check(YearMonth.of(record.year, record.month + 1) <= YearMonth.now()) { "Bulletin futur : période à corriger." }
         val source = original(activity, record)
@@ -183,54 +189,58 @@ object PaidServiceReports {
         check(comparable.intersect(expected.keys).intersect(values.keys).size >= 3 && "Brut" in expected) {
             "Moins de trois familles rapprochables dont le brut : détail insuffisant pour ce service."
         }
-        refs += "Montants attendus issus du moteur canonique HoraTrack pour cette entreprise et cette période ; aucune reconstitution indépendante ni taux supposé."
+        refs += "Montants attendus issus du moteur canonique AGKGMG pour cette entreprise et cette période ; aucune reconstitution indépendante ni taux supposé."
         return PaidServiceReportBuilder.Month(record.year, record.month, record.id, source.first, source.second,
             dateFormat.format(Instant.ofEpochMilli(record.importedAtMs)), values, expected, comparable, chronology, refs, warnings.distinct(), true)
     }
 
-    private fun editLetter(activity: Activity, user: String, input: PaidServiceReportBuilder.Input, ready: (Prepared) -> Unit) {
-        val editor = EditText(activity).apply { setText(input.claimLetter); minLines = 12; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE }
-        AlertDialog.Builder(activity).setTitle("Modifier le projet de courrier")
+    private fun editLetter(activity: Activity, user: String, sourceContext: Context, input: PaidServiceReportBuilder.Input, ready: (Prepared) -> Unit) {
+        if (!active(activity, user, sourceContext)) return
+        val editor = EditText(sourceContext).apply { setText(input.claimLetter); minLines = 12; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE }
+        SalaryAccountUi.dialog(sourceContext).setTitle("Modifier le projet de courrier")
             .setMessage("Complète le nom, les dates et ta demande. Le PDF contient les pointages détaillés et la liste des pièces à joindre, pas les fichiers originaux. Aucun envoi automatique.")
             .setView(ScrollView(activity).apply { addView(editor) })
             .setPositiveButton("Valider le texte") { _, _ ->
                 val text = editor.text.toString().trim()
                 if (text.isBlank() || text.length > 20_000) message(activity, "Courrier vide ou trop long : préparation annulée.")
-                else preflight(activity, user, input.copy(claimLetter = text), ready)
+                else preflight(activity, user, sourceContext, input.copy(claimLetter = text), ready)
             }.setNegativeButton("Annuler", null).show()
     }
 
-    private fun preflight(activity: Activity, user: String, input: PaidServiceReportBuilder.Input, ready: (Prepared) -> Unit) {
+    private fun preflight(activity: Activity, user: String, sourceContext: Context, input: PaidServiceReportBuilder.Input, ready: (Prepared) -> Unit) {
+        if (!active(activity, user, sourceContext)) return
         val report = runCatching { PaidServiceReportBuilder.build(input) }.getOrElse {
             message(activity, "Rapport insuffisant : ${it.message}. Aucun achat proposé."); return
         }
-        AlertDialog.Builder(activity).setTitle("Portée du service avant paiement")
+        SalaryAccountUi.dialog(sourceContext).setTitle("Portée du service avant paiement")
             .setMessage("${report.scope}\n\nContrôle des montants confirmés uniquement, pas chaque ligne, base ou taux du bulletin. Écarts face à une estimation, sans validation juridique. Rapport PDF inclus ; les originaux ne sont pas joints automatiquement.\n\nLa préparation reste privée : aucun aperçu PDF ni export avant l'achat vérifié. Les conditions et le prix Google Play seront présentés ensuite.")
             .setPositiveButton("Continuer") { _, _ ->
                 worker.execute {
                     val prepared = runCatching {
-                        check(uid() == user)
+                        check(active(activity, user, sourceContext))
                         val folder = File(activity.filesDir, "paid_service_prepared/${BillingContract.accountId(user)}").apply { check(mkdirs() || isDirectory) }
                         val file = File(folder, "${report.inputSha256}.pdf")
                         if (!file.exists()) {
                             val temp = File.createTempFile("report_", ".pdf", folder)
                             try { writePdf(report, temp); check(temp.renameTo(file)) } finally { temp.delete() }
                         }
+                        check(active(activity, user, sourceContext))
                         check(file.isFile && file.length() > 0)
                         val companyLabel = input.companyName.replace(Regex("[^A-Za-z0-9_-]"), "_").take(32).ifBlank { "entreprise" }
                         val periodLabel = if (input.productId == "horatrack_annual_review") input.year.toString()
                             else "%04d_%02d".format(Locale.FRANCE, input.year, input.months.single().month + 1)
-                        Prepared(file, "HoraTrack_${input.productId.removePrefix("horatrack_")}_${companyLabel}_$periodLabel.pdf", report.inputSha256,
+                        Prepared(file, "AGKGMG_${input.productId.removePrefix("horatrack_")}_${companyLabel}_$periodLabel.pdf", report.inputSha256,
                             report.inputSha256, report.scope)
                     }
                     activity.runOnUiThread {
-                        if (active(activity, user)) prepared.onSuccess(ready).onFailure { message(activity, "Préparation privée impossible. Aucun achat proposé.") }
+                        if (active(activity, user, sourceContext)) prepared.onSuccess(ready).onFailure { message(activity, "Préparation privée impossible. Aucun achat proposé.") }
                     }
                 }
             }.setNegativeButton("Annuler", null).show()
     }
 
-    private fun original(activity: Activity, record: V2PayslipStore.Record): Pair<String, String> {
+    private fun original(activity: Context, record: V2PayslipStore.Record): Pair<String, String> {
+        check(SalaryAccountUi.current(activity)) { SalaryAccountScope.AUTH_WARNING }
         val uri = Uri.parse(record.sourceUri)
         check(uri.scheme in setOf("content", "file")) { "Pièce originale non locale." }
         val digest = MessageDigest.getInstance("SHA-256")
@@ -244,11 +254,12 @@ object PaidServiceReports {
             check(pdf || jpg || png || webp) { "Pièce originale non reconnue comme PDF ou image de bulletin." }
             digest.update(prefix, 0, count)
             var total = count.toLong(); val buffer = ByteArray(8192)
-            while (true) { val n = stream.read(buffer); if (n < 0) break; total += n; check(total <= 50L * 1024 * 1024) { "Pièce trop volumineuse." }; digest.update(buffer, 0, n) }
+            while (true) { check(SalaryAccountUi.current(activity)) { SalaryAccountScope.AUTH_WARNING }; val n = stream.read(buffer); if (n < 0) break; total += n; check(total <= 50L * 1024 * 1024) { "Pièce trop volumineuse." }; digest.update(buffer, 0, n) }
         } ?: error("Pièce originale inaccessible : importe-la de nouveau.")
         val name = runCatching { activity.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
             if (cursor.moveToFirst()) cursor.getString(0) else null
         } }.getOrNull().orEmpty().ifBlank { "Bulletin %02d/%d".format(record.month + 1, record.year) }.substringAfterLast('/').replace(Regex("[\\r\\n\\t]"), " ").take(160)
+        check(SalaryAccountUi.current(activity)) { SalaryAccountScope.AUTH_WARNING }
         return name to digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
     }
 
@@ -281,6 +292,6 @@ object PaidServiceReports {
         } finally { document.close() }
     }
     private fun duration(ms: Long) = "%dh%02d".format(Locale.FRANCE, ms / 3_600_000, ms / 60_000 % 60)
-    private fun active(activity: Activity, user: String) = !activity.isFinishing && !activity.isDestroyed && uid() == user
+    private fun active(activity: Activity, user: String, sourceContext: Context) = !activity.isFinishing && !activity.isDestroyed && uid() == user && SalaryAccountUi.current(sourceContext)
     private fun message(activity: Activity, text: String) { if (!activity.isFinishing && !activity.isDestroyed) Toast.makeText(activity, text, Toast.LENGTH_LONG).show() }
 }

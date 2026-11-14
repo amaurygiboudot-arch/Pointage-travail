@@ -224,6 +224,52 @@ final class SalarySegmentedWorkedVariableGrossSourceV2Tests: XCTestCase {
         )
     }
 
+    func testConfirmedScheduleFeedsCanonicalComplementaryGross() throws {
+        let contracts = try XCTUnwrap(
+            contractResolution(
+                start: 4,
+                end: 10,
+                snapshots: [
+                    contract("c1", from: 4, to: nil, rate: 12, type: .partTime, weekly: 20 * 60)
+                ]
+            )
+        )
+        let rules = coverage(
+            start: 4,
+            end: 10,
+            segments: [
+                ruleSegment(
+                    "r1",
+                    start: 4,
+                    end: 10,
+                    weeklyRegularMinutes: 20 * 60,
+                    complementarySchedule: ConfirmedComplementaryScheduleV2(sourceId: "rule-test", contractualMinutes: 1200, effectiveFromEpochDay: 4, effectiveToEpochDay: 10, tiers: [OvertimeTierV2(fromMinutes: 1200, toMinutes: 1320, multiplier: 1.2)])
+                )
+            ]
+        )
+        let slice = SalaryPayrollCalculationTimelineV2.align(
+            contracts: contracts,
+            rules: rules
+        ).slices[0]
+
+        let result = SalarySegmentedWorkedVariableGrossSourceV2.calculate(
+            contracts: contracts,
+            rules: rules,
+            sliceEvidence: [
+                evidence(
+                    slice: slice,
+                    weekYear: 1970,
+                    weekOfYear: 2,
+                    paidMinutes: 22 * 60
+                )
+            ]
+        )
+
+        XCTAssertTrue(result.reliable)
+        XCTAssertEqual(result.breakdowns[0].complementaryGross, 28.8, accuracy: 0.001)
+        XCTAssertEqual(result.breakdowns[0].complementaryMinutes, 120)
+    }
+
     func testUnreliableFullWeekContextNeverBecomesZero() throws {
         let contracts = try XCTUnwrap(
             contractResolution(
@@ -606,7 +652,8 @@ final class SalarySegmentedWorkedVariableGrossSourceV2Tests: XCTestCase {
         _ version: String,
         start: Int64,
         end: Int64,
-        weeklyRegularMinutes: Int = 35 * 60
+        weeklyRegularMinutes: Int = 35 * 60,
+        complementarySchedule: ConfirmedComplementaryScheduleV2? = nil
     ) -> SalaryConventionCoverageSegmentV2 {
         SalaryConventionCoverageSegmentV2(
             startEpochDay: start,
@@ -630,7 +677,8 @@ final class SalarySegmentedWorkedVariableGrossSourceV2Tests: XCTestCase {
                             toMinutes: nil,
                             multiplier: 1.50
                         )
-                    ]
+                    ],
+                    complementarySchedule: complementarySchedule
                 ),
                 checkedAtMs: 1,
                 note: nil

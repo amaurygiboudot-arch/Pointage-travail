@@ -20,7 +20,7 @@ object EmployerGeneralReductionContextV2 {
         val standardCommonLawCaseConfirmed: Boolean,
         /**
          * true uniquement si aucune autre réduction/exonération patronale ne doit être agrégée
-         * au total mensuel utilisé par HoraTrack. Ce fait évite d'assimiler la seule RGDU au
+         * au total mensuel utilisé par AGKGMG. Ce fait évite d'assimiler la seule RGDU au
          * total des réductions lorsqu'un autre dispositif pourrait s'ajouter.
          */
         val noOtherEmployerReductionConfirmed: Boolean,
@@ -28,7 +28,7 @@ object EmployerGeneralReductionContextV2 {
         val source: String,
         /**
          * true uniquement si toutes les heures rémunérées du mois sont couvertes par les faits
-         * HoraTrack. null reste « à confirmer » et interdit notamment d'inventer 0 heure
+         * AGKGMG. null reste « à confirmer » et interdit notamment d'inventer 0 heure
          * supplémentaire/complémentaire à partir d'une liste vide.
          */
         val paidHoursComplete: Boolean? = null

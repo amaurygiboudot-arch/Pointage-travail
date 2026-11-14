@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.SalaryAccountScope
+
 import android.Manifest
 import android.app.AlarmManager
 import android.app.Notification
@@ -19,6 +21,7 @@ import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.RuntimePauseIntegrityV2
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.V2RuntimeAccountScope
 import com.amaury.pointage.v2.model.EventSourceV2
 import java.util.Calendar
 import java.util.Locale
@@ -34,8 +37,11 @@ object CompanyPauseAlarmManager {
     private const val CHANNEL_ID = "pause_reminders"
     private const val STATE_PREFS = "horatrack_v2_company_pause"
     private const val STATE_RUNTIME_START = "runtimeStartMs"
+    private const val EXTRA_ACCOUNT = "pauseAccount"
+    private const val EXTRA_MONITORING_EPOCH = "pauseMonitoringEpoch"
 
-    fun scheduleAll(context: Context) {
+    fun scheduleAll(sourceContext: Context) {
+        val context = SalaryAccountScope.bindContext(sourceContext)
         ensureNotificationChannel(context)
         cancelAll(context)
         if (HoraTrackV2.ENABLED) scheduleAllV2(context) else scheduleAllLegacy(context)
@@ -136,6 +142,8 @@ object CompanyPauseAlarmManager {
                 .setPackage(context.packageName)
                 .setAction(ACTION)
                 .setData(identity)
+                .putExtra(EXTRA_ACCOUNT, SalaryAccountScope.lease(context).scope)
+                .putExtra(EXTRA_MONITORING_EPOCH, V2RuntimeAccountScope.monitoringEpoch(context))
                 .putExtra(EXTRA_COMPANY_ID, companyId)
                 .putExtra(EXTRA_PAUSE, pauseIndex)
                 .putExtra(EXTRA_EVENT, event),
@@ -179,6 +187,13 @@ object CompanyPauseAlarmManager {
     }
 
     internal fun company(intent: Intent) = intent.getIntExtra(EXTRA_COMPANY, 0)
+    internal fun ownsDelivery(context: Context, intent: Intent): Boolean {
+        val owner = SalaryAccountScope.lease(context)
+        if (!SalaryAccountScope.isCurrent(owner) || !SalaryAccountScope.available(context)) return false
+        val epoch = intent.getStringExtra(EXTRA_MONITORING_EPOCH) ?: return false
+        return intent.getStringExtra(EXTRA_ACCOUNT) == owner.scope &&
+            epoch == V2RuntimeAccountScope.monitoringEpoch(context) && SalaryAccountScope.isCurrent(owner)
+    }
     internal fun companyId(context: Context, intent: Intent): String? {
         val stable = intent.getStringExtra(EXTRA_COMPANY_ID)?.trim().orEmpty()
         if (stable.isNotBlank()) return stable
@@ -215,7 +230,7 @@ object CompanyPauseAlarmManager {
         runtimeStartMs: Long? = null
     ): Boolean {
         if (active && (runtimeStartMs == null || runtimeStartMs <= 0L)) return false
-        val editor = context.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE).edit()
+        val editor = SalaryAccountScope.preferences(context, STATE_PREFS).edit()
             .putBoolean("active", active)
             .putString("companyId", companyId)
             .remove("company")
@@ -232,7 +247,7 @@ object CompanyPauseAlarmManager {
     }
 
     internal fun markAutomaticPause(context: Context, company: Int, pauseIndex: Int, active: Boolean) {
-        context.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE).edit()
+        SalaryAccountScope.preferences(context, STATE_PREFS).edit()
             .putBoolean("active", active)
             .putInt("company", company)
             .remove("companyId")
@@ -243,7 +258,7 @@ object CompanyPauseAlarmManager {
     }
 
     internal fun isAutomaticPause(context: Context, companyId: String, pauseIndex: Int): Boolean {
-        val prefs = context.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE)
+        val prefs = SalaryAccountScope.preferences(context, STATE_PREFS)
         return prefs.getBoolean("active", false) &&
             prefs.getString("companyId", null) == companyId &&
             prefs.getInt("pause", 0) == pauseIndex
@@ -251,19 +266,19 @@ object CompanyPauseAlarmManager {
 
     internal fun automaticPausePaid(context: Context, companyId: String, pauseIndex: Int): Boolean? {
         if (!isAutomaticPause(context, companyId, pauseIndex)) return null
-        val prefs = context.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE)
+        val prefs = SalaryAccountScope.preferences(context, STATE_PREFS)
         return if (prefs.contains("paid")) prefs.getBoolean("paid", false) else null
     }
 
     internal fun automaticPauseStartMs(context: Context, companyId: String, pauseIndex: Int): Long? {
         if (!isAutomaticPause(context, companyId, pauseIndex)) return null
-        val prefs = context.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE)
+        val prefs = SalaryAccountScope.preferences(context, STATE_PREFS)
         if (!prefs.contains(STATE_RUNTIME_START)) return null
         return runCatching { prefs.getLong(STATE_RUNTIME_START, 0L) }.getOrNull()?.takeIf { it > 0L }
     }
 
     internal fun isAutomaticPause(context: Context, company: Int, pauseIndex: Int): Boolean {
-        val prefs = context.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE)
+        val prefs = SalaryAccountScope.preferences(context, STATE_PREFS)
         return prefs.getBoolean("active", false) &&
             prefs.getInt("company", 0) == company &&
             prefs.getInt("pause", 0) == pauseIndex
@@ -302,7 +317,7 @@ object CompanyPauseAlarmManager {
     internal fun showNotification(context: Context, company: Int, pauseIndex: Int) {
         ensureNotificationChannel(context)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        val salaryPrefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
+        val salaryPrefs = SalaryAccountScope.preferences(context, "salary_settings")
         val prefix = if (company == 2) "company2_" else "company_"
         val companyName = salaryPrefs.getString(prefix + "name", "").orEmpty().ifBlank { if (company == 1) "Entreprise 1" else "Entreprise 2" }
         val pause = CompanyBasePauseSettings.pause(context, company, pauseIndex)
@@ -342,7 +357,11 @@ object CompanyPauseAlarmManager {
 class CompanyPauseAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != CompanyPauseAlarmManager.ACTION) return
-        if (HoraTrackV2.ENABLED) handleV2(context, intent) else handleLegacy(context, intent)
+        val ownerContext = SalaryAccountScope.bindContext(context)
+        if (HoraTrackV2.ENABLED) {
+            if (!CompanyPauseAlarmManager.ownsDelivery(ownerContext, intent)) return
+            handleV2(ownerContext, intent)
+        } else handleLegacy(ownerContext, intent)
     }
 
     private fun handleV2(context: Context, intent: Intent) {

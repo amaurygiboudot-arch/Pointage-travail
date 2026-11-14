@@ -4,6 +4,27 @@ import XCTest
 #endif
 
 final class EmployerHealthFamilyV2Tests: XCTestCase {
+    func testUnrepresentableFiniteGrossAndSumAreNeverComplete() {
+        for gross in [Double.greatestFiniteMagnitude, 60_000_000_000_000.0] {
+            let result = EmployerHealthFamilyV2.calculate(grossSocial: gross, healthRate: 1, familyRate: 1)
+            XCTAssertFalse(result.complete)
+            XCTAssertNil(result.healthAmount)
+            XCTAssertNil(result.familyAmount)
+            XCTAssertNil(result.totalEmployerAmount)
+        }
+    }
+
+    func testEachLineUsesDecimalHalfUpBeforeCheckedTotal() {
+        let result = EmployerHealthFamilyV2.calculate(grossSocial: 1.005, healthRate: 1, familyRate: 1)
+        XCTAssertTrue(result.complete)
+        XCTAssertEqual(result.healthAmount, 1.01)
+        XCTAssertEqual(result.familyAmount, 1.01)
+        XCTAssertEqual(result.totalEmployerAmount, 2.02)
+        let zero = EmployerHealthFamilyV2.calculate(grossSocial: 2500, healthRate: 0, familyRate: 0)
+        XCTAssertTrue(zero.complete)
+        XCTAssertEqual(zero.totalEmployerAmount, 0)
+    }
+
     func testConfirmedRatesCalculateEmployerAmounts() {
         let result = EmployerHealthFamilyV2.calculate(
             grossSocial: 2_500,

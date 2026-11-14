@@ -1,6 +1,9 @@
 package com.amaury.pointage.v2.engine
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.content.Context
+import com.amaury.pointage.v2.SalaryAccountScope
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.CompanyApprenticeshipTaxStoreV2
 import com.amaury.pointage.v2.CompanyBenefitInKindStoreV2
@@ -64,6 +67,8 @@ object CompanyPayrollOverridesV2 {
         val alsaceMoselleLocalRegime:Boolean?=null,
         /** Taux AT/MP employeur confirmé, stocké sous forme décimale (ex. 2,08 % = 0,0208). */
         val atMpEmployerRate:Double?=null,
+        /** Provenance du taux AT/MP résolu pour cette entreprise et ce mois. */
+        val atMpEmployerSource:String?=null,
         /** Valeur brute des avantages en nature applicables à la période. */
         val benefitsInKindGross:Double=0.0,
         /** Taux de versement mobilité employeur applicable à la période ; 0 = non applicable confirmé. */
@@ -152,6 +157,7 @@ object CompanyPayrollOverridesV2 {
         referenceDate:LocalDate=selectedPayrollReferenceDate(context),
         ignoreAbsencesForTheoreticalBase:Boolean=false
     ):Snapshot {
+        val context = SalaryAccountScope.bindContext(context)
         val id=companyId.trim()
         if(id.isBlank()){
             val stored=SalaryCompanyStore.readConfirmed(context)
@@ -368,6 +374,7 @@ object CompanyPayrollOverridesV2 {
             warnings=warnings,
             alsaceMoselleLocalRegime=alsaceMoselleLocalRegime,
             atMpEmployerRate=atMpEmployerRate,
+            atMpEmployerSource=atMpSource.source,
             benefitsInKindGross=benefitsInKind.totalGross,
             benefitsInKindReliable=benefitsInKind.reliable,
             employerMobilityRate=mobility.rate,
@@ -476,7 +483,7 @@ object CompanyPayrollOverridesV2 {
 
     /** Utilise la fin du mois actuellement sélectionné dans l'espace bulletin. */
     private fun selectedPayrollReferenceDate(context:Context):LocalDate {
-        val ms=context.getSharedPreferences("navigation_state",Context.MODE_PRIVATE).getLong("report_month_ms",-1L)
+        val ms=RestoreGuardedPreferences.open(context, "navigation_state", Context.MODE_PRIVATE).getLong("report_month_ms",-1L)
         val selected=if(ms>0L) Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDate() else LocalDate.now()
         return selected.withDayOfMonth(selected.lengthOfMonth())
     }

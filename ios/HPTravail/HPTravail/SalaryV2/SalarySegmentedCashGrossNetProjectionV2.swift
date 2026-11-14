@@ -10,6 +10,7 @@ struct SalarySegmentedNetProjectionContextV2 {
     let companyDeductions: CompanyEmployeeDeductionResolverV2.Snapshot
     let period: CompanyEmployeeDeductionResolverV2.YearMonth
     let incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot?
+    var companyId: String? = nil
 }
 
 struct SalarySegmentedCashGrossNetProjectionResultV2 {
@@ -69,7 +70,8 @@ enum SalarySegmentedCashGrossNetProjectionV2 {
                 protectionCategory: context.protectionCategory,
                 companyDeductions: context.companyDeductions,
                 period: context.period,
-                incomeTaxRate: context.incomeTaxRate
+                incomeTaxRate: context.incomeTaxRate,
+                companyId: context.companyId
             )
         )
 

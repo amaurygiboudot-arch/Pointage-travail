@@ -1,0 +1,842 @@
+{
+  "schema_version": 2,
+  "scope": "Synthetic common acceptance fixture; no legal rates or real user data",
+  "head_base": "b874afa50617084d8307fbdd2e7b9b1bc9d86fe7",
+  "semantics": [
+    "All unspecified families are MISSING, not zero",
+    "Amounts here are signed integer cents; adapters must additionally test NaN/infinity/Double conversion before creating cents",
+    "Zero confirmed and explicit proven non-applicability are distinct states",
+    "Missing/invalid context blocks employer subtotals without changing employee net",
+    "Cross-company/month tests belong at production/assembler boundary: replacing companyId with another valid ID alone is not detectable without expected owner evidence",
+    "coverageComplete remains false for every fixture in this implementation scope",
+    "NOT_APPLICABLE has null source amount and requires nonblank evidence; it is not counted as a KNOWN contribution",
+    "NOT_APPLICABLE reductions have null source amount but explicitly prove absence: subtraction uses zero internally",
+    "MISSING with a non-null amount is INVALID; KNOWN with blank source is INVALID",
+    "monetaryReliable means before subtotal exists and no invalid or excessive reduction is supplied; missing reduction can leave it true while after remains null",
+    "No known lines including all NOT_APPLICABLE => before and after null, monetaryReliable false"
+  ],
+  "fixtures": [
+    {
+      "id": "known_two",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 10001,
+          "source": "Synthetic confirmed fixture"
+        },
+        {
+          "family": "complementaryRetirement",
+          "state": "KNOWN",
+          "amountCents": 20002,
+          "source": "Synthetic confirmed fixture"
+        }
+      ],
+      "reductions": {
+        "state": "KNOWN",
+        "amountCents": 0,
+        "source": "Synthetic confirmed reductions"
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": 30003,
+        "knownSubtotalAfterReductionsCents": 30003,
+        "coverageComplete": false,
+        "monetaryReliable": true
+      },
+      "notes": ""
+    },
+    {
+      "id": "partial_known",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 10001,
+          "source": "Synthetic confirmed fixture"
+        },
+        {
+          "family": "complementaryRetirement",
+          "state": "MISSING",
+          "amountCents": null,
+          "source": null
+        }
+      ],
+      "reductions": {
+        "state": "MISSING",
+        "amountCents": null,
+        "source": null
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": 10001,
+        "knownSubtotalAfterReductionsCents": null,
+        "coverageComplete": false,
+        "monetaryReliable": true
+      },
+      "notes": ""
+    },
+    {
+      "id": "none_known",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "MISSING",
+          "amountCents": null,
+          "source": null
+        },
+        {
+          "family": "complementaryRetirement",
+          "state": "MISSING",
+          "amountCents": null,
+          "source": null
+        }
+      ],
+      "reductions": {
+        "state": "KNOWN",
+        "amountCents": 0,
+        "source": "Synthetic confirmed reductions"
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": null,
+        "knownSubtotalAfterReductionsCents": null,
+        "coverageComplete": false,
+        "monetaryReliable": false
+      },
+      "notes": ""
+    },
+    {
+      "id": "confirmed_zero",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 0,
+          "source": "Synthetic confirmed fixture"
+        },
+        {
+          "family": "complementaryRetirement",
+          "state": "MISSING",
+          "amountCents": null,
+          "source": null
+        }
+      ],
+      "reductions": {
+        "state": "KNOWN",
+        "amountCents": 0,
+        "source": "Synthetic confirmed reductions"
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": 0,
+        "knownSubtotalAfterReductionsCents": 0,
+        "coverageComplete": false,
+        "monetaryReliable": true
+      },
+      "notes": ""
+    },
+    {
+      "id": "invalid_supplied",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 10001,
+          "source": "Synthetic confirmed fixture"
+        },
+        {
+          "family": "complementaryRetirement",
+          "state": "INVALID",
+          "amountCents": null,
+          "source": "Synthetic confirmed fixture"
+        }
+      ],
+      "reductions": {
+        "state": "KNOWN",
+        "amountCents": 0,
+        "source": "Synthetic confirmed reductions"
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": null,
+        "knownSubtotalAfterReductionsCents": null,
+        "coverageComplete": false,
+        "monetaryReliable": false
+      },
+      "notes": ""
+    },
+    {
+      "id": "reduction_exact",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 10001,
+          "source": "Synthetic confirmed fixture"
+        },
+        {
+          "family": "complementaryRetirement",
+          "state": "KNOWN",
+          "amountCents": 20002,
+          "source": "Synthetic confirmed fixture"
+        }
+      ],
+      "reductions": {
+        "state": "KNOWN",
+        "amountCents": 30003,
+        "source": "Synthetic confirmed reductions"
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": 30003,
+        "knownSubtotalAfterReductionsCents": 0,
+        "coverageComplete": false,
+        "monetaryReliable": true
+      },
+      "notes": ""
+    },
+    {
+      "id": "reduction_one_cent_over",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 10001,
+          "source": "Synthetic confirmed fixture"
+        },
+        {
+          "family": "complementaryRetirement",
+          "state": "KNOWN",
+          "amountCents": 20002,
+          "source": "Synthetic confirmed fixture"
+        }
+      ],
+      "reductions": {
+        "state": "KNOWN",
+        "amountCents": 30004,
+        "source": "Synthetic confirmed reductions"
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": 30003,
+        "knownSubtotalAfterReductionsCents": null,
+        "coverageComplete": false,
+        "monetaryReliable": false
+      },
+      "notes": ""
+    },
+    {
+      "id": "reduction_unknown",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 10001,
+          "source": "Synthetic confirmed fixture"
+        },
+        {
+          "family": "complementaryRetirement",
+          "state": "KNOWN",
+          "amountCents": 20002,
+          "source": "Synthetic confirmed fixture"
+        }
+      ],
+      "reductions": {
+        "state": "MISSING",
+        "amountCents": null,
+        "source": null
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": 30003,
+        "knownSubtotalAfterReductionsCents": null,
+        "coverageComplete": false,
+        "monetaryReliable": true
+      },
+      "notes": ""
+    },
+    {
+      "id": "reduction_negative",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 10001,
+          "source": "Synthetic confirmed fixture"
+        },
+        {
+          "family": "complementaryRetirement",
+          "state": "KNOWN",
+          "amountCents": 20002,
+          "source": "Synthetic confirmed fixture"
+        }
+      ],
+      "reductions": {
+        "state": "INVALID",
+        "amountCents": -1,
+        "source": "Synthetic confirmed reductions"
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": 30003,
+        "knownSubtotalAfterReductionsCents": null,
+        "coverageComplete": false,
+        "monetaryReliable": false
+      },
+      "notes": ""
+    },
+    {
+      "id": "nonapplicable_proven",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 10001,
+          "source": "Synthetic confirmed fixture"
+        },
+        {
+          "family": "complementaryRetirement",
+          "state": "NOT_APPLICABLE",
+          "amountCents": null,
+          "source": "Synthetic dated non-applicability"
+        }
+      ],
+      "reductions": {
+        "state": "KNOWN",
+        "amountCents": 0,
+        "source": "Synthetic confirmed reductions"
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": 10001,
+        "knownSubtotalAfterReductionsCents": 10001,
+        "coverageComplete": false,
+        "monetaryReliable": true
+      },
+      "notes": ""
+    },
+    {
+      "id": "nonapplicable_unproven",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 10001,
+          "source": "Synthetic confirmed fixture"
+        },
+        {
+          "family": "complementaryRetirement",
+          "state": "NOT_APPLICABLE",
+          "amountCents": null,
+          "source": ""
+        }
+      ],
+      "reductions": {
+        "state": "KNOWN",
+        "amountCents": 0,
+        "source": "Synthetic confirmed reductions"
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": null,
+        "knownSubtotalAfterReductionsCents": null,
+        "coverageComplete": false,
+        "monetaryReliable": false
+      },
+      "notes": "Unproven non-applicability must not become a known zero; reject as invalid."
+    },
+    {
+      "id": "company_absent",
+      "context": {
+        "companyId": null,
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 10001,
+          "source": "Synthetic confirmed fixture"
+        },
+        {
+          "family": "complementaryRetirement",
+          "state": "KNOWN",
+          "amountCents": 20002,
+          "source": "Synthetic confirmed fixture"
+        }
+      ],
+      "reductions": {
+        "state": "KNOWN",
+        "amountCents": 0,
+        "source": "Synthetic confirmed reductions"
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": null,
+        "knownSubtotalAfterReductionsCents": null,
+        "coverageComplete": false,
+        "monetaryReliable": false
+      },
+      "notes": ""
+    },
+    {
+      "id": "company_blank",
+      "context": {
+        "companyId": "  ",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 10001,
+          "source": "Synthetic confirmed fixture"
+        },
+        {
+          "family": "complementaryRetirement",
+          "state": "KNOWN",
+          "amountCents": 20002,
+          "source": "Synthetic confirmed fixture"
+        }
+      ],
+      "reductions": {
+        "state": "KNOWN",
+        "amountCents": 0,
+        "source": "Synthetic confirmed reductions"
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": null,
+        "knownSubtotalAfterReductionsCents": null,
+        "coverageComplete": false,
+        "monetaryReliable": false
+      },
+      "notes": ""
+    },
+    {
+      "id": "invalid_month",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 13,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 10001,
+          "source": "Synthetic confirmed fixture"
+        },
+        {
+          "family": "complementaryRetirement",
+          "state": "KNOWN",
+          "amountCents": 20002,
+          "source": "Synthetic confirmed fixture"
+        }
+      ],
+      "reductions": {
+        "state": "KNOWN",
+        "amountCents": 0,
+        "source": "Synthetic confirmed reductions"
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": null,
+        "knownSubtotalAfterReductionsCents": null,
+        "coverageComplete": false,
+        "monetaryReliable": false
+      },
+      "notes": ""
+    },
+    {
+      "id": "unreliable_gross",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": false
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 10001,
+          "source": "Synthetic confirmed fixture"
+        },
+        {
+          "family": "complementaryRetirement",
+          "state": "KNOWN",
+          "amountCents": 20002,
+          "source": "Synthetic confirmed fixture"
+        }
+      ],
+      "reductions": {
+        "state": "KNOWN",
+        "amountCents": 0,
+        "source": "Synthetic confirmed reductions"
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": null,
+        "knownSubtotalAfterReductionsCents": null,
+        "coverageComplete": false,
+        "monetaryReliable": false
+      },
+      "notes": ""
+    },
+    {
+      "id": "gross_absent",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": null,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 10001,
+          "source": "Synthetic confirmed fixture"
+        },
+        {
+          "family": "complementaryRetirement",
+          "state": "KNOWN",
+          "amountCents": 20002,
+          "source": "Synthetic confirmed fixture"
+        }
+      ],
+      "reductions": {
+        "state": "KNOWN",
+        "amountCents": 0,
+        "source": "Synthetic confirmed reductions"
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": null,
+        "knownSubtotalAfterReductionsCents": null,
+        "coverageComplete": false,
+        "monetaryReliable": false
+      },
+      "notes": ""
+    },
+    {
+      "id": "sum_overflow",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 8000000000000000,
+          "source": "Synthetic confirmed fixture"
+        },
+        {
+          "family": "complementaryRetirement",
+          "state": "KNOWN",
+          "amountCents": 2000000000000000,
+          "source": "Synthetic confirmed fixture"
+        }
+      ],
+      "reductions": {
+        "state": "KNOWN",
+        "amountCents": 0,
+        "source": "Synthetic confirmed reductions"
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": null,
+        "knownSubtotalAfterReductionsCents": null,
+        "coverageComplete": false,
+        "monetaryReliable": false
+      },
+      "notes": "Each amount representable; sum exceeds shared technical bound."
+    },
+    {
+      "id": "negative_line",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": -1,
+          "source": "Synthetic confirmed fixture"
+        },
+        {
+          "family": "complementaryRetirement",
+          "state": "KNOWN",
+          "amountCents": 20002,
+          "source": "Synthetic confirmed fixture"
+        }
+      ],
+      "reductions": {
+        "state": "KNOWN",
+        "amountCents": 0,
+        "source": "Synthetic confirmed reductions"
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": null,
+        "knownSubtotalAfterReductionsCents": null,
+        "coverageComplete": false,
+        "monetaryReliable": false
+      },
+      "notes": "KNOWN constructor input must normalize/reject invalid amount before aggregation."
+    },
+    {
+      "id": "nonapplicable_only",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "NOT_APPLICABLE",
+          "amountCents": null,
+          "source": "Synthetic confirmed absence of reductions"
+        }
+      ],
+      "reductions": {
+        "state": "MISSING",
+        "amountCents": null,
+        "source": null
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": null,
+        "knownSubtotalAfterReductionsCents": null,
+        "monetaryReliable": false,
+        "coverageComplete": false
+      },
+      "notes": "Strict V2 contract edge case"
+    },
+    {
+      "id": "reduction_not_applicable_proven",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 10001,
+          "source": "Synthetic confirmed fixture"
+        }
+      ],
+      "reductions": {
+        "state": "NOT_APPLICABLE",
+        "amountCents": null,
+        "source": "Synthetic confirmed absence of reductions"
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": 10001,
+        "knownSubtotalAfterReductionsCents": 10001,
+        "monetaryReliable": true,
+        "coverageComplete": false
+      },
+      "notes": "Strict V2 contract edge case"
+    },
+    {
+      "id": "missing_with_amount",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "MISSING",
+          "amountCents": 10001,
+          "source": null
+        }
+      ],
+      "reductions": {
+        "state": "MISSING",
+        "amountCents": null,
+        "source": null
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": null,
+        "knownSubtotalAfterReductionsCents": null,
+        "monetaryReliable": false,
+        "coverageComplete": false
+      },
+      "notes": "Strict V2 contract edge case"
+    },
+    {
+      "id": "known_without_source",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 10001,
+          "source": ""
+        }
+      ],
+      "reductions": {
+        "state": "MISSING",
+        "amountCents": null,
+        "source": null
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": null,
+        "knownSubtotalAfterReductionsCents": null,
+        "monetaryReliable": false,
+        "coverageComplete": false
+      },
+      "notes": "Strict V2 contract edge case"
+    },
+    {
+      "id": "duplicate_family",
+      "context": {
+        "companyId": "fixture-company-A",
+        "year": 2026,
+        "month": 1,
+        "contributionGrossCents": 250000,
+        "reliable": true
+      },
+      "lines": [
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 10001,
+          "source": "Synthetic confirmed fixture"
+        },
+        {
+          "family": "statutory",
+          "state": "KNOWN",
+          "amountCents": 10001,
+          "source": "Synthetic confirmed fixture"
+        }
+      ],
+      "reductions": {
+        "state": "MISSING",
+        "amountCents": null,
+        "source": null
+      },
+      "expected": {
+        "knownSubtotalBeforeReductionsCents": null,
+        "knownSubtotalAfterReductionsCents": null,
+        "monetaryReliable": false,
+        "coverageComplete": false
+      },
+      "notes": "Strict V2 contract edge case"
+    }
+  ],
+  "integration_cases": [
+    {
+      "id": "mismatched_company_evidence",
+      "expected": "No employer subtotal; employee net unchanged when its own evidence remains reliable"
+    },
+    {
+      "id": "mismatched_period_evidence",
+      "expected": "Reject employer projection produced for another month, no recomputation at display"
+    },
+    {
+      "id": "mismatched_cash_net_chain",
+      "expected": "Canonical output exposes no employer projection from mixed chain"
+    },
+    {
+      "id": "employer_only_missing",
+      "expected": "Employee net amounts and reliability flags identical to baseline"
+    }
+  ]
+}

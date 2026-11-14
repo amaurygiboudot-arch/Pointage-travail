@@ -31,7 +31,7 @@ class PauseActionActivity : Activity() {
     private fun handlePauseAction() {
         val read = V2RuntimeReader.current(this)
         if (!read.reliable) {
-            Toast.makeText(this, "Pause bloquée : données HoraTrack à vérifier", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Pause bloquée : données AGKGMG à vérifier", Toast.LENGTH_LONG).show()
             finish()
             return
         }
@@ -56,7 +56,7 @@ class PauseActionActivity : Activity() {
             }
             PauseActionPolicyV2.Next.SELECT_PAID_STATUS -> showPaidStatusChoice(requireNotNull(target))
             PauseActionPolicyV2.Next.INVALID_MULTIPLE_OPEN_PAUSES -> {
-                Toast.makeText(this, "Pause bloquée : état HoraTrack incohérent", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Pause bloquée : état AGKGMG incohérent", Toast.LENGTH_LONG).show()
                 finish()
             }
         }

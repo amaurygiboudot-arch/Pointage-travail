@@ -12,8 +12,14 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import android.app.Application
 import java.time.YearMonth
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35], application = Application::class)
 class V2PayslipStoreTest {
     private fun recordJson(
         id: String = "payslip-1",
@@ -312,4 +318,21 @@ class V2PayslipStoreTest {
 
         assertSame(company, V2PayslipStore.confirmedCompany(stored, " company-a "))
     }
+
+    @Test fun `legacy extreme record blocks reliability without reinterpreting it as zero`() {
+        val raw = JSONArray().put(recordJson(gross = 1e17)).toString()
+        val result = V2PayslipStore.decodeRecords(raw)
+        assertFalse(result.reliable)
+        assertTrue(result.warnings.isNotEmpty())
+        assertNull(V2PayslipStore.confirmedGrossByMonth(result, "company-a"))
+    }
+
+    @Test fun `invalid supplied fields cannot disappear in comparison intersection`() {
+        val expected = mapOf("gross" to 2000.0)
+        assertNull(V2PayslipStore.compareKnownPayslipValues(expected, expected + ("unmatched" to 1e17)))
+        assertNull(V2PayslipStore.compareKnownPayslipValues(expected + ("unmatched" to 1e17), expected))
+        assertNull(V2PayslipStore.compareKnownPayslipValues(mapOf("gross" to 1e17), mapOf("gross" to 2e17)))
+        assertTrue(V2PayslipStore.compareKnownPayslipValues(expected, expected)!!.conforming)
+    }
+
 }

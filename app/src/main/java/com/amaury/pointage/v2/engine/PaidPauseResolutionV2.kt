@@ -15,7 +15,8 @@ object PaidPauseResolutionV2 {
     data class Resolution(
         val unpaidIntervals: List<Pair<Long, Long>>,
         val paidIntervals: List<Pair<Long, Long>>,
-        val unresolvedCount: Int
+        val unresolvedCount: Int,
+        val issues: List<String> = emptyList()
     ) {
         val reliable: Boolean get() = unresolvedCount == 0
     }
@@ -24,29 +25,37 @@ object PaidPauseResolutionV2 {
         pauses: List<PauseV2>,
         rangeStartMs: Long,
         rangeEndMs: Long,
-        openPauseEndMs: Long = rangeEndMs
+        openPauseEndMs: Long = rangeEndMs,
+        allowOpenPause: Boolean = true
     ): Resolution {
         if (rangeEndMs <= rangeStartMs) return Resolution(emptyList(), emptyList(), 0)
 
-        val unresolvedCount = pauses.count { pause ->
-            overlaps(pause, rangeStartMs, rangeEndMs, openPauseEndMs) &&
-                (pause.status != DecisionStatusV2.CONFIRMED || pause.paid == null)
+        val issues = mutableListOf<String>()
+        val accepted = mutableListOf<PauseV2>()
+        for (pause in pauses) {
+            if (pause.startMs <= 0L || (pause.endMs != null && pause.endMs <= pause.startMs)) {
+                issues += "Pause avec heures invalides"
+                continue
+            }
+            if (pause.endMs == null && !allowOpenPause) {
+                issues += "Pause ouverte dans une session terminée"
+                continue
+            }
+            if (clipped(pause, rangeStartMs, rangeEndMs, openPauseEndMs) == null) continue
+            if (pause.status != DecisionStatusV2.CONFIRMED || pause.paid == null) {
+                issues += "Qualification de pause à confirmer"
+                continue
+            }
+            accepted += pause
         }
-        val confirmed = pauses.filter {
-            it.status == DecisionStatusV2.CONFIRMED && it.paid != null
+        val unpaid = mergeIntervals(accepted.filter { it.paid == false }
+            .mapNotNull { clipped(it, rangeStartMs, rangeEndMs, openPauseEndMs) })
+        val paid = mergeIntervals(accepted.filter { it.paid == true }
+            .mapNotNull { clipped(it, rangeStartMs, rangeEndMs, openPauseEndMs) })
+        if (overlapDuration(paid, unpaid) > 0L) {
+            issues += "Pauses payées et non payées contradictoires"
         }
-
-        return Resolution(
-            unpaidIntervals = mergeIntervals(
-                confirmed.filter { it.paid == false }
-                    .mapNotNull { clipped(it, rangeStartMs, rangeEndMs, openPauseEndMs) }
-            ),
-            paidIntervals = mergeIntervals(
-                confirmed.filter { it.paid == true }
-                    .mapNotNull { clipped(it, rangeStartMs, rangeEndMs, openPauseEndMs) }
-            ),
-            unresolvedCount = unresolvedCount
-        )
+        return Resolution(unpaid, paid, issues.size, issues.distinct())
     }
 
     fun duration(intervals: List<Pair<Long, Long>>): Long =

@@ -1,7 +1,7 @@
 package com.amaury.pointage.core.time
 
 /**
- * Nouveau coeur temps HoraTrack.
+ * Nouveau coeur temps AGKGMG.
  *
  * Responsabilite volontairement limitee : reconstruire les faits temporels reels.
  * Aucune regle juridique, conventionnelle, de paie ou d'arrondi n'est appliquee ici.

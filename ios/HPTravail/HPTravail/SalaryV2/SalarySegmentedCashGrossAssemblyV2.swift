@@ -5,6 +5,7 @@ struct SalaryConfirmedCashGrossComponentV2: Equatable {
     let amount: Double
     let reliable: Bool
     var warnings: [String] = []
+    var label: String? = nil
 }
 
 struct SalaryConfirmedCashGrossComponentsV2: Equatable {
@@ -20,6 +21,7 @@ struct SalarySegmentedCashGrossAssemblyResultV2: Equatable {
     let cashGross: Double?
     let reliable: Bool
     let warnings: [String]
+    var confirmedComponents: [SalaryConfirmedCashGrossComponentV2] = []
 }
 
 /// B20 -> brut en espèces final.
@@ -75,7 +77,8 @@ enum SalarySegmentedCashGrossAssemblerV2 {
             additionalCashGross: extras,
             cashGross: cash,
             reliable: true,
-            warnings: unique(upstream + fixed.components.flatMap(\.warnings))
+            warnings: unique(upstream + fixed.components.flatMap(\.warnings)),
+            confirmedComponents: fixed.components
         )
     }
 

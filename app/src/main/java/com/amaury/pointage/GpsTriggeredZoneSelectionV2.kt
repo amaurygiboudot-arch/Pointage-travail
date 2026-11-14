@@ -8,7 +8,7 @@ import java.util.Locale
 /**
  * Sélection pure d'une zone GPS lorsqu'Android remonte plusieurs geofences simultanément.
  *
- * HoraTrack ne doit jamais choisir arbitrairement la première zone si les zones déclenchées
+ * AGKGMG ne doit jamais choisir arbitrairement la première zone si les zones déclenchées
  * décrivent des contextes métier différents. Une sélection automatique n'est autorisée que si
  * toutes les zones sont sémantiquement équivalentes pour l'employeur, le type de point et le lieu.
  */
@@ -170,7 +170,7 @@ internal object GpsTriggeredZoneSelectionV2 {
         GpsZoneRoleV2.WORK -> GpsPointTypeV2.POSTE
         GpsZoneRoleV2.PARKING -> GpsPointTypeV2.PARKING
         // Le rôle Pause reste une observation à confirmer, pas une pause payée automatique.
-        GpsZoneRoleV2.BREAK, GpsZoneRoleV2.OTHER -> GpsPointTypeV2.OTHER
+        GpsZoneRoleV2.HOME, GpsZoneRoleV2.BREAK, GpsZoneRoleV2.OTHER -> GpsPointTypeV2.OTHER
     }
 
     private data class Signature(

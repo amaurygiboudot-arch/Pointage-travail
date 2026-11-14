@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.DatePickerDialog
@@ -324,7 +326,7 @@ object V2ManualEntryInstaller {
     }
 
     private fun dialogColors(context: Context): V2ManualDialogColors {
-        val prefs = context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, "appearance_settings", Context.MODE_PRIVATE)
         val mode = prefs.getString("mode", "auto") ?: "auto"
         val systemDark = (
             context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK

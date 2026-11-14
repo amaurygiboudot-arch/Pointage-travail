@@ -19,8 +19,9 @@ enum SalaryConventionSeniorityPremiumStoreV2 {
     private static let lock = NSLock()
 
     static func readConfirmed(
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> ReadResult {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard let object = defaults.object(forKey: key) else {
             return .init(rules: [], reliable: true, warnings: [])
         }
@@ -30,8 +31,9 @@ enum SalaryConventionSeniorityPremiumStoreV2 {
 
     static func rules(
         idcc: String,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> ReadResult {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let stored = readConfirmed(defaults: defaults)
         guard stored.reliable else { return stored }
         let normalized = SalaryConventionSeniorityIdccV2.normalize(idcc)
@@ -47,8 +49,9 @@ enum SalaryConventionSeniorityPremiumStoreV2 {
     @discardableResult
     static func saveConfirmed(
         _ rule: SalaryConventionSeniorityPremiumV2.Rule,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard rule.structurallyValid() else { return false }
         let normalizedIdcc = SalaryConventionSeniorityIdccV2.normalize(rule.idcc)
         guard !normalizedIdcc.isEmpty else { return false }

@@ -97,7 +97,7 @@ description = "Internationalisation et coordination des futures équipes pays."
 config_file = "./agents/international-lead.toml"
 
 [permissions.horatrack-dev]
-description = "Développement HoraTrack avec gouvernance protégée."
+description = "Développement AGKGMG avec gouvernance protégée."
 extends = ":workspace"
 
 [permissions.horatrack-dev.filesystem]

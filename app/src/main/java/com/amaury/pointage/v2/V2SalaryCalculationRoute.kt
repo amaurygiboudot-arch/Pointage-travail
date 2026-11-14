@@ -16,14 +16,21 @@ object V2SalaryCalculationRoute {
     fun resolve(context: Context, company: SalaryCompanyStore.Company, year: Int, month: Int): Route =
         resolveDetails(context, company, year, month).route
 
-    fun resolveDetails(context: Context, company: SalaryCompanyStore.Company, year: Int, month: Int): Resolution =
-        runCatching {
+    fun resolveDetails(context: Context, company: SalaryCompanyStore.Company, year: Int, month: Int): Resolution {
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable() = Resolution(Route.BLOCKED, null, listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        val company = SalaryCompanyStore.confirmedCompany(SalaryCompanyStore.readConfirmed(context), company.id)
+            ?: return unavailable()
+        val result = runCatching {
             val contracts = V2EmploymentContractPayrollBridge.resolve(context, company.id, year, month)
             val rules = V2ConventionRulePayrollBridge.resolve(context, company.idcc, year, month)
             describe(
                 contracts.resolution, rules.resolution, contracts.warnings + rules.warnings
             )
         }.getOrElse { Resolution(Route.BLOCKED, null, listOf(UNAVAILABLE_WARNING)) }
+        return if (SalaryAccountScope.available(context)) result else unavailable()
+    }
 
     internal fun describe(contracts: EmploymentContractPeriodResolutionV2,
                           rules: ConventionRulePeriodResolutionV2,

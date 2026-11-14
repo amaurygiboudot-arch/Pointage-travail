@@ -45,7 +45,7 @@ object CompanyConventionClassificationDialogV2 {
         val employment = field("Emploi / emploi repère", current.employment)
 
         val scroll = ScrollView(context).apply { addView(content) }
-        AlertDialog.Builder(context)
+        SalaryAccountUi.dialog(context)
             .setTitle("Classification conventionnelle")
             .setView(scroll)
             .setNegativeButton("ANNULER", null)

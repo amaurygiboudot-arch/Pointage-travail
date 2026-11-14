@@ -5,7 +5,7 @@ import java.time.LocalDate
 /**
  * Décide si le brut mensualisé peut être affiché comme fiable pour un mois donné.
  *
- * HoraTrack ne prorate jamais un salaire mensualisé par simple nombre de jours calendaires.
+ * AGKGMG ne prorate jamais un salaire mensualisé par simple nombre de jours calendaires.
  * Pour un mois d'entrée incomplet, le calcul exact exige le nombre d'heures de travail
  * prévu dans l'entreprise pour le mois et les heures réellement dues sur la période.
  */
@@ -31,7 +31,7 @@ object MonthlySalaryProrationV2 {
             entryDate == null -> Assessment(
                 state = State.ENTRY_DATE_UNKNOWN,
                 exactMonthlyGrossAvailable = false,
-                warning = "Brut mensuel : date d'entrée inconnue, HoraTrack ne peut pas confirmer que la période couvre un mois complet."
+                warning = "Brut mensuel : date d'entrée inconnue, AGKGMG ne peut pas confirmer que la période couvre un mois complet."
             )
             entryDate.isAfter(monthEnd) -> Assessment(
                 state = State.BEFORE_EMPLOYMENT,

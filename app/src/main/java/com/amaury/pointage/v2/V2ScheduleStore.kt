@@ -9,9 +9,9 @@ import kotlin.math.abs
 /**
  * Horaires explicites V2, propriétaires de l’entreprise.
  *
- * Les anciennes clés globales de shift_profiles ne sont reprises automatiquement que lorsqu’une
- * seule entreprise V2 confirmée existe. Avec plusieurs entreprises, aucune ancienne valeur globale
- * n’est appliquée silencieusement à une société.
+ * Les préférences sont isolées par compte et les opérations conservent leur session d’origine.
+ * Les anciennes clés sans entreprise ne sont reprises qu’à l’intérieur de ce domaine déjà possédé,
+ * pour une seule entreprise confirmée. Le fichier global historique exige une attribution explicite.
  */
 object V2ScheduleStore {
     private const val PREFS = "shift_profiles"
@@ -35,7 +35,7 @@ object V2ScheduleStore {
     }
 
     private fun prefs(context: Context) =
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        SalaryAccountScope.preferences(context, PREFS)
 
     private fun ensureLegacyMigratedForSoleCompany(context: Context, companyId: String) {
         val id = companyId.trim()
@@ -71,17 +71,20 @@ object V2ScheduleStore {
 
     /** Compatibilité rollback V1 uniquement : conserve les anciennes clés globales. */
     fun legacySchedule(context: Context, id: String): Schedule {
+        val context = SalaryAccountScope.bindContext(context)
         require(id in SHIFT_IDS)
         val p = prefs(context)
-        return Schedule(
+        val result = Schedule(
             id = id,
             startMinute = parseMinute(p.getString("expected_start_$id", "").orEmpty()),
             endMinute = parseMinute(p.getString("expected_end_$id", "").orEmpty())
         )
+        return if (SalaryAccountScope.available(context)) result else Schedule(id, null, null)
     }
 
     /** Compatibilité rollback V1 uniquement. */
     fun legacySave(context: Context, id: String, start: String?, end: String?): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         require(id in SHIFT_IDS)
         val startMin = start?.takeIf { it.isNotBlank() }?.let(::parseMinute)
         val endMin = end?.takeIf { it.isNotBlank() }?.let(::parseMinute)
@@ -95,19 +98,22 @@ object V2ScheduleStore {
         return editor.commit()
     }
     fun schedule(context: Context, companyId: String, id: String): Schedule {
+        val context = SalaryAccountScope.bindContext(context)
         require(id in SHIFT_IDS)
         val company = companyId.trim()
         if (company.isBlank()) return Schedule(id, null, null)
         ensureLegacyMigratedForSoleCompany(context, company)
         val p = prefs(context)
-        return Schedule(
+        val result = Schedule(
             id = id,
             startMinute = parseMinute(p.getString(companyPreferenceKey(company, "expected_start_$id"), "").orEmpty()),
             endMinute = parseMinute(p.getString(companyPreferenceKey(company, "expected_end_$id"), "").orEmpty())
         )
+        return if (SalaryAccountScope.available(context)) result else Schedule(id, null, null)
     }
 
     fun save(context: Context, companyId: String, id: String, start: String?, end: String?): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         require(id in SHIFT_IDS)
         val company = companyId.trim()
         if (company.isBlank()) return false
@@ -131,6 +137,7 @@ object V2ScheduleStore {
     }
 
     fun selectedMode(context: Context, companyId: String): String {
+        val context = SalaryAccountScope.bindContext(context)
         val company = companyId.trim()
         if (company.isBlank()) return "auto"
         ensureLegacyMigratedForSoleCompany(context, company)
@@ -138,10 +145,11 @@ object V2ScheduleStore {
             companyPreferenceKey(company, LEGACY_KEY_MODE),
             "auto"
         ).orEmpty()
-        return if (mode == "auto" || mode in SHIFT_IDS) mode else "auto"
+        return if (SalaryAccountScope.available(context) && (mode == "auto" || mode in SHIFT_IDS)) mode else "auto"
     }
 
     fun setSelectedMode(context: Context, companyId: String, mode: String): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val company = companyId.trim()
         if (company.isBlank() || (mode != "auto" && mode !in SHIFT_IDS)) return false
         val stored = SalaryCompanyStore.readConfirmed(context)
@@ -181,19 +189,21 @@ object V2ScheduleStore {
      * pour l'entreprise. Une égalité ou l'absence d'horaire reste inconnue.
      */
     fun bestConfiguredShiftIdForEntry(context: Context, companyId: String, entryMs: Long): String? {
+        val context = SalaryAccountScope.bindContext(context)
         val company = companyId.trim()
         if (company.isBlank() || entryMs <= 0L) return null
         val calendar = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = entryMs }
         val entryMinute = calendar.get(Calendar.HOUR_OF_DAY) * 60 + calendar.get(Calendar.MINUTE)
         val starts = SHIFT_IDS.associateWith { id -> schedule(context, company, id).startMinute }
-        return nearestConfiguredShiftId(entryMinute, starts)
+        return nearestConfiguredShiftId(entryMinute, starts).takeIf { SalaryAccountScope.available(context) }
     }
 
     /** Fin prévue utilisable dès l’entrée uniquement si le profil est choisi explicitement. */
     fun expectedEndForEntry(context: Context, companyId: String, entryMs: Long): Long? {
+        val context = SalaryAccountScope.bindContext(context)
         val mode = selectedMode(context, companyId)
         if (mode !in SHIFT_IDS) return null
-        return expectedEnd(schedule(context, companyId, mode), entryMs)
+        return expectedEnd(schedule(context, companyId, mode), entryMs).takeIf { SalaryAccountScope.available(context) }
     }
 
     /**
@@ -201,6 +211,7 @@ object V2ScheduleStore {
      * Un profil sans fin prévue n’est jamais utilisé pour la règle de sortie +20 min.
      */
     fun bestMatch(context: Context, companyId: String, entryMs: Long, exitMs: Long): Match? {
+        val context = SalaryAccountScope.bindContext(context)
         if (exitMs <= entryMs) return null
         val mode = selectedMode(context, companyId)
         val candidates = if (mode in SHIFT_IDS) {
@@ -214,12 +225,15 @@ object V2ScheduleStore {
             val entryScore = start?.let { abs(entryMs - it) } ?: 0L
             val exitScore = abs(exitMs - end)
             Match(s, start, end, entryScore + exitScore)
-        }.minByOrNull { it.scoreMs }
+        }.minByOrNull { it.scoreMs }.takeIf { SalaryAccountScope.available(context) }
     }
 
-    fun expectedEnd(context: Context, companyId: String, entryMs: Long, exitMs: Long): Long? =
-        expectedEndForEntry(context, companyId, entryMs)
+    fun expectedEnd(context: Context, companyId: String, entryMs: Long, exitMs: Long): Long? {
+        val context = SalaryAccountScope.bindContext(context)
+        val result = expectedEndForEntry(context, companyId, entryMs)
             ?: bestMatch(context, companyId, entryMs, exitMs)?.expectedEndMs
+        return result.takeIf { SalaryAccountScope.available(context) }
+    }
 
     private fun expectedEnd(schedule: Schedule, entryMs: Long): Long? {
         val endMinute = schedule.endMinute ?: return null

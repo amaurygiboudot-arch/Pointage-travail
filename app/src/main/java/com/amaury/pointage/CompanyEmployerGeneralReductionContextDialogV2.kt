@@ -31,7 +31,7 @@ object CompanyEmployerGeneralReductionContextDialogV2 {
             setPadding(dp(context, 16), dp(context, 8), dp(context, 16), dp(context, 8))
         }
         box.addView(TextView(context).apply {
-            text = "Ces faits servent uniquement à autoriser la RGDU automatique. HoraTrack ne transforme jamais une absence d'information en Oui ou en 0 heure. Une réponse Non bloque le calcul automatique pour le mois concerné."
+            text = "Ces faits servent uniquement à autoriser la RGDU automatique. AGKGMG ne transforme jamais une absence d'information en Oui ou en 0 heure. Une réponse Non bloque le calcul automatique pour le mois concerné."
             textSize = 13f
             setPadding(0, 0, 0, dp(context, 8))
         })
@@ -67,7 +67,7 @@ object CompanyEmployerGeneralReductionContextDialogV2 {
             }
         }, rowParams(context))
 
-        listDialog = AlertDialog.Builder(context)
+        listDialog = SalaryAccountUi.dialog(context)
             .setTitle("Contexte RGDU automatique")
             .setView(box)
             .setNegativeButton("FERMER", null)
@@ -88,7 +88,7 @@ object CompanyEmployerGeneralReductionContextDialogV2 {
         val fullMonth = choiceField(context, box, "Présence couvrant le mois selon les règles RGDU")
         val commonLaw = choiceField(context, box, "Cas de droit commun RGDU confirmé")
         val noOtherReduction = choiceField(context, box, "Aucune autre réduction/exonération patronale à agréger")
-        val paidHoursComplete = choiceField(context, box, "Toutes les heures rémunérées du mois sont couvertes par HoraTrack")
+        val paidHoursComplete = choiceField(context, box, "Toutes les heures rémunérées du mois sont couvertes par AGKGMG")
         val source = field(context, "Source — ex. DSN / bulletin / contrôle employeur")
 
         box.addView(month, 0, rowParams(context))
@@ -103,7 +103,7 @@ object CompanyEmployerGeneralReductionContextDialogV2 {
             source.setText(record.source)
         }
 
-        val builder = AlertDialog.Builder(context)
+        val builder = SalaryAccountUi.dialog(context)
             .setTitle(if (existing == null) "Confirmer le contexte RGDU" else "Modifier le contexte RGDU")
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)

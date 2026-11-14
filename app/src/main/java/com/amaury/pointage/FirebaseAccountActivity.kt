@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.SalaryAccountScope
+
 import android.app.Activity
 import android.graphics.Color
 import android.graphics.Typeface
@@ -114,6 +116,7 @@ class FirebaseAccountActivity : Activity() {
             })
 
             signOutButton = themedButton("SE DÉCONNECTER", p.text, p.accent, p.panel) {
+                SalaryAccountScope.invalidateSession()
                 auth.signOut()
                 GoogleSignIn.getClient(this@FirebaseAccountActivity, googleOptions()).signOut()
                 refreshUi()
@@ -244,6 +247,7 @@ class FirebaseAccountActivity : Activity() {
         try {
             val account = GoogleSignIn.getSignedInAccountFromIntent(data).getResult(ApiException::class.java)
             val credential = GoogleAuthProvider.getCredential(account.idToken,null)
+            SalaryAccountScope.invalidateSession()
             auth.signInWithCredential(credential)
                 .addOnSuccessListener {
                     saveUserProfile(); DeviceRegistry.registerIfSignedIn(this, force = true); refreshUi()

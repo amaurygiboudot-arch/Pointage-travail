@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.content.Context
 import android.graphics.Typeface
 import android.view.ViewGroup
@@ -43,9 +45,9 @@ internal fun kaliStorageReliabilityText(
 
 /** Vue KALI : audits prudents des règles conventionnelles sans déduire une règle d'un simple résultat de recherche. */
 class V2KaliPayrollSourcesView(
-    context: Context,
+    hostContext: Context,
     private val company: SalaryCompanyStore.Company
-) : LinearLayout(context) {
+) : SalaryAccountLayout(hostContext) {
     private val status = TextView(context)
     private val overtimeButton = Button(context)
     private val nightButton = Button(context)
@@ -68,7 +70,7 @@ class V2KaliPayrollSourcesView(
             setTypeface(typeface, Typeface.BOLD)
         })
         addView(TextView(context).apply {
-            text = "HoraTrack consulte KALI par famille de règle. Heures supplémentaires, nuit, samedi, dimanche et jours fériés ne sont enregistrés que si la recherche officielle est suffisamment complète et qu'une règle datée, unique et non conditionnelle peut être structurée. Le 1er mai reste séparé du modèle générique des jours fériés. Une recherche vide ne prouve jamais l'absence de règle."
+            text = "AGKGMG consulte KALI par famille de règle. Heures supplémentaires, nuit, samedi, dimanche et jours fériés ne sont enregistrés que si la recherche officielle est suffisamment complète et qu'une règle datée, unique et non conditionnelle peut être structurée. Le 1er mai reste séparé du modèle générique des jours fériés. Une recherche vide ne prouve jamais l'absence de règle."
             textSize = 12f
             setPadding(0, dp(6), 0, dp(10))
         })
@@ -459,7 +461,7 @@ class V2KaliPayrollSourcesView(
     }
 
     private fun referenceDate(): LocalDate {
-        val prefs = context.getSharedPreferences("navigation_state", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, "navigation_state", Context.MODE_PRIVATE)
         val selectedMs = prefs.getLong("report_month_ms", -1L)
         val calendar = Calendar.getInstance(Locale.FRANCE)
         if (selectedMs > 0L) calendar.timeInMillis = selectedMs

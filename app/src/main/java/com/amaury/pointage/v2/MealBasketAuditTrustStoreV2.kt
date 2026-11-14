@@ -37,6 +37,7 @@ object MealBasketAuditTrustStoreV2 {
         verifiedAgreementIds: Set<String> = emptySet(),
         fingerprints: Set<String> = emptySet()
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val key = accoKey(companyId, profile) ?: return false
         val normalizedIds = verifiedAgreementIds.mapTo(linkedSetOf()) { it.trim().uppercase() }
             .filterTo(linkedSetOf()) { it.matches(Regex("^ACCOTEXT\\d+$")) }
@@ -66,6 +67,7 @@ object MealBasketAuditTrustStoreV2 {
         state: State,
         fingerprints: Set<String> = emptySet()
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val key = kaliKey(profile, referenceDate) ?: return false
         return persist(context, key, Record(
             state = state,
@@ -127,18 +129,20 @@ object MealBasketAuditTrustStoreV2 {
     }
 
     private fun persist(context: Context, key: String, record: Record): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (!record.structurallyValid()) return false
         val json = JSONObject()
             .put("state", record.state.name)
             .put("fingerprints", JSONArray(record.fingerprints.sorted()))
             .put("sourceIds", JSONArray(record.sourceIds.sorted()))
             .put("checkedAtMs", record.checkedAtMs)
-        return context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return SalaryAccountScope.preferences(context, PREFS)
             .edit().putString(key, json.toString()).commit()
     }
 
     private fun load(context: Context, key: String): Record? {
-        val raw = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val context = SalaryAccountScope.bindContext(context)
+        val raw = SalaryAccountScope.preferences(context, PREFS)
             .getString(key, null) ?: return null
         return runCatching {
             val json = JSONObject(raw)

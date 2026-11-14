@@ -32,13 +32,13 @@ class EmployerWorkforceIntegrationV2Test {
         protectionCategory = PlasturgieProtectionCategoryV2.classify(null, LocalDate.of(2026, 1, 31), null),
         warnings = emptyList(),
         alsaceMoselleLocalRegime = false,
-        atMpEmployerRate = 0.0,
-        benefitsInKindGross = 0.0,
-        employerMobilityRate = 0.0,
-        employerUnemploymentRate = 0.0,
+        atMpEmployerRate = 0.0, atMpEmployerSource = "Synthetic confirmed fixture",
+        benefitsInKindReliable = true, benefitsInKindGross = 0.0,
+        employerMobilityRate = 0.0, employerMobilitySource = "Synthetic confirmed fixture",
+        employerUnemploymentRate = 0.0, employerUnemploymentAgsSource = "Synthetic confirmed fixture",
         employerAgsRate = 0.0,
         employerUnemploymentAgsWarnings = emptyList(),
-        employerWorkforceBand = band,
+        employerWorkforceBand = band, employerWorkforceSource = "Synthetic confirmed fixture",
         employerFnalTreatment = fnalTreatment,
         employerTrainingTreatment = trainingTreatment,
         employerWorkforceWarnings = emptyList()
@@ -69,7 +69,7 @@ class EmployerWorkforceIntegrationV2Test {
         assertEquals(13.75, under11.employerTrainingContribution!!, 0.001)
         assertEquals(12.50, atLeast50.employerFnalContribution!!, 0.001)
         assertEquals(25.00, atLeast50.employerTrainingContribution!!, 0.001)
-        assertEquals(21.25, atLeast50.knownEmployerContributions - under11.knownEmployerContributions, 0.001)
+        assertEquals(21.25, atLeast50.knownEmployerContributions!! - under11.knownEmployerContributions!!, 0.001)
         assertEquals(under11.netBeforeIncomeTax, atLeast50.netBeforeIncomeTax, 0.001)
         assertEquals(under11.netTaxable!!, atLeast50.netTaxable!!, 0.001)
         assertEquals(under11.netAfterIncomeTax!!, atLeast50.netAfterIncomeTax!!, 0.001)

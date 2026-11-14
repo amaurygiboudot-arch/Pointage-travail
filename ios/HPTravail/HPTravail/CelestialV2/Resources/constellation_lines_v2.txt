@@ -1,4 +1,4 @@
-# HoraTrack Celeste V2 - constellation stick figures
+# AGKGMG Celeste V2 - constellation stick figures
 # Source: Marc van der Sluys, ConstellationLines, DOI 10.5281/zenodo.10397192
 # License: CC BY 4.0
 # Format: IAU_abbreviation|ordered_HR_numbers
