@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.app.Application
 import android.content.Context
+import android.os.Looper
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
@@ -23,6 +24,7 @@ import org.mockito.Mockito
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowAlertDialog
 import java.time.YearMonth
@@ -55,7 +57,10 @@ class SalaryDatedPayrollFactsUiV2Test {
     private fun AlertDialog.save() = getButton(AlertDialog.BUTTON_POSITIVE).performClick()
     private fun editor(form: SalaryInformationSheetView, section: String, add: String): AlertDialog {
         form.findViewWithTag<Button>(section).performClick()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
         ShadowAlertDialog.getLatestAlertDialog().window!!.decorView.findViewWithTag<Button>(add).performClick()
+        // AlertDialog posts OnShowListener; let it install the production save listeners.
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
         return ShadowAlertDialog.getLatestAlertDialog()
     }
     private fun formField(form: SalaryInformationSheetView, name: String) =

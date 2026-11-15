@@ -171,17 +171,24 @@ object PaidServiceReports {
         refs += contracts.resolution.calculationSegments.map { "Contrat confirmé, version ${it.snapshot.versionId}, du ${LocalDate.ofEpochDay(it.startEpochDay)} au ${LocalDate.ofEpochDay(it.endEpochDay)}." }
         refs += "Couverture des règles conventionnelles sur le mois : ${if (rules.resolution.readyForCalculation) "confirmée" else "incomplète"} ; ${rules.resolution.calculationSegments.size} segment(s) daté(s)."
         val warnings = mutableListOf<String>(); warnings += contracts.warnings; warnings += rules.warnings
+        val settlementPeriod = YearMonth.of(record.year, record.month + 1).toString()
+        val settlement = ConfirmedMonthlyPayrollSettlementV2.read(activity, company.id, settlementPeriod)
+        settlement.record?.takeIf { settlement.reliable && it.adjustmentsComplete }?.let {
+            refs += "Source des ajustements mensuels confirmés — $settlementPeriod : ${it.source}. Leur prise en compte dans le net exige une base de calcul fiable."
+        }
         val expected = when (V2SalaryCalculationRoute.resolve(activity, company, record.year, record.month)) {
             V2SalaryCalculationRoute.Route.MONTHLY -> {
                 val convention = ConventionCatalog.findByIdcc(activity, company.idcc) ?: error("Convention indisponible.")
                 val calculated = V2SalaryNetBridgeV2.calculateForCompany(activity, company, record.year, record.month, convention)
                 warnings += calculated.warnings
-                V2PayslipStore.expectedCompanyComparisonValues(calculated) ?: error("Calcul de rémunération non fiable.")
+                V2PayslipStore.expectedCompanyComparisonValues(calculated, settlement, company.id, settlementPeriod)
+                    ?: error("Calcul de rémunération non fiable.")
             }
             V2SalaryCalculationRoute.Route.SEGMENTED -> {
                 val calculated = V2SegmentedSalaryCanonicalBridge.calculateForCompany(activity, company, record.year, record.month, zone.id)
                 warnings += calculated.warnings
-                calculated.output?.let(SegmentedPayslipComparisonValuesV2::expected) ?: error("Calcul segmenté incomplet.")
+                calculated.output?.let { SegmentedPayslipComparisonValuesV2.expected(it, settlement, company.id, settlementPeriod) }
+                    ?: error("Calcul segmenté incomplet.")
             }
             V2SalaryCalculationRoute.Route.BLOCKED -> error("Contrat ou règles datées incomplets.")
         }
