@@ -169,10 +169,17 @@ class SalaryPayslipWorkspaceView(hostContext:Context,private val company:SalaryC
  }
  private fun renderEstimate(){
   val (routeYear,routeMonth)=selectedPeriod()
-  when(com.amaury.pointage.v2.V2SalaryCalculationRoute.resolve(context,company,routeYear,routeMonth)){
+  val routeDetails=com.amaury.pointage.v2.V2SalaryCalculationRoute.resolveDetails(context,company,routeYear,routeMonth)
+  when(routeDetails.route){
    com.amaury.pointage.v2.V2SalaryCalculationRoute.Route.MONTHLY->{renderMonthlyEstimate();return}
    com.amaury.pointage.v2.V2SalaryCalculationRoute.Route.BLOCKED->{
     add(TextView(context).apply{text="Contrat ou règles datées à confirmer pour ce mois. Aucun calcul mensuel de remplacement n’est utilisé.";textSize=14f})
+    add(TextView(context).apply{tag="salary_route_diagnostics";text="${company.name} — ${java.time.YearMonth.of(routeYear,routeMonth+1)}\n"+routeDetails.warnings.distinct().joinToString("\n");textSize=13f})
+    addButton("OUVRIR LA FICHE ET LES DONNÉES DATÉES"){
+     SalaryAccountUi.dialog(context).setTitle("Fiche de renseignements — ${company.name}")
+      .setView(android.widget.ScrollView(context).apply{addView(SalaryInformationSheetView(context).bindCompany(company.id))})
+      .setNegativeButton("FERMER"){_,_->render()}.show()
+    }
     renderCalculatedDetails(CalculatedPayslipDetailsV2.earnings(null as com.amaury.pointage.v2.engine.SegmentedSalaryCanonicalOutputV2?),null,false,null)
     add(TextView(context).apply{text="NET ESTIMÉ AVANT IMPÔT : À confirmer\nNET IMPOSABLE ESTIMÉ : À confirmer\nPRÉLÈVEMENT À LA SOURCE : À confirmer\nNET ESTIMÉ APRÈS PAS : À confirmer";textSize=14f})
     renderImportActions()
@@ -429,7 +436,19 @@ class SalaryPayslipWorkspaceView(hostContext:Context,private val company:SalaryC
  }
  private fun launchPhoto(){if(!accountCurrent())return;val a=SalaryAccountUi.activity(context)?:return;a.startActivity(SalaryAccountUi.attach(Intent(context,SalaryPayslipPhotoActivity::class.java).putExtra(V2PayslipImportActivity.EXTRA_COMPANY_ID,company.id).putExtra(V2PayslipImportActivity.EXTRA_COMPANY_NAME,company.name),com.amaury.pointage.v2.SalaryAccountScope.lease(context)))}
  private fun launchImport(){if(!accountCurrent())return;val a=SalaryAccountUi.activity(context)?:return;a.startActivity(SalaryAccountUi.attach(Intent(context,V2PayslipImportActivity::class.java).putExtra(V2PayslipImportActivity.EXTRA_COMPANY_ID,company.id).putExtra(V2PayslipImportActivity.EXTRA_COMPANY_NAME,company.name),com.amaury.pointage.v2.SalaryAccountScope.lease(context)))}
- private fun showBasicComparison(r:V2PayslipStore.Record){SalaryAccountUi.dialog(context).setTitle("Comparaison rapide").setMessage("Comparer les montants renseignés de ce bulletin avec l’estimation AGKGMG ? Les résultats distinguent calcul certain, estimation et anomalie potentielle.").setNegativeButton("ANNULER",null).setPositiveButton("COMPARER"){_,_->val comparison=V2PayslipStore.comparison(context,r);val message=when{comparison==null->"Comparaison insuffisante : complète les données Salaire/Convention. Aucune conclusion juridique n’est inventée.";comparison.conforming->"Calcul : les montants contrôlés concordent avec l’estimation AGKGMG dans la tolérance du moteur.";else->"Anomalie potentielle : un ou plusieurs écarts sont détectés. Vérification nécessaire avant toute conclusion."};SalaryAccountUi.dialog(context).setTitle("Comparaison").setMessage(message).setPositiveButton("OK",null).show()}.show()}
+ private fun showBasicComparison(r:V2PayslipStore.Record){
+  SalaryAccountUi.dialog(context).setTitle("Comparaison rapide")
+   .setMessage("Comparer les montants renseignés de ce bulletin avec l’estimation AGKGMG ? Seuls les montants disposant d’une base comparable seront contrôlés.")
+   .setNegativeButton("ANNULER",null).setPositiveButton("COMPARER"){_,_->
+    val comparison=V2PayslipStore.comparison(context,r)
+    val message=when{
+     comparison==null->"Comparaison insuffisante : complète les données Salaire/Convention. Aucune conclusion juridique n’est inventée."
+     comparison.conforming->"Les montants comparés concordent avec l’estimation AGKGMG dans la tolérance du moteur."
+     else->"Anomalie potentielle : un ou plusieurs écarts sont détectés. Vérification nécessaire avant toute conclusion."
+    } + (comparison?.let { "\n\nMontants comparés : ${it.comparedKeys.joinToString(", ")}.\nLes autres montants restent non vérifiés." } ?: "")
+    SalaryAccountUi.dialog(context).setTitle("Comparaison").setMessage(message).setPositiveButton("OK",null).show()
+   }.show()
+ }
  private fun next(){if(page<records().size){page++;render()}};private fun previous(){if(page>0){page--;render()}}
  private fun choosePage(){val rs=records();val labels=ArrayList<String>();labels+="Estimation AGKGMG";rs.forEach{r->val m=DateFormatSymbols(Locale.FRANCE).months.getOrNull(r.month).orEmpty().replaceFirstChar{it.uppercase()};labels+="Bulletin réel — $m ${r.year}"};SalaryAccountUi.dialog(context).setTitle("Choisir une page").setItems(labels.toTypedArray()){_,which->page=which;render()}.setNegativeButton("ANNULER",null).show()}
  private fun add(v:android.view.View){pageBox.addView(v)}

@@ -117,7 +117,8 @@ enum SalaryPayslipComparisonEngineV2 {
     static let defaultTolerance = 0.02
 
     static func expectedValues(
-        from snapshot: SalaryWorkspaceSnapshotV2
+        from snapshot: SalaryWorkspaceSnapshotV2,
+        companyId: String? = nil
     ) -> [SalaryPayslipFieldV2: Double]? {
         guard snapshot.sourceReady,
               [snapshot.socialGross, snapshot.netBeforeIncomeTax, snapshot.netTaxable,
@@ -126,20 +127,42 @@ enum SalaryPayslipComparisonEngineV2 {
 
         var result: [SalaryPayslipFieldV2: Double] = [:]
         append(.socialGross, snapshot.socialGross, to: &result)
-        append(.netBeforeIncomeTax, snapshot.netBeforeIncomeTax, to: &result)
         append(.netTaxable, snapshot.netTaxable, to: &result)
         append(.incomeTax, snapshot.incomeTax, to: &result)
-        append(.netAfterIncomeTax, snapshot.netAfterIncomeTax, to: &result)
+        if let nets = comparableNets(snapshot: snapshot, companyId: companyId) {
+            append(.netBeforeIncomeTax, nets.before, to: &result)
+            append(.netAfterIncomeTax, nets.after, to: &result)
+        }
         return result.isEmpty ? nil : result
+    }
+
+    /// Compare bulletin cash totals only after the same scoped settlement used by screen/PDF.
+    /// Observed totals do not feed this calculation; absent adjustments never mean zero.
+    /// The existing unclamped settlement proof requires PAS: without it neither cash total
+    /// is compared. Gross/taxable fields remain independently available.
+    private static func comparableNets(snapshot: SalaryWorkspaceSnapshotV2, companyId: String?) -> (before: Double, after: Double)? {
+        guard let before = snapshot.netBeforeIncomeTax.flatMap(SalaryPayslipAmountV2.cents),
+              let after = snapshot.netAfterIncomeTax.flatMap(SalaryPayslipAmountV2.cents),
+              let tax = snapshot.incomeTax.flatMap(SalaryPayslipAmountV2.cents),
+              PayrollMoneyV2.sum([before, -tax]) == after else { return nil }
+        let projection = SalaryMonthlyPayrollSettlementV2.project(snapshot.monthlySettlement,
+            companyId: companyId, period: snapshot.period, netAfterIncomeTax: snapshot.netAfterIncomeTax,
+            baseReliable: snapshot.sourceReady && snapshot.settlementBaseReliable)
+        guard let paid = projection.projectedPaid,
+              let paidCents = SalaryPayslipAmountV2.cents(paid),
+              let adjustedBeforeCents = PayrollMoneyV2.sum([paidCents, tax]),
+              let adjustedBefore = PayrollMoneyV2.amount(adjustedBeforeCents) else { return nil }
+        return (adjustedBefore, paid)
     }
 
     static func compare(
         snapshot: SalaryWorkspaceSnapshotV2,
         observed: SalaryPayslipObservedValuesV2,
+        companyId: String? = nil,
         tolerance: Double = defaultTolerance
     ) -> SalaryPayslipComparisonResultV2? {
         guard let toleranceCents = SalaryPayslipAmountV2.cents(tolerance), observed.valid,
-              let expected = expectedValues(from: snapshot) else {
+              let expected = expectedValues(from: snapshot, companyId: companyId) else {
             return nil
         }
 

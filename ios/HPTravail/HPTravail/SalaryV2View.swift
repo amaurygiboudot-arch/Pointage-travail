@@ -89,6 +89,9 @@ struct SalaryV2View: View {
                     confirmedSicknessCashCard
                     confirmedSettlementCard
                     referenceCard
+                    if let company = salaryStore.selectedCompany {
+                        SalaryEmployeeDeductionsCardV2(company: company, period: salaryStore.selectedPeriod, lease: viewLease)
+                    }
                     incomeTaxCard
                     warningsCard
                     } else {
@@ -1046,9 +1049,11 @@ struct SalaryV2View: View {
                 .disabled(salaryStore.selectedCompanyId == nil)
 
                 if let result = payslipComparisonResult {
+                    Text("Champs comparés : " + result.comparedFields.map(\.label).joined(separator: ", "))
+                        .font(.footnote)
                     if result.conforming {
                         Label(
-                            "Aucun écart supérieur à 0,02 € sur les champs comparables.",
+                            "Aucun écart supérieur à 0,02 € sur ces champs uniquement.",
                             systemImage: "checkmark.shield.fill"
                         )
                         .font(.footnote)
@@ -1348,7 +1353,8 @@ struct SalaryV2View: View {
         )
         guard let result = SalaryPayslipComparisonEngineV2.compare(
             snapshot: salaryStore.snapshot,
-            observed: observed
+            observed: observed,
+            companyId: confirmedObservedCompanyId()
         ) else {
             payslipComparisonResult = nil
             payslipComparisonFeedback =
@@ -1731,5 +1737,150 @@ struct SalaryV2View: View {
         formatter.locale = Locale(identifier: "fr_FR")
         formatter.dateFormat = "LLLL yyyy"
         return formatter.string(from: date).capitalized
+    }
+}
+
+/// Dated company facts used by payroll, separate from observed payslip totals.
+private struct SalaryEmployeeDeductionsCardV2: View {
+    @EnvironmentObject private var salaryStore: SalaryV2Store
+    let company: SalaryCompanyV2
+    let period: YearMonthV2
+    let lease: SalaryAccountSessionV2.Lease
+    private typealias Resolver = CompanyEmployeeDeductionResolverV2
+    private struct Scope: Equatable {
+        let companyId: String
+        let period: Resolver.YearMonth
+    }
+    private struct Draft {
+        var amount = ""
+        var source = ""
+    }
+    @State private var drafts: [Resolver.Kind: Draft] = [:]
+    @State private var kind = Resolver.Kind.mutualEmployee
+    @State private var loadedScope: Scope?
+    @State private var loadedCompanyName = ""
+    @State private var original: CompanyEmployeeDeductionStoreV2.ReadResult?
+    @State private var confirmed = false
+    @State private var feedback: String?
+
+    private var currentScope: Scope? {
+        guard lease.isCurrent, salaryStore.accountLease == lease, salaryStore.accountIsCurrent,
+              salaryStore.selectedCompanyId == company.id, salaryStore.selectedPeriod == period,
+              let month = Resolver.YearMonth(year: period.year, month: period.month) else { return nil }
+        return Scope(companyId: company.id, period: month)
+    }
+    private var scopeIsCurrent: Bool { loadedScope != nil && loadedScope == currentScope }
+    private var applicableRecords: [Resolver.Record] {
+        guard let scope = loadedScope else { return [] }
+        return original?.records.filter {
+            $0.kind == kind && $0.effectiveFrom.map { $0 <= scope.period } == true &&
+                ($0.effectiveTo == nil || $0.effectiveTo! >= scope.period)
+        } ?? []
+    }
+    private var monthlyEntryAllowed: Bool {
+        guard let scope = loadedScope, original?.reliable == true else { return false }
+        return applicableRecords.count <= 1 && applicableRecords.allSatisfy {
+            $0.effectiveFrom == scope.period && $0.effectiveTo == scope.period
+        }
+    }
+    private func binding(_ keyPath: WritableKeyPath<Draft, String>) -> Binding<String> {
+        Binding(get: { drafts[kind, default: Draft()][keyPath: keyPath] }, set: { value in
+            var draft = drafts[kind, default: Draft()]
+            draft[keyPath: keyPath] = value
+            drafts[kind] = draft
+            confirmed = false
+        })
+    }
+
+    var body: some View {
+        GroupBox("Retenues et bases fiscales du mois") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("\(company.name) • \(period.description)")
+                Text("Ces montants alimentent le calcul de paie pour cette entreprise et ce mois seulement. Un champ vide reste inconnu ; saisis 0 uniquement si l’absence de cette ligne est confirmée.").font(.footnote)
+                if let scope = loadedScope, !scopeIsCurrent {
+                    Text("Saisie conservée pour \(loadedCompanyName) — \(scope.period). Le contexte a changé : recharge les données du mois affiché avant d’enregistrer.").font(.footnote)
+                }
+                Picker("Rubrique", selection: $kind) {
+                    ForEach(Resolver.Kind.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                Text(kind.label).font(.caption)
+                TextField("Montant confirmé (€)", text: binding(\.amount))
+                    .keyboardType(.decimalPad).textFieldStyle(.roundedBorder)
+                TextField("Source vérifiable : bulletin, date et référence", text: binding(\.source))
+                    .textFieldStyle(.roundedBorder)
+                if !monthlyEntryAllowed && original?.reliable == true {
+                    Text("Une période plus large ou plusieurs versions couvrent cette rubrique. Elles sont conservées : la saisie mensuelle ne peut pas les remplacer.").font(.footnote)
+                }
+                Toggle("Je confirme la rubrique, le montant, la source, l’entreprise et le mois affichés", isOn: $confirmed)
+                    .disabled(!scopeIsCurrent || !monthlyEntryAllowed)
+                Button("Enregistrer cette rubrique pour ce mois") { save() }
+                    .disabled(!confirmed || !scopeIsCurrent || !monthlyEntryAllowed)
+                Button("Recharger les montants confirmés — remplace la saisie") { load() }
+                    .disabled(currentScope == nil)
+                if let stored = original, let scope = loadedScope, scopeIsCurrent {
+                    let resolved = CompanyEmployeeDeductionStoreV2.resolve(stored, period: scope.period)
+                    ForEach(Resolver.Kind.allCases, id: \.self) { item in
+                        Text("\(item.label) : \(resolved[item].amount.map { String(format: "%.2f €", locale: Locale(identifier: "fr_FR"), $0) } ?? "À confirmer")").font(.footnote)
+                    }
+                    ForEach(resolved.warnings, id: \.self) { Text($0).font(.footnote) }
+                }
+                if let feedback { Text(feedback).font(.footnote) }
+            }
+        }
+        .onAppear { if loadedScope == nil { load() } }
+        .onChange(of: kind) { _ in confirmed = false; feedback = nil }
+        .onChange(of: currentScope) { _ in confirmed = false }
+    }
+
+    private func load() {
+        guard let scope = currentScope else { return }
+        let operation = SalaryAccountSessionV2.pin(lease)
+        defer { operation.close() }
+        let stored = CompanyEmployeeDeductionStoreV2.read(companyId: scope.companyId)
+        guard currentScope == scope else { confirmed = false; return }
+        guard stored.reliable else {
+            original = stored
+            confirmed = false
+            feedback = stored.warnings.joined(separator: "\n")
+            return
+        }
+        let snapshot = CompanyEmployeeDeductionStoreV2.resolve(stored, period: scope.period)
+        drafts = Dictionary(uniqueKeysWithValues: Resolver.Kind.allCases.map { item in
+            (item, Draft(amount: snapshot[item].amount.map { String($0).replacingOccurrences(of: ".", with: ",") } ?? "",
+                         source: snapshot[item].source ?? ""))
+        })
+        original = stored
+        loadedScope = scope
+        loadedCompanyName = company.name
+        confirmed = false
+        feedback = nil
+    }
+
+    private func save() {
+        guard confirmed, scopeIsCurrent, monthlyEntryAllowed, let scope = loadedScope, let expected = original else {
+            confirmed = false
+            feedback = "Entreprise ou mois modifié : la saisie est conservée, mais ne peut pas être enregistrée."
+            return
+        }
+        let draft = drafts[kind, default: Draft()]
+        let parsed = SalaryPayslipAmountV2.parse(draft.amount)
+        guard parsed.valid, let amount = parsed.value else {
+            feedback = "Indique un montant valide. Un champ vide reste inconnu et n’est pas enregistré."
+            return
+        }
+        let operation = SalaryAccountSessionV2.pin(lease)
+        defer { operation.close() }
+        guard currentScope == scope, CompanyEmployeeDeductionStoreV2.confirmMonth(
+            companyId: scope.companyId, period: scope.period, kind: kind, amount: amount,
+            source: draft.source, confirmed: confirmed, expected: expected
+        ) else {
+            confirmed = false
+            feedback = "Enregistrement refusé : vérifie la source (500 caractères maximum). Si les données ont changé ou sont illisibles, recharge-les ; ta saisie est conservée."
+            return
+        }
+        original = CompanyEmployeeDeductionStoreV2.read(companyId: scope.companyId)
+        confirmed = false
+        salaryStore.refresh()
+        feedback = "Rubrique enregistrée pour \(loadedCompanyName) — \(scope.period). Les autres saisies sont conservées."
     }
 }

@@ -88,6 +88,28 @@ final class SalaryAccountIsolationV2Tests: XCTestCase {
         XCTAssertNil(SalaryPayslipObservedStoreV2.read(companyId: "other-company", period: month, defaults: returned).record)
         XCTAssertNil(SalaryConfirmedSicknessCashV2.read(companyId: company.id, period: YearMonthV2(year: 2026, month: 9)!, defaults: returned).record)
     }
+    func testMonthlyDeductionEntryCannotReuseAnOldAccountDraft() {
+        let a = domain(); seedCompany(a)
+        let deductionMonth = CompanyEmployeeDeductionResolverV2.YearMonth(year: month.year, month: month.month)!
+        let before = CompanyEmployeeDeductionStoreV2.read(defaults: a, companyId: company.id)
+        XCTAssertTrue(CompanyEmployeeDeductionStoreV2.confirmMonth(
+            defaults: a, companyId: company.id, period: deductionMonth, kind: .mutualEmployee,
+            amount: 42, source: "Synthetic A source", confirmed: true, expected: before
+        ))
+        let saved = CompanyEmployeeDeductionStoreV2.read(defaults: a, companyId: company.id)
+        let b = domain("uid:B"); seedCompany(b)
+        XCTAssertTrue(CompanyEmployeeDeductionStoreV2.read(defaults: b, companyId: company.id).records.isEmpty)
+        XCTAssertFalse(CompanyEmployeeDeductionStoreV2.confirmMonth(
+            defaults: a, companyId: company.id, period: deductionMonth, kind: .mutualEmployee,
+            amount: 99, source: "Stale draft", confirmed: true, expected: saved
+        ))
+        let returned = domain()
+        XCTAssertEqual(CompanyEmployeeDeductionStoreV2.read(defaults: returned, companyId: company.id), saved)
+        XCTAssertFalse(CompanyEmployeeDeductionStoreV2.confirmMonth(
+            defaults: a, companyId: company.id, period: deductionMonth, kind: .mutualEmployee,
+            amount: 99, source: "Stale A after A-B-A", confirmed: true, expected: saved
+        ))
+    }
     func testContractClassificationAndOwnerCheckedDatedRulesRemainSeparate() throws {
         let a = domain(); seedCompany(a)
         let snapshot = contract()

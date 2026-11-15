@@ -7,6 +7,7 @@ import java.util.Locale
 /** Observed facts stay separate from the estimate, including when payroll is unavailable. */
 object MonthlyPayrollSettlementProjectionV2 {
     data class NetBasis(val companyId: String, val period: String, val netAfterTaxCents: Long)
+    data class ComparableNets(val beforeTax: Double, val afterTax: Double)
     data class Result(
         val record: ConfirmedMonthlyPayrollSettlementV2.Record?,
         val estimatedPaidCents: Long?, val observedMinusEstimateCents: Long?, val warning: String?
@@ -40,6 +41,25 @@ object MonthlyPayrollSettlementProjectionV2 {
         if (paid == null) return Result(record, null, null, "Versement estimé négatif ou non représentable au centime : régularisation à confirmer.")
         val difference = record.netPaidObserved?.let(PayrollMoneyV2::cents)?.let { PayrollMoneyV2.sum(listOf(it, -paid)) }
         return Result(record, paid, difference, null)
+    }
+
+    /** A bulletin's cash totals include the confirmed settlement, unlike the payroll subtotal.
+     * Observed totals are never a calculation input. Missing adjustments are not implicit zeros.
+     * The existing unclamped settlement proof requires PAS. If PAS is unknown, both bulletin
+     * cash totals remain non-comparable; independent gross/taxable comparisons stay available.
+     */
+    fun comparableNets(source: ConfirmedMonthlyPayrollSettlementV2.Result?, companyId: String, period: String,
+                       payroll: NetSalaryEngineV2.Result?, reliableBeforeTax: Double?, reliableAfterTax: Double?): ComparableNets? {
+        val confirmedPayroll = payroll ?: return null
+        val basis = netBasis(confirmedPayroll, reliableAfterTax, companyId, period) ?: return null
+        val before = reliableBeforeTax?.takeIf { it.isFinite() && it >= 0.0 }?.let(PayrollMoneyV2::cents) ?: return null
+        val tax = confirmedPayroll.incomeTax?.takeIf { it.isFinite() && it >= 0.0 }?.let(PayrollMoneyV2::cents) ?: return null
+        if (PayrollMoneyV2.cents(confirmedPayroll.netBeforeIncomeTax) != before ||
+            PayrollMoneyV2.sum(listOf(before, -tax)) != basis.netAfterTaxCents) return null
+        val paid = project(source, companyId, period, basis).estimatedPaidCents ?: return null
+        val paidBeforeTax = PayrollMoneyV2.sum(listOf(paid, tax)) ?: return null
+        return ComparableNets(PayrollMoneyV2.amount(paidBeforeTax) ?: return null,
+            PayrollMoneyV2.amount(paid) ?: return null)
     }
 
     fun lines(source: ConfirmedMonthlyPayrollSettlementV2.Result?, companyId: String, period: String, basis: NetBasis?): List<Pair<String, String>> {

@@ -12,6 +12,7 @@ import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import android.widget.ScrollView
 import com.amaury.pointage.v2.CompanyEmployeeDeductionStoreV2
 import com.amaury.pointage.v2.engine.CompanyEmployeeDeductionResolverV2
 import java.time.YearMonth
@@ -23,14 +24,19 @@ import java.util.UUID
 object CompanyEmployeeDeductionDialogV2 {
     private val monthFormatter = DateTimeFormatter.ofPattern("MM/uuuu", Locale.FRANCE)
 
-    fun show(context: Context, companyId: String) {
+    fun show(context: Context, companyId: String, period: YearMonth? = null, onChanged: () -> Unit = {}) {
         if (companyId.isBlank()) return
         val box = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(context, 16), dp(context, 8), dp(context, 16), dp(context, 8))
         }
+        val companyName = SalaryCompanyStore.confirmedCompany(SalaryCompanyStore.readConfirmed(context), companyId)?.name.orEmpty()
         box.addView(TextView(context).apply {
-            text = "Enregistre uniquement des montants confirmés pour une période précise. Dès qu'un type possède une règle datée, AGKGMG ne réutilise plus son ancienne valeur sans date pour combler un mois non renseigné."
+            text = companyName + (period?.let { " — mois consulté : $it" } ?: "")
+            textSize = 13f
+        })
+        box.addView(TextView(context).apply {
+            text = "Enregistre uniquement des montants confirmés pour une période et une source précises. Les anciennes saisies sans période restent des brouillons et ne sont jamais utilisées par le calcul."
             textSize = 13f
             setPadding(0, 0, 0, dp(context, 8))
         })
@@ -70,7 +76,7 @@ object CompanyEmployeeDeductionDialogV2 {
                     isEnabled = stored.reliable
                     setOnClickListener {
                         listDialog?.dismiss()
-                        showEditor(context, companyId, record)
+                        showEditor(context, companyId, record, period, onChanged)
                     }
                 }, rowParams(context))
             }
@@ -78,17 +84,18 @@ object CompanyEmployeeDeductionDialogV2 {
 
         box.addView(Button(context).apply {
             isAllCaps = false
+            tag = "dated_deduction_add"
             text = "AJOUTER UNE RETENUE DATÉE"
             isEnabled = stored.reliable
             setOnClickListener {
                 listDialog?.dismiss()
-                showEditor(context, companyId, null)
+                showEditor(context, companyId, null, period, onChanged)
             }
         }, rowParams(context))
 
         listDialog = SalaryAccountUi.dialog(context)
             .setTitle("Retenues salarié / fiscales datées")
-            .setView(box)
+            .setView(ScrollView(context).apply { addView(box) })
             .setNegativeButton("FERMER", null)
             .create()
         listDialog.show()
@@ -97,7 +104,9 @@ object CompanyEmployeeDeductionDialogV2 {
     private fun showEditor(
         context: Context,
         companyId: String,
-        existing: CompanyEmployeeDeductionResolverV2.Record?
+        existing: CompanyEmployeeDeductionResolverV2.Record?,
+        period: YearMonth?,
+        onChanged: () -> Unit
     ) {
         val storedAtOpen = CompanyEmployeeDeductionStoreV2.read(context, companyId)
         if (!storedAtOpen.reliable) {
@@ -109,6 +118,11 @@ object CompanyEmployeeDeductionDialogV2 {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(context, 20), dp(context, 8), dp(context, 20), 0)
         }
+        box.addView(TextView(context).apply {
+            val name = SalaryCompanyStore.confirmedCompany(SalaryCompanyStore.readConfirmed(context), companyId)?.name.orEmpty()
+            text = name + (period?.let { " — mois consulté : $it" } ?: "")
+            textSize = 13f
+        })
         val kinds = CompanyEmployeeDeductionResolverV2.Kind.entries
         val kind = Spinner(context).apply {
             adapter = ArrayAdapter(
@@ -125,6 +139,11 @@ object CompanyEmployeeDeductionDialogV2 {
         val start = field(context, "Mois de début — MM/AAAA")
         val end = field(context, "Mois de fin — MM/AAAA (facultatif)")
         val source = field(context, "Source — ex. bulletin 09/2026")
+        amount.tag = "dated_deduction_amount"
+        kind.tag = "dated_deduction_kind"
+        start.tag = "dated_deduction_start"
+        end.tag = "dated_deduction_end"
+        source.tag = "dated_deduction_source"
 
         listOf(kind, amount, start, end, source).forEach { box.addView(it, rowParams(context)) }
         box.addView(TextView(context).apply {
@@ -133,6 +152,10 @@ object CompanyEmployeeDeductionDialogV2 {
             setPadding(0, dp(context, 6), 0, 0)
         })
 
+        if (existing == null && period != null) {
+            start.setText(period.format(monthFormatter))
+            end.setText(period.format(monthFormatter))
+        }
         existing?.let { record ->
             kind.setSelection(kinds.indexOf(record.kind).coerceAtLeast(0))
             kind.isEnabled = false
@@ -144,7 +167,7 @@ object CompanyEmployeeDeductionDialogV2 {
 
         val builder = SalaryAccountUi.dialog(context)
             .setTitle(if (existing == null) "Ajouter une retenue datée" else "Modifier la retenue")
-            .setView(box)
+            .setView(ScrollView(context).apply { addView(box) })
             .setPositiveButton("ENREGISTRER", null)
             .setNegativeButton("ANNULER", null)
         if (existing != null) builder.setNeutralButton("SUPPRIMER", null)
@@ -206,14 +229,16 @@ object CompanyEmployeeDeductionDialogV2 {
                 }
                 dialog.dismiss()
                 Toast.makeText(context, "Retenue datée enregistrée", Toast.LENGTH_SHORT).show()
-                show(context, companyId)
+                onChanged()
+                show(context, companyId, period, onChanged)
             }
             if (existing != null) {
                 dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
                     if (CompanyEmployeeDeductionStoreV2.remove(context, companyId, existing.id)) {
                         dialog.dismiss()
                         Toast.makeText(context, "Retenue datée supprimée", Toast.LENGTH_SHORT).show()
-                        show(context, companyId)
+                        onChanged()
+                        show(context, companyId, period, onChanged)
                     } else {
                         Toast.makeText(context, "Échec de la suppression", Toast.LENGTH_LONG).show()
                     }

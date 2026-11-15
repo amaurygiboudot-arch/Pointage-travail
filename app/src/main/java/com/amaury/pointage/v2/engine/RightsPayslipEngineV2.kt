@@ -13,7 +13,8 @@ object RightsEngineV2 {
     }
 }
 
-data class PayslipComparisonV2(val discrepancies:List<DiscrepancyV2>,val conforming:Boolean)
+data class PayslipComparisonV2(val discrepancies:List<DiscrepancyV2>,val conforming:Boolean,
+    val comparedKeys:List<String> = emptyList())
 object PayslipEngineV2 {
     /** Same decimal cents boundary as payroll; finite alone does not prevent saturation. */
     fun isValidAmount(value: Double): Boolean = value >= 0.0 && PayrollMoneyV2.cents(value) != null
@@ -46,7 +47,7 @@ object PayslipEngineV2 {
                 explanation=when { e==null -> "Valeur inattendue sur le bulletin"; o==null -> "Valeur attendue absente ou non lue"; o<e -> "Écart négatif à vérifier"; else -> "Écart positif à vérifier" }
             ) else null
         }
-        return PayslipComparisonV2(out,out.isEmpty())
+        return PayslipComparisonV2(out,out.isEmpty(),keys.toList())
     }
 
     fun evolve(discrepancy:DiscrepancyV2,status:DiscrepancyStatusV2,explanation:String?=discrepancy.explanation)=discrepancy.copy(status=status,explanation=explanation)

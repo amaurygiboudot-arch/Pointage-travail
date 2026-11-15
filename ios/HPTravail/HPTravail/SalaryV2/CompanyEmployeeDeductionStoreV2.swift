@@ -1,6 +1,7 @@
 import Foundation
 
 enum CompanyEmployeeDeductionStoreV2 {
+    private static let lock = NSRecursiveLock()
     static let storageWarning =
         "Retenues salarié / fiscales : stockage local incohérent ; calcul bloqué et aucune ancienne valeur n'est réutilisée."
     static let companyWarning =
@@ -17,19 +18,17 @@ enum CompanyEmployeeDeductionStoreV2 {
         companyId: String
     ) -> ReadResult {
         let defaults = SalaryAccountStorageV2.scoped(defaults)
+        let id = companyId.trimmingCharacters(in: .whitespacesAndNewlines)
         return SalaryAccountStorageV2.readConsistently(defaults, unavailable: ReadResult(records: [], reliable: false, warnings: [SalaryAccountStorageV2.warning])) {
-            let id = companyId.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard confirmedCompany(defaults: defaults, companyId: id) else {
-                return companyUnavailableResult()
+            withStore(defaults: defaults, companyId: id, unavailable: companyUnavailableResult()) {
+                guard let object = defaults.object(forKey: storageKey(id)) else {
+                    return ReadResult(records: [], reliable: true, warnings: [])
+                }
+                guard let raw = object as? String else {
+                    return ReadResult(records: [], reliable: false, warnings: [storageWarning])
+                }
+                return decode(raw)
             }
-
-            guard let object = defaults.object(forKey: storageKey(id)) else {
-                return ReadResult(records: [], reliable: true, warnings: [])
-            }
-            guard let raw = object as? String else {
-                return ReadResult(records: [], reliable: false, warnings: [storageWarning])
-            }
-            return decode(raw)
         }
     }
 
@@ -40,21 +39,61 @@ enum CompanyEmployeeDeductionStoreV2 {
     ) -> Bool {
         let defaults = SalaryAccountStorageV2.scoped(defaults)
         let id = companyId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard confirmedCompany(defaults: defaults, companyId: id),
-              CompanyEmployeeDeductionResolverV2.valid(record) else {
-            return false
-        }
+        return withStore(defaults: defaults, companyId: id, unavailable: false) {
+            guard CompanyEmployeeDeductionResolverV2.valid(record) else { return false }
 
-        let stored = read(defaults: defaults, companyId: id)
-        guard stored.reliable else { return false }
+            let stored = read(defaults: defaults, companyId: id)
+            guard stored.reliable else { return false }
 
-        var items = stored.records
-        if let index = items.firstIndex(where: { $0.id == record.id }) {
-            items[index] = record
-        } else {
-            items.append(record)
+            var items = stored.records
+            if let index = items.firstIndex(where: { $0.id == record.id }) {
+                items[index] = record
+            } else {
+                items.append(record)
+            }
+            return write(defaults: defaults, companyId: id, records: items)
         }
-        return write(defaults: defaults, companyId: id, records: items)
+    }
+
+    /// Interactive entry affects one month only. Existing wider periods and conflicts are
+    /// preserved for explicit historical correction; an old draft cannot overwrite newer data.
+    static func confirmMonth(
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults,
+        companyId: String,
+        period: CompanyEmployeeDeductionResolverV2.YearMonth,
+        kind: CompanyEmployeeDeductionResolverV2.Kind,
+        amount: Double,
+        source: String,
+        confirmed: Bool,
+        expected: ReadResult
+    ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        let id = companyId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let source = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        return withStore(defaults: defaults, companyId: id, unavailable: false) {
+            guard confirmed, amount >= 0, PayrollMoneyV2.cents(amount) != nil,
+                  !source.isEmpty, source.count <= 500, expected.reliable else { return false }
+            let stored = read(defaults: defaults, companyId: id)
+            guard stored.reliable, stored == expected else { return false }
+            let applicable = stored.records.filter {
+                $0.kind == kind && $0.effectiveFrom.map { $0 <= period } == true &&
+                    ($0.effectiveTo == nil || $0.effectiveTo! >= period)
+            }
+            guard applicable.count <= 1,
+                  applicable.allSatisfy({ $0.effectiveFrom == period && $0.effectiveTo == period }) else {
+                return false
+            }
+            let record = CompanyEmployeeDeductionResolverV2.Record(
+                id: applicable.first?.id ?? UUID().uuidString,
+                kind: kind, amount: amount, effectiveFrom: period, effectiveTo: period, source: source
+            )
+            var records = stored.records.filter { $0.id != record.id }
+            records.append(record)
+            guard SalaryAccountStorageV2.available(defaults),
+                  write(defaults: defaults, companyId: id, records: records) else { return false }
+            let saved = read(defaults: defaults, companyId: id)
+            return saved.reliable && saved.records == records
+        }
     }
 
     static func remove(
@@ -65,17 +104,16 @@ enum CompanyEmployeeDeductionStoreV2 {
         let defaults = SalaryAccountStorageV2.scoped(defaults)
         let id = companyId.trimmingCharacters(in: .whitespacesAndNewlines)
         let target = recordId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !target.isEmpty, confirmedCompany(defaults: defaults, companyId: id) else {
-            return false
+        return withStore(defaults: defaults, companyId: id, unavailable: false) {
+            guard !target.isEmpty else { return false }
+            let stored = read(defaults: defaults, companyId: id)
+            guard stored.reliable else { return false }
+            return write(
+                defaults: defaults,
+                companyId: id,
+                records: stored.records.filter { $0.id != target }
+            )
         }
-
-        let stored = read(defaults: defaults, companyId: id)
-        guard stored.reliable else { return false }
-        return write(
-            defaults: defaults,
-            companyId: id,
-            records: stored.records.filter { $0.id != target }
-        )
     }
 
     static func resolve(
@@ -210,11 +248,12 @@ enum CompanyEmployeeDeductionStoreV2 {
         return CompanyEmployeeDeductionResolverV2.valid(record) ? record : nil
     }
 
-    private static func confirmedCompany(defaults: UserDefaults, companyId: String) -> Bool {
-        let defaults = SalaryAccountStorageV2.scoped(defaults)
-        guard !companyId.isEmpty else { return false }
-        let stored = SalaryCompanyStoreV2.readConfirmed(defaults: defaults)
-        return SalaryCompanyStoreV2.confirmedCompany(stored, companyId: companyId) != nil
+    /// The employer lock always precedes the deduction lock, including nested reads.
+    private static func withStore<T>(defaults: UserDefaults, companyId: String, unavailable: T, _ operation: () -> T) -> T {
+        SalaryCompanyStoreV2.withConfirmedCompany(companyId: companyId, defaults: defaults, unavailable: unavailable) {
+            lock.lock(); defer { lock.unlock() }
+            return operation()
+        }
     }
 
     private static func companyUnavailableResult() -> ReadResult {

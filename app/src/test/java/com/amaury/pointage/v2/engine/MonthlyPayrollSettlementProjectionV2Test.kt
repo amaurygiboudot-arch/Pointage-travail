@@ -92,4 +92,22 @@ class MonthlyPayrollSettlementProjectionV2Test {
         assertNull(MonthlyPayrollSettlementProjectionV2.netBasis(net.payroll,net.netAfterIncomeTax,"fixture",period))
         assertNull(project(base=MonthlyPayrollSettlementProjectionV2.netBasis(net.payroll,net.netAfterIncomeTax,"fixture",period)).estimatedPaidCents)
     }
+
+    @Test fun cashComparisonUsesConfirmedSettlementOnlyAndPreservesTheExistingPasExactly() {
+        val net=EmployeeNetProjectionV2.calculate(3000.0,2026,company().copy(benefitsInKindGross=150.0),0)
+        fun comparable(payroll:NetSalaryEngineV2.Result=net.payroll,before:Double?=net.netBeforeIncomeTax,
+                       after:Double?=net.netAfterIncomeTax,record:Settlement.Record=this.record) =
+            MonthlyPayrollSettlementProjectionV2.comparableNets(source(record),"fixture",period,payroll,before,after)
+        val values=comparable()!!
+        assertEquals(PayrollMoneyV2.cents(net.netBeforeIncomeTax!!)!!+1675L,PayrollMoneyV2.cents(values.beforeTax))
+        assertEquals(PayrollMoneyV2.cents(net.netAfterIncomeTax!!)!!+1675L,PayrollMoneyV2.cents(values.afterTax))
+        assertEquals(PayrollMoneyV2.cents(net.incomeTax!!),PayrollMoneyV2.sum(listOf(
+            PayrollMoneyV2.cents(values.beforeTax)!!,-PayrollMoneyV2.cents(values.afterTax)!!)))
+        assertEquals(values,comparable(record=record.copy(netPaidObserved=1.0,netSocialObserved=2.0)))
+        assertNull(comparable(payroll=net.payroll.copy(settlementBaseReliable=false)))
+        assertNull(comparable(before=requireNotNull(net.netBeforeIncomeTax)+0.01))
+        assertNull(comparable(after=requireNotNull(net.netAfterIncomeTax)+0.01))
+        assertNull(comparable(payroll=net.payroll.copy(incomeTax=requireNotNull(net.incomeTax)+0.01)))
+        assertNull(comparable(payroll=net.payroll.copy(incomeTax=null)))
+    }
 }

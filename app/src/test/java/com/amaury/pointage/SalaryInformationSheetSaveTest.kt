@@ -52,17 +52,16 @@ class SalaryInformationSheetSaveTest {
         findViewWithTag<Button>("information_sheet_save").performClick()
     }
 
-    @Test fun invalidTaxDoesNotPublishContract() {
+    @Test fun missingContractDateDoesNotPublishContract() {
         val form = form()
-        form.field("incomeTaxRate").setText("101")
+        form.field("contractEffectiveDate").setText("")
         form.save()
         assertTrue(V2EmploymentContractHistoryStore.readConfirmed(form.context).snapshots.isEmpty())
-        assertTrue(form.field("incomeTaxRate").error != null)
+        assertTrue(form.field("contractEffectiveDate").error != null)
     }
 
     @Test fun invalidOptionalAmountsDoNotPublishContract() {
-        listOf("seniorityRttDifferential", "mutualEmployeeAmount", "providentEmployeeAmount",
-            "transportEmployeeAmount", "employerProtectionTaxableAmount", "employeeProvidentNonDeductibleAmount").forEach { name ->
+        listOf("seniorityRttDifferential").forEach { name ->
             val form = form()
             // Inject malformed stored/pasted input without the numeric keyboard filtering it.
             form.field(name).inputType = InputType.TYPE_CLASS_TEXT
@@ -73,12 +72,15 @@ class SalaryInformationSheetSaveTest {
         }
     }
 
-    @Test fun validFormStillPublishesConfirmedContract() {
+    @Test fun validContractPreservesLegacyPayrollDraftsWithoutConfirmingThem() {
         val form = form()
-        form.field("incomeTaxRate").setText("0")
-        form.field("mutualEmployeeAmount").setText("25")
+        val prefs = SalaryCompanyStore.prefs(form.context, "save-test")
+        prefs.edit().putString("mutual_employee_amount", "25.0").putString("income_tax_rate_percent", "2.0").commit()
         form.save()
         assertEquals(1, V2EmploymentContractHistoryStore.readConfirmed(form.context).snapshots.size)
-        assertEquals("25.0", SalaryCompanyStore.prefs(form.context, "save-test").getString("mutual_employee_amount", null))
+        assertEquals("25.0", prefs.getString("mutual_employee_amount", null))
+        assertEquals("2.0", prefs.getString("income_tax_rate_percent", null))
+        assertTrue(com.amaury.pointage.v2.CompanyEmployeeDeductionStoreV2.read(form.context, "save-test").records.isEmpty())
+        assertTrue(com.amaury.pointage.v2.CompanyIncomeTaxRateStoreV2.read(form.context, "save-test").records.isEmpty())
     }
 }

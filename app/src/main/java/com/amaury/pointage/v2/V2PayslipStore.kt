@@ -9,6 +9,7 @@ import com.amaury.pointage.V2SalaryNetBridgeV2
 import com.amaury.pointage.V2SalaryNetPresentationV2
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.CompanyPayrollOverridesV2
+import com.amaury.pointage.v2.engine.MonthlyPayrollSettlementProjectionV2
 import com.amaury.pointage.v2.engine.ConventionSicknessMaintenanceV2
 import com.amaury.pointage.v2.engine.PayslipComparisonV2
 import com.amaury.pointage.v2.engine.PayslipDocumentParserV2
@@ -392,7 +393,9 @@ object V2PayslipStore {
     timeZoneId=ZoneId.systemDefault().id
    )
   }.getOrNull()?.output?:return null
-  val expectedValues=SegmentedPayslipComparisonValuesV2.expected(canonical)?:return null
+  val period=YearMonth.of(canonicalRecord.year,canonicalRecord.month+1).toString()
+  val settlement=ConfirmedMonthlyPayrollSettlementV2.read(context,companyId,period)
+  val expectedValues=SegmentedPayslipComparisonValuesV2.expected(canonical,settlement,companyId,period)?:return null
 
   // Une valeur observée reste conservée même si le moteur ne sait pas encore la recalculer.
   // Elle n'est jamais comparée tant que le bulletin n'est pas rattaché à une entreprise V2 confirmée.
@@ -420,7 +423,9 @@ object V2PayslipStore {
     convention=convention
    )
   }.getOrNull()?:return null
-  val expectedValues=expectedCompanyComparisonValues(salaryNet)?:return null
+  val period=YearMonth.of(canonicalRecord.year,canonicalRecord.month+1).toString()
+  val settlement=ConfirmedMonthlyPayrollSettlementV2.read(context,companyId,period)
+  val expectedValues=expectedCompanyComparisonValues(salaryNet,settlement,companyId,period)?:return null
 
   // Une valeur observée reste conservée même si le moteur ne sait pas encore la recalculer.
   // Elle n'est jamais comparée tant que le bulletin n'est pas rattaché à une entreprise V2 confirmée.
@@ -451,7 +456,10 @@ object V2PayslipStore {
  }
 
  internal fun expectedCompanyComparisonValues(
-  salaryNet:V2SalaryNetBridgeV2.Result
+  salaryNet:V2SalaryNetBridgeV2.Result,
+  settlement:ConfirmedMonthlyPayrollSettlementV2.Result?=null,
+  companyId:String="",
+  period:String=""
  ):Map<String,Double>?{
   val salary=salaryNet.salary
   if(!salary.monthlyGrossReliable||!salary.paidTimeReliable)return null
@@ -464,7 +472,9 @@ object V2PayslipStore {
    salary.mealBasketTotal?.let{put(PayslipDocumentParserV2.KEY_MEAL_BASKETS,it)}
    socialGross?.let{put(PayslipDocumentParserV2.KEY_GROSS,it)}
    if(socialGross!=null&&presentation.state==V2SalaryNetPresentationV2.State.AVAILABLE){
-    presentation.primaryAmount?.let{put(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX,it)}
+    MonthlyPayrollSettlementProjectionV2.comparableNets(settlement,companyId,period,
+     salaryNet.payroll,presentation.primaryAmount,presentation.secondaryAmount)
+     ?.let{put(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX,it.beforeTax)}
     presentation.taxableAmount?.let{put(PayslipDocumentParserV2.KEY_NET_TAXABLE,it)}
    }
    salaryNet.mutualEmployeeAmount?.let{put(PayslipDocumentParserV2.KEY_MUTUAL_EMPLOYEE,it)}

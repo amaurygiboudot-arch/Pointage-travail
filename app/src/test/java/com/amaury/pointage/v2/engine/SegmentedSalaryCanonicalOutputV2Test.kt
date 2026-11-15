@@ -6,6 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import com.amaury.pointage.v2.SegmentedPayslipComparisonValuesV2
+import com.amaury.pointage.v2.ConfirmedMonthlyPayrollSettlementV2 as Settlement
 
 class SegmentedSalaryCanonicalOutputV2Test {
     @Test
@@ -34,7 +35,7 @@ class SegmentedSalaryCanonicalOutputV2Test {
         assertEquals(50.0, comparison!![PayslipDocumentParserV2.KEY_OVERTIME_GROSS]!!, 0.0001)
         assertEquals(25.0, comparison[PayslipDocumentParserV2.KEY_PREMIUMS_GROSS]!!, 0.0001)
         assertEquals(1_100.0, comparison[PayslipDocumentParserV2.KEY_GROSS]!!, 0.0001)
-        assertEquals(900.0, comparison[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX]!!, 0.0001)
+        assertFalse(comparison.containsKey(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX))
         assertEquals(950.0, comparison[PayslipDocumentParserV2.KEY_NET_TAXABLE]!!, 0.0001)
 
         val pdfMoney = SalaryExamplePdfV2.estimatedGrossLines(result).toMap()
@@ -327,6 +328,32 @@ class SegmentedSalaryCanonicalOutputV2Test {
         reliable = true,
         warnings = emptyList()
     )
+
+    @Test
+    fun `segmented comparison requires scoped exhaustive adjustments for cash net`() {
+        val worked=fixtureWorked()
+        val cash=cash(worked,1100.0)
+        val initial=net(cash,complete=true)
+        val projection=initial.projection!!
+        val payroll=projection.payroll.copy(employeeAmountsReliable=true,settlementBaseReliable=true,
+            employerProjection=EmployerContributionProjectionV2.assemble(
+                EmployerContributionProjectionV2.Context("company",2026,1,110000L,true),emptyList()))
+        val output=SegmentedSalaryCanonicalOutputAssemblerV2.assemble(worked,cash,
+            initial.copy(projection=projection.copy(payroll=payroll)))
+        val monthly=Settlement.Record("company","2026-01",50.0,20.0,15.0,5.0,
+            source="Synthetic settlement",confirmedAt=1L,adjustmentsComplete=true)
+        fun values(record:Settlement.Record?)=SegmentedPayslipComparisonValuesV2.expected(output,
+            Settlement.Result(record,true),"company","2026-01")!!
+        assertEquals(940.0,values(monthly)[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX]!!,0.0)
+        val zero=monthly.copy(transportReimbursement=0.0,garnishment=0.0,otherAddition=0.0,otherDeduction=0.0)
+        assertEquals(900.0,values(zero)[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX]!!,0.0)
+        for(record in listOf(null,monthly.copy(companyId="other"),monthly.copy(period="2026-02"),
+            monthly.copy(adjustmentsComplete=false),monthly.copy(garnishment=2000.0))) {
+            assertFalse(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX in values(record))
+            assertEquals(1100.0,values(record)[PayslipDocumentParserV2.KEY_GROSS]!!,0.0)
+            assertEquals(950.0,values(record)[PayslipDocumentParserV2.KEY_NET_TAXABLE]!!,0.0)
+        }
+    }
 
     private fun net(
         cash: SegmentedCashGrossAssemblyResultV2,
