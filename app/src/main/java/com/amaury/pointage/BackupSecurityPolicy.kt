@@ -46,15 +46,15 @@ object CloudSettingsBackupPolicy {
         "gps_settings",
         "navigation_state",
         "place_names",
-        "shift_profiles",
         "smart_setup",
         "widget_style"
     )
 
     fun canTransferPreferenceFile(name: String): Boolean {
-        val normalized = name.trim().lowercase(Locale.ROOT)
-        return normalized in transferablePreferenceFiles &&
-            BackupSecurityPolicy.canTransferPreferenceFile(normalized)
+        // Names are canonical storage domains, not labels. Aliases must not reach the
+        // exact-name restore barrier. Personal profiles belong to the account-scoped V2 backup.
+        return name in transferablePreferenceFiles &&
+            BackupSecurityPolicy.canTransferPreferenceFile(name)
     }
 }
 

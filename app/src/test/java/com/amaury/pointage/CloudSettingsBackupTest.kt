@@ -62,6 +62,7 @@ class CloudSettingsBackupTest {
 
     @Test fun closedSettingsScopeIgnoresMalformedBusinessStores() {
         val backup = JSONObject()
+            .put("shift_profiles", "not-settings")
             .put("salary_companies_v2", "not-settings")
             .put("horatrack_v2_payroll_coverage", "not-settings")
             .put("horatrack_v2_segmented_proration", "not-settings")

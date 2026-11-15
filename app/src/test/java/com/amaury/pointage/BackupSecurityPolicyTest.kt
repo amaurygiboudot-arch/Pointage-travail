@@ -121,7 +121,6 @@ class CloudSettingsBackupPolicyTest {
             "gps_settings",
             "navigation_state",
             "place_names",
-            "shift_profiles",
             "smart_setup",
             "widget_style"
         ).forEach { name ->
@@ -130,15 +129,19 @@ class CloudSettingsBackupPolicyTest {
     }
 
     @Test
-    fun `employee facts salary stores and unknown files stay local by default`() {
+    fun `employee facts salary stores and unknown files stay outside settings only backup`() {
         listOf(
             "horatrack_v2_meal_fact_journal",
             "horatrack_v2_test_runtime",
+            "shift_profiles",
             "salary_settings",
             "salary_companies_v2",
             "salary_company_siret_12345678901234",
             "welcome_preview",
-            "future_unreviewed_preferences"
+            "future_unreviewed_preferences",
+            "GPS_SETTINGS",
+            " gps_settings ",
+            "Appearance_settings"
         ).forEach { name ->
             assertFalse(name, CloudSettingsBackupPolicy.canTransferPreferenceFile(name))
         }
