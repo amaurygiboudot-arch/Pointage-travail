@@ -4,6 +4,11 @@ import com.amaury.pointage.v2.V2ConventionProvidentContributionBridge
 
 /** Couche 5/6 — assemblage canonique brut -> retenues connues -> net imposable -> PAS -> net estimé. */
 object NetSalaryEngineV2 {
+    /**
+     * Les champs patronaux individuels historiques sont des diagnostics de calcul internes,
+     * parfois incomplets : ne pas les afficher ni les sommer pour fabriquer un coût.
+     * Toute restitution patronale utilise employerProjection et ses états/provenances.
+     */
     data class Result(
         val gross: Double,
         val socialSecurityCeiling: Double?,
@@ -27,8 +32,8 @@ object NetSalaryEngineV2 {
         /** Part patronale légale déjà intégrée dans le socle Urssaf. */
         val statutoryEmployerContributions: Double = 0.0,
         /** Sous-total des seules cotisations patronales actuellement connues du moteur, avant réductions. */
-        val knownEmployerContributions: Double = 0.0,
-        /** Reste faux tant que le socle patronal Urssaf de base n'est pas intégré exhaustivement. */
+        val knownEmployerContributions: Double? = null,
+        /** Reste faux tant que l'applicabilité exhaustive des contributions propres à l'entreprise n'est pas prouvée. */
         val employerCostComplete: Boolean = false,
         /** Avertissements propres au coût employeur, sans dégrader la fiabilité du net salarié. */
         val employerCostWarnings: List<String> = emptyList(),
@@ -46,7 +51,16 @@ object NetSalaryEngineV2 {
         /** Sous-total connu après réductions confirmées ; null si l'ajustement ne peut pas être fiabilisé. */
         val knownEmployerContributionsAfterReductions: Double? = null,
         /** Brut social utilisable après confirmation des avantages en nature du mois. */
-        val grossReliable: Boolean = false
+        val grossReliable: Boolean = false,
+        /** Toutes les opérations monétaires salariales sont représentables au centime. */
+        val employeeAmountsReliable: Boolean = false,
+        /** Projection partielle issue des mêmes entrées résolues que le net. */
+        val employerProjection: EmployerContributionProjectionV2.Result? = null,
+        /** Original lines from this calculation; presentation must retain the reliability guards. */
+        val contributionDetails: List<CalculatedContributionLineV2> = emptyList(),
+        val employeeDeductionDetails: List<CalculatedEmployeeDeductionV2> = emptyList(),
+        /** False when a negative cash balance was clamped, so settlement cannot hide an unresolved debt. */
+        val settlementBaseReliable: Boolean = false
     )
 
     fun calculate(
@@ -55,15 +69,17 @@ object NetSalaryEngineV2 {
         company: CompanyPayrollOverridesV2.Snapshot,
         complementaryMinutes: Int? = null
     ): Result {
-        val cashGross = gross.coerceAtLeast(0.0)
-        val benefitsInKind = company.benefitsInKindGross
-            .takeIf { it.isFinite() && it >= 0.0 }
-            ?: 0.0
-        val contributionGross = cashGross + benefitsInKind
+        val cashCents = nonNegativeCents(gross)
+        val benefitsCents = nonNegativeCents(company.benefitsInKindGross)
+        val contributionGrossCents = if (cashCents != null && benefitsCents != null) {
+            PayrollMoneyV2.sum(listOf(cashCents, benefitsCents))
+        } else null
+        val benefitsInKind = benefitsCents?.let(PayrollMoneyV2::amount) ?: 0.0
+        val contributionGross = contributionGrossCents?.let(PayrollMoneyV2::amount) ?: 0.0
         val grossReliable = company.benefitsInKindReliable &&
-            gross.isFinite() && gross >= 0.0 &&
-            company.benefitsInKindGross.isFinite() && company.benefitsInKindGross >= 0.0 &&
-            contributionGross.isFinite()
+            cashCents != null && benefitsCents != null && contributionGrossCents != null
+        val protectionCsgBase = company.employerProtectionCsgCrdsBaseAmount
+            ?.let(::nonNegativeCents)?.let(PayrollMoneyV2::amount)
         val ceiling = SocialSecurityCeilingV2.calculate(
             SocialSecurityCeilingV2.Input(
                 year = year,
@@ -81,7 +97,7 @@ object NetSalaryEngineV2 {
             year = year,
             ceiling = ceiling,
             alsaceMoselleLocalRegime = company.alsaceMoselleLocalRegime,
-            employerProtectionCsgCrdsBaseAmount = company.employerProtectionCsgCrdsBaseAmount
+            employerProtectionCsgCrdsBaseAmount = protectionCsgBase
         )
         val retirement = ComplementaryRetirementCatalogV2.estimateGeneric(
             gross = contributionGross,
@@ -257,44 +273,68 @@ object NetSalaryEngineV2 {
         // calculée. Le moteur juridique sert à contrôler/compléter, jamais à doubler un prélèvement
         // déjà connu sur le bulletin.
         val effectiveProvident = company.providentEmployeeAmount ?: calculatedProvidentEmployee
-        val companyKnown = listOfNotNull(
+        val directAmounts = listOf(
             company.mutualEmployeeAmount,
             effectiveProvident,
             company.transportEmployeeAmount
-        ).sum()
+        )
+        val directAmountsValid = directAmounts.all { it == null || nonNegativeCents(it) != null }
+        val companyKnownCents = if (directAmountsValid) {
+            PayrollMoneyV2.sum(directAmounts.mapNotNull { it?.let(::nonNegativeCents) })
+        } else null
+        val statutoryLineCents = statutory.lines.map { PayrollMoneyV2.contribution(it.baseAmount, it.rate) }
+        val retirementLineCents = retirement.lines.map { PayrollMoneyV2.contribution(it.baseAmount, it.employeeRate) }
+        val statutoryCents = sumKnownLines(statutoryLineCents)
+        val retirementCents = sumKnownLines(retirementLineCents)
+        val companyKnown = companyKnownCents?.let(PayrollMoneyV2::amount) ?: 0.0
 
         // Toutes les contributions patronales restent hors net salarié.
         // L'avantage en nature augmente les assiettes, mais n'est pas versé en espèces.
-        val beforeTax = (cashGross - statutory.employeeDeductions - retirement.employeeDeductions - companyKnown)
-            .coerceAtLeast(0.0)
+        val rawBeforeCents = if (cashCents != null && statutoryCents != null &&
+            retirementCents != null && companyKnownCents != null
+        ) PayrollMoneyV2.sum(listOf(cashCents, -statutoryCents, -retirementCents, -companyKnownCents)) else null
+        val employeeAmountsReliable = contributionGrossCents != null && rawBeforeCents != null &&
+            (company.employerProtectionCsgCrdsBaseAmount == null || protectionCsgBase != null)
+        val beforeCents = rawBeforeCents?.coerceAtLeast(0L)
+        val beforeTax = beforeCents?.let(PayrollMoneyV2::amount) ?: 0.0
 
-        val nonDeductibleCsgCrds = statutory.lines
-            .filter { it.id == "csg_taxable" || it.id == "crds" }
-            .sumOf { it.employeeAmount }
+        // Réintégrer exactement les centimes déjà retranchés, pas un second calcul brut.
+        val nonDeductibleCsgCrds = sumKnownLines(statutory.lines.mapIndexedNotNull { index, line ->
+            if (line.id == "csg_taxable" || line.id == "crds") index else null
+        }.map { statutoryLineCents[it] })
 
         // Un barème collectif prouve une obligation juridique, pas l'absence d'une retenue réelle
         // différente sur le bulletin. Tant que le montant réellement prélevé par l'entreprise n'est
         // pas connu, la partie fiscale reste volontairement incomplète.
-        val providentDataComplete = company.providentEmployeeAmount != null
-        val taxableCompanyDataComplete = company.mutualEmployeeAmount != null &&
+        val providentDataComplete = company.providentEmployeeAmount?.let(::nonNegativeCents) != null
+        val employerTaxableCents = company.employerProtectionTaxableAmount?.let(::nonNegativeCents)
+        val employeeNonDeductibleCents = company.employeeProvidentNonDeductibleAmount?.let(::nonNegativeCents)
+        val transportCents = company.transportEmployeeAmount?.let(::nonNegativeCents)
+        val taxableCompanyDataComplete = company.mutualEmployeeAmount?.let(::nonNegativeCents) != null &&
             providentDataComplete &&
-            company.transportEmployeeAmount != null &&
-            company.employerProtectionTaxableAmount != null &&
-            company.employeeProvidentNonDeductibleAmount != null
+            transportCents != null &&
+            employerTaxableCents != null && employeeNonDeductibleCents != null
 
         // Même non versé en espèces, l'avantage en nature reste une rémunération imposable.
-        val netTaxable = if (taxableCompanyDataComplete) {
-            (
-                beforeTax +
-                    benefitsInKind +
-                    nonDeductibleCsgCrds +
-                    company.employerProtectionTaxableAmount!! +
-                    company.employeeProvidentNonDeductibleAmount!!
-                ).coerceAtLeast(0.0)
+        val rawTaxableCents = if (employeeAmountsReliable && taxableCompanyDataComplete &&
+            rawBeforeCents != null && benefitsCents != null && nonDeductibleCsgCrds != null
+        ) {
+            PayrollMoneyV2.sum(listOf(rawBeforeCents, benefitsCents, nonDeductibleCsgCrds,
+                employerTaxableCents!!, employeeNonDeductibleCents!!))
         } else null
-
-        val tax = if (netTaxable != null && company.incomeTaxRate != null) {
-            netTaxable * company.incomeTaxRate
+        // Une retenue transport positive ne caractérise pas sa déductibilité fiscale.
+        val transportTaxTreatmentKnown = transportCents != null && company.transportEmployeeAmount == 0.0
+        val taxableCents = rawTaxableCents?.takeIf { it >= 0L && transportTaxTreatmentKnown }
+        val netTaxable = taxableCents?.let(PayrollMoneyV2::amount)
+        val validTaxRate = company.incomeTaxRate?.takeIf { it.isFinite() && it in 0.0..1.0 }
+        val theoreticalTaxCents = if (taxableCents != null && validTaxRate != null) {
+            PayrollMoneyV2.tax(taxableCents, validTaxRate)
+        } else null
+        // Ne pas choisir implicitement la tolérance de non-prélèvement de l'employeur.
+        val taxCents = theoreticalTaxCents?.takeIf { beforeCents != null && it <= beforeCents }
+        val tax = taxCents?.let(PayrollMoneyV2::amount)
+        val afterCents = if (beforeCents != null && taxCents != null) {
+            PayrollMoneyV2.sum(listOf(beforeCents, -taxCents))
         } else null
 
         val employerOnlyCompanyWarnings = company.warnings.filter {
@@ -304,6 +344,8 @@ object NetSalaryEngineV2 {
             if (!grossReliable) {
                 add("Brut social : salaire ou avantages en nature du mois non confirmables ; seuls les éléments connus sont calculés, aucun total fiable n'est disponible.")
             }
+            if (!employeeAmountsReliable) add("Net salarié : entrée ou calcul monétaire invalide ou non représentable au centime ; aucun net fiable n'est disponible.")
+            if (rawBeforeCents != null && rawBeforeCents < 0L) add("Solde en espèces négatif avant écrêtement : le montant payable affiché est nul ; une dette ou régularisation reste à confirmer.")
             addAll(ceiling.warnings)
             addAll(statutory.warnings)
             addAll(retirement.warnings)
@@ -322,30 +364,101 @@ object NetSalaryEngineV2 {
                 add("Prévoyance salariale renseignée inférieure à la règle collective calculée : vérifier le bulletin ou le régime d’entreprise.")
             }
             if (!taxableCompanyDataComplete) add("Net imposable/PAS : assiette fiscale incomplète, aucun montant fiscal n'est inventé.")
-            if (company.incomeTaxRate == null) add("PAS : taux personnel non renseigné.")
+            if (transportCents != null && company.transportEmployeeAmount!! > 0.0) add("Net imposable/PAS : régime fiscal de la retenue transport à confirmer.")
+            if (rawTaxableCents != null && rawTaxableCents < 0L) add("Net imposable/PAS : rémunération nette fiscale négative ; régularisation non couverte, aucun zéro fiscal n'est inventé.")
+            if (employeeAmountsReliable && taxableCompanyDataComplete && rawTaxableCents == null) add("Net imposable/PAS : calcul fiscal non représentable au centime.")
+            if (validTaxRate == null) add("PAS : taux personnel non renseigné ou invalide.")
+            if (theoreticalTaxCents != null && beforeCents != null && theoreticalTaxCents > beforeCents) add("PAS supérieur aux espèces disponibles : traitement employeur à confirmer ; PAS et net après impôt non affichés.")
+            if (taxableCents != null && validTaxRate != null && theoreticalTaxCents == null) add("PAS : calcul non représentable au centime.")
+            if (taxCents != null && afterCents == null) add("Net après impôt : calcul non représentable au centime.")
         }.distinct()
 
-        val knownEmployerContributions = listOfNotNull(
-            statutory.employerContributions,
-            retirement.employerContributions,
-            calculatedProvidentEmployer,
-            statusContributions.employerContributions,
-            atMp.employerAmount,
-            mobility.employerAmount,
-            unemploymentAgs.totalEmployerAmount,
-            workforce.totalEmployerAmount,
-            healthFamily.totalEmployerAmount,
-            apprenticeship.totalEmployerAmount
-        ).sum()
-        val reductionAmount = company.employerReductionAmount
-        val reductionsFitKnownSubtotal = reductionAmount == null || reductionAmount <= knownEmployerContributions + 0.01
-        val knownAfterReductions = when {
-            reductionAmount == null -> null
-            reductionsFitKnownSubtotal -> (knownEmployerContributions - reductionAmount).coerceAtLeast(0.0)
-            else -> null
+        fun sumContributions(values: List<Long?>): Long? =
+            if (values.any { it == null }) null else PayrollMoneyV2.sum(values.filterNotNull())
+        fun familyLine(
+            family: EmployerContributionProjectionV2.Family, cents: Long?, source: String?,
+            available: Boolean, invalid: Boolean = false
+        ) = EmployerContributionProjectionV2.line(family, cents, source, available, invalid)
+        fun invalidRate(rate: Double?): Boolean = rate != null && (!rate.isFinite() || rate !in 0.0..1.0)
+        fun amountCents(amount: Double?): Long? = amount?.takeIf { it >= 0.0 }?.let(PayrollMoneyV2::cents)
+        val knownStatus = company.professionalStatus?.trim()?.uppercase() in setOf("CADRE", "NON_CADRE")
+        val aniKnown = !company.verifiedProtectionCategory.conventionControlsAni || company.verifiedProtectionCategory.confirmed
+        val statutoryEmployerLineCents = statutory.lines.map {
+            PayrollMoneyV2.contribution(it.baseAmount, it.employerRate)
         }
+        val retirementEmployerLineCents = retirement.lines.map {
+            PayrollMoneyV2.contribution(it.baseAmount, it.employerRate)
+        }
+        val statutoryEmployerCents = sumContributions(statutoryEmployerLineCents)
+        val retirementEmployerCents = sumContributions(retirementEmployerLineCents)
+        // Retain the exact checked cents used by the projection, not raw binary catalog amounts.
+        val atMpEmployerCents = company.atMpEmployerRate?.let { PayrollMoneyV2.contribution(contributionGross, it) }
+        val mobilityEmployerCents = company.employerMobilityRate?.let { PayrollMoneyV2.contribution(contributionGross, it) }
+        val unemploymentEmployerCents = unemploymentAgs.baseAmount?.let { base -> company.employerUnemploymentRate?.let { PayrollMoneyV2.contribution(base, it) } }
+        val agsEmployerCents = unemploymentAgs.baseAmount?.let { base -> company.employerAgsRate?.let { PayrollMoneyV2.contribution(base, it) } }
+        val apprenticeshipPrincipalCents = company.employerApprenticeshipPrincipalRate?.let { PayrollMoneyV2.contribution(contributionGross, it) }
+        val apprenticeshipBalanceCents = company.employerApprenticeshipBalanceRate?.let { PayrollMoneyV2.contribution(contributionGross, it) }
+        val statusEmployerCents = sumContributions(statusContributions.lines.map {
+            PayrollMoneyV2.contribution(it.baseAmount, it.employerRate)
+        })
+        val employerProjection = EmployerContributionProjectionV2.assemble(
+            context = EmployerContributionProjectionV2.Context(
+                companyId = company.companyId, year = year, month = company.referenceDate.monthValue,
+                contributionGrossCents = contributionGrossCents,
+                reliable = grossReliable && year == company.referenceDate.year
+            ),
+            lines = listOf(
+                familyLine(EmployerContributionProjectionV2.Family.STATUTORY, statutoryEmployerCents,
+                    statutory.lines.map { it.source }.distinct().joinToString(" | "),
+                    statutory.lines.isNotEmpty() && ceiling.complete),
+                familyLine(EmployerContributionProjectionV2.Family.COMPLEMENTARY_RETIREMENT, retirementEmployerCents,
+                    retirement.lines.map { it.source }.distinct().joinToString(" | "),
+                    retirement.lines.isNotEmpty() && ceiling.complete),
+                familyLine(EmployerContributionProjectionV2.Family.CONVENTION_PROVIDENT, amountCents(calculatedProvidentEmployer),
+                    if (verifiedProvidentPath) arbitratedProvident?.selectedSource?.let { "Arbitrage prévoyance : $it" }
+                    else legacyConventionProvident.lines.map { it.source }.distinct().joinToString(" | "),
+                    calculatedProvidentEmployer != null),
+                familyLine(EmployerContributionProjectionV2.Family.STATUS, statusEmployerCents,
+                    statusContributions.lines.map { it.source }.distinct().joinToString(" | ")
+                        .ifBlank { "Statut professionnel et catégorie ANI confirmés ; catalogue existant $year" },
+                    year == 2026 && ceiling.complete && knownStatus && aniKnown),
+                familyLine(EmployerContributionProjectionV2.Family.AT_MP,
+                    atMpEmployerCents,
+                    company.atMpEmployerSource, atMp.complete, invalidRate(company.atMpEmployerRate)),
+                familyLine(EmployerContributionProjectionV2.Family.MOBILITY,
+                    mobilityEmployerCents,
+                    company.employerMobilitySource, mobility.complete, invalidRate(company.employerMobilityRate)),
+                familyLine(EmployerContributionProjectionV2.Family.UNEMPLOYMENT_AGS,
+                    sumContributions(listOf(unemploymentEmployerCents, agsEmployerCents)),
+                    company.employerUnemploymentAgsSource, unemploymentAgs.complete,
+                    invalidRate(company.employerUnemploymentRate) || invalidRate(company.employerAgsRate)),
+                familyLine(EmployerContributionProjectionV2.Family.WORKFORCE,
+                    sumContributions(listOf(amountCents(workforce.fnalAmount), amountCents(workforce.trainingAmount))),
+                    company.employerWorkforceSource, workforce.complete),
+                familyLine(EmployerContributionProjectionV2.Family.HEALTH_FAMILY, amountCents(healthFamily.totalEmployerAmount),
+                    company.employerHealthFamilySource, healthFamily.complete,
+                    invalidRate(company.employerHealthRate) || invalidRate(company.employerFamilyRate) ||
+                        (company.employerHealthRate != null && company.employerFamilyRate != null && !healthFamily.complete)),
+                familyLine(EmployerContributionProjectionV2.Family.APPRENTICESHIP,
+                    sumContributions(listOf(apprenticeshipPrincipalCents, apprenticeshipBalanceCents)),
+                    company.employerApprenticeshipSource, apprenticeship.complete,
+                    invalidRate(company.employerApprenticeshipPrincipalRate) || invalidRate(company.employerApprenticeshipBalanceRate))
+            ),
+            reductions = EmployerContributionProjectionV2.reduction(company.employerReductionAmount, company.employerReductionSource),
+            additionalWarnings = retirement.warnings.map { "Retraite patronale — couverture partielle : $it" }
+        )
+        val knownEmployerContributions = employerProjection.knownSubtotalBeforeReductions
+        val reductionAmount = employerProjection.reductions.amountCents?.let(PayrollMoneyV2::amount)
+        val reductionsFitKnownSubtotal = reductionAmount == null || (knownEmployerContributions != null &&
+            employerProjection.reductions.amountCents!! <= employerProjection.knownSubtotalBeforeReductionsCents!!)
+        val knownAfterReductions = employerProjection.knownSubtotalAfterReductions
         val employerCostWarnings = buildList {
+            addAll(employerProjection.warnings)
             add("Coût employeur total : d’éventuelles contributions patronales spécifiques restent à confirmer ; aucun total complet n'est affiché.")
+            add("Périmètre du coût salarial estimé : brut social + contributions patronales − réductions ; il ne représente pas toutes les dépenses de l'entreprise. Les sous-totaux affichés portent uniquement sur les contributions connues.")
+            add("Couverture patronale à prouver pour l'entreprise et le mois : part patronale de mutuelle, régimes supplémentaires d'entreprise et contributions spécifiques ; une absence de ligne calculée ne prouve pas leur non-applicabilité.")
+            if (!grossReliable) add("Coût employeur : brut social et avantages en nature du mois à confirmer.")
+            if (reductionAmount == null) add("Coût employeur : total des réductions/exonérations du mois à confirmer, y compris leur absence éventuelle ; aucun zéro n'est supposé.")
             addAll(statusContributions.warnings)
             addAll(atMp.warnings)
             addAll(mobility.warnings)
@@ -375,8 +488,8 @@ object NetSalaryEngineV2 {
             grossReliable = grossReliable,
             socialSecurityCeiling = ceiling.applicableMonthly.takeIf { year == 2026 },
             socialSecurityCeilingComplete = ceiling.complete,
-            statutory = statutory.employeeDeductions,
-            complementaryRetirement = retirement.employeeDeductions,
+            statutory = statutoryCents?.let(PayrollMoneyV2::amount) ?: 0.0,
+            complementaryRetirement = retirementCents?.let(PayrollMoneyV2::amount) ?: 0.0,
             conventionProvidentEmployee = if (company.providentEmployeeAmount == null) calculatedProvidentEmployee ?: 0.0 else 0.0,
             conventionProvidentEmployer = calculatedProvidentEmployer ?: 0.0,
             companyEmployeeDeductions = companyKnown,
@@ -385,13 +498,13 @@ object NetSalaryEngineV2 {
             netBeforeIncomeTax = beforeTax,
             netTaxable = netTaxable,
             incomeTax = tax,
-            netAfterIncomeTax = tax?.let { (beforeTax - it).coerceAtLeast(0.0) },
+            netAfterIncomeTax = afterCents?.let(PayrollMoneyV2::amount),
             complete = warnings.isEmpty(),
             warnings = warnings,
             benefitsInKindDeduction = benefitsInKind,
             employerMobilityContribution = mobility.employerAmount,
-            complementaryRetirementEmployer = retirement.employerContributions,
-            statutoryEmployerContributions = statutory.employerContributions,
+            complementaryRetirementEmployer = retirementEmployerCents?.let(PayrollMoneyV2::amount) ?: retirement.employerContributions,
+            statutoryEmployerContributions = statutoryEmployerCents?.let(PayrollMoneyV2::amount) ?: statutory.employerContributions,
             knownEmployerContributions = knownEmployerContributions,
             employerCostComplete = false,
             employerCostWarnings = employerCostWarnings,
@@ -404,9 +517,53 @@ object NetSalaryEngineV2 {
             employerApprenticeshipPrincipalContribution = apprenticeship.principalAmount,
             employerApprenticeshipBalanceAccrual = apprenticeship.balanceAccrualAmount,
             confirmedEmployerReductions = reductionAmount,
-            knownEmployerContributionsAfterReductions = knownAfterReductions
+            knownEmployerContributionsAfterReductions = knownAfterReductions,
+            employeeAmountsReliable = employeeAmountsReliable,
+            settlementBaseReliable = grossReliable && employeeAmountsReliable && rawBeforeCents != null && rawBeforeCents >= 0L && afterCents != null,
+            employerProjection = employerProjection,
+            employeeDeductionDetails = listOf(
+                CalculatedEmployeeDeductionV2("mutual", "Mutuelle — part salariale", company.mutualEmployeeAmount),
+                CalculatedEmployeeDeductionV2("provident", "Prévoyance — part salariale appliquée", effectiveProvident),
+                CalculatedEmployeeDeductionV2("transport-deduction", "Transport — retenue salariale", company.transportEmployeeAmount)
+            ),
+            contributionDetails = statutory.lines.mapIndexed { index, line ->
+                CalculatedContributionLineV2("statutory:${line.id}", line.label,
+                    EmployerContributionProjectionV2.Family.STATUTORY, line.baseAmount,
+                    line.rate, statutoryLineCents[index]?.let(PayrollMoneyV2::amount), line.employerRate,
+                    statutoryEmployerLineCents[index]?.let(PayrollMoneyV2::amount), line.source)
+            } + retirement.lines.mapIndexed { index, line ->
+                CalculatedContributionLineV2("retirement:${line.id}", line.label,
+                    EmployerContributionProjectionV2.Family.COMPLEMENTARY_RETIREMENT, line.baseAmount,
+                    line.employeeRate, retirementLineCents[index]?.let(PayrollMoneyV2::amount), line.employerRate,
+                    retirementEmployerLineCents[index]?.let(PayrollMoneyV2::amount), line.source)
+            } + listOfNotNull(
+                company.atMpEmployerSource?.let { CalculatedContributionLineV2("at-mp", "Accidents du travail / maladies professionnelles", EmployerContributionProjectionV2.Family.AT_MP,
+                    contributionGross, null, null, company.atMpEmployerRate, atMpEmployerCents?.let(PayrollMoneyV2::amount), it) },
+                company.employerMobilitySource?.let { CalculatedContributionLineV2("mobility", "Versement mobilité", EmployerContributionProjectionV2.Family.MOBILITY,
+                    contributionGross, null, null, company.employerMobilityRate, mobilityEmployerCents?.let(PayrollMoneyV2::amount), it) },
+                company.employerUnemploymentAgsSource?.let { source -> unemploymentAgs.baseAmount?.let { base ->
+                    CalculatedContributionLineV2("unemployment", "Assurance chômage", EmployerContributionProjectionV2.Family.UNEMPLOYMENT_AGS,
+                        base, null, null, company.employerUnemploymentRate, unemploymentEmployerCents?.let(PayrollMoneyV2::amount), source) } },
+                company.employerUnemploymentAgsSource?.let { source -> unemploymentAgs.baseAmount?.let { base ->
+                    CalculatedContributionLineV2("ags", "AGS", EmployerContributionProjectionV2.Family.UNEMPLOYMENT_AGS,
+                        base, null, null, company.employerAgsRate, agsEmployerCents?.let(PayrollMoneyV2::amount), source) } },
+                company.employerHealthFamilySource?.let { CalculatedContributionLineV2("employer-health", "Maladie — employeur", EmployerContributionProjectionV2.Family.HEALTH_FAMILY,
+                    contributionGross, null, null, company.employerHealthRate, healthFamily.healthAmount, it) },
+                company.employerHealthFamilySource?.let { CalculatedContributionLineV2("family", "Famille", EmployerContributionProjectionV2.Family.HEALTH_FAMILY,
+                    contributionGross, null, null, company.employerFamilyRate, healthFamily.familyAmount, it) },
+                company.employerApprenticeshipSource?.let { CalculatedContributionLineV2("apprenticeship-principal", "Apprentissage — part principale", EmployerContributionProjectionV2.Family.APPRENTICESHIP,
+                    contributionGross, null, null, company.employerApprenticeshipPrincipalRate, apprenticeshipPrincipalCents?.let(PayrollMoneyV2::amount), it) },
+                company.employerApprenticeshipSource?.let { CalculatedContributionLineV2("apprenticeship-balance", "Apprentissage — provision mensuelle du solde", EmployerContributionProjectionV2.Family.APPRENTICESHIP,
+                    contributionGross, null, null, company.employerApprenticeshipBalanceRate, apprenticeshipBalanceCents?.let(PayrollMoneyV2::amount), it) }
+            )
         )
     }
+
+    private fun nonNegativeCents(value: Double): Long? =
+        value.takeIf { it.isFinite() && it >= 0.0 }?.let(PayrollMoneyV2::cents)
+
+    private fun sumKnownLines(values: List<Long?>): Long? =
+        if (values.any { it == null }) null else PayrollMoneyV2.sum(values.filterNotNull())
 
     private fun confirmedNoProvidentContribution(idcc: String?) = ConventionProvidentContributionV2.Result(
         applicable = false,

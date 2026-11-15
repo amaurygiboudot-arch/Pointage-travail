@@ -45,11 +45,11 @@ object CompanyMealFactsDialogV2 {
         if (companyId.isBlank()) return
         val loaded = V2MealBasketFactStore.load(context)
         if (loaded.malformedCount > 0) {
-            AlertDialog.Builder(context)
+            SalaryAccountUi.dialog(context)
                 .setTitle("Faits repas / organisation")
                 .setMessage(
                     "Le journal local contient ${loaded.malformedCount} fait(s) illisible(s). " +
-                        "HoraTrack refuse de le réécrire pour ne pas effacer une information potentiellement bloquante."
+                        "AGKGMG refuse de le réécrire pour ne pas effacer une information potentiellement bloquante."
                 )
                 .setPositiveButton("FERMER", null)
                 .show()
@@ -72,7 +72,7 @@ object CompanyMealFactsDialogV2 {
             setPadding(dp(context, 16), dp(context, 8), dp(context, 16), dp(context, 8))
         }
         box.addView(TextView(context).apply {
-            text = "Ici, HoraTrack enregistre des faits réels et datés — jamais un droit au panier ni un montant. " +
+            text = "Ici, AGKGMG enregistre des faits réels et datés — jamais un droit au panier ni un montant. " +
                 "Le moteur juridique décide ensuite si une règle officielle est applicable."
             textSize = 13f
             setPadding(0, 0, 0, dp(context, 8))
@@ -117,7 +117,7 @@ object CompanyMealFactsDialogV2 {
             isFillViewport = true
             addView(box)
         }
-        dialog = AlertDialog.Builder(context)
+        dialog = SalaryAccountUi.dialog(context)
             .setTitle("Faits repas / organisation")
             .setView(scroll)
             .setNegativeButton("FERMER", null)
@@ -139,7 +139,7 @@ object CompanyMealFactsDialogV2 {
         }
         box.addView(TextView(context).apply {
             text = "Confirme un fait au niveau entreprise uniquement s’il est vrai pour toute la période indiquée. " +
-                "Sinon laisse « À confirmer » : HoraTrack bloquera ce fait au lieu d’inventer une valeur."
+                "Sinon laisse « À confirmer » : AGKGMG bloquera ce fait au lieu d’inventer une valeur."
             textSize = 12f
             setPadding(0, 0, 0, dp(context, 8))
         })
@@ -224,7 +224,7 @@ object CompanyMealFactsDialogV2 {
             isFillViewport = true
             addView(box)
         }
-        val builder = AlertDialog.Builder(context)
+        val builder = SalaryAccountUi.dialog(context)
             .setTitle(if (existing.isEmpty()) "Nouvelle période factuelle" else "Modifier la période factuelle")
             .setView(scroll)
             .setPositiveButton("ENREGISTRER", null)

@@ -10,6 +10,21 @@ import org.junit.Test
 
 class GpsRegressionV2Test {
     @Test
+    fun `une entree GPS nefface pas la reprise avant un enregistrement prouve`() {
+        assertFalse(GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(false, true, GpsWorkStateCoordinatorV2.Action.ENTRY_STARTED))
+        assertTrue(GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(true, false, null))
+        assertFalse(GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(true, true, null))
+        assertFalse(GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(true, true, GpsWorkStateCoordinatorV2.Action.NO_CHANGE))
+        assertFalse(GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(true, true, GpsWorkStateCoordinatorV2.Action.IGNORED))
+        assertTrue(GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(true, true, GpsWorkStateCoordinatorV2.Action.ENTRY_STARTED))
+        assertTrue(GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(true, true, GpsWorkStateCoordinatorV2.Action.RETURNED_TO_POSTE))
+        assertFalse(GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(
+            true, true, GpsWorkStateCoordinatorV2.Action.IGNORED, existingSessionVerified = true))
+        assertTrue(GpsWorkStateCoordinatorV2.entryResolutionAcknowledged(
+            true, true, GpsWorkStateCoordinatorV2.Action.NO_CHANGE, existingSessionVerified = true))
+    }
+
+    @Test
     fun `runtime non fiable bloque toute transition GPS y compris une entree ambigue`() {
         assertFalse(GpsWorkStateCoordinatorV2.canRouteWithRuntime(false))
         assertTrue(GpsWorkStateCoordinatorV2.canRouteWithRuntime(true))
@@ -36,7 +51,7 @@ class GpsRegressionV2Test {
     }
 
     @Test
-    fun `une sortie chantier remplace une ambiguite mais aucune autre confirmation`() {
+    fun `une sortie chantier ne remplace aucune ambiguite`() {
         val exit = pending(atMs = 10_000L)
         val ambiguous = exit.copy(
             kind = GpsWorkStateCoordinatorV2.Pending.Kind.AMBIGUOUS,
@@ -68,7 +83,7 @@ class GpsRegressionV2Test {
                 GpsWorkStateCoordinatorV2.Pending.Kind.AMBIGUOUS
             )
         )
-        assertTrue(
+        assertFalse(
             GpsWorkStateCoordinatorV2.canQueuePending(
                 ambiguous,
                 GpsWorkStateCoordinatorV2.Pending.Kind.EXIT_WORKSITE
@@ -264,6 +279,41 @@ class GpsRegressionV2Test {
             event(id = "reversed", atMs = pending.atMs - 1), session()))
         assertFalse(GpsWorkStateCoordinatorV2.canApplyReturnToPoste(pending,
             event(id = "exit", atMs = 600_000L, transition = GpsTransitionV2.EXIT), session()))
+    }
+
+    @Test
+    fun stalePendingGpsExitIsDiscardedAfterManualCloseOrMissingSession() {
+        val exit = pending(atMs = 10_000L)
+        assertTrue(GpsWorkStateCoordinatorV2.shouldDiscardPending(exit, null))
+        assertTrue(GpsWorkStateCoordinatorV2.shouldDiscardPending(
+            exit, session(status = SessionStatusV2.CLOSED, realExitMs = 14_000L)
+        ))
+        assertFalse(GpsWorkStateCoordinatorV2.shouldDiscardPending(
+            exit, session()
+        ))
+    }
+
+    @Test
+    fun validatedOverlappingZoneReturnCancelsExitOnlyForOpenSessionWithinTwoMinutes() {
+        val exit = pending(atMs = 10_000L)
+        val otherZone = event(id = "enter-b", atMs = 80_000L, placeId = "poste-b")
+        assertTrue(GpsWorkStateCoordinatorV2.canApplyVerifiedOverlappingReturn(
+            exit, otherZone, session(), verifiedOverlap = true
+        ))
+        assertFalse(GpsWorkStateCoordinatorV2.canApplyVerifiedOverlappingReturn(
+            exit, otherZone, session(), verifiedOverlap = false
+        ))
+        assertFalse(GpsWorkStateCoordinatorV2.canApplyVerifiedOverlappingReturn(
+            exit, otherZone, session(status = SessionStatusV2.CLOSED, realExitMs = 20_000L),
+            verifiedOverlap = true
+        ))
+        assertFalse(GpsWorkStateCoordinatorV2.canApplyVerifiedOverlappingReturn(
+            exit, otherZone.copy(atMs = 130_001L), session(), verifiedOverlap = true
+        ))
+        assertFalse(GpsWorkStateCoordinatorV2.canApplyVerifiedOverlappingReturn(
+            exit, otherZone.copy(pointType = GpsPointTypeV2.PARKING), session(),
+            verifiedOverlap = true
+        ))
     }
 
     private fun event(

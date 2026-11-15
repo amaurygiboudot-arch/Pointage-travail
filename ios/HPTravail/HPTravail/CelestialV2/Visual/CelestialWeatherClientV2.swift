@@ -50,7 +50,7 @@ final class CelestialWeatherClientV2: ObservableObject {
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("HoraTrack-Celeste/2", forHTTPHeaderField: "User-Agent")
+        request.setValue("AGKGMG-Celeste/2", forHTTPHeaderField: "User-Agent")
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)

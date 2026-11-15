@@ -6,6 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import com.amaury.pointage.v2.SegmentedPayslipComparisonValuesV2
+import com.amaury.pointage.v2.ConfirmedMonthlyPayrollSettlementV2 as Settlement
 
 class SegmentedSalaryCanonicalOutputV2Test {
     @Test
@@ -34,7 +35,7 @@ class SegmentedSalaryCanonicalOutputV2Test {
         assertEquals(50.0, comparison!![PayslipDocumentParserV2.KEY_OVERTIME_GROSS]!!, 0.0001)
         assertEquals(25.0, comparison[PayslipDocumentParserV2.KEY_PREMIUMS_GROSS]!!, 0.0001)
         assertEquals(1_100.0, comparison[PayslipDocumentParserV2.KEY_GROSS]!!, 0.0001)
-        assertEquals(900.0, comparison[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX]!!, 0.0001)
+        assertFalse(comparison.containsKey(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX))
         assertEquals(950.0, comparison[PayslipDocumentParserV2.KEY_NET_TAXABLE]!!, 0.0001)
 
         val pdfMoney = SalaryExamplePdfV2.estimatedGrossLines(result).toMap()
@@ -126,6 +127,133 @@ class SegmentedSalaryCanonicalOutputV2Test {
         assertTrue(result.warnings.contains(SegmentedSalaryCanonicalOutputAssemblerV2.NET_PROOF_WARNING))
     }
 
+    @Test
+    fun `brut social avec avantages reste rattache au cash de la chaine`() {
+        val worked = fixtureWorked()
+        val cash = cash(worked, 1_100.0)
+        val original = net(cash, complete = true)
+        val projection = original.projection!!
+        val withBenefits = original.copy(projection = projection.copy(payroll =
+            projection.payroll.copy(gross = 1_200.0, benefitsInKindDeduction = 100.0)))
+
+        val actual = SegmentedSalaryCanonicalOutputAssemblerV2.assemble(worked, cash, withBenefits)
+
+        assertTrue(actual.netBeforeIncomeTaxComplete)
+        assertEquals(900.0, actual.netBeforeIncomeTax!!, 0.0)
+    }
+
+    @Test
+    fun `demi centime de cash utilise la meme normalisation que la projection`() {
+        val worked = fixtureWorked()
+        val cash = cash(worked, 3_000.005)
+        val original = net(cash, complete = true)
+        val projection = original.projection!!
+        val rounded = original.copy(projection = projection.copy(payroll =
+            projection.payroll.copy(gross = 3_000.01)))
+
+        val actual = SegmentedSalaryCanonicalOutputAssemblerV2.assemble(worked, cash, rounded)
+
+        assertTrue(actual.netBeforeIncomeTaxComplete)
+        assertEquals(900.0, actual.netBeforeIncomeTax!!, 0.0)
+    }
+
+    @Test
+    fun `avantages ne permettent pas de masquer une divergence du brut cash`() {
+        val worked = fixtureWorked()
+        val cash = cash(worked, 1_100.0)
+        val original = net(cash, complete = true)
+        val projection = original.projection!!
+        val otherCash = original.copy(projection = projection.copy(payroll =
+            projection.payroll.copy(gross = 1_210.0, benefitsInKindDeduction = 100.0)))
+
+        val actual = SegmentedSalaryCanonicalOutputAssemblerV2.assemble(worked, cash, otherCash)
+
+        assertFalse(actual.netBeforeIncomeTaxComplete)
+        assertNull(actual.netBeforeIncomeTax)
+        assertTrue(actual.warnings.contains(SegmentedSalaryCanonicalOutputAssemblerV2.NET_PROOF_WARNING))
+    }
+
+    @Test fun `employer projection follows exact company month and cash chain through pdf`() {
+        val first = java.time.LocalDate.of(2026, 1, 1).toEpochDay()
+        val originalWorked = fixtureWorked()
+        val worked = originalWorked.copy(
+            evidence = originalWorked.evidence.copy(slices = originalWorked.evidence.slices.map {
+                it.copy(startEpochDay = first, endEpochDay = first + 6)
+            }),
+            variables = originalWorked.variables.copy(pieces = listOf(
+                SegmentedWorkedVariableGrossPieceV2("company", "c1", first, first + 6, 75.0, true))))
+        val cash = cash(worked, 1100.0)
+        val originalNet = net(cash, complete = true)
+        fun result(context: EmployerContributionProjectionV2.Context): SegmentedSalaryCanonicalOutputV2 {
+            val employer = EmployerContributionProjectionV2.assemble(context,
+                listOf(EmployerContributionProjectionV2.Line(EmployerContributionProjectionV2.Family.STATUTORY,
+                    EmployerContributionProjectionV2.State.KNOWN, 10000, "Fixture")),
+                EmployerContributionProjectionV2.Reduction(EmployerContributionProjectionV2.State.KNOWN, 0, "Fixture"))
+            val employee = originalNet.projection!!
+            return SegmentedSalaryCanonicalOutputAssemblerV2.assemble(worked, cash,
+                originalNet.copy(projection = employee.copy(payroll = employee.payroll.copy(employerProjection = employer))))
+        }
+        val context = EmployerContributionProjectionV2.Context("company", 2026, 1, 110000, true)
+        val valid = result(context)
+        assertEquals(10000L, valid.employerProjection!!.knownSubtotalBeforeReductionsCents)
+        assertEquals("100,00 €", SalaryExamplePdfV2.estimatedGrossLines(valid).toMap()["Sous-total patronal connu après réductions"])
+        val selected = SalaryExamplePdfV2.canonicalForSelection(valid, "company", 2026, 1)!!
+        assertEquals(valid, selected)
+        assertEquals("100,00 €", SalaryExamplePdfV2.estimatedGrossLines(selected).toMap()["Sous-total patronal connu après réductions"])
+        for (selection in listOf(Triple("other-company", 2026, 1), Triple("company", 2026, 2), Triple("company", 2027, 1))) {
+            val filtered = SalaryExamplePdfV2.canonicalForSelection(valid, selection.first, selection.second, selection.third)!!
+            assertNull(filtered.employerProjection)
+            assertEquals(valid.netBeforeIncomeTax, filtered.netBeforeIncomeTax)
+            assertEquals(valid.netAfterIncomeTax, filtered.netAfterIncomeTax)
+            assertEquals(valid.warnings, filtered.warnings)
+            val summary = SalaryExamplePdfV2.estimatedGrossLines(filtered).toMap()
+            assertEquals("À confirmer", summary["Sous-total patronal connu après réductions"])
+            assertTrue(summary["Informations patronales"]!!.contains("non affichable"))
+            val details = SalaryExamplePdfV2.contributionLines(filtered.net.projection?.payroll,
+                filtered.employerProjection, filtered.employerWarnings).toMap()
+            assertEquals("À confirmer", details["Sous-total patronal connu avant réductions"])
+            assertTrue(details["Informations patronales"]!!.contains("non affichable"))
+        }
+        for (invalid in listOf(context.copy(companyId = "other-company"), context.copy(month = 2),
+            context.copy(year = Int.MAX_VALUE), context.copy(contributionGrossCents = 110001))) {
+            val rejected = result(invalid)
+            assertNull(rejected.employerProjection)
+            assertEquals(valid.netBeforeIncomeTax, rejected.netBeforeIncomeTax)
+            assertEquals(valid.netAfterIncomeTax, rejected.netAfterIncomeTax)
+            assertEquals(valid.warnings, rejected.warnings)
+            assertEquals(valid.netBeforeIncomeTaxComplete, rejected.netBeforeIncomeTaxComplete)
+            assertTrue(rejected.employerWarnings.contains(SegmentedSalaryCanonicalOutputAssemblerV2.EMPLOYER_CONTEXT_WARNING))
+            assertTrue(SalaryExamplePdfV2.estimatedGrossLines(rejected).toMap()["Informations patronales"]!!.contains("non affichable"))
+            assertEquals("À confirmer", SalaryExamplePdfV2.estimatedGrossLines(rejected).toMap()["Sous-total patronal connu après réductions"])
+            val details = SalaryExamplePdfV2.contributionLines(rejected.net.projection?.payroll, rejected.employerProjection).toMap()
+            assertEquals("À confirmer", details["Sous-total patronal connu avant réductions"])
+        }
+        val mismatchedCash = SegmentedSalaryCanonicalOutputAssemblerV2.assemble(worked, cash(worked, 1200.0), valid.net)
+        assertNull(mismatchedCash.employerProjection)
+
+        val whole = worked.evidence.slices.single()
+        val transition = worked.copy(evidence = worked.evidence.copy(slices = listOf(
+            whole.copy(endEpochDay = first + 2),
+            whole.copy(startEpochDay = first + 3, ruleVersionId = "r2", weeks = emptyList()))))
+        val transitionResult = SegmentedSalaryCanonicalOutputAssemblerV2.assemble(transition, cash, valid.net)
+        assertEquals(10000L, transitionResult.employerProjection!!.knownSubtotalBeforeReductionsCents)
+        for (slices in listOf(
+            listOf(whole.copy(contractVersionId = "other-contract")),
+            listOf(whole.copy(endEpochDay = first + 2), whole.copy(startEpochDay = first + 4, weeks = emptyList())),
+            listOf(whole, whole.copy(weeks = emptyList())),
+            listOf(whole.copy(startEpochDay = first - 1))
+        )) {
+            val inconsistentWorked = worked.copy(evidence = worked.evidence.copy(slices = slices))
+            val rejected = SegmentedSalaryCanonicalOutputAssemblerV2.assemble(inconsistentWorked, cash, valid.net)
+            assertNull(rejected.employerProjection)
+            assertTrue(rejected.employerWarnings.contains(SegmentedSalaryCanonicalOutputAssemblerV2.EMPLOYER_CONTEXT_WARNING))
+        }
+        val invalidPaid = worked.copy(evidence = worked.evidence.copy(slices = listOf(whole.copy(weeks = whole.weeks + whole.weeks))))
+        assertNull(SegmentedSalaryCanonicalOutputAssemblerV2.assemble(invalidPaid, cash, valid.net).employerProjection)
+        val unreliableGrossNet = valid.net.copy(projection = valid.net.projection!!.copy(payroll = valid.net.projection!!.payroll.copy(grossReliable = false)))
+        assertNull(SegmentedSalaryCanonicalOutputAssemblerV2.assemble(worked, cash, unreliableGrossNet).employerProjection)
+    }
+
     private fun fixtureWorked(): SegmentedWorkedGrossProductionResultV2 {
         val week = SegmentedPayrollWeekEvidenceV2(
             weekYear = 2026,
@@ -200,6 +328,32 @@ class SegmentedSalaryCanonicalOutputV2Test {
         reliable = true,
         warnings = emptyList()
     )
+
+    @Test
+    fun `segmented comparison requires scoped exhaustive adjustments for cash net`() {
+        val worked=fixtureWorked()
+        val cash=cash(worked,1100.0)
+        val initial=net(cash,complete=true)
+        val projection=initial.projection!!
+        val payroll=projection.payroll.copy(employeeAmountsReliable=true,settlementBaseReliable=true,
+            employerProjection=EmployerContributionProjectionV2.assemble(
+                EmployerContributionProjectionV2.Context("company",2026,1,110000L,true),emptyList()))
+        val output=SegmentedSalaryCanonicalOutputAssemblerV2.assemble(worked,cash,
+            initial.copy(projection=projection.copy(payroll=payroll)))
+        val monthly=Settlement.Record("company","2026-01",50.0,20.0,15.0,5.0,
+            source="Synthetic settlement",confirmedAt=1L,adjustmentsComplete=true)
+        fun values(record:Settlement.Record?)=SegmentedPayslipComparisonValuesV2.expected(output,
+            Settlement.Result(record,true),"company","2026-01")!!
+        assertEquals(940.0,values(monthly)[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX]!!,0.0)
+        val zero=monthly.copy(transportReimbursement=0.0,garnishment=0.0,otherAddition=0.0,otherDeduction=0.0)
+        assertEquals(900.0,values(zero)[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX]!!,0.0)
+        for(record in listOf(null,monthly.copy(companyId="other"),monthly.copy(period="2026-02"),
+            monthly.copy(adjustmentsComplete=false),monthly.copy(garnishment=2000.0))) {
+            assertFalse(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX in values(record))
+            assertEquals(1100.0,values(record)[PayslipDocumentParserV2.KEY_GROSS]!!,0.0)
+            assertEquals(950.0,values(record)[PayslipDocumentParserV2.KEY_NET_TAXABLE]!!,0.0)
+        }
+    }
 
     private fun net(
         cash: SegmentedCashGrossAssemblyResultV2,

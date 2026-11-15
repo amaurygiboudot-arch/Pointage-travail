@@ -14,6 +14,7 @@ import android.provider.DocumentsContract
 import android.widget.Toast
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2BackupManager
+import com.amaury.pointage.v2.SalaryAccountScope
 import org.json.JSONArray
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -75,10 +76,11 @@ object DriveBackupManager {
     }
 
     fun syncAllAsync(context: Context, onDone: ((Boolean, String) -> Unit)? = null) {
-        val app = context.applicationContext
+        val lease = SalaryAccountScope.lease(context)
+        val app = SalaryAccountScope.bindContext(context.applicationContext, lease)
         executor.execute {
             val result = syncAllBlocking(app)
-            onDone?.invoke(result.isSuccess, result.getOrElse { it.message ?: "Erreur Drive" })
+            if (SalaryAccountScope.isCurrent(lease)) onDone?.invoke(result.isSuccess, result.getOrElse { it.message ?: "Erreur Drive" })
         }
     }
 
@@ -87,12 +89,14 @@ object DriveBackupManager {
         context: Context,
         stopped: () -> Boolean = { false }
     ): Result<String> = runCatching {
+        val context = SalaryAccountScope.bindContext(context)
         withStorageAccess {
             // Recontrôler après l'attente du verrou : une annulation ou déconnexion
             // peut arriver pendant qu'une autre sauvegarde utilise le dossier.
             if (stopped()) throw java.util.concurrent.CancellationException("Sauvegarde arrêtée")
             if (!isConfigured(context)) return@withStorageAccess "Sauvegarde Drive désactivée"
             if (syncOwner(HoraTrackV2.ENABLED) == SyncOwner.V2_SNAPSHOT) {
+                check(SalaryAccountScope.available(context)) { "Compte modifié pendant la sauvegarde" }
                 V2BackupManager.backupToConfiguredDrive(context).getOrThrow()
                 "sauvegarde AGKGMG V2 à jour"
             } else {

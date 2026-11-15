@@ -51,10 +51,17 @@ object CompanyAgreementRuleStoreV2 {
      * principal et du secours sains.
      */
     fun read(context: Context, companyId: String): ReadResult {
-        if (companyId.isBlank()) return unavailableCompanyReadResult()
-        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
-            readConfirmedCompany(context, companyId)
-        } ?: unavailableCompanyReadResult()
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(records = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING), repairedFromBackup = false)
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            if (companyId.isBlank()) return unavailableCompanyReadResult()
+            return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+                readConfirmedCompany(context, companyId)
+            } ?: unavailableCompanyReadResult()
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     internal fun unavailableCompanyReadResult(): ReadResult = ReadResult(
@@ -67,72 +74,79 @@ object CompanyAgreementRuleStoreV2 {
     )
 
     private fun readConfirmedCompany(context: Context, companyId: String): ReadResult {
-        val prefs = SalaryCompanyStore.prefs(context, companyId)
-        if (!prefs.contains(KEY)) {
-            val backupRaw = runCatching { prefs.getString(KEY_LAST_KNOWN_GOOD, null) }.getOrNull()
-            val backup = backupRaw?.let(::decodeRecords)
-            if (backup?.reliable == true) {
-                val restored = runCatching {
-                    prefs.edit().putString(KEY, backupRaw).commit()
-                }.getOrDefault(false)
-                return if (restored) {
-                    discardCorruptBackup(prefs)
-                    backup.copy(
-                        warnings = listOf(REPAIRED_WARNING),
-                        repairedFromBackup = true
-                    )
-                } else {
-                    ReadResult(
-                        records = backup.records,
-                        reliable = false,
-                        warnings = listOf(
-                            STORAGE_WARNING,
-                            "La dernière copie ACCO valide a été trouvée mais sa restauration a échoué."
-                        )
-                    )
-                }
-            }
-            return ReadResult(emptyList(), true, emptyList())
-        }
-
-        val primaryValue = runCatching { prefs.all[KEY] }.getOrNull()
-        val primaryRaw = primaryValue as? String
-        val backupRaw = runCatching { prefs.getString(KEY_LAST_KNOWN_GOOD, null) }.getOrNull()
-        val resolution = resolveStoredRecords(primaryRaw, backupRaw)
-
-        return when (resolution.source) {
-            StorageSource.PRIMARY -> {
-                val backupHealthy = when {
-                    primaryRaw == null -> false
-                    backupRaw == primaryRaw -> true
-                    else -> runCatching {
-                        prefs.edit().putString(KEY_LAST_KNOWN_GOOD, primaryRaw).commit()
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(records = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING), repairedFromBackup = false)
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            val prefs = SalaryCompanyStore.prefs(context, companyId)
+            if (!prefs.contains(KEY)) {
+                val backupRaw = runCatching { prefs.getString(KEY_LAST_KNOWN_GOOD, null) }.getOrNull()
+                val backup = backupRaw?.let(::decodeRecords)
+                if (backup?.reliable == true) {
+                    val restored = runCatching {
+                        prefs.edit().putString(KEY, backupRaw).commit()
                     }.getOrDefault(false)
-                }
-                if (backupHealthy) discardCorruptBackup(prefs)
-                resolution.result
-            }
-            StorageSource.LAST_KNOWN_GOOD -> {
-                val repairedRaw = backupRaw ?: return resolution.result.copy(reliable = false)
-                val restored = runCatching {
-                    prefs.edit().putString(KEY, repairedRaw).commit()
-                }.getOrDefault(false)
-                if (restored) {
-                    discardCorruptBackup(prefs)
-                    resolution.result
-                } else {
-                    ReadResult(
-                        records = resolution.result.records,
-                        reliable = false,
-                        warnings = listOf(
-                            STORAGE_WARNING,
-                            "La dernière copie ACCO valide a été trouvée mais sa restauration a échoué."
+                    return if (restored) {
+                        discardCorruptBackup(prefs)
+                        backup.copy(
+                            warnings = listOf(REPAIRED_WARNING),
+                            repairedFromBackup = true
                         )
-                    )
+                    } else {
+                        ReadResult(
+                            records = backup.records,
+                            reliable = false,
+                            warnings = listOf(
+                                STORAGE_WARNING,
+                                "La dernière copie ACCO valide a été trouvée mais sa restauration a échoué."
+                            )
+                        )
+                    }
                 }
+                return ReadResult(emptyList(), true, emptyList())
             }
-            StorageSource.NONE -> resolution.result
+
+            val primaryValue = runCatching { prefs.all[KEY] }.getOrNull()
+            val primaryRaw = primaryValue as? String
+            val backupRaw = runCatching { prefs.getString(KEY_LAST_KNOWN_GOOD, null) }.getOrNull()
+            val resolution = resolveStoredRecords(primaryRaw, backupRaw)
+
+            return when (resolution.source) {
+                StorageSource.PRIMARY -> {
+                    val backupHealthy = when {
+                        primaryRaw == null -> false
+                        backupRaw == primaryRaw -> true
+                        else -> runCatching {
+                            prefs.edit().putString(KEY_LAST_KNOWN_GOOD, primaryRaw).commit()
+                        }.getOrDefault(false)
+                    }
+                    if (backupHealthy) discardCorruptBackup(prefs)
+                    resolution.result
+                }
+                StorageSource.LAST_KNOWN_GOOD -> {
+                    val repairedRaw = backupRaw ?: return resolution.result.copy(reliable = false)
+                    val restored = runCatching {
+                        prefs.edit().putString(KEY, repairedRaw).commit()
+                    }.getOrDefault(false)
+                    if (restored) {
+                        discardCorruptBackup(prefs)
+                        resolution.result
+                    } else {
+                        ReadResult(
+                            records = resolution.result.records,
+                            reliable = false,
+                            warnings = listOf(
+                                STORAGE_WARNING,
+                                "La dernière copie ACCO valide a été trouvée mais sa restauration a échoué."
+                            )
+                        )
+                    }
+                }
+                StorageSource.NONE -> resolution.result
+            }
         }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     fun replaceForAgreement(
@@ -141,6 +155,7 @@ object CompanyAgreementRuleStoreV2 {
         agreementId: String,
         candidates: List<CompanyAgreementRuleExtractorV2.Candidate>
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank() || agreementId.isBlank()) return false
         val stored = read(context, companyId)
         if (!stored.reliable) return false
@@ -186,6 +201,7 @@ object CompanyAgreementRuleStoreV2 {
         excerpt: String,
         verified: Boolean
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val stored = read(context, companyId)
         if (!stored.reliable) return false
         var matched = false
@@ -209,6 +225,7 @@ object CompanyAgreementRuleStoreV2 {
         excerpt: String,
         verified: Boolean
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val stored = read(context, companyId)
         if (!stored.reliable) return false
         var matched = false
@@ -231,6 +248,7 @@ object CompanyAgreementRuleStoreV2 {
         effectiveTo: String?,
         scope: String?
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val stored = read(context, companyId)
         if (!stored.reliable) return false
         var matched = false
@@ -302,6 +320,7 @@ object CompanyAgreementRuleStoreV2 {
     }
 
     private fun save(context: Context, companyId: String, values: List<StoredCandidate>): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank()) return false
         return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
             val entries = snapshotEntries(values) ?: return@withConfirmedCompany false

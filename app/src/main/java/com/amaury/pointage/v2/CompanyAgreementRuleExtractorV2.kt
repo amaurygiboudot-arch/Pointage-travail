@@ -1,7 +1,7 @@
 package com.amaury.pointage.v2
 
 /**
- * Extraction locale prudente des passages d'accords utiles à HoraTrack.
+ * Extraction locale prudente des passages d'accords utiles à AGKGMG.
  * Produit uniquement des candidats à vérifier : aucune règle n'est appliquée automatiquement.
  */
 object CompanyAgreementRuleExtractorV2 {

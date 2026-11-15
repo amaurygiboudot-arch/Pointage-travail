@@ -56,6 +56,29 @@ final class SalaryPaidWorkAggregatorV2Tests: XCTestCase {
         YearMonthV2(year: 2026, month: 9)!
     }
 
+    func testSecondsAccumulateAcrossSessionsWithinPayrollWeek() {
+        let first = date(2026, 9, 14, 8)
+        let second = date(2026, 9, 15, 8)
+        let result = SalaryPaidWorkAggregatorV2.aggregate(
+            sessions: [session(id: "one", entry: first, exit: first.addingTimeInterval(40)),
+                       session(id: "two", entry: second, exit: second.addingTimeInterval(40))],
+            employerId: employerA, period: september2026, calendar: utcCalendar)
+        XCTAssertTrue(result.reliable)
+        XCTAssertEqual(result.totalPaidMinutes, 1)
+    }
+
+    func testSecondsDoNotCarryAcrossPayrollWeeks() {
+        let first = date(2026, 9, 14, 8)
+        let second = date(2026, 9, 21, 8)
+        let result = SalaryPaidWorkAggregatorV2.aggregate(
+            sessions: [session(id: "one", entry: first, exit: first.addingTimeInterval(40)),
+                       session(id: "two", entry: second, exit: second.addingTimeInterval(40))],
+            employerId: employerA, period: september2026, calendar: utcCalendar)
+        XCTAssertTrue(result.reliable)
+        XCTAssertEqual(result.weeks.count, 2)
+        XCTAssertEqual(result.totalPaidMinutes, 0)
+    }
+
     func testExplicitUnpaidPauseIsDeductedFromPaidMinutes() {
         let entry = date(2026, 9, 14, 8)
         let exit = date(2026, 9, 14, 16)

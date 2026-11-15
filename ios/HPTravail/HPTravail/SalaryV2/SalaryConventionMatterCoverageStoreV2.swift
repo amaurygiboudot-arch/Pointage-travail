@@ -16,8 +16,9 @@ enum SalaryConventionMatterCoverageStoreV2 {
     private static let key = "salary_convention_matter_coverage_v2.records"
 
     static func read(
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> ReadResult {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard let object = defaults.object(forKey: key) else {
             return ReadResult(records: [], reliable: true, warnings: [])
         }
@@ -28,13 +29,14 @@ enum SalaryConventionMatterCoverageStoreV2 {
     }
 
     static func resolve(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults,
         idcc: String,
         matter: ConventionMatterCoverageV2.Matter,
         date: PayrollCivilDateV2,
         classification: ConventionClassificationV2 = ConventionClassificationV2(),
         professionalStatus: String? = nil
     ) -> ConventionMatterCoverageV2.Snapshot {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let stored = read(defaults: defaults)
         guard stored.reliable else {
             return ConventionMatterCoverageV2.Snapshot(
@@ -57,8 +59,9 @@ enum SalaryConventionMatterCoverageStoreV2 {
     @discardableResult
     static func save(
         _ record: ConventionMatterCoverageV2.Record,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard record.structurallyValid else { return false }
         let stored = read(defaults: defaults)
         guard stored.reliable else { return false }

@@ -12,52 +12,55 @@ object CompanyAgreementImportCommitV2 {
         companyId: String,
         agreement: CompanyAgreementStoreV2.Agreement,
         candidates: List<CompanyAgreementRuleExtractorV2.Candidate>
-    ): Result = SalaryCompanyStore.withConfirmedCompany(context, companyId) {
-        val storedAgreements = CompanyAgreementStoreV2.read(context, companyId)
-        val storedCandidates = CompanyAgreementRuleStoreV2.read(context, companyId)
-        val previous = storedAgreements.agreements.firstOrNull { it.id == agreement.id }
-        if (!storedAgreements.reliable || !storedCandidates.reliable) {
-            return@withConfirmedCompany Result(
-                saved = false,
-                duplicate = previous != null,
-                candidateCount = candidates.size
-            )
-        }
-
-        val agreements = storedAgreements.agreements
-        val imported = agreement.copy(
-            status = if (previous?.status == CompanyAgreementStoreV2.Status.VERIFIED) {
-                CompanyAgreementStoreV2.Status.VERIFIED
-            } else {
-                CompanyAgreementStoreV2.Status.IMPORTED
+    ): Result {
+        val context = SalaryAccountScope.bindContext(context)
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            val storedAgreements = CompanyAgreementStoreV2.read(context, companyId)
+            val storedCandidates = CompanyAgreementRuleStoreV2.read(context, companyId)
+            val previous = storedAgreements.agreements.firstOrNull { it.id == agreement.id }
+            if (!storedAgreements.reliable || !storedCandidates.reliable) {
+                return@withConfirmedCompany Result(
+                    saved = false,
+                    duplicate = previous != null,
+                    candidateCount = candidates.size
+                )
             }
-        )
-        val mergedAgreements = if (previous == null) {
-            agreements + imported
-        } else {
-            agreements.map { if (it.id == agreement.id) imported else it }
-        }
-        val mergedCandidates = CompanyAgreementRuleStoreV2.mergePreservingValidation(
-            storedCandidates.records,
-            agreement.id,
-            candidates
-        )
-        val snapshotEntries = buildSnapshotEntries(mergedAgreements, mergedCandidates)
-            ?: return@withConfirmedCompany Result(
-                saved = false,
-                duplicate = previous != null,
-                candidateCount = candidates.size
-            )
 
-        val prefs = SalaryCompanyStore.prefs(context, companyId)
-        val editor = prefs.edit()
-        snapshotEntries.forEach { (key, value) -> editor.putString(key, value) }
-        val saved = editor
-            .putLong("company_agreement_import_completed_at", System.currentTimeMillis())
-            .putLong("company_agreement_import_revision", prefs.getLong("company_agreement_import_revision", 0L) + 1L)
-            .commit()
-        Result(saved = saved, duplicate = previous != null, candidateCount = candidates.size)
-    } ?: Result(saved = false, duplicate = false, candidateCount = candidates.size)
+            val agreements = storedAgreements.agreements
+            val imported = agreement.copy(
+                status = if (previous?.status == CompanyAgreementStoreV2.Status.VERIFIED) {
+                    CompanyAgreementStoreV2.Status.VERIFIED
+                } else {
+                    CompanyAgreementStoreV2.Status.IMPORTED
+                }
+            )
+            val mergedAgreements = if (previous == null) {
+                agreements + imported
+            } else {
+                agreements.map { if (it.id == agreement.id) imported else it }
+            }
+            val mergedCandidates = CompanyAgreementRuleStoreV2.mergePreservingValidation(
+                storedCandidates.records,
+                agreement.id,
+                candidates
+            )
+            val snapshotEntries = buildSnapshotEntries(mergedAgreements, mergedCandidates)
+                ?: return@withConfirmedCompany Result(
+                    saved = false,
+                    duplicate = previous != null,
+                    candidateCount = candidates.size
+                )
+
+            val prefs = SalaryCompanyStore.prefs(context, companyId)
+            val editor = prefs.edit()
+            snapshotEntries.forEach { (key, value) -> editor.putString(key, value) }
+            val saved = editor
+                .putLong("company_agreement_import_completed_at", System.currentTimeMillis())
+                .putLong("company_agreement_import_revision", prefs.getLong("company_agreement_import_revision", 0L) + 1L)
+                .commit()
+            Result(saved = saved, duplicate = previous != null, candidateCount = candidates.size)
+        } ?: Result(saved = false, duplicate = false, candidateCount = candidates.size)
+    }
 
     internal fun buildSnapshotEntries(
         agreements: List<CompanyAgreementStoreV2.Agreement>,

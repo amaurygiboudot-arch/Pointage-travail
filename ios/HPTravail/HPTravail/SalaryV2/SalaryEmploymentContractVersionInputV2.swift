@@ -114,8 +114,9 @@ enum SalaryEmploymentContractVersionConfirmationV2 {
 
     static func confirm(
         _ input: SalaryEmploymentContractVersionInputV2,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Result {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let validation = SalaryEmploymentContractVersionInputValidatorV2.validate(input)
         guard validation.ready else {
             return Result(saved: false, warnings: validation.warnings)

@@ -127,7 +127,11 @@ enum SalaryContractSegmentPaidWorkAllocatorV2 {
                 employerId: session.employerId,
                 pauses: session.pauses.compactMap {
                     clip(pause: $0, start: clippedStart, endExclusive: clippedEnd)
-                }
+                },
+                segments: PaidWorkSegmentClippingV2.clip(
+                    session.segments, sessionStart: session.entry, sessionEnd: exit,
+                    rangeStart: clippedStart, rangeEnd: clippedEnd
+                )
             )
         }
 
@@ -138,7 +142,11 @@ enum SalaryContractSegmentPaidWorkAllocatorV2 {
             employerId: session.employerId,
             pauses: session.pauses.compactMap {
                 clip(pause: $0, start: clippedStart, endExclusive: endExclusive)
-            }
+            },
+            segments: PaidWorkSegmentClippingV2.clip(
+                session.segments, sessionStart: session.entry, sessionEnd: nil,
+                rangeStart: clippedStart, rangeEnd: endExclusive
+            )
         )
     }
 

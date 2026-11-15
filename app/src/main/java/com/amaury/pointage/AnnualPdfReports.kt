@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.SalaryAccountScope
+
 import android.content.Context
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
@@ -151,7 +153,9 @@ object AnnualPdfReports {
         writeWorkV2(context, year, out)
     }
 
-    private fun writeWorkV2(context: Context, year: Int, out: OutputStream) {
+    private fun writeWorkV2(sourceContext: Context, year: Int, out: OutputStream) {
+        val context = SalaryAccountScope.bindContext(sourceContext)
+        check(SalaryAccountScope.available(context)) { SalaryAccountScope.AUTH_WARNING }
         val runtimeSessions = V2RuntimeReader.allSessions(context).requireReliable()
         val reportNowMs = System.currentTimeMillis()
         val yearScope = yearRange(year)
@@ -293,6 +297,7 @@ object AnnualPdfReports {
         )
         PdfVisualStyle.footer(canvas, 595, 842, 1)
         pdf.finishPage(page)
+        check(SalaryAccountScope.available(context)) { SalaryAccountScope.AUTH_WARNING }
         pdf.writeTo(out)
         pdf.close()
     }
@@ -332,14 +337,22 @@ object AnnualPdfReports {
     }
 
     private fun writeSalaryV2(
-        context: Context,
+        sourceContext: Context,
         year: Int,
         out: OutputStream,
         company: SalaryCompanyStore.Company?
     ) {
+        val context = SalaryAccountScope.bindContext(sourceContext)
+        check(SalaryAccountScope.available(context)) { SalaryAccountScope.AUTH_WARNING }
+        if (company != null) {
+            val companies = SalaryCompanyStore.readConfirmed(context)
+            check(companies.reliable && companies.companies.any { it == company }) {
+                "Entreprise du rapport à confirmer pour ce compte"
+            }
+        }
         val runtimeSessions = V2RuntimeReader.allSessions(context).requireReliable()
         val reportNowMs = System.currentTimeMillis()
-        val legacyPrefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
+        val legacyPrefs = SalaryAccountScope.preferences(context, "salary_settings")
         val legacyProfile = if (company == null) V2ProfileStore.load(context, 1) else null
         val acceptedEmployerIds = when {
             company != null -> SalaryCompanyStore.acceptedEmployerIds(context, company.id)
@@ -591,12 +604,15 @@ object AnnualPdfReports {
         }
         PdfVisualStyle.footer(canvas, 595, 842, 1)
         pdf.finishPage(page)
+        check(SalaryAccountScope.available(context)) { SalaryAccountScope.AUTH_WARNING }
         pdf.writeTo(out)
         pdf.close()
     }
 
     /** Ancien moteur conservé uniquement si le moteur actuel est explicitement désactivé pour rollback. */
-    private fun writeWorkLegacy(context: Context, data: JSONArray, year: Int, out: OutputStream) {
+    private fun writeWorkLegacy(sourceContext: Context, data: JSONArray, year: Int, out: OutputStream) {
+        val context = SalaryAccountScope.bindContext(sourceContext)
+        check(SalaryAccountScope.available(context)) { SalaryAccountScope.AUTH_WARNING }
         V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
         val pdf = PdfDocument()
         val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
@@ -616,14 +632,17 @@ object AnnualPdfReports {
         canvas.drawText("TOTAL : ${dur(paid)}", 34f, y + 12f, header)
         PdfVisualStyle.footer(canvas, 595, 842, 1)
         pdf.finishPage(page)
+        check(SalaryAccountScope.available(context)) { SalaryAccountScope.AUTH_WARNING }
         pdf.writeTo(out)
         pdf.close()
     }
 
-    private fun writeSalaryLegacy(context: Context, data: JSONArray, year: Int, out: OutputStream) {
+    private fun writeSalaryLegacy(sourceContext: Context, data: JSONArray, year: Int, out: OutputStream) {
+        val context = SalaryAccountScope.bindContext(sourceContext)
+        check(SalaryAccountScope.available(context)) { SalaryAccountScope.AUTH_WARNING }
         V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PAYROLL)
         V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
-        val prefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
+        val prefs = SalaryAccountScope.preferences(context, "salary_settings")
         val rate = prefDouble(prefs.all["hourly_rate"]) ?: 0.0
         val idcc = prefs.getString("company_idcc", "").orEmpty()
         val convention = ConventionCatalog.findByIdcc(idcc)
@@ -645,6 +664,7 @@ object AnnualPdfReports {
         canvas.drawText("Total estimé : ${euro.format(gross)}", 34f, y + 12f, PdfVisualStyle.boldPaint(9.2f))
         PdfVisualStyle.footer(canvas, 595, 842, 1)
         pdf.finishPage(page)
+        check(SalaryAccountScope.available(context)) { SalaryAccountScope.AUTH_WARNING }
         pdf.writeTo(out)
         pdf.close()
     }

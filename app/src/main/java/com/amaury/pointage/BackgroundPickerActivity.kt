@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -145,7 +147,7 @@ class BackgroundPickerActivity : Activity() {
                     val target = File(filesDir, AppearanceManager.BACKGROUND_FILE)
                     val result = crop.renderVisibleArea()
                     target.outputStream().use { result.compress(Bitmap.CompressFormat.JPEG, 92, it) }
-                    getSharedPreferences("appearance_settings", Context.MODE_PRIVATE).edit()
+                    RestoreGuardedPreferences.open(this@BackgroundPickerActivity, "appearance_settings", Context.MODE_PRIVATE).edit()
                         .putBoolean("custom_image_bg", true).apply()
                     result.recycle()
                     setResult(RESULT_OK)

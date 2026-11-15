@@ -3,7 +3,7 @@ package com.amaury.pointage
 /**
  * Résout l'identité d'une entreprise issue du flux explicite AJOUTER UNE ENTREPRISE.
  *
- * Le SIRET identifie l'établissement, mais l'ID HoraTrack déjà stocké reste stable : retrouver le
+ * Le SIRET identifie l'établissement, mais l'ID AGKGMG déjà stocké reste stable : retrouver le
  * même SIRET ne doit jamais déplacer les préférences ni casser le rattachement des anciennes sessions.
  */
 internal object SalaryCompanyIdentityResolverV2 {

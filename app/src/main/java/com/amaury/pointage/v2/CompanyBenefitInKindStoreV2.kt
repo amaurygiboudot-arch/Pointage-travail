@@ -53,16 +53,24 @@ object CompanyBenefitInKindStoreV2 {
     )
 
     fun read(context: Context, companyId: String): ReadResult {
-        if (companyId.isBlank()) return companyUnavailableReadResult()
-        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
-            readRecordsConfirmed(context, companyId)
-        } ?: companyUnavailableReadResult()
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(records = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            if (companyId.isBlank()) return companyUnavailableReadResult()
+            return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+                readRecordsConfirmed(context, companyId)
+            } ?: companyUnavailableReadResult()
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     fun list(context: Context, companyId: String): List<CompanyBenefitInKindResolverV2.Record> =
         read(context, companyId).records
 
     fun monthCoverage(context: Context, companyId: String, period: YearMonth): MonthCoverageSnapshot {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank()) return unavailableCoverage()
         return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
             monthCoverage(readConfirmationsConfirmed(context, companyId), period)
@@ -99,6 +107,7 @@ object CompanyBenefitInKindStoreV2 {
     }
 
     fun save(context: Context, companyId: String, record: CompanyBenefitInKindResolverV2.Record): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank() || !validRecord(record)) return false
         return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
             val stored = readRecordsConfirmed(context, companyId)
@@ -112,6 +121,7 @@ object CompanyBenefitInKindStoreV2 {
     }
 
     fun remove(context: Context, companyId: String, id: String): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank() || id.isBlank()) return false
         return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
             val stored = readRecordsConfirmed(context, companyId)
@@ -135,6 +145,7 @@ object CompanyBenefitInKindStoreV2 {
         period: YearMonth,
         source: String
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank() || source.isBlank()) return false
         return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
             val stored = readRecordsConfirmed(context, companyId)
@@ -152,6 +163,7 @@ object CompanyBenefitInKindStoreV2 {
     }
 
     fun clearMonthConfirmation(context: Context, companyId: String, period: YearMonth): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank()) return false
         return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
             val stored = readConfirmationsConfirmed(context, companyId)
@@ -169,6 +181,7 @@ object CompanyBenefitInKindStoreV2 {
         companyId: String,
         period: YearMonth
     ): CompanyBenefitInKindResolverV2.Snapshot {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank()) {
             return resolve(companyUnavailableReadResult(), companyUnavailableConfirmationResult(), period)
         }
@@ -268,15 +281,29 @@ object CompanyBenefitInKindStoreV2 {
     }
 
     private fun readRecordsConfirmed(context: Context, companyId: String): ReadResult {
-        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
-            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
-        return decodeRecords(raw)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(records = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
+                ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+            return decodeRecords(raw)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     private fun readConfirmationsConfirmed(context: Context, companyId: String): ConfirmationReadResult {
-        val raw = SalaryCompanyStore.prefs(context, companyId).getString(COVERAGE_KEY, "[]")
-            ?: return ConfirmationReadResult(emptyList(), false, listOf(COVERAGE_STORAGE_WARNING))
-        return decodeConfirmations(raw)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ConfirmationReadResult = ConfirmationReadResult(confirmations = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ConfirmationReadResult {
+            val raw = SalaryCompanyStore.prefs(context, companyId).getString(COVERAGE_KEY, "[]")
+                ?: return ConfirmationReadResult(emptyList(), false, listOf(COVERAGE_STORAGE_WARNING))
+            return decodeConfirmations(raw)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     private fun writeRecordsAndInvalidateConfirmationsConfirmed(
@@ -284,6 +311,7 @@ object CompanyBenefitInKindStoreV2 {
         companyId: String,
         items: List<CompanyBenefitInKindResolverV2.Record>
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val recordsArray = JSONArray()
         items.forEach { recordsArray.put(toJson(it)) }
         return SalaryCompanyStore.prefs(context, companyId)
@@ -300,6 +328,7 @@ object CompanyBenefitInKindStoreV2 {
         companyId: String,
         confirmations: List<MonthConfirmation>
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val array = JSONArray()
         confirmations.sortedBy { it.period }.forEach { confirmation ->
             array.put(

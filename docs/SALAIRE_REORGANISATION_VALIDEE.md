@@ -1,4 +1,4 @@
-# HoraTrack — Réorganisation validée de l'onglet SALAIRE
+# AGKGMG — Réorganisation validée de l'onglet SALAIRE
 
 Ce document fige les décisions fonctionnelles validées avant leur implémentation. Il ne demande pas la suppression des branches actives : lors de la réorganisation, supprimer/déplacer uniquement l'ancienne interface et conserver/reconnecter les moteurs, calculs, données et fonctions encore utilisés.
 
@@ -49,7 +49,7 @@ Pendant le remplissage, maintenir l'écran allumé au maximum 15 minutes. Arrêt
 
 Toucher une entreprise dans MES ENTREPRISES ouvre son espace détaillé après authentification Android.
 
-Utiliser la méthode de verrouillage configurée au niveau Android (biométrie ou identifiant de l'appareil pris en charge : PIN, schéma, mot de passe selon disponibilité). HoraTrack ne crée ni ne stocke son propre secret biométrique/PIN/schéma.
+Utiliser la méthode de verrouillage configurée au niveau Android (biométrie ou identifiant de l'appareil pris en charge : PIN, schéma, mot de passe selon disponibilité). AGKGMG ne crée ni ne stocke son propre secret biométrique/PIN/schéma.
 
 L'espace sécurisé contient au même niveau :
 - INFORMATIONS ENTREPRISE
@@ -92,7 +92,7 @@ Ne pas ajouter un numéro URSSAF uniquement pour rechercher ces informations : l
 
 Espace sécurisé propre à l'entreprise.
 
-### Estimation HoraTrack
+### Estimation AGKGMG
 
 Présenter l'estimation sous une forme proche d'un véritable bulletin de salaire, avec la mention claire `FICHE DE PAIE ESTIMATIVE`.
 
@@ -126,13 +126,13 @@ Si aucune vraie fiche n'est importée, proposer :
 
 Lier chaque fiche importée à la bonne entreprise. Classer par mois/année quand la période est reconnue, avec possibilité de corriger manuellement la période en cas d'erreur de détection.
 
-Conserver l'original importé sans le modifier par les calculs HoraTrack. Permettre sa suppression avec confirmation.
+Conserver l'original importé sans le modifier par les calculs AGKGMG. Permettre sa suppression avec confirmation.
 
-Comparer par défilement horizontal (swipe) : Estimation HoraTrack ↔ vraie fiche importée. Le nombre de pages est dynamique et sans plafond artificiel. L'indicateur `1 / X` est du texte cliquable, pas un bouton 3D : toucher l'indicateur ouvre une sélection de page et permet de sauter directement à la page choisie. Sa couleur suit le thème.
+Comparer par défilement horizontal (swipe) : Estimation AGKGMG ↔ vraie fiche importée. Le nombre de pages est dynamique et sans plafond artificiel. L'indicateur `1 / X` est du texte cliquable, pas un bouton 3D : toucher l'indicateur ouvre une sélection de page et permet de sauter directement à la page choisie. Sa couleur suit le thème.
 
 ### IA
 
-L'IA doit être disponible dans FICHE DE SALAIRE pour analyser une vraie fiche importée, la comparer à l'estimation HoraTrack, expliquer les écarts et signaler les anomalies potentielles.
+L'IA doit être disponible dans FICHE DE SALAIRE pour analyser une vraie fiche importée, la comparer à l'estimation AGKGMG, expliquer les écarts et signaler les anomalies potentielles.
 
 Elle doit distinguer clairement calcul certain, estimation et anomalie potentielle et ne jamais présenter une interprétation IA comme une certitude juridique.
 

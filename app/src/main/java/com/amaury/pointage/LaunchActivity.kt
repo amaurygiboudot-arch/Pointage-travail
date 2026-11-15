@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -52,7 +54,7 @@ class LaunchActivity : Activity() {
      * dans ce cas ; on lit donc la valeur brute puis on la normalise en Long.
      */
     private fun readLastShownVersion(): Long {
-        val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(this, PREFS, Context.MODE_PRIVATE)
         val raw = prefs.all[KEY_LAST_VERSION_SHOWN] ?: return -1L
         val value = when (raw) {
             is Long -> raw
@@ -81,7 +83,7 @@ class LaunchActivity : Activity() {
     }
 
     private fun markWelcomeShown() {
-        getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        RestoreGuardedPreferences.open(this, PREFS, Context.MODE_PRIVATE)
             .edit()
             .putLong(KEY_LAST_VERSION_SHOWN, currentVersionCode())
             .apply()

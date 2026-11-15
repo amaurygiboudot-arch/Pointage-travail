@@ -13,7 +13,7 @@ object V2LegalSourceUpdater {
 
     fun checkIfDue(context: Context, nowMs: Long = System.currentTimeMillis()) {
         val app = context.applicationContext
-        val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(app, PREFS, Context.MODE_PRIVATE)
         val lastSuccess = safeLong(prefs.all[KEY_LAST_SUCCESS])
         if (lastSuccess > 0L && nowMs - lastSuccess < PERIOD_MS) return
         val lastAttempt = safeLong(prefs.all[KEY_LAST_ATTEMPT])
@@ -23,7 +23,7 @@ object V2LegalSourceUpdater {
         ConventionCatalog.refreshAsync(app) { count ->
             if (count > 0) {
                 val checkedAt = System.currentTimeMillis()
-                app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                RestoreGuardedPreferences.open(app, PREFS, Context.MODE_PRIVATE).edit()
                     .putLong(KEY_LAST_SUCCESS, checkedAt)
                     .putInt(KEY_LAST_COUNT, count)
                     .apply()
@@ -56,7 +56,7 @@ object V2LegalSourceUpdater {
     }
 
     fun lastSuccessfulCheck(context: Context): Long? =
-        safeLong(context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).all[KEY_LAST_SUCCESS]).takeIf { it > 0L }
+        safeLong(RestoreGuardedPreferences.open(context.applicationContext, PREFS, Context.MODE_PRIVATE).all[KEY_LAST_SUCCESS]).takeIf { it > 0L }
 
     private fun safeLong(value: Any?): Long = when (value) {
         is Long -> value

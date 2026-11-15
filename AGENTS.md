@@ -1,8 +1,8 @@
-# HORATRACK — RÈGLES DU PROJET
+# AGKGMG — RÈGLES DU PROJET
 
 ## Chef d'orchestre
 
-L'agent principal est le chef d'orchestre HoraTrack.
+L'agent principal est le chef d'orchestre AGKGMG.
 Il analyse chaque demande et délègue aux sous-agents spécialisés quand cela améliore la vitesse, la couverture ou la fiabilité.
 
 Agents disponibles :
@@ -36,7 +36,7 @@ Salaire V2 reste la priorité fonctionnelle de la feuille de route.
 
 Exception bloquante : toute anomalie pouvant fausser, perdre ou dupliquer un pointage, une pause, une sortie, un déplacement ou une donnée servant ensuite à la paie doit être traitée en priorité de fiabilité avant de poursuivre une fonctionnalité de salaire.
 
-## PORTÉE HORATRACK
+## PORTÉE AGKGMG
 
 Toute modification doit être conçue pour l'ensemble des utilisateurs concernés :
 - tous métiers et organisations de travail ;
@@ -169,7 +169,7 @@ Tout FAIL du sas interdit la fusion jusqu'à correction et nouveau contrôle.
 
 ## GOUVERNANCE ANTI-CONTOURNEMENT
 
-Les agents HoraTrack doivent être considérés comme remplaçables. Aucun agent ne peut modifier les règles qui définissent sa propre autorité ou empêcher son remplacement.
+Les agents AGKGMG doivent être considérés comme remplaçables. Aucun agent ne peut modifier les règles qui définissent sa propre autorité ou empêcher son remplacement.
 
 Fichiers de gouvernance protégés :
 - `AGENTS.md`
@@ -218,4 +218,4 @@ Lancer les CI/tests pertinents avant fusion.
 
 ## OBJECTIF
 
-HoraTrack doit tendre vers une application extrêmement fiable, précise, maintenable et capable de gérer des situations de travail très différentes sans supposer une journée type.
+AGKGMG doit tendre vers une application extrêmement fiable, précise, maintenable et capable de gérer des situations de travail très différentes sans supposer une journée type.

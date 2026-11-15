@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.SalaryAccountScope
+
 import android.content.Context
 import java.util.Locale
 
@@ -25,11 +27,11 @@ object CompanyBasePauseSettings {
     private fun alarmKey(slot: Int, pauseIndex: Int, field: String) = prefix(slot) + "base_pause${suffix(pauseIndex)}_alarm_$field"
 
     fun startMinute(context: Context, slot: Int, pauseIndex: Int = 1): Int =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        SalaryAccountScope.preferences(context, PREFS)
             .getInt(prefix(slot) + "base_pause${suffix(pauseIndex)}_start", -1)
 
     fun endMinute(context: Context, slot: Int, pauseIndex: Int = 1): Int =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        SalaryAccountScope.preferences(context, PREFS)
             .getInt(prefix(slot) + "base_pause${suffix(pauseIndex)}_end", -1)
 
     fun pause(context: Context, slot: Int, pauseIndex: Int): PauseSlot? =
@@ -40,29 +42,29 @@ object CompanyBasePauseSettings {
         (1..2).sumOf { pause(context, slot, it)?.durationMinutes ?: 0 }.coerceIn(0, 480)
 
     fun alarmEnabled(context: Context, slot: Int, pauseIndex: Int): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        SalaryAccountScope.preferences(context, PREFS)
             .getBoolean(alarmKey(slot, pauseIndex, "enabled"), false)
 
     fun alarmSound(context: Context, slot: Int, pauseIndex: Int): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        SalaryAccountScope.preferences(context, PREFS)
             .getString(alarmKey(slot, pauseIndex, "sound"), "alarm") ?: "alarm"
 
     fun saveAlarm(context: Context, slot: Int, pauseIndex: Int, enabled: Boolean, sound: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        SalaryAccountScope.preferences(context, PREFS).edit()
             .putBoolean(alarmKey(slot, pauseIndex, "enabled"), enabled)
             .putString(alarmKey(slot, pauseIndex, "sound"), sound)
             .apply()
     }
 
     fun savePause(context: Context, slot: Int, pauseIndex: Int, startMinute: Int, endMinute: Int) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        SalaryAccountScope.preferences(context, PREFS).edit()
             .putInt(prefix(slot) + "base_pause${suffix(pauseIndex)}_start", startMinute.coerceIn(0, 1439))
             .putInt(prefix(slot) + "base_pause${suffix(pauseIndex)}_end", endMinute.coerceIn(0, 1439))
             .apply()
     }
 
     fun clearPause(context: Context, slot: Int, pauseIndex: Int) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        SalaryAccountScope.preferences(context, PREFS).edit()
             .remove(prefix(slot) + "base_pause${suffix(pauseIndex)}_start")
             .remove(prefix(slot) + "base_pause${suffix(pauseIndex)}_end")
             .remove(alarmKey(slot, pauseIndex, "enabled"))

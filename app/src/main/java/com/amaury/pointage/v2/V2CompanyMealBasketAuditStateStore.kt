@@ -55,10 +55,17 @@ object V2CompanyMealBasketAuditStateStore {
     internal fun canPersistCompleteRecordSet(recordCount: Int): Boolean = recordCount in 0..MAX_RECORDS
 
     internal fun read(context: Context): ReadResult {
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (!prefs.contains(KEY)) return ReadResult(emptyList(), true, emptyList())
-        val raw = runCatching { prefs.getString(KEY, null) }.getOrNull() ?: return corruptResult()
-        return decodeRecords(raw)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(records = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            val prefs = SalaryAccountScope.preferences(context, PREFS)
+            if (!prefs.contains(KEY)) return ReadResult(emptyList(), true, emptyList())
+            val raw = runCatching { prefs.getString(KEY, null) }.getOrNull() ?: return corruptResult()
+            return decodeRecords(raw)
+        }
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     internal fun decodeRecords(raw: String): ReadResult {
@@ -99,6 +106,7 @@ object V2CompanyMealBasketAuditStateStore {
         state: State,
         subjects: Set<String>
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val siret = profile.siret.filter(Char::isDigit)
         val status = profile.professionalStatus?.trim()?.uppercase().orEmpty()
         val normalizedSubjects = subjects.mapTo(linkedSetOf()) { MealBasketLegalArbitrationBridgeV2.subject(it) }
@@ -134,6 +142,7 @@ object V2CompanyMealBasketAuditStateStore {
         agreementId: String,
         profile: ConventionLegalProfileV2
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val acco = agreementId.trim().uppercase()
         val siret = profile.siret.filter(Char::isDigit)
         val status = profile.professionalStatus?.trim()?.uppercase().orEmpty()
@@ -193,6 +202,7 @@ object V2CompanyMealBasketAuditStateStore {
         classification: ConventionClassificationV2,
         professionalStatus: String
     ): List<Record> {
+        val context = SalaryAccountScope.bindContext(context)
         val result = matchingResult(context, companyId, expectedSiret, classification, professionalStatus)
         return if (result.reliable) result.records.filter { it.state == State.UNRESOLVED } else emptyList()
     }
@@ -204,6 +214,7 @@ object V2CompanyMealBasketAuditStateStore {
         classification: ConventionClassificationV2,
         professionalStatus: String
     ): Set<String> {
+        val context = SalaryAccountScope.bindContext(context)
         val result = matchingResult(context, companyId, expectedSiret, classification, professionalStatus)
         return if (result.reliable) {
             result.records.filter { it.state == State.COMPLETE }.mapTo(linkedSetOf()) { it.agreementId }
@@ -227,6 +238,7 @@ object V2CompanyMealBasketAuditStateStore {
     }
 
     private fun persist(context: Context, records: List<Record>): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (!canPersistCompleteRecordSet(records.size) || records.any { !it.structurallyValid() } ||
             hasDuplicateIdentity(records)) return false
         val array = JSONArray()
@@ -242,7 +254,7 @@ object V2CompanyMealBasketAuditStateStore {
                 .put("checkedAtMs", record.checkedAtMs))
         }
         return runCatching {
-            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            SalaryAccountScope.preferences(context, PREFS)
                 .edit().putString(KEY, array.toString()).commit()
         }.getOrDefault(false)
     }

@@ -28,7 +28,7 @@ object SicknessProvidentOffsetV2 {
         return when (treatment) {
             AbsenceProvidentTreatmentV2.TO_CONFIRM -> Result(
                 false,null,null,
-                listOf("Prévoyance employeur pendant le maintien : à confirmer. HoraTrack conserve le complément avant prévoyance sans inventer de montant final.")
+                listOf("Prévoyance employeur pendant le maintien : à confirmer. AGKGMG conserve le complément avant prévoyance sans inventer de montant final.")
             )
             AbsenceProvidentTreatmentV2.NONE_CONFIRMED -> Result(
                 true,0.0,before,

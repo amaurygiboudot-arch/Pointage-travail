@@ -16,52 +16,59 @@ final class CompanyIncomeTaxRateStoreV2 {
         "income_tax_rates_v2." + companyId.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults) {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         self.defaults = defaults
     }
 
     func snapshot(companyId: String, for period: YearMonthV2) -> CompanyIncomeTaxRateResolverV2.Snapshot {
-        let storageKey = key(companyId: companyId)
-        guard !companyId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return .init(rate: nil, ratePercent: nil, source: nil, hasDatedRecords: false, reliable: false, warnings: ["PAS : entreprise non confirmée ; calcul après impôt bloqué."])
-        }
-        guard let data = defaults.data(forKey: storageKey) else {
-            return CompanyIncomeTaxRateResolverV2.resolve(records: [], period: period)
-        }
-        do {
-            let stored = try JSONDecoder().decode([StoredRecord].self, from: data)
-            let records: [CompanyIncomeTaxRateResolverV2.Record] = try stored.map {
-                guard let from = YearMonthV2($0.from) else { throw StoreError.invalidPeriod }
-                let to: YearMonthV2?
-                if let rawTo = $0.to {
-                    guard let parsed = YearMonthV2(rawTo) else { throw StoreError.invalidPeriod }
-                    to = parsed
-                } else {
-                    to = nil
+        return SalaryAccountStorageV2.readConsistently(defaults, unavailable: CompanyIncomeTaxRateResolverV2.Snapshot(rate: nil, ratePercent: nil, source: nil, hasDatedRecords: false, reliable: false, warnings: [SalaryAccountStorageV2.warning])) {
+            guard SalaryAccountStorageV2.available(defaults) else {
+                return .init(rate: nil, ratePercent: nil, source: nil, hasDatedRecords: false, reliable: false, warnings: [SalaryAccountStorageV2.warning])
+            }
+            let storageKey = key(companyId: companyId)
+            guard !companyId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return .init(rate: nil, ratePercent: nil, source: nil, hasDatedRecords: false, reliable: false, warnings: ["PAS : entreprise non confirmée ; calcul après impôt bloqué."])
+            }
+            guard let data = defaults.data(forKey: storageKey) else {
+                return CompanyIncomeTaxRateResolverV2.resolve(records: [], period: period)
+            }
+            do {
+                let stored = try JSONDecoder().decode([StoredRecord].self, from: data)
+                let records: [CompanyIncomeTaxRateResolverV2.Record] = try stored.map {
+                    guard let from = YearMonthV2($0.from) else { throw StoreError.invalidPeriod }
+                    let to: YearMonthV2?
+                    if let rawTo = $0.to {
+                        guard let parsed = YearMonthV2(rawTo) else { throw StoreError.invalidPeriod }
+                        to = parsed
+                    } else {
+                        to = nil
+                    }
+                    return CompanyIncomeTaxRateResolverV2.Record(
+                        id: $0.id,
+                        ratePercent: $0.ratePercent,
+                        effectiveFrom: from,
+                        effectiveTo: to,
+                        source: $0.source
+                    )
                 }
-                return CompanyIncomeTaxRateResolverV2.Record(
-                    id: $0.id,
-                    ratePercent: $0.ratePercent,
-                    effectiveFrom: from,
-                    effectiveTo: to,
-                    source: $0.source
+                return CompanyIncomeTaxRateResolverV2.resolve(records: records, period: period)
+            } catch {
+                return .init(
+                    rate: nil,
+                    ratePercent: nil,
+                    source: nil,
+                    hasDatedRecords: true,
+                    reliable: false,
+                    warnings: ["PAS : stockage local incohérent ; calcul après impôt bloqué."]
                 )
             }
-            return CompanyIncomeTaxRateResolverV2.resolve(records: records, period: period)
-        } catch {
-            return .init(
-                rate: nil,
-                ratePercent: nil,
-                source: nil,
-                hasDatedRecords: true,
-                reliable: false,
-                warnings: ["PAS : stockage local incohérent ; calcul après impôt bloqué."]
-            )
         }
     }
 
     @discardableResult
     func remove(companyId: String, period: YearMonthV2) -> Bool {
+        guard SalaryAccountStorageV2.available(defaults) else { return false }
         let storageKey = key(companyId: companyId)
         guard !companyId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         guard let data = defaults.data(forKey: storageKey) else { return true }
@@ -69,13 +76,14 @@ final class CompanyIncomeTaxRateStoreV2 {
         let records = decoded.filter { $0.from != period.description }
         guard let encoded = try? JSONEncoder().encode(records) else { return false }
         defaults.set(encoded, forKey: storageKey)
-        return true
+        return SalaryAccountStorageV2.available(defaults) && defaults.data(forKey: storageKey) == encoded
     }
 
     private enum StoreError: Error { case invalidPeriod }
 
     @discardableResult
     func confirm(companyId: String, ratePercent: Double, period: YearMonthV2, source: String) -> Bool {
+        guard SalaryAccountStorageV2.available(defaults) else { return false }
         let storageKey = key(companyId: companyId)
         guard !companyId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -98,6 +106,6 @@ final class CompanyIncomeTaxRateStoreV2 {
         ))
         guard let data = try? JSONEncoder().encode(records) else { return false }
         defaults.set(data, forKey: storageKey)
-        return true
+        return SalaryAccountStorageV2.available(defaults) && defaults.data(forKey: storageKey) == data
     }
 }

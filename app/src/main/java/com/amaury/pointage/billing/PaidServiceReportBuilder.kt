@@ -107,7 +107,7 @@ object PaidServiceReportBuilder {
             lines += "PROJET DE COURRIER MODIFIÉ ET VALIDÉ PAR L'UTILISATEUR — AUCUN ENVOI AUTOMATIQUE"
             lines += input.claimLetter.lines()
             lines += "PIÈCES À JOINDRE PAR L'UTILISATEUR"
-            lines += input.months.map { "Bulletin original ${it.sourceName}, période ${period(it.year, it.month)} ; relevé des pointages ci-dessus ; contrat et justificatifs pertinents. Les originaux restent accessibles gratuitement dans HoraTrack." }
+            lines += input.months.map { "Bulletin original ${it.sourceName}, période ${period(it.year, it.month)} ; relevé des pointages ci-dessus ; contrat et justificatifs pertinents. Les originaux restent accessibles gratuitement dans AGKGMG." }
         }
         val normalized = mutableListOf(VERSION, input.productId, input.companyId, input.companyName, input.siret, input.idcc, input.year.toString(), input.claimLetter.orEmpty())
         input.months.sortedBy { it.month }.forEach { month ->
@@ -126,8 +126,8 @@ object PaidServiceReportBuilder {
         append("Madame, Monsieur,\n\nJe sollicite la vérification de mon bulletin ${period(month.year, month.month)} pour $company.\n")
         val changed = comparable(month).sorted().filter { abs(cents(month.observed.getValue(it)) - cents(month.expected.getValue(it))) > 2 }
         if (changed.isEmpty()) append("Je souhaite obtenir le détail des bases de calcul et des éléments correspondant à mes pointages.\n")
-        changed.forEach { field -> append("$field : montant figurant au bulletin ${money(month.observed.getValue(field))}, estimation HoraTrack ${money(month.expected.getValue(field))}. Merci d'expliquer cet écart et les éléments appliqués.\n") }
-        append("\nLes montants HoraTrack sont des estimations liées aux données confirmées ; cette demande ne présume ni faute ni somme certaine due. Je joins le bulletin et le relevé de mes pointages.\n\nMerci de me transmettre vos explications et, si nécessaire, les corrections utiles.\n\n[Nom, date et signature à compléter]")
+        changed.forEach { field -> append("$field : montant figurant au bulletin ${money(month.observed.getValue(field))}, estimation AGKGMG ${money(month.expected.getValue(field))}. Merci d'expliquer cet écart et les éléments appliqués.\n") }
+        append("\nLes montants AGKGMG sont des estimations liées aux données confirmées ; cette demande ne présume ni faute ni somme certaine due. Je joins le bulletin et le relevé de mes pointages.\n\nMerci de me transmettre vos explications et, si nécessaire, les corrections utiles.\n\n[Nom, date et signature à compléter]")
     }
     private fun comparable(month: Month) = month.comparableFields.filter { it in month.expected && it in month.observed }.toSet()
     private fun validAmount(value: Double) = value.isFinite() && value >= 0.0 && value < Long.MAX_VALUE.toDouble() / 100.0

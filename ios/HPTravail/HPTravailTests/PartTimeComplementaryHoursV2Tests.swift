@@ -15,6 +15,29 @@ final class PartTimeComplementaryHoursV2Tests: XCTestCase {
         )
     }
 
+    func testConfirmedScheduleRequiresDatedCompleteContractMatchedProof() throws {
+        func schedule(source: String = "official-test-source", minutes: Int = 1200,
+                      end: Int64 = 200, tiers: [OvertimeTierV2]? = nil) -> ConfirmedComplementaryScheduleV2 {
+            ConfirmedComplementaryScheduleV2(sourceId: source, contractualMinutes: minutes,
+                effectiveFromEpochDay: 100, effectiveToEpochDay: end,
+                tiers: tiers ?? [OvertimeTierV2(fromMinutes: 1200, toMinutes: 1260, multiplier: 1.2),
+                                 OvertimeTierV2(fromMinutes: 1260, toMinutes: 1320, multiplier: 1.3)])
+        }
+        let proven = try PartTimeComplementaryHoursV2.calculateWeek(contractualMinutes: 1200,
+            paidMinutes: 1320, grossHourlyRate: 10, confirmedSchedule: schedule(), referenceEpochDay: 150)
+        XCTAssertEqual(proven.grossToAdd, 25, accuracy: 0.001)
+        XCTAssertTrue(proven.confirmedScheduleUsed)
+        for candidate in [schedule(source: " "), schedule(minutes: 1100), schedule(end: 149),
+            schedule(tiers: [OvertimeTierV2(fromMinutes: 1210, toMinutes: 1320, multiplier: 1.2)]),
+            schedule(tiers: [OvertimeTierV2(fromMinutes: 1200, toMinutes: 1300, multiplier: 1.2),
+                             OvertimeTierV2(fromMinutes: 1250, toMinutes: 1320, multiplier: 1.3)])] {
+            let fallback = try PartTimeComplementaryHoursV2.calculateWeek(contractualMinutes: 1200,
+                paidMinutes: 1320, grossHourlyRate: 10, confirmedSchedule: candidate, referenceEpochDay: 150)
+            XCTAssertFalse(fallback.confirmedScheduleUsed)
+            XCTAssertEqual(fallback.grossToAdd, 22, accuracy: 0.001)
+        }
+    }
+
     func testNoComplementaryHoursKeepsGrossReliable() throws {
         let result = try PayrollEngineV2.calculate(
             contract: partTimeContract(),

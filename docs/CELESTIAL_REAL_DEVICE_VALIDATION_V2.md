@@ -56,7 +56,7 @@ Pour chaque appareil, relever :
 
 - modèle ;
 - version Android/iOS ;
-- version HoraTrack ;
+- version AGKGMG ;
 - SHA Git exact ;
 - résolution/densité ;
 - RAM ou classe mémoire lorsque disponible ;
@@ -298,7 +298,7 @@ Céleste peut être considéré conforme uniquement lorsque :
 - Android et iOS ont au moins un rapport matériel réel complet ;
 - les appareils faibles ne sont pas exclus : seule la qualité graphique peut être réduite ;
 - la CI technique est verte hors éventuel verrou externe identifié ;
-- la revue multi-agents exigée par HoraTrack a réellement été produite ;
+- la revue multi-agents exigée par AGKGMG a réellement été produite ;
 - la validation visuelle finale a été acceptée ;
 - la version installable testée correspond au SHA exact destiné à la publication.
 

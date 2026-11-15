@@ -1,7 +1,7 @@
 package com.amaury.pointage.core.location
 
 /**
- * Domaine GPS du nouveau moteur HoraTrack.
+ * Domaine GPS du nouveau moteur AGKGMG.
  *
  * Une zone décrit uniquement une présence géographique. Elle ne crée jamais à elle seule
  * une entrée, une sortie ou du temps de travail.

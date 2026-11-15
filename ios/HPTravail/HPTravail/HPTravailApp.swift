@@ -1,193 +1,230 @@
 import SwiftUI
 import GoogleSignIn
+import FirebaseAuth
+import FirebaseCore
 
 @main
 @MainActor
 struct HPTravailApp: App {
     @StateObject private var store: WorkStoreV2
-    @StateObject private var salaryStore: SalaryV2Store
-    @StateObject private var locationManager = LocationManager()
-    @StateObject private var authManager = AuthManager()
+    @StateObject private var locationManager: LocationManager
+    @StateObject private var authManager: AuthManager
 
     init() {
-        let workStore = WorkStoreV2()
+        let auth = AuthManager()
+        _authManager = StateObject(wrappedValue: auth)
+        let workStore = WorkStoreV2(accountProvider: {
+            guard FirebaseApp.app() != nil else { return nil }
+            return WorkSessionAccountStorageV2.authenticationScope(
+                available: true, userId: Auth.auth().currentUser?.uid
+            )
+        })
         _store = StateObject(wrappedValue: workStore)
-        _salaryStore = StateObject(
-            wrappedValue: SalaryV2Store(
-                referenceProvider: { companyId, period in
-                    let companies = SalaryCompanyStoreV2.readConfirmed()
-                    guard let company = SalaryCompanyStoreV2.confirmedCompany(
-                        companies,
-                        companyId: companyId
-                    ) else {
-                        return nil
-                    }
+        let location = LocationManager()
+        _locationManager = StateObject(wrappedValue: location)
+        location.automaticPointageHandler = { [weak workStore, weak location] in
+            Task { @MainActor in
+                guard let workStore, let location else { return }
+                let succeeded = workStore.processAutomaticGpsPointage()
+                location.refreshAutomaticPointageStatus(succeeded: succeeded)
+            }
+        }
+        // Includes OS location relaunches: no view needs to appear to replay pending facts.
+        location.automaticPointageHandler?()
+    }
 
-                    let conventionPayroll = SalaryConventionPayrollBridgeV2.resolve(
-                        companyId: companyId,
-                        period: period,
-                        companies: companies,
-                        storedRules: SalaryConventionRuleStoreV2.readConfirmed()
-                    )
-                    let conventionCoverage = conventionPayroll.coverage
-                    guard conventionPayroll.readyForSingleRulesCalculation,
-                          let conventionRules = conventionPayroll.rules else {
-                        return nil
-                    }
+    static func makeSalaryStore(workStore: WorkStoreV2) -> SalaryV2Store {
+        SalaryV2Store(
+            referenceProvider: { companyId, period in
+                let companies = SalaryCompanyStoreV2.readConfirmed()
+                guard let company = SalaryCompanyStoreV2.confirmedCompany(
+                    companies,
+                    companyId: companyId
+                ) else {
+                    return nil
+                }
 
-                    let contractResolution = SalaryEmploymentContractPayrollBridgeV2.resolve(
-                        companyId: companyId,
-                        period: period
-                    )
-                    guard contractResolution.readyForSingleContractCalculation,
-                          let contract = contractResolution.contract else {
-                        return nil
-                    }
+                let conventionPayroll = SalaryConventionPayrollBridgeV2.resolve(
+                    companyId: companyId,
+                    period: period,
+                    companies: companies,
+                    storedRules: SalaryConventionRuleStoreV2.readConfirmed()
+                )
+                let conventionCoverage = conventionPayroll.coverage
+                guard conventionPayroll.readyForSingleRulesCalculation,
+                      let conventionRules = conventionPayroll.rules else {
+                    return nil
+                }
 
-                    let workSource = SalaryWorkSessionBridgeV2.source(
-                        from: workStore.sessions,
-                        storageReliable: workStore.storageReliable
-                    )
-                    let absenceSource = SalaryAbsenceStoreV2.resolve(
-                        companyId: companyId,
-                        period: period
-                    )
-                    let socialProfile = SalaryEmployeeSocialProfileStoreV2.resolve(
-                        companyId: companyId,
-                        period: period
-                    )
-                    let nightResolution = SalaryConventionNightRuleStoreV2.resolve(
-                        idcc: company.idcc,
-                        period: period
-                    )
-                    let benefits = CompanyBenefitInKindStoreV2.resolve(
-                        companyId: companyId,
-                        period: period
-                    )
-                    guard let deductionPeriod = CompanyEmployeeDeductionResolverV2.YearMonth(
-                        year: period.year,
-                        month: period.month
-                    ) else {
-                        return nil
-                    }
-                    let deductions = CompanyEmployeeDeductionStoreV2.resolve(
-                        companyId: companyId,
-                        period: deductionPeriod
-                    )
-                    let incomeTax = CompanyIncomeTaxRateStoreV2().snapshot(
-                        companyId: companyId,
-                        for: period
-                    )
+                let contractResolution = SalaryEmploymentContractPayrollBridgeV2.resolve(
+                    companyId: companyId,
+                    period: period
+                )
+                guard contractResolution.readyForSingleContractCalculation,
+                      let contract = contractResolution.contract else {
+                    return nil
+                }
 
-                    guard let lastDay = PayrollCivilDateV2.daysInMonth(
-                        year: period.year,
-                        month: period.month
-                    ),
-                    let protectionReferenceDate = PayrollCivilDateV2(
-                        year: period.year,
-                        month: period.month,
-                        day: lastDay
-                    ) else {
-                        return nil
-                    }
-                    let professionalStatus = socialProfile.reliable
-                        ? socialProfile.professionalStatus?.rawValue
-                        : nil
-                    let classification = SalaryConventionClassificationStoreV2.load(
-                        companyId: companyId
+                let workSource = SalaryWorkSessionBridgeV2.source(
+                    from: workStore.sessions,
+                    storageReliable: workStore.payrollHistoryReliable
+                )
+                let absenceSource = SalaryAbsenceStoreV2.resolve(
+                    companyId: companyId,
+                    period: period
+                )
+                let socialProfile = SalaryEmployeeSocialProfileStoreV2.resolve(
+                    companyId: companyId,
+                    period: period
+                )
+                let nightResolution = SalaryConventionNightRuleStoreV2.resolve(
+                    idcc: company.idcc,
+                    period: period
+                )
+                let benefits = CompanyBenefitInKindStoreV2.resolve(
+                    companyId: companyId,
+                    period: period
+                )
+                guard let deductionPeriod = CompanyEmployeeDeductionResolverV2.YearMonth(
+                    year: period.year,
+                    month: period.month
+                ) else {
+                    return nil
+                }
+                let deductions = CompanyEmployeeDeductionStoreV2.resolve(
+                    companyId: companyId,
+                    period: deductionPeriod
+                )
+                let incomeTax = CompanyIncomeTaxRateStoreV2().snapshot(
+                    companyId: companyId,
+                    for: period
+                )
+
+                guard let lastDay = PayrollCivilDateV2.daysInMonth(
+                    year: period.year,
+                    month: period.month
+                ),
+                let protectionReferenceDate = PayrollCivilDateV2(
+                    year: period.year,
+                    month: period.month,
+                    day: lastDay
+                ) else {
+                    return nil
+                }
+                let professionalStatus = socialProfile.reliable
+                    ? socialProfile.professionalStatus?.rawValue
+                    : nil
+                let classification = SalaryConventionClassificationStoreV2.load(
+                    companyId: companyId
+                )
+                let legalProfile = SalaryConventionLegalProfileV2(
+                    companyId: companyId,
+                    idcc: company.idcc,
+                    professionalStatus: professionalStatus,
+                    classification: classification
+                )
+                let protectionRules = SalaryConventionProtectionCategoryStoreV2.rules(
+                    idcc: company.idcc
+                )
+                let protectionCoverage = SalaryConventionMatterCoverageStoreV2.resolve(
+                    idcc: company.idcc,
+                    matter: .providentCategory,
+                    date: protectionReferenceDate,
+                    classification: classification,
+                    professionalStatus: professionalStatus
+                )
+                let verifiedProtection: SalaryVerifiedProtectionCategoryProviderV2.Snapshot
+                if protectionRules.reliable {
+                    verifiedProtection = SalaryVerifiedProtectionCategoryProviderV2.resolve(
+                        profile: legalProfile,
+                        referenceDate: protectionReferenceDate,
+                        rules: protectionRules.rules,
+                        coverage: protectionCoverage
                     )
-                    let legalProfile = SalaryConventionLegalProfileV2(
-                        companyId: companyId,
-                        idcc: company.idcc,
-                        professionalStatus: professionalStatus,
-                        classification: classification
-                    )
-                    let protectionRules = SalaryConventionProtectionCategoryStoreV2.rules(
-                        idcc: company.idcc
-                    )
-                    let protectionCoverage = SalaryConventionMatterCoverageStoreV2.resolve(
-                        idcc: company.idcc,
-                        matter: .providentCategory,
-                        date: protectionReferenceDate,
-                        classification: classification,
-                        professionalStatus: professionalStatus
-                    )
-                    let verifiedProtection: SalaryVerifiedProtectionCategoryProviderV2.Snapshot
-                    if protectionRules.reliable {
-                        verifiedProtection = SalaryVerifiedProtectionCategoryProviderV2.resolve(
-                            profile: legalProfile,
-                            referenceDate: protectionReferenceDate,
-                            rules: protectionRules.rules,
-                            coverage: protectionCoverage
-                        )
-                    } else {
-                        let warning = protectionRules.warnings.isEmpty
-                            ? "Catégorie ANI vérifiée : cache KALI/APEC local incohérent ; aucun classement n'est déduit."
-                            : protectionRules.warnings.joined(separator: " ; ")
-                        verifiedProtection = SalaryVerifiedProtectionCategoryProviderV2.Snapshot(
-                            category: ProtectionCategoryV2.Result(
-                                aniCategory: .toConfirm,
-                                confirmed: false,
-                                warnings: [warning]
-                            ),
-                            reliable: false,
+                } else {
+                    let warning = protectionRules.warnings.isEmpty
+                        ? "Catégorie ANI vérifiée : cache KALI/APEC local incohérent ; aucun classement n'est déduit."
+                        : protectionRules.warnings.joined(separator: " ; ")
+                    verifiedProtection = SalaryVerifiedProtectionCategoryProviderV2.Snapshot(
+                        category: ProtectionCategoryV2.Result(
+                            aniCategory: .toConfirm,
+                            confirmed: false,
                             warnings: [warning]
-                        )
-                    }
-
-                    return SalaryCanonicalReferenceProviderV2.build(
-                        .init(
-                            companyId: companyId,
-                            companyAddress: company.address,
-                            period: period,
-                            contract: contract,
-                            rules: conventionRules,
-                            payrollRulesReliable: conventionCoverage.sourceReliable
-                                && conventionCoverage.fullyCovered,
-                            sessions: workSource.sessions,
-                            workSourceReliable: workSource.reliable,
-                            absences: absenceSource.absences,
-                            absenceSourceReliable: absenceSource.reliable,
-                            nightRule: nightResolution.reliable ? nightResolution.rule : nil,
-                            benefits: benefits,
-                            socialProfile: socialProfile,
-                            protectionCategory: verifiedProtection.category,
-                            companyDeductions: deductions,
-                            incomeTaxRate: incomeTax
-                        )
-                    )
-                },
-                segmentedProvider: { companyId, period in
-                    let workSource = SalaryWorkSessionBridgeV2.source(
-                        from: workStore.sessions,
-                        storageReliable: workStore.storageReliable
-                    )
-                    return SalarySegmentedCanonicalReferenceProviderV2.build(
-                        companyId: companyId,
-                        period: period,
-                        work: workSource
-                    )
-                },
-                workSourceProvider: {
-                    SalaryWorkSessionBridgeV2.source(
-                        from: workStore.sessions,
-                        storageReliable: workStore.storageReliable
+                        ),
+                        reliable: false,
+                        warnings: [warning]
                     )
                 }
-            )
+
+                return SalaryCanonicalReferenceProviderV2.build(
+                    .init(
+                        companyId: companyId,
+                        companyAddress: company.address,
+                        period: period,
+                        contract: contract,
+                        rules: conventionRules,
+                        payrollRulesReliable: conventionCoverage.sourceReliable
+                            && conventionCoverage.fullyCovered,
+                        sessions: workSource.sessions,
+                        workSourceReliable: workSource.reliable,
+                        absences: absenceSource.absences,
+                        absenceSourceReliable: absenceSource.reliable,
+                        nightRule: nightResolution.reliable ? nightResolution.rule : nil,
+                        benefits: benefits,
+                        socialProfile: socialProfile,
+                        protectionCategory: verifiedProtection.category,
+                        companyDeductions: deductions,
+                        incomeTaxRate: incomeTax
+                    )
+                )
+            },
+            segmentedProvider: { companyId, period in
+                let workSource = SalaryWorkSessionBridgeV2.source(
+                    from: workStore.sessions,
+                    storageReliable: workStore.payrollHistoryReliable
+                )
+                return SalarySegmentedCanonicalReferenceProviderV2.build(
+                    companyId: companyId,
+                    period: period,
+                    work: workSource
+                )
+            },
+            workSourceProvider: {
+                SalaryWorkSessionBridgeV2.source(
+                    from: workStore.sessions,
+                    storageReliable: workStore.payrollHistoryReliable
+                )
+            }
         )
     }
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            SalaryAccountContentView(workStore: store)
+                .id(authManager.salaryAccountGeneration)
                 .environmentObject(store)
-                .environmentObject(salaryStore)
                 .environmentObject(locationManager)
                 .environmentObject(authManager)
+                .onChange(of: authManager.salaryAccountGeneration) { _ in
+                    // This observer stays outside the identity-reset subtree. Otherwise
+                    // recreating ContentView could consume the UID change before its old
+                    // journal/GPS onChange observer gets a chance to reload.
+                    store.reloadAccount()
+                    locationManager.reloadAndReconcile()
+                }
                 .onOpenURL { url in
                     GIDSignIn.sharedInstance.handle(url)
                 }
         }
     }
+}
+
+/// Recreate every salary draft and cached provider when the authenticated session changes.
+@MainActor
+private struct SalaryAccountContentView: View {
+    @StateObject private var salaryStore: SalaryV2Store
+    init(workStore: WorkStoreV2) {
+        _salaryStore = StateObject(wrappedValue: HPTravailApp.makeSalaryStore(workStore: workStore))
+    }
+    var body: some View { ContentView().environmentObject(salaryStore) }
 }

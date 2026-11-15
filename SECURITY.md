@@ -36,7 +36,7 @@ Toute copie non autorisée, redistribution ou modification destinée à être di
 
 ## Gouvernance des agents IA
 
-HoraTrack considère qu'un agent IA peut se tromper avec assurance, mal interpréter une consigne, proposer une modification dangereuse ou produire un correctif qui passe les tests tout en introduisant une régression. La sécurité ne repose donc jamais sur la seule bonne volonté ou les seules instructions d'un agent.
+AGKGMG considère qu'un agent IA peut se tromper avec assurance, mal interpréter une consigne, proposer une modification dangereuse ou produire un correctif qui passe les tests tout en introduisant une régression. La sécurité ne repose donc jamais sur la seule bonne volonté ou les seules instructions d'un agent.
 
 ### Autorité humaine
 

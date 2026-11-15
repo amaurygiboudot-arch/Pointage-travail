@@ -9,6 +9,7 @@ import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.SalaryAccountScope
 import com.amaury.pointage.v2.V2LegacyPolicy
 import java.io.File
 import java.text.SimpleDateFormat
@@ -28,6 +29,8 @@ class PreviewPdfButton @JvmOverloads constructor(
 
     internal fun openPreview(year: Int? = null, month: Int? = null) {
         val activity = context as? MainActivity ?: return
+        val lease = SalaryAccountScope.lease(context)
+        if (!SalaryAccountScope.isCurrent(lease)) return
         val monthText = activity.findViewById<TextView>(R.id.selectedReportMonthText)?.text?.toString().orEmpty()
         val label = monthText.substringAfter(":", "").trim()
         val cal = Calendar.getInstance(Locale.FRANCE).apply { set(Calendar.DAY_OF_MONTH, 1) }
@@ -41,11 +44,11 @@ class PreviewPdfButton @JvmOverloads constructor(
             cal.clear(); cal.set(year, month, 1)
         }
         if (HoraTrackV2.ENABLED) {
-            activity.startActivity(Intent(activity, V2MonthlyPdfActivity::class.java).apply {
+            activity.startActivity(SalaryAccountUi.attach(Intent(activity, V2MonthlyPdfActivity::class.java).apply {
                 putExtra("report_year", cal.get(Calendar.YEAR))
                 putExtra("report_month", cal.get(Calendar.MONTH))
                 putExtra("report_preview", true)
-            })
+            }, lease))
             return
         }
 
@@ -64,11 +67,12 @@ class PreviewPdfButton @JvmOverloads constructor(
             val pretty = SimpleDateFormat("MMMM_yyyy", Locale.FRANCE).format(cal.time)
                 .replaceFirstChar { it.uppercase() }
                 .replace("é","e").replace("è","e").replace("ê","e").replace("à","a").replace("ç","c")
-            BillingPdfGate.require(activity, file, "Pointage_$pretty.pdf") { authorizedFile ->
-                activity.startActivity(Intent(activity, PdfPreviewActivity::class.java).apply {
+            BillingPdfGate.require(activity, file, "Pointage_$pretty.pdf", accountLease = lease) { authorizedFile ->
+                if (!SalaryAccountScope.isCurrent(lease)) return@require
+                activity.startActivity(SalaryAccountUi.attach(Intent(activity, PdfPreviewActivity::class.java).apply {
                     putExtra("pdf_path", authorizedFile.absolutePath)
                     putExtra("pdf_name", "Pointage_$pretty.pdf")
-                })
+                }, lease))
             }
         }.onFailure {
             Toast.makeText(activity, "Impossible de générer l'aperçu PDF", Toast.LENGTH_LONG).show()

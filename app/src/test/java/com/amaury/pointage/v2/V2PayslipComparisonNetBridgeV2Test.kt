@@ -2,6 +2,7 @@ package com.amaury.pointage.v2
 
 import com.amaury.pointage.V2SalaryAdapter
 import com.amaury.pointage.V2SalaryNetBridgeV2
+import com.amaury.pointage.v2.engine.EmployerContributionProjectionV2
 import com.amaury.pointage.v2.engine.NetSalaryEngineV2
 import com.amaury.pointage.v2.engine.PayslipDocumentParserV2
 import org.junit.Assert.assertEquals
@@ -12,6 +13,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class V2PayslipComparisonNetBridgeV2Test {
+    private val month = "2026-04"
+    private val settlement = ConfirmedMonthlyPayrollSettlementV2.Record(
+        "company", month, 0.0, 0.0, 0.0, 0.0, source = "Synthetic monthly statement", confirmedAt = 1L, adjustmentsComplete = true)
+    private fun expected(value: V2SalaryNetBridgeV2.Result,
+                         record: ConfirmedMonthlyPayrollSettlementV2.Record? = settlement,
+                         reliable: Boolean = true) = V2PayslipStore.expectedCompanyComparisonValues(
+        value, ConfirmedMonthlyPayrollSettlementV2.Result(record, reliable), "company", month)
+
     private fun salary(
         grossReliable: Boolean = true,
         paidTimeReliable: Boolean = true,
@@ -58,7 +67,11 @@ class V2PayslipComparisonNetBridgeV2Test {
         netAfterIncomeTax = 1_900.0,
         complete = true,
         warnings = emptyList(),
-        grossReliable = grossReliable
+        grossReliable = grossReliable,
+        settlementBaseReliable = true,
+        employeeAmountsReliable = true,
+        employerProjection = EmployerContributionProjectionV2.assemble(
+            EmployerContributionProjectionV2.Context("company", 2026, 4, 250000L, true), emptyList())
     )
 
     private fun bridge(
@@ -89,7 +102,7 @@ class V2PayslipComparisonNetBridgeV2Test {
 
     @Test
     fun `projection complete fournit uniquement les valeurs attendues sures`() {
-        val values = V2PayslipStore.expectedCompanyComparisonValues(bridge())!!
+        val values = expected(bridge())!!
 
         assertEquals(120.0, values[PayslipDocumentParserV2.KEY_OVERTIME_GROSS]!!, 0.0)
         assertEquals(80.0, values[PayslipDocumentParserV2.KEY_PREMIUMS_GROSS]!!, 0.0)
@@ -103,14 +116,14 @@ class V2PayslipComparisonNetBridgeV2Test {
 
     @Test
     fun `temps ou brut non fiable bloque toute comparaison calculee`() {
-        assertNull(V2PayslipStore.expectedCompanyComparisonValues(bridge(paidTimeReliable = false)))
-        assertNull(V2PayslipStore.expectedCompanyComparisonValues(bridge(grossReliable = false)))
+        assertNull(expected(bridge(paidTimeReliable = false)))
+        assertNull(expected(bridge(grossReliable = false)))
     }
 
     @Test
     fun `zero session avec avertissement bloque les fausses anomalies`() {
         assertNull(
-            V2PayslipStore.expectedCompanyComparisonValues(
+            expected(
                 bridge(
                     completedSessions = 0,
                     salaryWarnings = listOf("Aucune session exploitable")
@@ -121,7 +134,7 @@ class V2PayslipComparisonNetBridgeV2Test {
 
     @Test
     fun `brut social non fiable masque brut net et repli prevoyance conventionnel`() {
-        val values = V2PayslipStore.expectedCompanyComparisonValues(
+        val values = expected(
             bridge(
                 payrollGrossReliable = false,
                 netComplete = true,
@@ -138,26 +151,26 @@ class V2PayslipComparisonNetBridgeV2Test {
     }
 
     @Test
-    fun `pas absent conserve les references avant impot et imposable`() {
-        val values = V2PayslipStore.expectedCompanyComparisonValues(
+    fun `pas absent conserve imposable mais ne presume pas le net du bulletin`() {
+        val values = expected(
             bridge(incomeTax = null, afterTax = null)
         )!!
 
-        assertEquals(2_000.0, values[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX]!!, 0.0)
+        assertFalse(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX in values)
         assertEquals(2_050.0, values[PayslipDocumentParserV2.KEY_NET_TAXABLE]!!, 0.0)
     }
 
     @Test
-    fun `donnee fiscale absente conserve le net avant impot seulement`() {
-        val values = V2PayslipStore.expectedCompanyComparisonValues(bridge(taxable = null))!!
+    fun `donnee fiscale absente ne presume pas le net du bulletin`() {
+        val values = expected(bridge(taxable = null))!!
 
-        assertEquals(2_000.0, values[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX]!!, 0.0)
+        assertFalse(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX in values)
         assertFalse(PayslipDocumentParserV2.KEY_NET_TAXABLE in values)
     }
 
     @Test
     fun `retenue salariee inconnue ne publie aucun net technique`() {
-        val values = V2PayslipStore.expectedCompanyComparisonValues(bridge(netComplete = false))!!
+        val values = expected(bridge(netComplete = false))!!
 
         assertFalse(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX in values)
         assertFalse(PayslipDocumentParserV2.KEY_NET_TAXABLE in values)
@@ -178,6 +191,7 @@ class V2PayslipComparisonNetBridgeV2Test {
         val result = V2PayslipStore.compareKnownPayslipValues(expected, observed)
 
         assertTrue(result!!.conforming)
+        assertEquals(listOf(PayslipDocumentParserV2.KEY_GROSS),result.comparedKeys)
         assertTrue(result.discrepancies.isEmpty())
         assertNull(
             V2PayslipStore.compareKnownPayslipValues(
@@ -212,6 +226,38 @@ class V2PayslipComparisonNetBridgeV2Test {
         )
         assertTrue(V2PayslipStore.observedComparisonValues(emptyReliable, unconfirmed)!!.isEmpty())
         assertNull(V2PayslipStore.observedComparisonValues(corrupt, confirmed))
+    }
+
+
+    @Test
+    fun `complete monthly adjustments reconcile bulletin cash only`() {
+        val monthly = settlement.copy(transportReimbursement=50.0, garnishment=20.0, otherAddition=15.0, otherDeduction=5.0,
+            netPaidObserved=1.0, netSocialObserved=2.0)
+        val values=expected(bridge(),monthly)!!
+        assertEquals(2040.0,values[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX]!!,0.0)
+        assertEquals(2500.0,values[PayslipDocumentParserV2.KEY_GROSS]!!,0.0)
+        assertEquals(2050.0,values[PayslipDocumentParserV2.KEY_NET_TAXABLE]!!,0.0)
+        assertTrue(V2PayslipStore.compareKnownPayslipValues(values,mapOf(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX to 2040.0))!!.conforming)
+        assertFalse(V2PayslipStore.compareKnownPayslipValues(values,mapOf(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX to 2000.0))!!.conforming)
+    }
+
+    @Test
+    fun `unknown corrupt incomplete or mismatched settlement cannot declare net conformity`() {
+        val invalid = listOf(null,settlement.copy(adjustmentsComplete=false),settlement.copy(otherAddition=null),
+            settlement.copy(companyId="other"),settlement.copy(period="2026-05"),settlement.copy(source=""),
+            settlement.copy(garnishment=Double.NaN),settlement.copy(garnishment=-1.0),
+            settlement.copy(garnishment=3000.0),settlement.copy(transportReimbursement=1e17))
+        for(record in invalid) {
+            val values=expected(bridge(),record)!!
+            assertFalse(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX in values)
+            assertEquals(2500.0,values[PayslipDocumentParserV2.KEY_GROSS]!!,0.0)
+            assertEquals(2050.0,values[PayslipDocumentParserV2.KEY_NET_TAXABLE]!!,0.0)
+            assertNull(V2PayslipStore.compareKnownPayslipValues(values,mapOf(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX to 2000.0)))
+        }
+        assertFalse(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX in expected(bridge(),reliable=false)!!)
+        assertFalse(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX in expected(bridge().let {
+            it.copy(payroll=it.payroll.copy(settlementBaseReliable=false)) })!!)
+        assertFalse(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX in expected(bridge(afterTax=1899.0))!!)
     }
 
     private fun record(id: String, year: Int) = V2PayslipStore.Record(

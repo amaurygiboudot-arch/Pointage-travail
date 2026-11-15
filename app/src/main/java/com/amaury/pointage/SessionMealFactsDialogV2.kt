@@ -95,7 +95,7 @@ object SessionMealFactsDialogV2 {
                 .setTitle("Faits repas par session")
                 .setMessage(
                     "Le journal local contient ${loaded.malformedCount} fait(s) illisible(s). " +
-                        "HoraTrack refuse de le réécrire pour ne pas effacer une information potentiellement bloquante."
+                        "AGKGMG refuse de le réécrire pour ne pas effacer une information potentiellement bloquante."
                 )
                 .setPositiveButton("FERMER", null)
                 .show()
@@ -106,7 +106,7 @@ object SessionMealFactsDialogV2 {
         if (!runtime.reliable) {
             AlertDialog.Builder(context)
                 .setTitle("Faits repas par session")
-                .setMessage("Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(runtime.warnings)}")
+                .setMessage("Historique AGKGMG indisponible.\n${V2RuntimeReader.warningText(runtime.warnings)}")
                 .setPositiveButton("FERMER", null)
                 .show()
             return
@@ -129,7 +129,7 @@ object SessionMealFactsDialogV2 {
             AlertDialog.Builder(context)
                 .setTitle("Faits repas par session")
                 .setMessage(
-                    "Le stockage des entreprises doit être vérifié. HoraTrack refuse d’ouvrir cet éditeur " +
+                    "Le stockage des entreprises doit être vérifié. AGKGMG refuse d’ouvrir cet éditeur " +
                         "pour éviter d’associer des faits repas à la mauvaise entreprise."
                 )
                 .setPositiveButton("FERMER", null)
@@ -151,7 +151,7 @@ object SessionMealFactsDialogV2 {
                     AlertDialog.Builder(context)
                         .setTitle("Entreprise de la session à confirmer")
                         .setMessage(
-                            "HoraTrack ne peut pas rattacher cette session à une entreprise unique. " +
+                            "AGKGMG ne peut pas rattacher cette session à une entreprise unique. " +
                                 "Le lien reste inconnu plutôt que d'affecter les faits repas à la mauvaise entreprise."
                         )
                         .setPositiveButton("FERMER", null)
@@ -195,7 +195,7 @@ object SessionMealFactsDialogV2 {
             setPadding(0, 0, 0, dp(context, 8))
         })
         body.addView(TextView(context).apply {
-            text = "Ces réponses valent uniquement pour cette session. HoraTrack ne déduit rien du GPS, du chantier, de l'heure ou du poste. " +
+            text = "Ces réponses valent uniquement pour cette session. AGKGMG ne déduit rien du GPS, du chantier, de l'heure ou du poste. " +
                 "« Pas de fait session » conserve les niveaux plus généraux ; « À confirmer » bloque volontairement ce fait pour cette session."
             textSize = 12f
             setPadding(0, 0, 0, dp(context, 8))

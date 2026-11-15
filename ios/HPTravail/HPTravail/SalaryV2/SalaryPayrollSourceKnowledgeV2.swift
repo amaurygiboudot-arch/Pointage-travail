@@ -164,19 +164,24 @@ enum SalaryPayrollSourceKnowledgeStoreV2 {
     private static let key = "salary_payroll_source_knowledge_v2.proofs"
     private static let lock = NSLock()
 
-    static func read(defaults: UserDefaults = .standard) -> ReadResult {
-        guard let object = defaults.object(forKey: key) else {
-            return .init(proofs: [], reliable: true, warnings: [])
+    static func read(defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults) -> ReadResult {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
+        return SalaryAccountStorageV2.readConsistently(defaults, unavailable: ReadResult(proofs: [], reliable: false, warnings: [SalaryAccountStorageV2.warning])) {
+            guard SalaryAccountStorageV2.available(defaults) else { return .init(proofs: [], reliable: false, warnings: [SalaryAccountStorageV2.warning]) }
+            guard let object = defaults.object(forKey: key) else {
+                return .init(proofs: [], reliable: true, warnings: [])
+            }
+            guard let raw = object as? String else { return unreliable() }
+            return decodeProofs(raw)
         }
-        guard let raw = object as? String else { return unreliable() }
-        return decodeProofs(raw)
     }
 
     @discardableResult
     static func record(
         _ proof: SalaryPayrollSourceKnowledgeV2.Proof,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard proof.structurallyValid else { return false }
         lock.lock()
         defer { lock.unlock() }
@@ -196,8 +201,9 @@ enum SalaryPayrollSourceKnowledgeStoreV2 {
         idcc: String,
         referenceDate: PayrollCivilDateV2,
         currentSiret: String?,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> KnowledgeResult {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let stored = read(defaults: defaults)
         guard stored.reliable else {
             return .init(knowledge: [:], reliable: false, warnings: stored.warnings)

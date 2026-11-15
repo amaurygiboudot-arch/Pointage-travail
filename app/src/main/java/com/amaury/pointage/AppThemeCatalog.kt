@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
@@ -44,7 +46,7 @@ object AppThemeCatalog {
         get() = if (isOwnerAccount()) allThemes else publicThemes
 
     fun current(context: Context): HpTheme {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, PREFS, Context.MODE_PRIVATE)
         val id = prefs.getString(KEY_THEME, DEFAULT_THEME) ?: DEFAULT_THEME
         val visibleThemes = themes
         val selected = visibleThemes.firstOrNull { it.id == id }
@@ -57,7 +59,7 @@ object AppThemeCatalog {
 
     /** En automatique, la palette suit le vrai lever/coucher du soleil. */
     fun useDarkPalette(context: Context): Boolean {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, PREFS, Context.MODE_PRIVATE)
         return when (prefs.getString("mode", "auto") ?: "auto") {
             "light" -> false
             "dark" -> true
@@ -72,7 +74,7 @@ object AppThemeCatalog {
     }
 
     fun setCelestialNight(context: Context, night: Boolean) {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, PREFS, Context.MODE_PRIVATE)
         val changed = !prefs.contains(KEY_CELESTIAL_NIGHT) || prefs.getBoolean(KEY_CELESTIAL_NIGHT, !night) != night
         if (!changed) return
         prefs.edit().putBoolean(KEY_CELESTIAL_NIGHT, night).apply()
@@ -93,7 +95,7 @@ object AppThemeCatalog {
             ?: themes.firstOrNull { it.id == DEFAULT_THEME }
             ?: themes.first()
 
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        RestoreGuardedPreferences.open(context, PREFS, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_THEME, allowedTheme.id)
             .remove("app_bg")

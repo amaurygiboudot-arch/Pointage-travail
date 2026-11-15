@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.app.Activity
 import android.content.Context
 import android.os.Handler
@@ -163,10 +165,7 @@ object LightDirectionController {
      */
     fun isNight(context: Context): Boolean {
         cachedNight?.let { return it }
-        val preferences = context.applicationContext.getSharedPreferences(
-            AppThemeCatalog.PREFS,
-            Context.MODE_PRIVATE
-        )
+        val preferences = RestoreGuardedPreferences.open(context.applicationContext, AppThemeCatalog.PREFS, Context.MODE_PRIVATE)
         return if (preferences.contains(AppThemeCatalog.KEY_CELESTIAL_NIGHT)) {
             preferences.getBoolean(AppThemeCatalog.KEY_CELESTIAL_NIGHT, false)
         } else {

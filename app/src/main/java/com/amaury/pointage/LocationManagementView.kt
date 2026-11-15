@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.Manifest
 import android.app.AlertDialog
 import android.content.Context
@@ -40,7 +42,7 @@ internal fun gpsPlacePaidTimeV2(
 class LocationManagementView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 ) : LinearLayout(context, attrs, defStyleAttr), SharedPreferences.OnSharedPreferenceChangeListener {
-    private val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+    private val prefs = RestoreGuardedPreferences.open(context, "gps_settings", Context.MODE_PRIVATE)
     init { orientation = VERTICAL; refresh() }
     private fun theme() = AppThemeCatalog.current(context)
     private fun darkMode() = AppThemeCatalog.useDarkPalette(context)
@@ -100,7 +102,7 @@ class LocationManagementView @JvmOverloads constructor(
         for (group in groups) {
             val roles = summarizeGpsPlaceTypes(group)
             val description = if (group.legacyOnly) "Zone GPS à configurer" else
-                "${group.zones.size} zones : ${roles.workZones} travail, ${roles.parkingZones} parking, ${roles.pauseZones} pause, ${roles.otherZones} à confirmer"
+                "${group.zones.size} zones : ${roles.workZones} travail, ${roles.homeZones} domicile, ${roles.parkingZones} parking, ${roles.pauseZones} pause, ${roles.otherZones} à confirmer"
             addView(action("${companyLabel(group)}\n${groupTitle(group)}\n${group.address}\n$description") { showPlace(group.scope()) })
         }
     }

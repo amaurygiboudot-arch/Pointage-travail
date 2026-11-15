@@ -35,53 +35,60 @@ object V2EmploymentContractPayrollBridge {
         year: Int,
         monthZeroBased: Int
     ): Snapshot {
-        val base = resolveStored(
-            stored = V2EmploymentContractHistoryStore.readConfirmed(context),
-            companyId = companyId,
-            year = year,
-            monthZeroBased = monthZeroBased
-        )
-        val segments = base.resolution.calculationSegments
-        if (segments.isEmpty()) return base
-
-        val runtimeSource = V2RuntimeReader.allSessions(context)
-        val acceptedIds = SalaryCompanyStore.acceptedEmployerIds(context, companyId)
-        val paidWork = ContractSegmentPaidWorkAllocatorV2.allocate(
-            sessions = runtimeSource.sessions,
-            segments = segments,
-            acceptedEmployerIds = acceptedIds,
-            sourceReliable = runtimeSource.reliable
-        )
-        val compatibility = ContractSegmentPayrollCompatibilityV2.resolve(segments)
-        val canPromoteEquivalentVersions =
-            base.resolution.contract == null &&
-                base.resolution.requiresMultipleContractVersions &&
-                compatibility.compatibleForSingleMonthlyCalculation &&
-                compatibility.contract != null
-
-        val resolution = if (canPromoteEquivalentVersions) {
-            base.resolution.copy(
-                contract = compatibility.contract,
-                warnings = base.resolution.warnings
-                    .filterNot { it == EmploymentContractPeriodResolverV2.MULTIPLE_WARNING }
-                    .plus(compatibility.warnings)
-                    .distinct()
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): Snapshot = resolveStored(V2EmploymentContractHistoryStore.ReadResult(emptyList(), false, false, listOf(SalaryAccountScope.AUTH_WARNING)), companyId, year, monthZeroBased)
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun calculateInScope(): Snapshot {
+            val base = resolveStored(
+                stored = V2EmploymentContractHistoryStore.readConfirmed(context),
+                companyId = companyId,
+                year = year,
+                monthZeroBased = monthZeroBased
             )
-        } else {
-            base.resolution
-        }
-        val baseWarnings = if (canPromoteEquivalentVersions) {
-            base.warnings.filterNot { it == EmploymentContractPeriodResolverV2.MULTIPLE_WARNING }
-        } else {
-            base.warnings
-        }
+            val segments = base.resolution.calculationSegments
+            if (segments.isEmpty()) return base
 
-        return Snapshot(
-            resolution = resolution,
-            warnings = (baseWarnings + compatibility.warnings + paidWork.warnings).distinct(),
-            segmentedPaidWork = paidWork,
-            compatibility = compatibility
-        )
+            val runtimeSource = V2RuntimeReader.allSessions(context)
+            val acceptedIds = SalaryCompanyStore.acceptedEmployerIds(context, companyId)
+            val paidWork = ContractSegmentPaidWorkAllocatorV2.allocate(
+                sessions = runtimeSource.sessions,
+                segments = segments,
+                acceptedEmployerIds = acceptedIds,
+                sourceReliable = runtimeSource.reliable
+            )
+            val compatibility = ContractSegmentPayrollCompatibilityV2.resolve(segments)
+            val canPromoteEquivalentVersions =
+                base.resolution.contract == null &&
+                    base.resolution.requiresMultipleContractVersions &&
+                    compatibility.compatibleForSingleMonthlyCalculation &&
+                    compatibility.contract != null
+
+            val resolution = if (canPromoteEquivalentVersions) {
+                base.resolution.copy(
+                    contract = compatibility.contract,
+                    warnings = base.resolution.warnings
+                        .filterNot { it == EmploymentContractPeriodResolverV2.MULTIPLE_WARNING }
+                        .plus(compatibility.warnings)
+                        .distinct()
+                )
+            } else {
+                base.resolution
+            }
+            val baseWarnings = if (canPromoteEquivalentVersions) {
+                base.warnings.filterNot { it == EmploymentContractPeriodResolverV2.MULTIPLE_WARNING }
+            } else {
+                base.warnings
+            }
+
+            return Snapshot(
+                resolution = resolution,
+                warnings = (baseWarnings + compatibility.warnings + paidWork.warnings).distinct(),
+                segmentedPaidWork = paidWork,
+                compatibility = compatibility
+            )
+        }
+        val result = SalaryAccountScope.withLease(SalaryAccountScope.lease(context)) { calculateInScope() }
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     internal fun resolveStored(

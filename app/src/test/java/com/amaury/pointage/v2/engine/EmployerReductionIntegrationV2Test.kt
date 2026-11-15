@@ -13,11 +13,11 @@ class EmployerReductionIntegrationV2Test {
         mutualEmployeeAmount=0.0,providentEmployeeAmount=0.0,transportEmployeeAmount=0.0,
         employerProtectionTaxableAmount=0.0,employeeProvidentNonDeductibleAmount=0.0,incomeTaxRate=0.05,
         professionalStatus="NON_CADRE",protectionCategory=PlasturgieProtectionCategoryV2.classify(null,LocalDate.of(2026,9,30),null),
-        warnings=emptyList(),alsaceMoselleLocalRegime=false,atMpEmployerRate=0.0,benefitsInKindGross=0.0,
-        employerMobilityRate=0.0,employerUnemploymentRate=0.0,employerAgsRate=0.0,employerUnemploymentAgsWarnings=emptyList(),
-        employerWorkforceBand=EmployerWorkforceContributionsV2.Band.UNDER_11,employerWorkforceWarnings=emptyList(),
-        employerHealthRate=0.13,employerFamilyRate=0.0525,employerHealthFamilyWarnings=emptyList(),
-        employerApprenticeshipPrincipalRate=0.0059,employerApprenticeshipBalanceRate=0.0009,
+        warnings=emptyList(),alsaceMoselleLocalRegime=false,atMpEmployerRate=0.0, atMpEmployerSource = "Synthetic confirmed fixture",benefitsInKindReliable=true, benefitsInKindGross=0.0,
+        employerMobilityRate=0.0, employerMobilitySource = "Synthetic confirmed fixture",employerUnemploymentRate=0.0, employerUnemploymentAgsSource = "Synthetic confirmed fixture",employerAgsRate=0.0,employerUnemploymentAgsWarnings=emptyList(),
+        employerWorkforceBand=EmployerWorkforceContributionsV2.Band.UNDER_11, employerWorkforceSource = "Synthetic confirmed fixture",employerWorkforceWarnings=emptyList(),
+        employerHealthRate=0.13, employerHealthFamilySource = "Synthetic confirmed fixture",employerFamilyRate=0.0525,employerHealthFamilyWarnings=emptyList(),
+        employerApprenticeshipPrincipalRate=0.0059, employerApprenticeshipSource = "Synthetic confirmed fixture",employerApprenticeshipBalanceRate=0.0009,
         employerApprenticeshipWarnings=emptyList(),employerReductionAmount=reduction,employerReductionSource="DSN",
         employerReductionWarnings=emptyList()
     )
@@ -27,8 +27,8 @@ class EmployerReductionIntegrationV2Test {
         val zero=NetSalaryEngineV2.calculate(2500.0,2026,company(0.0))
         val reduced=NetSalaryEngineV2.calculate(2500.0,2026,company(300.0))
 
-        assertEquals(zero.knownEmployerContributions,reduced.knownEmployerContributions,0.001)
-        assertEquals(zero.knownEmployerContributions,reduced.knownEmployerContributionsAfterReductions!!+300.0,0.001)
+        assertEquals(zero.knownEmployerContributions!!,reduced.knownEmployerContributions!!,0.001)
+        assertEquals(zero.knownEmployerContributions!!,reduced.knownEmployerContributionsAfterReductions!!+300.0,0.001)
         assertEquals(300.0,reduced.confirmedEmployerReductions!!,0.001)
         assertEquals(zero.netBeforeIncomeTax,reduced.netBeforeIncomeTax,0.001)
         assertEquals(zero.netTaxable!!,reduced.netTaxable!!,0.001)

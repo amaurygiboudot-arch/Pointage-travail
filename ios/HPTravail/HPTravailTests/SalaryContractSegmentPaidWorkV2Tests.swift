@@ -102,6 +102,28 @@ final class SalaryContractSegmentPaidWorkV2Tests: XCTestCase {
         XCTAssertTrue(result.warnings.contains(SalaryContractSegmentPaidWorkAllocatorV2.unreliableSourceWarning))
     }
 
+    func testUnqualifiedPresenceRemainsUnqualifiedAcrossContractChange() throws {
+        let start = date(2026, 9, 14, 22)
+        let end = date(2026, 9, 15, 6)
+        let fact = SalarySessionFactV2(
+            id: "gps", entry: start, exit: end, employerId: "company", pauses: [],
+            segments: [.init(start: start, end: end, kind: .toConfirm, confirmed: false)]
+        )
+        let changeDay = epochDay(2026, 9, 15)
+        let result = SalaryContractSegmentPaidWorkAllocatorV2.allocate(
+            sessions: [fact],
+            segments: [
+                segment(version: "v1", start: epochDay(2026, 9, 1), end: changeDay - 1, rate: 13),
+                segment(version: "v2", start: changeDay, end: epochDay(2026, 9, 30), rate: 14)
+            ],
+            employerId: "company", period: try XCTUnwrap(YearMonthV2(year: 2026, month: 9)),
+            sourceReliable: true, calendar: calendar
+        )
+        XCTAssertFalse(result.reliable)
+        XCTAssertEqual(result.segments.count, 2)
+        XCTAssertTrue(result.segments.allSatisfy { !$0.reliable && $0.paidMinutes == 0 })
+    }
+
     private func segment(
         version: String,
         start: Int64,

@@ -37,22 +37,29 @@ object V2SegmentedProrationStore {
         companyId: String,
         period: YearMonth
     ): SegmentedProrationSourceV2 {
-        val company = companyId.trim()
-        if (SalaryCompanyStore.confirmedCompany(
-                SalaryCompanyStore.readConfirmed(context), company
-            ) == null
-        ) {
-            return SegmentedProrationSourceV2(null, false, listOf(COMPANY_WARNING))
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): SegmentedProrationSourceV2 = SegmentedProrationSourceV2(proration = null, reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): SegmentedProrationSourceV2 {
+            val company = companyId.trim()
+            if (SalaryCompanyStore.confirmedCompany(
+                    SalaryCompanyStore.readConfirmed(context), company
+                ) == null
+            ) {
+                return SegmentedProrationSourceV2(null, false, listOf(COMPANY_WARNING))
+            }
+            val prefs = SalaryAccountScope.preferences(context, PREFS)
+            if (!prefs.contains(key(company, period))) {
+                return SegmentedProrationSourceV2(null, false, listOf(MISSING_WARNING))
+            }
+            val raw = runCatching { prefs.getString(key(company, period), null) }.getOrNull()
+                ?: return SegmentedProrationSourceV2(null, false, listOf(STORAGE_WARNING))
+            val value = decode(raw)
+                ?: return SegmentedProrationSourceV2(null, false, listOf(STORAGE_WARNING))
+            return SegmentedProrationSourceV2(value, true, emptyList())
         }
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (!prefs.contains(key(company, period))) {
-            return SegmentedProrationSourceV2(null, false, listOf(MISSING_WARNING))
-        }
-        val raw = runCatching { prefs.getString(key(company, period), null) }.getOrNull()
-            ?: return SegmentedProrationSourceV2(null, false, listOf(STORAGE_WARNING))
-        val value = decode(raw)
-            ?: return SegmentedProrationSourceV2(null, false, listOf(STORAGE_WARNING))
-        return SegmentedProrationSourceV2(value, true, emptyList())
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     @Synchronized
@@ -63,7 +70,7 @@ object V2SegmentedProrationStore {
         proration: ConfirmedSegmentedMonthlyProrationV2
     ): Boolean = SalaryCompanyStore.withConfirmedCompany(context, companyId.trim()) {
         val raw = encode(proration) ?: return@withConfirmedCompany false
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = SalaryAccountScope.preferences(context, PREFS)
         if (!prefs.edit().putString(key(companyId.trim(), period), raw).commit()) {
             return@withConfirmedCompany false
         }
@@ -74,7 +81,7 @@ object V2SegmentedProrationStore {
     @Synchronized
     fun remove(context: Context, companyId: String, period: YearMonth): Boolean =
         SalaryCompanyStore.withConfirmedCompany(context, companyId.trim()) {
-            val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val prefs = SalaryAccountScope.preferences(context, PREFS)
             val k = key(companyId.trim(), period)
             if (!prefs.contains(k)) return@withConfirmedCompany true
             prefs.edit().remove(k).commit() && !prefs.contains(k)

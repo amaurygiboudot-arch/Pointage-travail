@@ -4,7 +4,8 @@ data class ConfirmedCashGrossComponentV2(
     val id: String,
     val amount: Double,
     val reliable: Boolean,
-    val warnings: List<String> = emptyList()
+    val warnings: List<String> = emptyList(),
+    val label: String = id
 )
 
 data class ConfirmedCashGrossComponentsV2(
@@ -19,7 +20,8 @@ data class SegmentedCashGrossAssemblyResultV2(
     val additionalCashGross: Double?,
     val cashGross: Double?,
     val reliable: Boolean,
-    val warnings: List<String>
+    val warnings: List<String>,
+    val confirmedComponents: List<ConfirmedCashGrossComponentV2> = emptyList()
 )
 
 /**
@@ -75,7 +77,8 @@ object SegmentedCashGrossAssemblerV2 {
             additionalCashGross = extras,
             cashGross = cash,
             reliable = true,
-            warnings = (upstream + fixed.components.flatMap { it.warnings }).distinct()
+            warnings = (upstream + fixed.components.flatMap { it.warnings }).distinct(),
+            confirmedComponents = fixed.components.toList()
         )
     }
 

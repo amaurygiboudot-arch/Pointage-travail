@@ -2,6 +2,7 @@ package com.amaury.pointage.v2
 
 import com.amaury.pointage.v2.engine.SegmentedSalaryCanonicalOutputV2
 import com.amaury.pointage.v2.engine.PayslipDocumentParserV2
+import com.amaury.pointage.v2.engine.MonthlyPayrollSettlementProjectionV2
 
 /**
  * Valeurs attendues pour la comparaison bulletin, lues uniquement depuis la sortie canonique segmentée.
@@ -10,7 +11,9 @@ import com.amaury.pointage.v2.engine.PayslipDocumentParserV2
  * (paniers, mutuelle, prévoyance) restent simplement non comparés.
  */
 object SegmentedPayslipComparisonValuesV2 {
-    fun expected(output: SegmentedSalaryCanonicalOutputV2): Map<String, Double>? {
+    fun expected(output: SegmentedSalaryCanonicalOutputV2,
+                 settlement: ConfirmedMonthlyPayrollSettlementV2.Result? = null,
+                 companyId: String = "", period: String = ""): Map<String, Double>? {
         if (!output.paidTimeReliable || !output.workedGrossReliable || !output.cashGrossReliable) return null
 
         val projection = output.net.projection
@@ -31,8 +34,9 @@ object SegmentedPayslipComparisonValuesV2 {
                 put(PayslipDocumentParserV2.KEY_GROSS, it)
             }
             if (output.netBeforeIncomeTaxComplete) {
-                output.netBeforeIncomeTax?.takeIf(::valid)?.let {
-                    put(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX, it)
+                MonthlyPayrollSettlementProjectionV2.comparableNets(settlement, companyId, period,
+                    projection?.payroll, output.netBeforeIncomeTax, output.netAfterIncomeTax)?.let {
+                    put(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX, it.beforeTax)
                 }
                 output.netTaxable?.takeIf(::valid)?.let {
                     put(PayslipDocumentParserV2.KEY_NET_TAXABLE, it)

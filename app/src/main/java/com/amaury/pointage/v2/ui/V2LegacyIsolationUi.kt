@@ -49,21 +49,21 @@ object V2LegacyIsolationUi {
     private fun buildHistory(activity: Activity, currentOnly: Boolean): String {
         val sessions = if (currentOnly) {
             val read = V2RuntimeReader.current(activity)
-            if (!read.reliable) return "Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
+            if (!read.reliable) return "Historique AGKGMG indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
             listOfNotNull(read.snapshot.session)
         } else {
             val read = V2RuntimeReader.allSessions(activity)
-            if (!read.reliable) return "Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
+            if (!read.reliable) return "Historique AGKGMG indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
             read.sessions
         }
-        if (sessions.isEmpty()) return "Aucune session HoraTrack."
+        if (sessions.isEmpty()) return "Aucune session AGKGMG."
         val f = SimpleDateFormat("dd/MM HH:mm", Locale.FRANCE)
         fun time(ms: Long?) = ms?.let { f.format(Date(it)) } ?: "—"
         fun duration(ms: Long) = "%02dh %02dm".format(Locale.FRANCE, ms / 3_600_000L, (ms / 60_000L) % 60L)
         return sessions.joinToString("\n\n") { s ->
             val r = HoraTrackV2.time.calculate(s)
             buildString {
-                append("🧪 HoraTrack\n")
+                append("🧪 AGKGMG\n")
                 append("🟢 ").append(time(s.realArrivalMs)).append(" ARRIVÉE RÉELLE\n")
                 append("⏱ ").append(time(s.countedEntryMs)).append(" ENTRÉE COMPTÉE\n")
                 s.pauses.forEachIndexed { i, p -> append("⏸ Pause ").append(i + 1).append(" : ").append(time(p.startMs)).append(" → ").append(time(p.endMs)).append('\n') }
@@ -78,16 +78,16 @@ object V2LegacyIsolationUi {
 
     private fun buildAnalytics(activity: Activity): String {
         val read = V2RuntimeReader.allSessions(activity)
-        if (!read.reliable) return "Analyse HoraTrack indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
+        if (!read.reliable) return "Analyse AGKGMG indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
         val sessions = read.sessions
-        if (sessions.isEmpty()) return "Aucune donnée HoraTrack à analyser."
+        if (sessions.isEmpty()) return "Aucune donnée AGKGMG à analyser."
         val a = AnalyticsEngineV2.summarize(sessions, HoraTrackV2.time, System.currentTimeMillis())
         if (!a.timeTotalsReliable) {
-            return "Analyse HoraTrack à confirmer.\nUne ou plusieurs sessions contiennent une durée ou une pause non certifiable."
+            return "Analyse AGKGMG à confirmer.\nUne ou plusieurs sessions contiennent une durée ou une pause non certifiable."
         }
         fun duration(ms: Long) = "%02dh %02dm".format(Locale.FRANCE, ms / 3_600_000L, (ms / 60_000L) % 60L)
         return buildString {
-            append("HORATRACK\n\n")
+            append("AGKGMG\n\n")
             append("Présence totale : ").append(duration(a.totalPresenceMs)).append('\n')
             append("Temps payé : ").append(duration(a.totalPaidMs)).append('\n')
             append("Sessions : ").append(a.sessions).append('\n')

@@ -8,6 +8,7 @@ import android.text.InputType
 import android.util.AttributeSet
 import android.view.Gravity
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -16,6 +17,7 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.SalaryAccountScope
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.V2ScheduleStore
@@ -29,6 +31,12 @@ class ShiftControlView @JvmOverloads constructor(
 
     private val stateText = TextView(context)
     private val modeButton = Button(context)
+    private var accountContext = SalaryAccountScope.bindContext(context)
+    private val accountChanged: () -> Unit = { SalaryAccountUi.onMain { refresh() } }
+    private val accountDrawCheck = ViewTreeObserver.OnPreDrawListener {
+        if (SalaryAccountScope.capture() != SalaryAccountScope.lease(accountContext)) refresh()
+        true
+    }
 
     init {
         orientation = VERTICAL
@@ -80,7 +88,31 @@ class ShiftControlView @JvmOverloads constructor(
         refresh()
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        SalaryAccountScope.addListener(accountChanged)
+        viewTreeObserver.addOnPreDrawListener(accountDrawCheck)
+        refresh()
+    }
+
+    override fun onDetachedFromWindow() {
+        SalaryAccountScope.removeListener(accountChanged)
+        if (viewTreeObserver.isAlive) viewTreeObserver.removeOnPreDrawListener(accountDrawCheck)
+        super.onDetachedFromWindow()
+    }
+
     fun refresh() {
+        // This persistent root can serve the new account, while each dialog retains its origin.
+        val owner = SalaryAccountScope.capture()
+        accountContext = SalaryAccountScope.bindContext(context, owner)
+        if (SalaryAccountScope.available(accountContext)) refreshForAccount(accountContext)
+        if (!SalaryAccountScope.isCurrent(owner) || !SalaryAccountScope.available(accountContext)) {
+            modeButton.text = "Poste à vérifier"
+            stateText.text = "Compte indisponible • horaire non calculé"
+        }
+    }
+
+    private fun refreshForAccount(context: Context) {
         val companyId = if (HoraTrackV2.ENABLED) V2ProfileStore.activeCompanyId(context) else null
         val mode = if (HoraTrackV2.ENABLED) {
             companyId?.let { V2ScheduleStore.selectedMode(context, it) } ?: "auto"
@@ -153,6 +185,8 @@ class ShiftControlView @JvmOverloads constructor(
         }
     }
     private fun chooseMode() {
+        val context = accountContext
+        if (!SalaryAccountUi.current(context)) { refresh(); return }
         val labels = arrayOf("Automatique", "Matin", "Journée", "Après-midi", "Nuit")
         val ids = arrayOf("auto", ShiftType.MORNING.id, ShiftType.DAY.id, ShiftType.AFTERNOON.id, ShiftType.NIGHT.id)
         val companyId = if (HoraTrackV2.ENABLED) V2ProfileStore.activeCompanyId(context) else null
@@ -162,9 +196,10 @@ class ShiftControlView @JvmOverloads constructor(
             ShiftProfileManager.selectedMode(context)
         }
         val selected = ids.indexOf(currentMode).coerceAtLeast(0)
-        AlertDialog.Builder(context)
+        SalaryAccountUi.dialog(context)
             .setTitle("Poste du jour")
             .setSingleChoiceItems(labels, selected) { dialog, which ->
+                if (!SalaryAccountUi.current(context)) { dialog.dismiss(); return@setSingleChoiceItems }
                 val saved = if (HoraTrackV2.ENABLED) {
                     companyId?.let { V2ScheduleStore.setSelectedMode(context, it, ids[which]) } == true
                 } else {
@@ -182,6 +217,8 @@ class ShiftControlView @JvmOverloads constructor(
             .show()
     }
     private fun showProfilesDialog() {
+        val context = accountContext
+        if (!SalaryAccountUi.current(context)) { refresh(); return }
         val box = LinearLayout(context).apply {
             orientation = VERTICAL
             setPadding(dp(18), dp(8), dp(18), dp(14))
@@ -283,7 +320,7 @@ class ShiftControlView @JvmOverloads constructor(
             }
         }
 
-        val dialog = AlertDialog.Builder(context)
+        val dialog = SalaryAccountUi.dialog(context)
             .setTitle(if (HoraTrackV2.ENABLED) "Horaires" else "Horaires, pauses et paniers")
             .setView(scroll)
             .setPositiveButton("Enregistrer", null)
@@ -296,6 +333,7 @@ class ShiftControlView @JvmOverloads constructor(
             val maxHeight = (resources.displayMetrics.heightPixels * 0.72f).toInt()
             scroll.layoutParams = scroll.layoutParams.apply { height = maxHeight }
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+                if (!SalaryAccountUi.current(context)) { dialog.dismiss(); return@setOnClickListener }
                 for (shift in ShiftType.values()) {
                     val start = startInputs[shift]?.text?.toString().orEmpty().trim()
                     val end = endInputs[shift]?.text?.toString().orEmpty().trim()

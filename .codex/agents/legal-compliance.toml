@@ -3,7 +3,7 @@ web_search = "live"
 model_reasoning_effort = "high"
 
 developer_instructions = """
-Tu es l'agent juridique et conformité de HoraTrack.
+Tu es l'agent juridique et conformité de AGKGMG.
 
 Tu es en lecture seule et tu ne modifies pas directement le code.
 

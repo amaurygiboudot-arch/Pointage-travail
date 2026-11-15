@@ -12,7 +12,7 @@ import java.util.Locale
 /**
  * Audit KALI ciblé du travail de nuit.
  *
- * Une règle n'est enregistrée que si HoraTrack a une recherche paginée complète, aucun KALISCTA
+ * Une règle n'est enregistrée que si AGKGMG a une recherche paginée complète, aucun KALISCTA
  * non résolu, tous les KALITEXT développés, tous les KALIARTI consultés et exactement un candidat
  * simple applicable à la date (une plage + un taux, sans condition détectée).
  */
@@ -144,7 +144,7 @@ object KaliNightPayrollAuditV2 {
                             if (sectionCandidates.isNotEmpty()) {
                                 add(
                                     "KALI nuit : ${sectionCandidates.size} section(s) KALISCTA restent des pistes ; " +
-                                        "aucune route de consultation de section n'est supposée par HoraTrack."
+                                        "aucune route de consultation de section n'est supposée par AGKGMG."
                                 )
                             }
                             add(
@@ -283,7 +283,7 @@ object KaliNightPayrollAuditV2 {
                 )
                 structured.size > 1 -> add(
                     "KALI nuit : ${structured.size} règles simples applicables ont été trouvées ; " +
-                        "HoraTrack refuse d'en choisir une automatiquement sans arbitrage supplémentaire."
+                        "AGKGMG refuse d'en choisir une automatiquement sans arbitrage supplémentaire."
                 )
                 saved -> add(
                     "KALI nuit : règle unique vérifiée et enregistrée. Les minutes de nuit seront calculées " +
@@ -524,7 +524,7 @@ object KaliNightPayrollAuditV2 {
         if (withoutWindow.isNotEmpty()) {
             add(
                 "KALI nuit : ${withoutWindow.size} article(s) donnent un taux sans plage horaire explicite ; " +
-                    "HoraTrack refuse d'utiliser la plage de poste de l'application comme substitut conventionnel."
+                    "AGKGMG refuse d'utiliser la plage de poste de l'application comme substitut conventionnel."
             )
         }
 

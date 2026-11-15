@@ -10,6 +10,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import android.widget.ScrollView
 import com.amaury.pointage.v2.CompanyIncomeTaxRateStoreV2
 import com.amaury.pointage.v2.engine.CompanyIncomeTaxRateResolverV2
 import java.time.YearMonth
@@ -21,12 +22,17 @@ import java.util.UUID
 object CompanyIncomeTaxRateDialogV2 {
     private val monthFormatter = DateTimeFormatter.ofPattern("MM/uuuu", Locale.FRANCE)
 
-    fun show(context: Context, companyId: String) {
+    fun show(context: Context, companyId: String, period: YearMonth? = null, onChanged: () -> Unit = {}) {
         if (companyId.isBlank()) return
         val box = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(context, 16), dp(context, 8), dp(context, 16), dp(context, 8))
         }
+        val companyName = SalaryCompanyStore.confirmedCompany(SalaryCompanyStore.readConfirmed(context), companyId)?.name.orEmpty()
+        box.addView(TextView(context).apply {
+            text = companyName + (period?.let { " — mois consulté : $it" } ?: "")
+            textSize = 13f
+        })
         box.addView(TextView(context).apply {
             text = "Enregistre uniquement un taux personnel confirmé pour une période précise. Le PAS intervient après le net imposable : ce taux ne modifie ni le brut, ni les cotisations, ni le net avant impôt."
             textSize = 13f
@@ -39,7 +45,7 @@ object CompanyIncomeTaxRateDialogV2 {
 
         if (!stored.reliable) {
             box.addView(TextView(context).apply {
-                text = "⚠ Stockage des taux PAS incohérent. Le calcul après impôt reste bloqué et HoraTrack ne réutilise pas l'ancien taux sans date.\n• " +
+                text = "⚠ Stockage des taux PAS incohérent. Le calcul après impôt reste bloqué et AGKGMG ne réutilise pas l'ancien taux sans date.\n• " +
                     stored.warnings.joinToString("\n• ")
                 textSize = 12f
                 setPadding(0, 0, 0, dp(context, 8))
@@ -64,7 +70,7 @@ object CompanyIncomeTaxRateDialogV2 {
                     isEnabled = stored.reliable
                     setOnClickListener {
                         listDialog?.dismiss()
-                        showEditor(context, companyId, record)
+                        showEditor(context, companyId, record, period, onChanged)
                     }
                 }, rowParams(context))
             }
@@ -72,17 +78,18 @@ object CompanyIncomeTaxRateDialogV2 {
 
         box.addView(Button(context).apply {
             isAllCaps = false
+            tag = "dated_income_tax_add"
             text = "AJOUTER UN TAUX PAS DATÉ"
             isEnabled = stored.reliable
             setOnClickListener {
                 listDialog?.dismiss()
-                showEditor(context, companyId, null)
+                showEditor(context, companyId, null, period, onChanged)
             }
         }, rowParams(context))
 
-        listDialog = AlertDialog.Builder(context)
+        listDialog = SalaryAccountUi.dialog(context)
             .setTitle("Prélèvement à la source — taux datés")
-            .setView(box)
+            .setView(ScrollView(context).apply { addView(box) })
             .setNegativeButton("FERMER", null)
             .create()
         listDialog.show()
@@ -91,7 +98,9 @@ object CompanyIncomeTaxRateDialogV2 {
     private fun showEditor(
         context: Context,
         companyId: String,
-        existing: CompanyIncomeTaxRateResolverV2.Record?
+        existing: CompanyIncomeTaxRateResolverV2.Record?,
+        period: YearMonth?,
+        onChanged: () -> Unit
     ) {
         if (!CompanyIncomeTaxRateStoreV2.read(context, companyId).reliable) {
             Toast.makeText(context, "Stockage PAS incohérent : modification bloquée", Toast.LENGTH_LONG).show()
@@ -102,6 +111,11 @@ object CompanyIncomeTaxRateDialogV2 {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(context, 20), dp(context, 8), dp(context, 20), 0)
         }
+        box.addView(TextView(context).apply {
+            val name = SalaryCompanyStore.confirmedCompany(SalaryCompanyStore.readConfirmed(context), companyId)?.name.orEmpty()
+            text = name + (period?.let { " — mois consulté : $it" } ?: "")
+            textSize = 13f
+        })
         val rate = field(
             context,
             "Taux PAS (%) — ex. 3,2 ; 0 si taux nul confirmé",
@@ -110,6 +124,10 @@ object CompanyIncomeTaxRateDialogV2 {
         val start = field(context, "Mois de début — MM/AAAA")
         val end = field(context, "Mois de fin — MM/AAAA (facultatif)")
         val source = field(context, "Source — ex. bulletin 09/2026")
+        rate.tag = "dated_income_tax_rate"
+        start.tag = "dated_income_tax_start"
+        end.tag = "dated_income_tax_end"
+        source.tag = "dated_income_tax_source"
         listOf(rate, start, end, source).forEach { box.addView(it, rowParams(context)) }
         box.addView(TextView(context).apply {
             text = "Le mois de fin est inclus. Laisse-le vide si le taux reste applicable jusqu'à nouvel ordre. Deux périodes PAS ne peuvent pas se chevaucher."
@@ -117,6 +135,10 @@ object CompanyIncomeTaxRateDialogV2 {
             setPadding(0, dp(context, 6), 0, 0)
         })
 
+        if (existing == null && period != null) {
+            start.setText(period.format(monthFormatter))
+            end.setText(period.format(monthFormatter))
+        }
         existing?.let { record ->
             rate.setText(formatRate(record.ratePercent))
             start.setText(record.effectiveFrom?.let(::formatMonth).orEmpty())
@@ -124,9 +146,9 @@ object CompanyIncomeTaxRateDialogV2 {
             source.setText(record.source.orEmpty())
         }
 
-        val builder = AlertDialog.Builder(context)
+        val builder = SalaryAccountUi.dialog(context)
             .setTitle(if (existing == null) "Ajouter un taux PAS" else "Modifier le taux PAS")
-            .setView(box)
+            .setView(ScrollView(context).apply { addView(box) })
             .setPositiveButton("ENREGISTRER", null)
             .setNegativeButton("ANNULER", null)
         if (existing != null) builder.setNeutralButton("SUPPRIMER", null)
@@ -182,14 +204,16 @@ object CompanyIncomeTaxRateDialogV2 {
                 }
                 dialog.dismiss()
                 Toast.makeText(context, "Taux PAS daté enregistré", Toast.LENGTH_SHORT).show()
-                show(context, companyId)
+                onChanged()
+                show(context, companyId, period, onChanged)
             }
             if (existing != null) {
                 dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
                     if (CompanyIncomeTaxRateStoreV2.remove(context, companyId, existing.id)) {
                         dialog.dismiss()
                         Toast.makeText(context, "Taux PAS daté supprimé", Toast.LENGTH_SHORT).show()
-                        show(context, companyId)
+                        onChanged()
+                        show(context, companyId, period, onChanged)
                     } else {
                         Toast.makeText(context, "Échec de la suppression", Toast.LENGTH_LONG).show()
                     }

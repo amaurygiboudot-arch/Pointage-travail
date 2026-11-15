@@ -23,6 +23,6 @@ private object LegacyMonthlyPdfWriter {
     fun write(context: Context, data: JSONArray, year: Int, month: Int, output: OutputStream) {
         // Aucun calcul historique n'est exécuté lorsque HoraTrackMotor est actif.
         // Le rollback reste compilable mais doit être réactivé explicitement avant usage.
-        throw IllegalStateException("Export mensuel historique non disponible dans cette version de HoraTrack")
+        throw IllegalStateException("Export mensuel historique non disponible dans cette version de AGKGMG")
     }
 }

@@ -10,6 +10,7 @@ import UIKit
 @MainActor
 final class AuthManager: NSObject, ObservableObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
     @Published private(set) var user: User?
+    @Published private(set) var salaryAccountGeneration: UInt64 = 0
     @Published private(set) var isFirebaseConfigured = false
     @Published var errorMessage: String?
 
@@ -19,12 +20,20 @@ final class AuthManager: NSObject, ObservableObject, ASAuthorizationControllerDe
     override init() {
         super.init()
         configureFirebaseIfPossible()
+        SalaryAccountSessionV2.configure {
+            guard FirebaseApp.app() != nil else { return nil }
+            if let uid = Auth.auth().currentUser?.uid, !uid.isEmpty { return "uid:" + uid }
+            return "guest"
+        }
+        salaryAccountGeneration = SalaryAccountSessionV2.capture().generation
+        SalaryV2PdfExporter.clearTemporaryExports()
         guard isFirebaseConfigured else { return }
 
         user = Auth.auth().currentUser
         authListener = Auth.auth().addStateDidChangeListener { [weak self] _, user in
+            SalaryAccountSessionV2.authenticationChanged(deliveredScope: user.map { "uid:" + $0.uid } ?? "guest")
             Task { @MainActor in
-                self?.user = user
+                self?.publishCurrentUser()
             }
         }
     }
@@ -134,16 +143,34 @@ final class AuthManager: NSObject, ObservableObject, ASAuthorizationControllerDe
 
     func signOut() {
         guard isFirebaseConfigured else { return }
+        invalidateSalarySession()
         do {
             try Auth.auth().signOut()
             GIDSignIn.sharedInstance.signOut()
-            user = nil
+            publishCurrentUser()
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
+    private func invalidateSalarySession() {
+        SalaryAccountSessionV2.invalidateSession()
+        SalaryV2PdfExporter.clearTemporaryExports()
+        salaryAccountGeneration = SalaryAccountSessionV2.capture().generation
+    }
+
+    private func publishCurrentUser() {
+        SalaryAccountSessionV2.authenticationChanged()
+        let generation = SalaryAccountSessionV2.capture().generation
+        if generation != salaryAccountGeneration {
+            SalaryV2PdfExporter.clearTemporaryExports()
+            salaryAccountGeneration = generation
+        }
+        self.user = FirebaseApp.app() == nil ? nil : Auth.auth().currentUser
+    }
+
     private func useCredential(_ credential: AuthCredential) {
+        invalidateSalarySession()
         if let currentUser = Auth.auth().currentUser {
             currentUser.link(with: credential) { [weak self] result, error in
                 if let error {
@@ -152,7 +179,7 @@ final class AuthManager: NSObject, ObservableObject, ASAuthorizationControllerDe
                 }
                 guard let firebaseUser = result?.user else { return }
                 Task { @MainActor in
-                    self?.user = firebaseUser
+                    self?.publishCurrentUser()
                     self?.saveUserProfile(firebaseUser)
                 }
             }
@@ -164,7 +191,7 @@ final class AuthManager: NSObject, ObservableObject, ASAuthorizationControllerDe
                 }
                 guard let firebaseUser = result?.user else { return }
                 Task { @MainActor in
-                    self?.user = firebaseUser
+                    self?.publishCurrentUser()
                     self?.saveUserProfile(firebaseUser)
                 }
             }

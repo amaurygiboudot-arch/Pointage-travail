@@ -7,7 +7,7 @@ import java.util.Locale
 /**
  * Analyse prudente d'une majoration KALI uniforme des jours fériés.
  *
- * HoraTrack n'accepte ici qu'une règle très simple : tous les jours fériés visés par l'article,
+ * AGKGMG n'accepte ici qu'une règle très simple : tous les jours fériés visés par l'article,
  * un seul taux, aucune exception par jour nommé, catégorie, ancienneté, plage horaire ou cumul.
  * Les cas spéciaux restent visibles dans le diagnostic mais ne deviennent jamais calculables.
  */

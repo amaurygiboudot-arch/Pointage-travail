@@ -1,5 +1,6 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.SalaryAccountScope
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Bitmap
@@ -17,12 +18,24 @@ import java.io.File
 import com.amaury.pointage.billing.BillingPdfGate
 import com.google.firebase.auth.FirebaseAuth
 
-class PdfPreviewActivity : Activity() {
+class PdfPreviewActivity : Activity(), SalaryAccountScope.LeaseOwner {
     companion object {
         private const val REQUEST_SAVE = 4102
         private val exportWorker = Executors.newSingleThreadExecutor()
     }
+    override var salaryAccountLease: SalaryAccountScope.Lease? = null
+        private set
+    private val accountChanged: () -> Unit = {
+        SalaryAccountUi.onMain {
+            if (!sessionCurrent()) {
+                window?.decorView?.visibility = android.view.View.INVISIBLE
+                finish()
+            }
+        }
+    }
+    private fun sessionCurrent() = salaryAccountLease?.let(SalaryAccountScope::isCurrent) == true
     private lateinit var pdfFile: File
+    private var documentHash: String? = null
     private var fileName: String = "Pointage.pdf"
     private var documentAccountUid: String? = null
     private var resumed = false
@@ -33,23 +46,41 @@ class PdfPreviewActivity : Activity() {
     private var stateSaved = false
     private var readOnlyReturn = false
 
+    private fun restoredPdfLease(state: Bundle): SalaryAccountScope.Lease? {
+        SalaryAccountUi.read(state)?.let { return it }
+        val uid = state.getString("pdf_owner") ?: return null
+        val file = File(state.getString("save_file") ?: intent.getStringExtra("pdf_path") ?: return null)
+        val hash = state.getString("save_hash") ?: state.getString("pdf_hash") ?: return null
+        val owned = runCatching {
+            file.canonicalPath.startsWith(File(filesDir, "billing_pdf_archive/${BillingContract.accountId(uid)}").canonicalPath + File.separator) &&
+                BillingContract.documentId(file) == hash
+        }.getOrDefault(false)
+        return if (owned) SalaryAccountUi.frozenPdfResume(state, uid) else null
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        salaryAccountLease = when {
+            savedInstanceState != null -> restoredPdfLease(savedInstanceState)
+            SalaryAccountUi.hasSession(intent) -> SalaryAccountUi.read(intent)
+            else -> SalaryAccountScope.capture()
+        }
+        if (!sessionCurrent()) { cleanupRestoredDestination(savedInstanceState); finish(); return }
+        SalaryAccountScope.addListener(accountChanged)
         setContentView(R.layout.activity_pdf_preview)
         pdfFile = File(intent.getStringExtra("pdf_path") ?: "")
+        documentHash = savedInstanceState?.getString("pdf_hash") ?: runCatching { BillingContract.documentId(pdfFile) }.getOrNull()
         fileName = intent.getStringExtra("pdf_name") ?: "Pointage.pdf"
         documentAccountUid = if (savedInstanceState != null) savedInstanceState.getString("pdf_owner") else currentUid()
-        if (documentAccountUid == null || documentAccountUid != currentUid()) {
-            if (savedInstanceState?.getBoolean("save_picker", false) == true) {
-                savedInstanceState.getString("save_uri")?.let(Uri::parse)?.takeIf { it.scheme == "content" }?.let { uri -> exportWorker.execute { cleanup(uri) } }
-            }
+        if (documentHash == null || documentAccountUid == null || documentAccountUid != currentUid()) {
+            cleanupRestoredDestination(savedInstanceState)
             finish(); return
         }
         pendingFile = savedInstanceState?.getString("save_file")?.let(::File)
         pendingHash = savedInstanceState?.getString("save_hash")
         pickerRequested = savedInstanceState?.getBoolean("save_picker", false) ?: false
         destination = savedInstanceState?.getString("save_uri")?.let(Uri::parse)
-        readOnlyReturn = (savedInstanceState?.getBoolean("save_read_only_return", false) ?: false) || pickerRequested || destination != null
+        readOnlyReturn = savedInstanceState != null || pickerRequested || destination != null
         findViewById<Button>(R.id.pdfPreviewBack).setOnClickListener { finish() }
         findViewById<Button>(R.id.pdfPreviewSave).setOnClickListener { savePdf() }
         findViewById<Button>(R.id.pdfPreviewSave).isEnabled = false
@@ -61,12 +92,13 @@ class PdfPreviewActivity : Activity() {
         resumed = true
         stateSaved = false
         val currentUid = runCatching { FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
-        if (currentUid != documentAccountUid) { finish(); return }
+        if (!sessionCurrent() || currentUid != documentAccountUid) { finish(); return }
         // The existing picker/copy is finalized by read-only authorization only.
         if (pickerRequested || destination != null) return
         if (readOnlyReturn) { restorePreviewReadOnly(); return }
         BillingPdfGate.require(this, pdfFile, displayName = fileName) { authorizedFile ->
-            if (!resumed || documentAccountUid != currentUid()) return@require
+            if (!resumed || !sessionCurrent() || documentAccountUid != currentUid()) return@require
+            if (runCatching { BillingContract.documentId(authorizedFile) }.getOrNull() != documentHash) { finish(); return@require }
             pdfFile = authorizedFile
             findViewById<LinearLayout>(R.id.pdfPagesContainer).removeAllViews()
             runCatching { renderPdf() }.onFailure {
@@ -77,12 +109,13 @@ class PdfPreviewActivity : Activity() {
 
     override fun onPause() {
         resumed = false
-        findViewById<LinearLayout>(R.id.pdfPagesContainer).removeAllViews()
-        findViewById<Button>(R.id.pdfPreviewSave).isEnabled = false
+        findViewById<LinearLayout>(R.id.pdfPagesContainer)?.removeAllViews()
+        findViewById<Button>(R.id.pdfPreviewSave)?.isEnabled = false
         super.onPause()
     }
 
     private fun renderPdf() {
+        check(sessionCurrent() && BillingContract.documentId(pdfFile) == documentHash)
         val container = findViewById<LinearLayout>(R.id.pdfPagesContainer)
         if (!pdfFile.exists()) { Toast.makeText(this, "PDF introuvable", Toast.LENGTH_LONG).show(); finish(); return }
         val fd = ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
@@ -90,6 +123,7 @@ class PdfPreviewActivity : Activity() {
         try {
             val targetWidth = resources.displayMetrics.widthPixels - dp(24)
             for (i in 0 until renderer.pageCount) {
+                if (!sessionCurrent()) { finish(); return }
                 val page = renderer.openPage(i)
                 val scale = targetWidth.toFloat() / page.width.toFloat()
                 val bmp = Bitmap.createBitmap(targetWidth, (page.height * scale).toInt(), Bitmap.Config.ARGB_8888)
@@ -109,6 +143,7 @@ class PdfPreviewActivity : Activity() {
         if (!active(uid) || pickerRequested) return
         BillingPdfGate.require(this, pdfFile, displayName = fileName) { authorizedFile ->
             if (!active(uid) || pickerRequested || stateSaved) return@require
+            if (runCatching { BillingContract.documentId(authorizedFile) }.getOrNull() != documentHash) { finish(); return@require }
             runCatching {
                 pdfFile = authorizedFile
                 pendingFile = authorizedFile
@@ -186,8 +221,10 @@ class PdfPreviewActivity : Activity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         stateSaved = true
+        salaryAccountLease?.let { SalaryAccountUi.save(outState, it) }
         outState.putBoolean("save_read_only_return", readOnlyReturn)
         outState.putString("pdf_owner", documentAccountUid)
+        outState.putString("pdf_hash", documentHash)
         outState.putString("save_file", pendingFile?.absolutePath)
         outState.putString("save_hash", pendingHash)
         outState.putBoolean("save_picker", pickerRequested)
@@ -195,9 +232,15 @@ class PdfPreviewActivity : Activity() {
         super.onSaveInstanceState(outState)
     }
 
-    private fun active(uid: String) = !isFinishing && !isDestroyed && !isChangingConfigurations && currentUid() == uid
+    private fun active(uid: String) = sessionCurrent() && !isFinishing && !isDestroyed && !isChangingConfigurations && currentUid() == uid
     private fun currentUid() = runCatching { FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
     private fun cleanup(uri: Uri) { runCatching { DocumentsContract.deleteDocument(contentResolver, uri) } }
+    private fun cleanupRestoredDestination(state: Bundle?) {
+        if (state?.getBoolean("save_picker", false) != true) return
+        val uri = state.getString("save_uri")?.let(Uri::parse)?.takeIf { it.scheme == "content" } ?: return
+        // Serialize cleanup after a departing instance's copy; never revive its authorization.
+        exportWorker.execute { cleanup(uri) }
+    }
     private fun restorePreviewReadOnly() {
         val uid = documentAccountUid ?: return
         val file = pdfFile
@@ -220,12 +263,17 @@ class PdfPreviewActivity : Activity() {
     }
 
     private fun enableManualRetry() {
-        if (documentAccountUid != null && documentAccountUid == currentUid() && !isFinishing && !isDestroyed)
+        if (sessionCurrent() && documentAccountUid != null && documentAccountUid == currentUid() && !isFinishing && !isDestroyed)
             findViewById<Button>(R.id.pdfPreviewSave).isEnabled = true
         else finish()
     }
     private fun clearSave() { pendingFile = null; pendingHash = null; pickerRequested = false; destination = null }
     private fun toast(text: String) { Toast.makeText(this, text, Toast.LENGTH_LONG).show() }
+
+    override fun onDestroy() {
+        SalaryAccountScope.removeListener(accountChanged)
+        super.onDestroy()
+    }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 }

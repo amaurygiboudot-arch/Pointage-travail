@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.RestoreGuardedPreferences
+
 import android.content.Context
 import android.graphics.Typeface
 import android.view.ViewGroup
@@ -51,7 +53,7 @@ internal fun legalPayrollSourceStatusText(
 }
 
 /** Vue de contrôle des sources légales LEGI utilisées comme piste d'audit de la paie. */
-class V2LegalPayrollSourcesView(context: Context) : LinearLayout(context) {
+class V2LegalPayrollSourcesView(hostContext: Context) : SalaryAccountLayout(hostContext) {
     private val status = TextView(context)
     private val verifyButton = Button(context)
 
@@ -64,7 +66,7 @@ class V2LegalPayrollSourcesView(context: Context) : LinearLayout(context) {
             setTypeface(typeface, Typeface.BOLD)
         })
         addView(TextView(context).apply {
-            text = "HoraTrack recherche les articles du Code du travail à la date de paie, consulte chaque candidat et ne conserve que les articles dont l'identifiant, l'état juridique compatible (VIGUEUR ou VIGUEUR_DIFF) et la période d'application sont confirmés pour cette date. Aucun taux n'est inventé à partir d'un texte ambigu. La couverture des thèmes est une piste d'audit, pas une certification d'exhaustivité juridique."
+            text = "AGKGMG recherche les articles du Code du travail à la date de paie, consulte chaque candidat et ne conserve que les articles dont l'identifiant, l'état juridique compatible (VIGUEUR ou VIGUEUR_DIFF) et la période d'application sont confirmés pour cette date. Aucun taux n'est inventé à partir d'un texte ambigu. La couverture des thèmes est une piste d'audit, pas une certification d'exhaustivité juridique."
             textSize = 12f
             setPadding(0, dp(6), 0, dp(10))
         })
@@ -112,7 +114,7 @@ class V2LegalPayrollSourcesView(context: Context) : LinearLayout(context) {
     private data class Reference(val atMs: Long, val label: String)
 
     private fun referenceDate(): Reference {
-        val prefs = context.getSharedPreferences("navigation_state", Context.MODE_PRIVATE)
+        val prefs = RestoreGuardedPreferences.open(context, "navigation_state", Context.MODE_PRIVATE)
         val selectedMs = prefs.getLong("report_month_ms", -1L)
         val calendar = Calendar.getInstance(Locale.FRANCE)
         if (selectedMs > 0L) calendar.timeInMillis = selectedMs

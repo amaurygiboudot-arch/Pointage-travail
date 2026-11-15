@@ -16,8 +16,9 @@ enum SalaryConventionProtectionCategoryStoreV2 {
     private static let key = "salary_convention_protection_category_v2.verified_rules"
 
     static func readVerified(
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> ReadResult {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard let object = defaults.object(forKey: key) else {
             return ReadResult(rules: [], reliable: true, warnings: [])
         }
@@ -30,8 +31,9 @@ enum SalaryConventionProtectionCategoryStoreV2 {
     @discardableResult
     static func saveVerified(
         _ rule: ConventionProtectionCategoryV2.Rule,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> Bool {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         guard acceptsVerifiedRule(rule) else { return false }
         let stored = readVerified(defaults: defaults)
         guard stored.reliable else { return false }
@@ -53,8 +55,9 @@ enum SalaryConventionProtectionCategoryStoreV2 {
 
     static func rules(
         idcc: String,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = SalaryAccountStorageV2.currentDefaults
     ) -> ReadResult {
+        let defaults = SalaryAccountStorageV2.scoped(defaults)
         let stored = readVerified(defaults: defaults)
         guard stored.reliable else { return stored }
         let normalizedIdcc = normalize(idcc)

@@ -3,7 +3,7 @@ web_search = "live"
 model_reasoning_effort = "high"
 
 developer_instructions = """
-Tu es le coordinateur international de HoraTrack.
+Tu es le coordinateur international de AGKGMG.
 
 Ton rôle est de préparer et encadrer l'ouverture d'un nouveau pays sans contaminer le moteur global avec des règles locales.
 

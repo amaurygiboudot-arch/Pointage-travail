@@ -28,9 +28,9 @@ class EmployerUnemploymentAgsIntegrationV2Test {
         protectionCategory = PlasturgieProtectionCategoryV2.classify(null, LocalDate.of(2026, 1, 31), null),
         warnings = emptyList(),
         alsaceMoselleLocalRegime = false,
-        atMpEmployerRate = 0.0,
-        benefitsInKindGross = 0.0,
-        employerMobilityRate = 0.0,
+        atMpEmployerRate = 0.0, atMpEmployerSource = "Synthetic confirmed fixture",
+        benefitsInKindReliable = true, benefitsInKindGross = 0.0,
+        employerMobilityRate = 0.0, employerMobilitySource = "Synthetic confirmed fixture",
         employerUnemploymentRate = unemploymentRate,
         employerAgsRate = agsRate,
         employerUnemploymentAgsSource = "Notification ou DSN",
@@ -44,7 +44,7 @@ class EmployerUnemploymentAgsIntegrationV2Test {
 
         assertEquals(100.0, withRates.employerUnemploymentContribution!!, 0.001)
         assertEquals(6.25, withRates.employerAgsContribution!!, 0.001)
-        assertEquals(106.25, withRates.knownEmployerContributions - without.knownEmployerContributions, 0.001)
+        assertEquals(106.25, withRates.knownEmployerContributions!! - without.knownEmployerContributions!!, 0.001)
         assertEquals(without.netBeforeIncomeTax, withRates.netBeforeIncomeTax, 0.001)
         assertEquals(without.netTaxable!!, withRates.netTaxable!!, 0.001)
         assertEquals(without.netAfterIncomeTax!!, withRates.netAfterIncomeTax!!, 0.001)

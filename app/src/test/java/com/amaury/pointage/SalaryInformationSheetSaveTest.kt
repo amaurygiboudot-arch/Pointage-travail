@@ -6,6 +6,11 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.Spinner
 import com.amaury.pointage.v2.V2EmploymentContractHistoryStore
+import com.amaury.pointage.v2.SalaryAccountScope
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
+import org.junit.Before
+import org.mockito.Mockito
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,11 +20,19 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(application = Application::class, sdk = [28])
+@Config(application = Application::class, sdk = [28], shadows = [GpsDeliveryAuthShadow::class], instrumentedPackages = ["com.google.firebase.auth"])
 class SalaryInformationSheetSaveTest {
+    @Before fun account() {
+        val auth = Mockito.mock(FirebaseAuth::class.java)
+        val user = Mockito.mock(FirebaseUser::class.java)
+        Mockito.`when`(user.uid).thenReturn("information-sheet-test")
+        Mockito.`when`(auth.currentUser).thenReturn(user)
+        GpsDeliveryAuthShadow.auth = auth
+        SalaryAccountScope.capture()
+    }
     private fun form(): SalaryInformationSheetView {
         val context = RuntimeEnvironment.getApplication()
-        context.getSharedPreferences("horatrack_v2_employment_contract_history", 0).edit().clear().commit()
+        SalaryAccountScope.preferences(context, "horatrack_v2_employment_contract_history").edit().clear().commit()
         assertTrue(SalaryCompanyStore.createOrUpdate(context, SalaryCompanyStore.Company("save-test", "Entreprise", "")))
         return SalaryInformationSheetView(context).bindCompany("save-test").apply {
             val spinner = javaClass.getDeclaredField("contractType").apply { isAccessible = true }.get(this) as Spinner
@@ -39,17 +52,16 @@ class SalaryInformationSheetSaveTest {
         findViewWithTag<Button>("information_sheet_save").performClick()
     }
 
-    @Test fun invalidTaxDoesNotPublishContract() {
+    @Test fun missingContractDateDoesNotPublishContract() {
         val form = form()
-        form.field("incomeTaxRate").setText("101")
+        form.field("contractEffectiveDate").setText("")
         form.save()
         assertTrue(V2EmploymentContractHistoryStore.readConfirmed(form.context).snapshots.isEmpty())
-        assertTrue(form.field("incomeTaxRate").error != null)
+        assertTrue(form.field("contractEffectiveDate").error != null)
     }
 
     @Test fun invalidOptionalAmountsDoNotPublishContract() {
-        listOf("seniorityRttDifferential", "mutualEmployeeAmount", "providentEmployeeAmount",
-            "transportEmployeeAmount", "employerProtectionTaxableAmount", "employeeProvidentNonDeductibleAmount").forEach { name ->
+        listOf("seniorityRttDifferential").forEach { name ->
             val form = form()
             // Inject malformed stored/pasted input without the numeric keyboard filtering it.
             form.field(name).inputType = InputType.TYPE_CLASS_TEXT
@@ -60,12 +72,15 @@ class SalaryInformationSheetSaveTest {
         }
     }
 
-    @Test fun validFormStillPublishesConfirmedContract() {
+    @Test fun validContractPreservesLegacyPayrollDraftsWithoutConfirmingThem() {
         val form = form()
-        form.field("incomeTaxRate").setText("0")
-        form.field("mutualEmployeeAmount").setText("25")
+        val prefs = SalaryCompanyStore.prefs(form.context, "save-test")
+        prefs.edit().putString("mutual_employee_amount", "25.0").putString("income_tax_rate_percent", "2.0").commit()
         form.save()
         assertEquals(1, V2EmploymentContractHistoryStore.readConfirmed(form.context).snapshots.size)
-        assertEquals("25.0", SalaryCompanyStore.prefs(form.context, "save-test").getString("mutual_employee_amount", null))
+        assertEquals("25.0", prefs.getString("mutual_employee_amount", null))
+        assertEquals("2.0", prefs.getString("income_tax_rate_percent", null))
+        assertTrue(com.amaury.pointage.v2.CompanyEmployeeDeductionStoreV2.read(form.context, "save-test").records.isEmpty())
+        assertTrue(com.amaury.pointage.v2.CompanyIncomeTaxRateStoreV2.read(form.context, "save-test").records.isEmpty())
     }
 }

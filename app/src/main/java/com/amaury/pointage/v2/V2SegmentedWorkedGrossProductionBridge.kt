@@ -38,11 +38,18 @@ object V2SegmentedWorkedGrossProductionBridge {
         rules: ConventionRulePeriodResolutionV2,
         nowMs: Long = System.currentTimeMillis()
     ): SegmentedWorkedGrossAssemblyResultV2 {
-        val detailed = calculateDetailedFromStores(
-            context, companyId, companyAddress, year, monthZeroBased,
-            timeZoneId, contracts, rules, nowMs
-        )
-        return detailed.worked?.assembly ?: blocked(detailed.warnings)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): SegmentedWorkedGrossAssemblyResultV2 = blocked(SalaryAccountScope.AUTH_WARNING)
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun calculateInScope(): SegmentedWorkedGrossAssemblyResultV2 {
+            val detailed = calculateDetailedFromStores(
+                context, companyId, companyAddress, year, monthZeroBased,
+                timeZoneId, contracts, rules, nowMs
+            )
+            return detailed.worked?.assembly ?: blocked(detailed.warnings)
+        }
+        val result = SalaryAccountScope.withLease(SalaryAccountScope.lease(context)) { calculateInScope() }
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     fun calculateDetailedFromStores(
@@ -56,28 +63,35 @@ object V2SegmentedWorkedGrossProductionBridge {
         rules: ConventionRulePeriodResolutionV2,
         nowMs: Long = System.currentTimeMillis()
     ): V2SegmentedWorkedGrossDetailedBridgeResultV2 {
-        val night = V2ConventionNightRuleStore.readConfirmed(context)
-        val premiumContext = SegmentedPayrollPremiumEvidenceBridgeV2.build(
-            contracts = contracts,
-            rules = rules,
-            nightSnapshots = night.snapshots,
-            nightSourceReliable = night.reliable,
-            nightWarnings = night.warnings,
-            holidayScope = FrenchPublicHolidayCalendarV2.scopeForAddress(companyAddress),
-            nowMs = nowMs
-        )
-        if (!premiumContext.reliable) return detailedBlocked(premiumContext.warnings)
-        return calculateDetailed(
-            context = context,
-            companyId = companyId,
-            year = year,
-            monthZeroBased = monthZeroBased,
-            timeZoneId = timeZoneId,
-            contracts = contracts,
-            rules = rules,
-            premiums = premiumContext.evidence,
-            nowMs = nowMs
-        )
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): V2SegmentedWorkedGrossDetailedBridgeResultV2 = detailedBlocked(SalaryAccountScope.AUTH_WARNING)
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun calculateInScope(): V2SegmentedWorkedGrossDetailedBridgeResultV2 {
+            val night = V2ConventionNightRuleStore.readConfirmed(context)
+            val premiumContext = SegmentedPayrollPremiumEvidenceBridgeV2.build(
+                contracts = contracts,
+                rules = rules,
+                nightSnapshots = night.snapshots,
+                nightSourceReliable = night.reliable,
+                nightWarnings = night.warnings,
+                holidayScope = FrenchPublicHolidayCalendarV2.scopeForAddress(companyAddress),
+                nowMs = nowMs
+            )
+            if (!premiumContext.reliable) return detailedBlocked(premiumContext.warnings)
+            return calculateDetailed(
+                context = context,
+                companyId = companyId,
+                year = year,
+                monthZeroBased = monthZeroBased,
+                timeZoneId = timeZoneId,
+                contracts = contracts,
+                rules = rules,
+                premiums = premiumContext.evidence,
+                nowMs = nowMs
+            )
+        }
+        val result = SalaryAccountScope.withLease(SalaryAccountScope.lease(context)) { calculateInScope() }
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     fun calculate(
@@ -91,11 +105,18 @@ object V2SegmentedWorkedGrossProductionBridge {
         premiums: List<SegmentedPayrollPremiumEvidenceV2>,
         nowMs: Long = System.currentTimeMillis()
     ): SegmentedWorkedGrossAssemblyResultV2 {
-        val detailed = calculateDetailed(
-            context, companyId, year, monthZeroBased, timeZoneId,
-            contracts, rules, premiums, nowMs
-        )
-        return detailed.worked?.assembly ?: blocked(detailed.warnings)
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): SegmentedWorkedGrossAssemblyResultV2 = blocked(SalaryAccountScope.AUTH_WARNING)
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun calculateInScope(): SegmentedWorkedGrossAssemblyResultV2 {
+            val detailed = calculateDetailed(
+                context, companyId, year, monthZeroBased, timeZoneId,
+                contracts, rules, premiums, nowMs
+            )
+            return detailed.worked?.assembly ?: blocked(detailed.warnings)
+        }
+        val result = SalaryAccountScope.withLease(SalaryAccountScope.lease(context)) { calculateInScope() }
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     fun calculateDetailed(
@@ -109,39 +130,46 @@ object V2SegmentedWorkedGrossProductionBridge {
         premiums: List<SegmentedPayrollPremiumEvidenceV2>,
         nowMs: Long = System.currentTimeMillis()
     ): V2SegmentedWorkedGrossDetailedBridgeResultV2 {
-        val period = runCatching { YearMonth.of(year, monthZeroBased + 1) }.getOrNull()
-            ?: return detailedBlocked("Brut segmenté : période mensuelle invalide.")
-        val bounds = coverageBounds(
-            contracts.periodStartEpochDay,
-            contracts.periodEndEpochDay
-        ) ?: return detailedBlocked("Brut segmenté : bornes de couverture hebdomadaire invalides.")
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): V2SegmentedWorkedGrossDetailedBridgeResultV2 = detailedBlocked(SalaryAccountScope.AUTH_WARNING)
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun calculateInScope(): V2SegmentedWorkedGrossDetailedBridgeResultV2 {
+            val period = runCatching { YearMonth.of(year, monthZeroBased + 1) }.getOrNull()
+                ?: return detailedBlocked("Brut segmenté : période mensuelle invalide.")
+            val bounds = coverageBounds(
+                contracts.periodStartEpochDay,
+                contracts.periodEndEpochDay
+            ) ?: return detailedBlocked("Brut segmenté : bornes de couverture hebdomadaire invalides.")
 
-        val proration = V2SegmentedProrationStore.resolve(
-            context = context,
-            companyId = companyId,
-            period = period
-        )
-        val source = V2PayrollCoverageStore.source(
-            context = context,
-            employerId = companyId,
-            coveredStartEpochDay = bounds.first,
-            coveredEndEpochDay = bounds.second,
-            timeZoneId = timeZoneId,
-            nowMs = nowMs
-        )
-        val worked = SegmentedWorkedGrossProductionV2.calculateDetailed(
-            contracts = contracts,
-            rules = rules,
-            prorationSource = proration,
-            source = source,
-            premiums = premiums,
-            nowMs = nowMs
-        )
-        return V2SegmentedWorkedGrossDetailedBridgeResultV2(
-            worked = worked,
-            reliable = worked.reliable,
-            warnings = worked.warnings
-        )
+            val proration = V2SegmentedProrationStore.resolve(
+                context = context,
+                companyId = companyId,
+                period = period
+            )
+            val source = V2PayrollCoverageStore.source(
+                context = context,
+                employerId = companyId,
+                coveredStartEpochDay = bounds.first,
+                coveredEndEpochDay = bounds.second,
+                timeZoneId = timeZoneId,
+                nowMs = nowMs
+            )
+            val worked = SegmentedWorkedGrossProductionV2.calculateDetailed(
+                contracts = contracts,
+                rules = rules,
+                prorationSource = proration,
+                source = source,
+                premiums = premiums,
+                nowMs = nowMs
+            )
+            return V2SegmentedWorkedGrossDetailedBridgeResultV2(
+                worked = worked,
+                reliable = worked.reliable,
+                warnings = worked.warnings
+            )
+        }
+        val result = SalaryAccountScope.withLease(SalaryAccountScope.lease(context)) { calculateInScope() }
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     internal fun coverageBounds(

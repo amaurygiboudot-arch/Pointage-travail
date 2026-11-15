@@ -18,6 +18,7 @@ object OfficialConventionResultStoreV2 {
         companyId: String,
         convention: OfficialConventionContainerParserV2.VerifiedConvention
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val baseIds = JSONArray().apply { convention.baseTextIds.forEach { put(it) } }
         return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
             SalaryCompanyStore.prefs(context, companyId).edit()

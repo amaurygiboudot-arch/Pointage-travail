@@ -213,4 +213,101 @@ final class CompanyEmployeeDeductionStoreV2Tests: XCTestCase {
         XCTAssertTrue(snapshot[.mutualEmployee].hasDatedRecords)
         XCTAssertNil(snapshot[.mutualEmployee].amount)
     }
+
+    private func confirmMonthly(
+        kind: Resolver.Kind = .mutualEmployee,
+        amount: Double = 42,
+        period: Resolver.YearMonth = Resolver.YearMonth(year: 2026, month: 4)!,
+        source: String = "Source synthétique confirmée",
+        confirmed: Bool = true,
+        expected: CompanyEmployeeDeductionStoreV2.ReadResult? = nil
+    ) -> Bool {
+        CompanyEmployeeDeductionStoreV2.confirmMonth(
+            defaults: defaults, companyId: "a", period: period, kind: kind,
+            amount: amount, source: source, confirmed: confirmed,
+            expected: expected ?? CompanyEmployeeDeductionStoreV2.read(defaults: defaults, companyId: "a")
+        )
+    }
+
+    private func seedMonthlyCompany() {
+        XCTAssertTrue(SalaryCompanyStoreV2.createOrUpdate(
+            company(id: "a", siret: "12345678901234"), defaults: defaults
+        ))
+    }
+
+    func testMonthlyEntrySupportsAllSixKindsWithoutCopyingToAnotherMonthOrCompany() {
+        seedMonthlyCompany()
+        XCTAssertTrue(SalaryCompanyStoreV2.createOrUpdate(
+            company(id: "b", siret: "22345678901234"), defaults: defaults
+        ))
+        let april = Resolver.YearMonth(year: 2026, month: 4)!
+        for (index, kind) in Resolver.Kind.allCases.enumerated() {
+            XCTAssertTrue(confirmMonthly(kind: kind, amount: Double(index)))
+        }
+        let read = CompanyEmployeeDeductionStoreV2.read(defaults: defaults, companyId: "a")
+        XCTAssertEqual(read.records.count, 6)
+        XCTAssertTrue(read.records.allSatisfy { $0.effectiveFrom == april && $0.effectiveTo == april })
+        let selected = CompanyEmployeeDeductionStoreV2.resolve(read, period: april)
+        XCTAssertEqual(selected[.mutualEmployee].amount, 0, "Explicit zero is a confirmed fact")
+        let following = CompanyEmployeeDeductionStoreV2.resolve(read, period: Resolver.YearMonth(year: 2026, month: 5)!)
+        XCTAssertTrue(Resolver.Kind.allCases.allSatisfy { following[$0].amount == nil })
+        XCTAssertTrue(CompanyEmployeeDeductionStoreV2.read(defaults: defaults, companyId: "b").records.isEmpty)
+    }
+
+    func testMonthlyCorrectionReusesItsRecordAndLeavesUnknownKindsUnknown() {
+        seedMonthlyCompany()
+        XCTAssertTrue(confirmMonthly())
+        let first = CompanyEmployeeDeductionStoreV2.read(defaults: defaults, companyId: "a")
+        XCTAssertTrue(confirmMonthly(amount: 45, expected: first))
+        let corrected = CompanyEmployeeDeductionStoreV2.read(defaults: defaults, companyId: "a")
+        XCTAssertEqual(corrected.records.count, 1)
+        XCTAssertEqual(corrected.records.first?.id, first.records.first?.id)
+        XCTAssertEqual(corrected.records.first?.amount, 45)
+        let resolved = CompanyEmployeeDeductionStoreV2.resolve(corrected, period: Resolver.YearMonth(year: 2026, month: 4)!)
+        XCTAssertNil(resolved[.transportEmployee].amount)
+    }
+
+    func testMonthlyEntryRejectsStaleDraftWithoutChangingNewerData() {
+        seedMonthlyCompany()
+        let empty = CompanyEmployeeDeductionStoreV2.read(defaults: defaults, companyId: "a")
+        XCTAssertTrue(confirmMonthly(amount: 45, expected: empty))
+        let newer = CompanyEmployeeDeductionStoreV2.read(defaults: defaults, companyId: "a")
+        XCTAssertFalse(confirmMonthly(amount: 50, expected: empty))
+        XCTAssertEqual(CompanyEmployeeDeductionStoreV2.read(defaults: defaults, companyId: "a"), newer)
+    }
+
+    func testMonthlyEntryPreservesAnExistingWiderPeriodAndOverlappingRecords() {
+        seedMonthlyCompany()
+        XCTAssertTrue(CompanyEmployeeDeductionStoreV2.save(defaults: defaults, companyId: "a", record: record(id: "wide", amount: 40)))
+        let wide = CompanyEmployeeDeductionStoreV2.read(defaults: defaults, companyId: "a")
+        XCTAssertFalse(confirmMonthly(expected: wide))
+        XCTAssertEqual(CompanyEmployeeDeductionStoreV2.read(defaults: defaults, companyId: "a"), wide)
+        XCTAssertTrue(CompanyEmployeeDeductionStoreV2.save(defaults: defaults, companyId: "a", record: record(id: "conflict", amount: 41)))
+        let conflict = CompanyEmployeeDeductionStoreV2.read(defaults: defaults, companyId: "a")
+        XCTAssertFalse(confirmMonthly(expected: conflict))
+        XCTAssertEqual(CompanyEmployeeDeductionStoreV2.read(defaults: defaults, companyId: "a"), conflict)
+    }
+
+    func testMonthlyEntryRequiresSourceConfirmationAndValidAmount() {
+        seedMonthlyCompany()
+        XCTAssertFalse(confirmMonthly(source: " "))
+        XCTAssertFalse(confirmMonthly(source: String(repeating: "a", count: 501)))
+        XCTAssertFalse(confirmMonthly(confirmed: false))
+        XCTAssertFalse(confirmMonthly(amount: -1))
+        XCTAssertFalse(confirmMonthly(amount: .infinity))
+        XCTAssertFalse(confirmMonthly(amount: .nan))
+        XCTAssertTrue(CompanyEmployeeDeductionStoreV2.read(defaults: defaults, companyId: "a").records.isEmpty)
+    }
+
+    func testMonthlyEntryNeverOverwritesCorruptOrMissingCompanyStorage() {
+        seedMonthlyCompany()
+        let expected = CompanyEmployeeDeductionStoreV2.read(defaults: defaults, companyId: "a")
+        defaults.set("{corrompu", forKey: "employee_deductions_v2.a")
+        XCTAssertFalse(confirmMonthly(expected: expected))
+        XCTAssertEqual(defaults.string(forKey: "employee_deductions_v2.a"), "{corrompu")
+        XCTAssertFalse(CompanyEmployeeDeductionStoreV2.confirmMonth(
+            defaults: defaults, companyId: "missing", period: Resolver.YearMonth(year: 2026, month: 4)!,
+            kind: .mutualEmployee, amount: 0, source: "Source synthétique", confirmed: true, expected: expected
+        ))
+    }
 }

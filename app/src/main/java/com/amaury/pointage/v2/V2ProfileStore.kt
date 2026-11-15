@@ -27,8 +27,13 @@ object V2ProfileStore {
         val missing: List<String>
     )
 
-    fun bind(context: Context) { boundContext = context.applicationContext }
-    fun loadBound(companySlot: Int = 1): Profile? = boundContext?.let { load(it, companySlot) }
+    fun bind(context: Context) {
+        val context = SalaryAccountScope.bindContext(context)
+        // An obsolete asynchronous operation cannot replace the current account's binding.
+        if (SalaryAccountScope.available(context)) boundContext = context.applicationContext
+    }
+    internal fun boundForOperation(): Context? = boundContext?.takeIf { SalaryAccountScope.available(it) }
+    fun loadBound(companySlot: Int = 1): Profile? = boundForOperation()?.let { load(it, companySlot) }
 
     /**
      * Source active : SalaryCompanyStore + prefs propres à l'entreprise.
@@ -37,6 +42,7 @@ object V2ProfileStore {
      * employeur ou contrat comme s'il s'agissait d'une absence de données modernes.
      */
     fun load(context: Context, companySlot: Int = 1): Profile {
+        val context = SalaryAccountScope.bindContext(context)
         bind(context)
         val slot = companySlot.coerceIn(1, 2)
         val stored = SalaryCompanyStore.readConfirmed(context)
@@ -48,6 +54,7 @@ object V2ProfileStore {
 
     /** Charge directement une entreprise V2 par son identifiant stable, sans limite à deux sociétés. */
     fun loadCompany(context: Context, companyId: String): Profile? {
+        val context = SalaryAccountScope.bindContext(context)
         bind(context)
         val stored = SalaryCompanyStore.readConfirmed(context)
         if (!stored.reliable) return null
@@ -61,6 +68,7 @@ object V2ProfileStore {
      * la première lecture reprend le slot historique puis mémorise l'identifiant correspondant.
      */
     fun activeCompanyId(context: Context): String? {
+        val context = SalaryAccountScope.bindContext(context)
         bind(context)
         val storedCompanies = SalaryCompanyStore.readConfirmed(context)
         if (!storedCompanies.reliable) return null
@@ -78,6 +86,7 @@ object V2ProfileStore {
 
     /** Sélectionne une entreprise V2 par ID et garde le slot 1/2 synchronisé quand c'est possible. */
     fun setActiveCompanyId(context: Context, companyId: String): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         bind(context)
         val stored = SalaryCompanyStore.readConfirmed(context)
         if (!stored.reliable) return false
@@ -92,6 +101,7 @@ object V2ProfileStore {
 
     /** Profil de l'entreprise active par identifiant stable, avec repli historique uniquement si nécessaire. */
     fun loadActive(context: Context): Profile {
+        val context = SalaryAccountScope.bindContext(context)
         val companyId = activeCompanyId(context)
         return companyId?.let { loadCompany(context, it) } ?: load(context, 1)
     }
@@ -100,6 +110,7 @@ object V2ProfileStore {
 
     /** Compatibilité temporaire avec les composants historiques encore basés sur deux slots. */
     fun activeCompanySlot(context: Context): Int {
+        val context = SalaryAccountScope.bindContext(context)
         bind(context)
         val prefs = integrationPrefs(context)
         return safeLong(prefs.all[KEY_ACTIVE_COMPANY_SLOT])?.toInt()?.coerceIn(1, 2) ?: 1
@@ -107,6 +118,7 @@ object V2ProfileStore {
 
     /** Compatibilité temporaire : synchronise aussi l'identifiant V2 pour les deux premiers employeurs. */
     fun setActiveCompanySlot(context: Context, slot: Int) {
+        val context = SalaryAccountScope.bindContext(context)
         bind(context)
         val normalized = slot.coerceIn(1, 2)
         val editor = integrationPrefs(context).edit().putInt(KEY_ACTIVE_COMPANY_SLOT, normalized)
@@ -120,7 +132,7 @@ object V2ProfileStore {
     }
 
     private fun integrationPrefs(context: Context) =
-        context.applicationContext.getSharedPreferences(INTEGRATION_PREFS, Context.MODE_PRIVATE)
+        SalaryAccountScope.preferences(context, INTEGRATION_PREFS)
 
     private fun corruptedCompanyStoreProfile(slot: Int): Profile = Profile(
         employer = null,
@@ -130,6 +142,7 @@ object V2ProfileStore {
     )
 
     private fun loadV2Company(context: Context, company: SalaryCompanyStore.Company, slot: Int): Profile {
+        val context = SalaryAccountScope.bindContext(context)
         val prefs = SalaryCompanyStore.prefs(context, company.id)
         val type = parseContractType(prefs.getString("contract_type", "").orEmpty())
         val weeklyMinutes = SalaryNumericInputV2.positiveMinutesFromHours(
@@ -187,7 +200,8 @@ object V2ProfileStore {
 
     /** Lecture legacy uniquement pour migration/compatibilité avant création du store V2. */
     private fun loadLegacyFallback(context: Context, companySlot: Int): Profile {
-        val prefs = context.applicationContext.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
+        val context = SalaryAccountScope.bindContext(context)
+        val prefs = SalaryAccountScope.preferences(context, LEGACY_PREFS)
         fun text(key: String): String = when (val value = prefs.all[key]) {
             null -> ""
             is String -> value

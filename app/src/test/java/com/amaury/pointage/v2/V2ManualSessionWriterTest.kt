@@ -10,7 +10,7 @@ import org.junit.Test
 
 class V2ManualSessionWriterTest {
     @Test
-    fun `short manual session preserves real times without inventing counted time`() {
+    fun `short manual session keeps both real and counted facts without rounding`() {
         val entry = 1_800_000L + 11 * 60_000L
         val exit = 1_800_000L + 20 * 60_000L
         val countedEntry = HoraTrackV2.time.countedEntryFromRealArrival(entry)
@@ -27,8 +27,17 @@ class V2ManualSessionWriterTest {
         )
         assertTrue(V2RuntimeHistoryGuardV2.inspect(JSONArray().put(json)).reliable)
         assertEquals(entry, json.getLong("realEntry"))
+        assertEquals(entry, json.getLong("countedEntry"))
         assertEquals(exit, json.getLong("realExit"))
-        assertTrue(json.isNull("countedExit"))
+        assertEquals(exit, json.getLong("countedExit"))
+    }
+
+    @Test
+    fun `legacy entry beyond real exit leaves counted exit unconfirmed`() {
+        val entry = 1_800_000L + 11 * 60_000L
+        val exit = 1_800_000L + 20 * 60_000L
+        val legacyCountedEntry = entry + 30 * 60_000L
+        assertNull(V2RuntimeStore.countedExitForClosure(exit, null, legacyCountedEntry))
     }
 
     @Test

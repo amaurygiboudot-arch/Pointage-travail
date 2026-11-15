@@ -9,6 +9,26 @@ import org.junit.Test
 /** Régression : un barème provisoire ou une référence incomplète ne doit jamais certifier le brut mensuel. */
 class V2SalaryAdapterReliabilityV2Test {
     @Test
+    fun confirmedMayFirstRestoresOnlyDedicatedBlockerAndPreservesOtherFailures() {
+        fun base(otherProofs: Boolean, gross: Double = 1500.0) = V2SalaryAdapter.Result(
+            regularMs = 0, overtimeTiers = emptyList(), totalWorkedMs = 0, regularGross = gross,
+            overtimeGross = 0.0, premiumsGross = 0.0, monthlyEstimatedGross = gross,
+            monthlyGrossReliable = false, nightMs = 0, saturdayMs = 0, sundayMs = 0,
+            complementaryMinutes = 0, completedSessions = 1, warnings = emptyList(),
+            grossBeforeMayFirstReliable = otherProofs)
+        val confirmed = com.amaury.pointage.v2.engine.MayFirstPayrollAdjustmentV2.Result(96.0, true)
+        val resolved = V2SalaryAdapter.applyConfirmedMayFirstAdjustment(base(true), confirmed)
+        assertTrue(resolved.monthlyGrossReliable)
+        assertEquals(1596.0, resolved.monthlyEstimatedGross, 0.001)
+        assertFalse(V2SalaryAdapter.applyConfirmedMayFirstAdjustment(base(false), confirmed).monthlyGrossReliable)
+        assertFalse(V2SalaryAdapter.applyConfirmedMayFirstAdjustment(base(true), confirmed.copy(reliable = false)).monthlyGrossReliable)
+        val overflow = V2SalaryAdapter.applyConfirmedMayFirstAdjustment(base(true, Double.MAX_VALUE),
+            confirmed.copy(extraGross = Double.MAX_VALUE))
+        assertFalse(overflow.monthlyGrossReliable)
+        assertTrue(overflow.monthlyEstimatedGross.isFinite())
+    }
+
+    @Test
     fun provisionalComplementaryRateMakesMonthlyGrossUnreliable() {
         val reliable = V2SalaryAdapter.monthlyGrossReliability(
             baseReliable = true,

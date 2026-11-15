@@ -32,6 +32,19 @@ class V2ConventionRuleStoreFailClosedV2Test {
     """.trimIndent()
 
     @Test
+    fun complementaryScheduleDecodesWithStrictSourceAndPeriodProof() {
+        val schedule = """{"sourceId":"legifrance:KALI:v1","contractualMinutes":1200,"effectiveFromEpochDay":1000,"effectiveToEpochDay":null,"tiers":[{"fromMinutes":1200,"toMinutes":1320,"multiplier":1.2}]}"""
+        fun payload(value: String) = "[" + snapshot("v1", 1000).replace("\"weeklyRegularMinutes\":2100,", "\"weeklyRegularMinutes\":2100,\"complementarySchedule\":$value,") + "]"
+        val decoded = V2ConventionRuleStore.decodeConfirmed(payload(schedule))
+        assertTrue(decoded.reliable)
+        assertEquals(1.2, decoded.snapshots.single().rules.complementarySchedule!!.tiers.single().multiplier, 0.001)
+        for (invalid in listOf("42", schedule.replace("1200", "1200.5"),
+            schedule.replace("legifrance:KALI:v1", "other-source"), schedule.replace("1000", "1001"))) {
+            assertFalse(V2ConventionRuleStore.decodeConfirmed(payload(invalid)).reliable)
+        }
+    }
+
+    @Test
     fun `liste vide explicite reste fiable`() {
         val result = V2ConventionRuleStore.decodeConfirmed("[]")
 

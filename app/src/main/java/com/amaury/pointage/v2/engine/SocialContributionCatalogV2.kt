@@ -6,7 +6,7 @@ import kotlin.math.min
  * Couche 1/6 - référentiel daté des retenues salariales légales de base.
  * Source 2026 : Urssaf, règles applicables au secteur privé.
  *
- * Important : chaque ligne conserve son taux ET son assiette. HoraTrack ne
+ * Important : chaque ligne conserve son taux ET son assiette. AGKGMG ne
  * remplace jamais la paie par un pourcentage global brut -> net.
  */
 object SocialContributionCatalogV2 {

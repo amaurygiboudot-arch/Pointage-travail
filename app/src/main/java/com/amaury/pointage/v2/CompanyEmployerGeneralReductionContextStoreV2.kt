@@ -20,16 +20,23 @@ object CompanyEmployerGeneralReductionContextStoreV2 {
     )
 
     fun read(context: Context, companyId: String): ReadResult {
-        if (companyId.isBlank()) {
-            return ReadResult(
-                records = emptyList(),
-                reliable = false,
-                warnings = listOf("RGDU : entreprise non identifiée ; contexte mensuel inaccessible.")
-            )
+        val context = SalaryAccountScope.bindContext(context)
+        fun unavailable(): ReadResult = ReadResult(records = emptyList(), reliable = false, warnings = listOf(SalaryAccountScope.AUTH_WARNING))
+        if (!SalaryAccountScope.available(context)) return unavailable()
+        fun readInScope(): ReadResult {
+            if (companyId.isBlank()) {
+                return ReadResult(
+                    records = emptyList(),
+                    reliable = false,
+                    warnings = listOf("RGDU : entreprise non identifiée ; contexte mensuel inaccessible.")
+                )
+            }
+            val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
+                ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+            return decode(raw)
         }
-        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
-            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
-        return decode(raw)
+        val result = readInScope()
+        return if (SalaryAccountScope.available(context)) result else unavailable()
     }
 
     fun list(context: Context, companyId: String): List<EmployerGeneralReductionContextV2.Record> =
@@ -40,6 +47,7 @@ object CompanyEmployerGeneralReductionContextStoreV2 {
         companyId: String,
         record: EmployerGeneralReductionContextV2.Record
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank()) return false
         val stored = read(context, companyId)
         // Une donnée illisible ne doit jamais disparaître par une réécriture automatique du seul
@@ -51,6 +59,7 @@ object CompanyEmployerGeneralReductionContextStoreV2 {
     }
 
     fun remove(context: Context, companyId: String, id: String): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         if (companyId.isBlank()) return false
         val stored = read(context, companyId)
         if (!stored.reliable) return false
@@ -62,6 +71,7 @@ object CompanyEmployerGeneralReductionContextStoreV2 {
         companyId: String,
         month: YearMonth
     ): EmployerGeneralReductionContextV2.Snapshot {
+        val context = SalaryAccountScope.bindContext(context)
         val stored = read(context, companyId)
         if (!stored.reliable) {
             return EmployerGeneralReductionContextV2.Snapshot(
@@ -99,6 +109,7 @@ object CompanyEmployerGeneralReductionContextStoreV2 {
         companyId: String,
         items: List<EmployerGeneralReductionContextV2.Record>
     ): Boolean {
+        val context = SalaryAccountScope.bindContext(context)
         val array = JSONArray()
         items.forEach { array.put(toJson(it)) }
         return SalaryCompanyStore.prefs(context, companyId)
