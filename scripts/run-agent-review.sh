@@ -19,8 +19,13 @@ BASE_REF="${1:-origin/main}"
 HEAD_REF="${2:-HEAD}"
 BASE_SHA="$(git rev-parse "$BASE_REF")"
 HEAD_SHA="$(git rev-parse "$HEAD_REF")"
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+# Keep review evidence outside the working tree, including when publication fails.
+# A saved report is not proof of validation or publication; the checks below still decide.
+EVIDENCE_ROOT="$(git rev-parse --git-path agent-review-reports)"
+mkdir -p "$EVIDENCE_ROOT"
+TMP="$(mktemp -d "$EVIDENCE_ROOT/review-${HEAD_SHA}.XXXXXX")"
+TMP="$(cd "$TMP" && pwd)"
+trap 'echo "Preuves locales conservées : $TMP (validation/publication selon les résultats ci-dessus)." >&2' EXIT
 
 ROUTE="$TMP/route.json"
 REPORT="$TMP/report.json"
@@ -56,7 +61,10 @@ python3 scripts/format_agent_review_comment.py   --route "$ROUTE"   --report "$R
 if command -v gh >/dev/null 2>&1; then
   PR_NUMBER="${PR_NUMBER:-$(gh pr view --json number -q .number 2>/dev/null || true)}"
   if [[ -n "$PR_NUMBER" ]]; then
-    gh pr comment "$PR_NUMBER" --body-file "$COMMENT"
+    if ! gh pr comment "$PR_NUMBER" --body-file "$COMMENT"; then
+      echo "Échec de publication : rapport validé conservé localement, non publié." >&2
+      exit 1
+    fi
     echo "Rapport publié sur la PR #$PR_NUMBER."
   else
     echo "Aucune PR détectée : rapport non publié."
