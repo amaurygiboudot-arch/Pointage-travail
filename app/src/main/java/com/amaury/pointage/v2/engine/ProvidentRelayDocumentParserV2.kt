@@ -8,7 +8,7 @@ import java.util.Locale
  *
  * Le texte OCR complet n'est jamais stocké par cette couche. Un montant n'est proposé que si une
  * ligne (ou la ligne immédiatement suivante) est clairement rattachée au libellé recherché.
- * L'utilisateur doit toujours confirmer les valeurs avant qu'elles soient utilisées par HoraTrack.
+ * L'utilisateur doit toujours confirmer les valeurs avant qu'elles soient utilisées par AGKGMG.
  */
 object ProvidentRelayDocumentParserV2 {
     data class Candidate(

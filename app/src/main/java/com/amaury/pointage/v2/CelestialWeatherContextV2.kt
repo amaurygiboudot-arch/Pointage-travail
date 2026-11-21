@@ -43,7 +43,7 @@ object CelestialWeatherContextV2 {
     }
 
     private val executor = Executors.newSingleThreadExecutor { task ->
-        Thread(task, "HoraTrack-CelestialWeather").apply {
+        Thread(task, "AGKGMG-CelestialWeather").apply {
             priority = Thread.NORM_PRIORITY - 1
         }
     }
@@ -105,7 +105,7 @@ object CelestialWeatherContextV2 {
                     readTimeout = 10_000
                     requestMethod = "GET"
                     setRequestProperty("Accept", "application/json")
-                    setRequestProperty("User-Agent", "HoraTrack-Celeste/2")
+                    setRequestProperty("User-Agent", "AGKGMG-Celeste/2")
                 }
                 try {
                     val code = connection.responseCode

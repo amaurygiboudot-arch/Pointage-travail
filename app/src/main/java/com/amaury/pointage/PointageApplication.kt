@@ -9,6 +9,7 @@ import android.content.res.ColorStateList
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
@@ -18,6 +19,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
@@ -288,6 +290,7 @@ object SettingsUiInstaller {
                 activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE).edit().putString("mode", mode).apply()
                 updateModeLabel()
                 AppearanceManager.apply(activity)
+                IconSwitcher.sync(activity)
                 PointageWidgetProvider.refreshAppearance(activity)
                 QuickActionsWidgetProvider.refreshAppearance(activity)
             }.show()
@@ -374,10 +377,56 @@ object SettingsUiInstaller {
 
         listOf(updates, appearance, widget, drive, help).forEach(panel::addView)
         SettingsV2SectionOrganizer.organize(activity)
+        installGooglePlayButton(activity)
+        installPointageStatusIndicator(activity)
         installPointageAddressButton(activity)
         refreshDriveSection(activity)
         SettingsCompactMenuV2.installOrRefresh(activity)
         AppearanceManager.apply(activity)
+    }
+
+    private fun installGooglePlayButton(activity: MainActivity) {
+        val section = SettingsV2Host.section(activity, SettingsV2Host.TAG_ACCOUNT_SECURITY) ?: return
+        if (section.findViewWithTag<View>("settings_google_play_button") != null) return
+
+        section.addView(styledButton(activity, "OUVRIR AGKGMG SUR GOOGLE PLAY").apply {
+            tag = "settings_google_play_button"
+            setOnClickListener {
+                val packageName = activity.packageName
+                val marketIntent = Intent(
+                    Intent.ACTION_VIEW,
+                    android.net.Uri.parse("market://details?id=$packageName")
+                ).apply {
+                    setPackage("com.android.vending")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                val webIntent = Intent(
+                    Intent.ACTION_VIEW,
+                    android.net.Uri.parse("https://play.google.com/store/apps/details?id=$packageName")
+                ).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+
+                val opened = runCatching {
+                    activity.startActivity(marketIntent)
+                    true
+                }.getOrDefault(false)
+
+                if (!opened) {
+                    val webOpened = runCatching {
+                        activity.startActivity(webIntent)
+                        true
+                    }.getOrDefault(false)
+                    if (!webOpened) {
+                        Toast.makeText(
+                            activity,
+                            "Google Play indisponible sur cet appareil",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            }
+        })
     }
 
     fun refreshDriveSection(activity: MainActivity) {
@@ -394,6 +443,71 @@ object SettingsUiInstaller {
             if (configured && !HoraTrackV2.ENABLED) View.VISIBLE else View.GONE
         drive.findViewWithTag<View>("settings_drive_disconnect")?.visibility =
             if (configured) View.VISIBLE else View.GONE
+    }
+
+    private fun installPointageStatusIndicator(activity: MainActivity) {
+        // Réglages purement visuels : ils appartiennent à Personnalisation,
+        // pas à Pointage & lieux qui reste réservé au comportement métier/GPS.
+        val section = SettingsV2Host.section(activity, SettingsV2Host.TAG_PERSONALIZATION) ?: return
+        if (section.findViewWithTag<View>("pointage_status_bar_switch") != null) return
+
+        val statusTitle = title(activity, "INDICATEUR DE POINTAGE").apply {
+            tag = "pointage_status_appearance_title"
+        }
+        val opacityValues = intArrayOf(25, 50, 75, 100)
+        val opacityLabel = TextView(activity).apply {
+            tag = "pointage_status_opacity_label"
+            textSize = 13f
+        }
+        val opacity = SeekBar(activity).apply {
+            tag = "pointage_status_opacity_seekbar"
+            max = opacityValues.lastIndex
+            progress = opacityValues.indexOf(PointageStatusNotificationV2.opacityPercent(activity))
+                .takeIf { it >= 0 } ?: opacityValues.lastIndex
+        }
+        fun refreshOpacityUi() {
+            val value = opacityValues[opacity.progress.coerceIn(0, opacityValues.lastIndex)]
+            opacityLabel.text = "Opacité du symbole : $value %"
+            val active = PointageStatusNotificationV2.isEnabled(activity)
+            opacity.isEnabled = active
+            opacityLabel.alpha = if (active) 1f else 0.55f
+            opacity.alpha = if (active) 1f else 0.55f
+        }
+        opacity.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                refreshOpacityUi()
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                val value = opacityValues[opacity.progress.coerceIn(0, opacityValues.lastIndex)]
+                PointageStatusNotificationV2.setOpacityPercent(activity, value)
+            }
+        })
+
+        val toggle = Switch(activity).apply {
+            tag = "pointage_status_bar_switch"
+            text = "Afficher l’indicateur et le compteur dans la barre système"
+            textSize = 14f
+            isChecked = PointageStatusNotificationV2.isEnabled(activity)
+            setOnCheckedChangeListener { _, checked ->
+                PointageStatusNotificationV2.setEnabled(activity, checked)
+                refreshOpacityUi()
+                if (checked) activity.requestPointageNotificationPermissionFromSettings()
+            }
+        }
+        val note = TextView(activity).apply {
+            tag = "pointage_status_bar_note"
+            text = "L’indicateur suit automatiquement le mode clair/sombre déjà choisi dans AGKGMG. Le fond de la pastille Live Update reste géré par Android/HyperOS."
+            textSize = 12f
+            setPadding(0, 0, 0, dp(activity, 8))
+        }
+        refreshOpacityUi()
+
+        section.addView(statusTitle)
+        section.addView(toggle)
+        section.addView(opacityLabel)
+        section.addView(opacity)
+        section.addView(note)
     }
 
     private fun installPointageAddressButton(activity: MainActivity) {
@@ -453,12 +567,94 @@ object SettingsUiInstaller {
     private fun title(context: Context, text: String) = TextView(context).apply { this.text = text; textSize = 16f; setPadding(0, dp(context, 18), 0, dp(context, 10)) }
 
     private fun chooseAppBackground(activity: Activity) {
-        val labels = arrayOf("Noir", "Anthracite", "Bleu nuit", "Vert profond", "Bordeaux", "Beige clair", "Couleur personnalisée")
-        val colors = arrayOf("#080808", "#242424", "#0D1B2A", "#102A20", "#351015", "#F3F0E8")
-        AlertDialog.Builder(activity).setTitle("Fond de l'application").setItems(labels) { _, which ->
-            if (which < colors.size) saveAppBg(activity, colors[which])
-            else customColorDialog(activity, "Couleur du fond") { saveAppBg(activity, it) }
-        }.show()
+        val prefs = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+        val dark = AppThemeCatalog.useDarkPalette(activity)
+        val theme = AppThemeCatalog.current(activity)
+        val fallback = if (dark) theme.darkBackground else theme.lightBackground
+        val initial = runCatching {
+            Color.parseColor(prefs.getString("app_bg", null) ?: "")
+        }.getOrDefault(fallback)
+
+        val container = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(activity, 20), dp(activity, 12), dp(activity, 20), 0)
+        }
+        val wheel = ColorWheelPickerView(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(activity, 280), dp(activity, 280)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
+            setColor(initial)
+        }
+        val brightnessLabel = TextView(activity).apply {
+            text = "Luminosité"
+            textSize = 14f
+            setPadding(0, dp(activity, 12), 0, 0)
+        }
+        val brightness = SeekBar(activity).apply {
+            max = 100
+            progress = (wheel.brightness() * 100f).toInt().coerceIn(0, 100)
+        }
+        val preview = TextView(activity).apply {
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(dp(activity, 12), dp(activity, 12), dp(activity, 12), dp(activity, 12))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(activity, 54)
+            ).apply { topMargin = dp(activity, 10) }
+        }
+
+        fun refreshPreview(color: Int) {
+            val hex = String.format("#%06X", 0xFFFFFF and color)
+            preview.text = "Aperçu  •  $hex"
+            preview.setTextColor(AppearanceManager.bestTextColor(color))
+            preview.background = GradientDrawable().apply {
+                cornerRadius = dp(activity, 14).toFloat()
+                setColor(color)
+            }
+        }
+
+        wheel.onColorChanged = ::refreshPreview
+        brightness.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                wheel.setBrightness(progress / 100f, notify = true)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+        refreshPreview(wheel.selectedColor())
+
+        container.addView(wheel)
+        container.addView(brightnessLabel)
+        container.addView(brightness)
+        container.addView(preview)
+
+        val dialog = AlertDialog.Builder(activity)
+            .setTitle("Couleur du fond")
+            .setView(container)
+            .setPositiveButton("Appliquer", null)
+            .setNegativeButton("Annuler", null)
+            .setNeutralButton("Réinitialiser", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val color = String.format("#%06X", 0xFFFFFF and wheel.selectedColor())
+                saveAppBg(activity, color)
+                dialog.dismiss()
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                File(activity.filesDir, AppearanceManager.BACKGROUND_FILE).delete()
+                prefs.edit()
+                    .remove("app_bg")
+                    .putBoolean("custom_bg", false)
+                    .putBoolean("custom_image_bg", false)
+                    .apply()
+                AppearanceManager.apply(activity)
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
     }
 
     private fun saveAppBg(activity: Activity, color: String) {

@@ -4,7 +4,7 @@ package com.amaury.pointage.v2.engine
  * Valorisation prudente de l'indemnité légale du 1er mai travaillé.
  *
  * La règle LEGI vérifiée apporte uniquement le multiplicateur additionnel.
- * Dès qu'une autre majoration peut entrer dans la base de l'indemnité, HoraTrack
+ * Dès qu'une autre majoration peut entrer dans la base de l'indemnité, AGKGMG
  * refuse de reconstruire cette base sans règle de cumul suffisamment structurée.
  */
 object MayFirstPayrollAdjustmentV2 {

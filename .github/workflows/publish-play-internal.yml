@@ -1,9 +1,28 @@
 name: Publish AGKGMG to Google Play internal
 
 on:
+  workflow_call:
+    inputs:
+      build_run_id:
+        required: true
+        type: string
+      source_sha:
+        required: true
+        type: string
+      test_track:
+        required: true
+        type: string
+      test_release:
+        required: true
+        type: boolean
+    secrets:
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON:
+        required: false
+      FIREBASE_SERVICE_ACCOUNT_JSON:
+        required: false
   workflow_run:
     workflows:
-      - "Compiler HoraTrack APK et AAB"
+      - "Compiler AGKGMG APK et AAB"
     types:
       - completed
 
@@ -15,19 +34,39 @@ jobs:
   publish-internal:
     name: Publish signed AAB to Google Play internal
     if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main'
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main') ||
+      (inputs.test_release == true &&
+       github.ref != 'refs/heads/main' &&
+       inputs.source_sha == github.sha &&
+       inputs.build_run_id == format('{0}', github.run_id) &&
+       (inputs.test_track == 'internal' || inputs.test_track == 'qa'))
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: read
 
     steps:
+      - name: Recuperer le commit de test exact
+        if: inputs.test_release == true
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+
+      - name: Revalider les CI avant publication de test
+        if: inputs.test_release == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: python scripts/verify_play_test_release.py
+
       - name: Download exact signed Play bundle
         env:
           GH_TOKEN: ${{ github.token }}
-          BUILD_RUN_ID: ${{ github.event.workflow_run.id }}
-          EXPECTED_SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id || github.event.workflow_run.id }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha || github.event.workflow_run.head_sha }}
         run: |
           mkdir -p "$RUNNER_TEMP/play"
           gh run download "$BUILD_RUN_ID" \
@@ -71,6 +110,8 @@ jobs:
       - name: Publish to internal testing
         env:
           PACKAGE_NAME: com.amaury.pointage
+          TEST_ONLY: ${{ inputs.test_release == true }}
+          TEST_TRACK: ${{ inputs.test_track }}
         run: |
           python <<'PY'
           import os, pathlib, requests
@@ -129,7 +170,12 @@ jobs:
               return max(codes) if codes else -1
 
           populated = [t for t in non_prod if highest_code(t) >= 0]
-          if populated:
+          if os.environ.get("TEST_ONLY") == "true":
+              # No heuristic, production, open testing or closed-track fallback before merge.
+              play_track = os.environ.get("TEST_TRACK", "")
+              if play_track not in {"internal", "qa"} or not any(t.get("track") == play_track for t in tracks):
+                  raise RuntimeError("Piste de test absente ou non autorisée; publication refusée")
+          elif populated:
               populated.sort(
                   key=lambda t: (
                       highest_code(t),

@@ -183,7 +183,7 @@ object PaidServiceReports {
         check(comparable.intersect(expected.keys).intersect(values.keys).size >= 3 && "Brut" in expected) {
             "Moins de trois familles rapprochables dont le brut : détail insuffisant pour ce service."
         }
-        refs += "Montants attendus issus du moteur canonique HoraTrack pour cette entreprise et cette période ; aucune reconstitution indépendante ni taux supposé."
+        refs += "Montants attendus issus du moteur canonique AGKGMG pour cette entreprise et cette période ; aucune reconstitution indépendante ni taux supposé."
         return PaidServiceReportBuilder.Month(record.year, record.month, record.id, source.first, source.second,
             dateFormat.format(Instant.ofEpochMilli(record.importedAtMs)), values, expected, comparable, chronology, refs, warnings.distinct(), true)
     }

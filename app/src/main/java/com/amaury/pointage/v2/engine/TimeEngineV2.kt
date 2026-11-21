@@ -3,7 +3,7 @@ package com.amaury.pointage.v2.engine
 import com.amaury.pointage.v2.model.SessionStatusV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 
-/** Moteur Temps HoraTrack V2 : source unique des calculs de présence et de temps payé. */
+/** Moteur Temps AGKGMG V2 : source unique des calculs de présence et de temps payé. */
 interface TimeEngineV2 {
     fun countedEntryFromRealArrival(realArrivalMs: Long): Long
     fun countedExitFromRealExit(realExitMs: Long, expectedEndMs: Long?): Long

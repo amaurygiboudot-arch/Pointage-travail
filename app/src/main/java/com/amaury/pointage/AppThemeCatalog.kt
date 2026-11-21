@@ -86,6 +86,7 @@ object AppThemeCatalog {
         }
         forceFullWidgetRefresh(context, PointageWidgetProvider::class.java)
         forceFullWidgetRefresh(context, QuickActionsWidgetProvider::class.java)
+        IconSwitcher.sync(context)
     }
 
     fun set(context: Context, theme: HpTheme) {
@@ -103,6 +104,7 @@ object AppThemeCatalog {
 
         forceFullWidgetRefresh(context, PointageWidgetProvider::class.java)
         forceFullWidgetRefresh(context, QuickActionsWidgetProvider::class.java)
+        IconSwitcher.sync(context)
     }
 
     private fun forceFullWidgetRefresh(context: Context, provider: Class<*>) {

@@ -27,7 +27,7 @@ function buildBackendReleaseNotice({ revision, message, deployedAtMs = Date.now(
   }
 
   const title = "Mise à jour Firebase terminée";
-  const body = "Le backend Firebase HoraTrack vient d'être mis à jour avec succès.";
+  const body = "Le backend Firebase AGKGMG vient d'être mis à jour avec succès.";
 
   return {
     document: {

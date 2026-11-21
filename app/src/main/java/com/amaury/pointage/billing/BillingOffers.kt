@@ -107,7 +107,7 @@ object BillingOffers {
                     (documentId != null && !included && it.details.productId == BillingContract.PDF) }
                 val labels = available.map { it.label }.toTypedArray()
                 AlertDialog.Builder(activity)
-                    .setTitle(if (documentId == null) "HoraTrack Premium" else "Débloquer ce PDF")
+                    .setTitle(if (documentId == null) "AGKGMG Premium" else "Débloquer ce PDF")
                     .setMessage(
                         (if (included) "Ton compte dispose des PDF inclus.\n\n" else "Premium inclut les PDF. Un PDF acheté séparément reste téléchargeable sans repayer pour ce même document.\n\n") +
                             "Aucun aperçu avant paiement vérifié. Premium + analyses inclut un bulletin par mois ; les autres prestations sont des achats séparés.\n\n" +
@@ -150,7 +150,7 @@ object BillingOffers {
         AlertDialog.Builder(activity).setTitle("Mes PDF — droits à vérifier avant ouverture")
             .setItems(files.map { "${name(it)} — ${dates.format(Date(it.lastModified()))}" }.toTypedArray()) { _, index ->
                 if (BillingBackend.uid() != uid) return@setItems
-                val displayName = name(files[index]).let { if (it.endsWith(".pdf")) it else "HoraTrack.pdf" }
+                val displayName = name(files[index]).let { if (it.endsWith(".pdf")) it else "AGKGMG.pdf" }
                 BillingPdfGate.require(activity, files[index], displayName) { authorized ->
                     if (BillingBackend.uid() != uid) return@require
                     activity.startActivity(Intent(activity, PdfPreviewActivity::class.java).apply {

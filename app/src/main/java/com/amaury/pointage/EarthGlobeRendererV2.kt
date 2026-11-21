@@ -353,7 +353,7 @@ class EarthGlobeRendererV2(
 
     companion object {
         private val renderExecutor: Executor = Executors.newSingleThreadExecutor { task ->
-            Thread(task, "HoraTrack-EarthGlobe").apply {
+            Thread(task, "AGKGMG-EarthGlobe").apply {
                 priority = Thread.NORM_PRIORITY - 1
             }
         }

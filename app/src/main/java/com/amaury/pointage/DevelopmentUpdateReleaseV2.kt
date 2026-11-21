@@ -3,7 +3,7 @@ package com.amaury.pointage
 import org.json.JSONArray
 
 /**
- * Décrit le canal de développement HoraTrack.
+ * Décrit le canal de développement AGKGMG.
  *
  * Une seule prerelease GitHub permanente, `dev-latest`, contient toujours le dernier APK
  * de développement validé par le workflow DEV. Les anciennes prereleases numérotées sont

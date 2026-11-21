@@ -271,13 +271,13 @@ object ConventionSicknessMaintenanceV2 {
             socialSecurityCoverageRequired = ssRequired,
             exactEmployerAmountAvailable = false,
             warnings = buildList {
-                add("Maintien maladie conventionnel calculé sur les arrêts enregistrés dans HoraTrack pour cette entreprise et cette année. Source : ${selected.source}.")
+                add("Maintien maladie conventionnel calculé sur les arrêts enregistrés dans AGKGMG pour cette entreprise et cette année. Source : ${selected.source}.")
                 if (waiting > 0) add("Carence conventionnelle de $waiting jour(s) appliquée selon la règle sélectionnée.")
                 if (ssRequired) add("Prise en charge par la Sécurité sociale à confirmer pour sécuriser le complément conventionnel.")
                 if (selected.referenceBasis != ReferenceBasis.NET) add("Base du maintien : ${selected.referenceBasis.name}. Le calcul net automatique n'est pas utilisé pour une règle exprimée sur une autre base.")
                 add("Portée des tranches : ${tier.bandConsumptionScope.name}.")
                 add("Le montant exact du complément employeur exige la rémunération de référence prévue par la convention, puis les déductions légalement ou conventionnellement applicables.")
-                if (consumed >= annualLimit) add("Plafond annuel conventionnel atteint selon les absences enregistrées dans HoraTrack.")
+                if (consumed >= annualLimit) add("Plafond annuel conventionnel atteint selon les absences enregistrées dans AGKGMG.")
             }
         )
     }

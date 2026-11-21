@@ -69,6 +69,27 @@ internal fun parsePersistedGpsZones(raw: String?): GpsZonesReadResult {
             }
             storedRadius.toFloat()
         } else 150f // Compatibilité avec les anciennes zones sans rayon.
+        // Les anciennes zones circulaires restent inchangées. Un polygone facultatif
+        // est conservé dans le JSON canonique de la même zone, sans registre parallèle.
+        if (item.has("polygon")) {
+            val rawVertices = item.optJSONArray("polygon")
+                ?: return GpsZonesReadResult.Corrupt("Polygone GPS illisible pour $id")
+            val vertices = mutableListOf<GpsPolygonGeometryV2.Vertex>()
+            for (vertexIndex in 0 until rawVertices.length()) {
+                val point = rawVertices.optJSONObject(vertexIndex)
+                    ?: return GpsZonesReadResult.Corrupt("Sommet GPS invalide pour $id")
+                if (!point.has("latitude") || !point.has("longitude")) {
+                    return GpsZonesReadResult.Corrupt("Coordonnées du polygone manquantes pour $id")
+                }
+                vertices += GpsPolygonGeometryV2.Vertex(
+                    point.optDouble("latitude", Double.NaN),
+                    point.optDouble("longitude", Double.NaN)
+                )
+            }
+            if (!GpsPolygonGeometryV2.valid(vertices)) {
+                return GpsZonesReadResult.Corrupt("Polygone GPS invalide pour $id")
+            }
+        }
         val address = item.optString("address").trim().takeIf { it.isNotBlank() }
         val companyId = if (item.has("companyId") && !item.isNull("companyId")) {
             val value = item.optString("companyId").trim()

@@ -47,7 +47,7 @@ object CompanyEmployerGeneralReductionAnnualDialogV2 {
         box.addView(TextView(context).apply {
             text = buildString {
                 append("Régularisation RGDU ").append(year).append("\n\n")
-                append("HoraTrack ne déduit jamais les paramètres historiques depuis le contrat actuel. ")
+                append("AGKGMG ne déduit jamais les paramètres historiques depuis le contrat actuel. ")
                 append("Confirme ici uniquement des faits valables pour toute l'année, avec une source vérifiable.")
                 if (!stored.reliable) {
                     append("\n\n⚠ Stockage annuel incohérent.")
@@ -257,7 +257,7 @@ object CompanyEmployerGeneralReductionAnnualDialogV2 {
                         CompanyEmployerGeneralReductionAnnualPayrollBridgeV2.AdvanceBasis.CONFIRMED_OBSERVED ->
                             "12 montants RGDU réellement constatés et confirmés"
                         CompanyEmployerGeneralReductionAnnualPayrollBridgeV2.AdvanceBasis.RECONSTRUCTED_AUTOMATIC ->
-                            "reconstruction automatique HoraTrack"
+                            "reconstruction automatique AGKGMG"
                         null -> "à confirmer"
                     }
                 )

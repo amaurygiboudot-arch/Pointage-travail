@@ -73,6 +73,7 @@ class MainActivity : Activity() {
         private const val REQUEST_CREATE_MONTHLY_PDF = 2002
         private const val REQUEST_FINE_LOCATION = 3001
         private const val REQUEST_BACKGROUND_LOCATION = 3002
+        private const val REQUEST_POINTAGE_NOTIFICATIONS = 3003
         private const val NAVIGATION_PREFS = "navigation_state"
         private const val KEY_ACTIVE_TAB = "active_tab"
         private const val KEY_REPORT_MONTH_MS = "report_month_ms"
@@ -221,6 +222,7 @@ class MainActivity : Activity() {
                 requestLocationAccess()
             } else {
                 enableAutomaticGpsFromCanonicalZones()
+                requestPointageNotificationPermissionIfNeeded()
             }
         }
 
@@ -234,11 +236,16 @@ class MainActivity : Activity() {
             }
             val message = when {
                 ok -> "Entrée enregistrée"
-                HoraTrackV2.ENABLED && !V2RuntimeReader.current(this).reliable -> "Pointage bloqué : données HoraTrack à vérifier"
+                HoraTrackV2.ENABLED && !V2RuntimeReader.current(this).reliable -> "Pointage bloqué : données AGKGMG à vérifier"
                 else -> "Une entrée est déjà en cours"
             }
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
-            if (ok) refreshScreen()
+            if (ok) {
+                // Les actions manuelles doivent aussi mettre à jour immédiatement la
+                // notification système, sans attendre une nouvelle transition GPS.
+                IconSwitcher.sync(this)
+                refreshScreen()
+            }
         }
 
         exitButton?.setOnClickListener {
@@ -251,11 +258,16 @@ class MainActivity : Activity() {
             }
             val message = when {
                 ok -> "Sortie enregistrée"
-                HoraTrackV2.ENABLED && !V2RuntimeReader.current(this).reliable -> "Pointage bloqué : données HoraTrack à vérifier"
+                HoraTrackV2.ENABLED && !V2RuntimeReader.current(this).reliable -> "Pointage bloqué : données AGKGMG à vérifier"
                 else -> "Aucune entrée en cours"
             }
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
-            if (ok) refreshScreen()
+            if (ok) {
+                // Les actions manuelles doivent aussi mettre à jour immédiatement la
+                // notification système, sans attendre une nouvelle transition GPS.
+                IconSwitcher.sync(this)
+                refreshScreen()
+            }
         }
 
         locationPermissionButton?.setOnClickListener { animateClick(locationPermissionButton); requestLocationAccess() }
@@ -292,6 +304,7 @@ class MainActivity : Activity() {
         gpsRegistrationError = null
         updateGpsStatus()
         tryRestoreGeofence()
+        requestPointageNotificationPermissionIfNeeded()
         when (activeTab) {
             "home" -> showHomeTab()
             "history" -> showHistoryTab()
@@ -354,7 +367,24 @@ class MainActivity : Activity() {
                 if (granted) {
                     updateGpsStatus()
                     tryRestoreGeofence()
+                    requestPointageNotificationPermissionIfNeeded()
                 } else disableAutomaticGps("Autorise la localisation tout le temps pour le pointage automatique")
+            }
+            REQUEST_POINTAGE_NOTIFICATIONS -> {
+                updateGpsStatus()
+                if (autoGpsSwitch.isChecked) tryRestoreGeofence()
+                if (
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    Toast.makeText(
+                        this,
+                        "Notifications refusées : l’indicateur rouge/vert/orange ne peut pas rester dans la barre système et les sorties GPS seront confirmées à la prochaine ouverture.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    IconSwitcher.sync(this)
+                }
             }
         }
     }
@@ -378,7 +408,7 @@ class MainActivity : Activity() {
                 V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
                 MonthlyPdfReport.write(this, PointageStore.load(this), pendingPdfYear, pendingPdfMonth, output)
             }
-            BillingPdfGate.require(this, file, "HoraTrack_${pendingPdfYear}_${pendingPdfMonth + 1}.pdf", onDenied = {
+            BillingPdfGate.require(this, file, "AGKGMG_${pendingPdfYear}_${pendingPdfMonth + 1}.pdf", onDenied = {
                 runCatching { android.provider.DocumentsContract.deleteDocument(contentResolver, uri) }
             }) { authorizedFile ->
                 runCatching {
@@ -655,6 +685,34 @@ class MainActivity : Activity() {
         Toast.makeText(this, "Localisation autorisée", Toast.LENGTH_SHORT).show()
         updateGpsStatus()
         if (autoGpsSwitch.isChecked) tryRestoreGeofence()
+        requestPointageNotificationPermissionIfNeeded()
+    }
+
+    private fun requestPointageNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            IconSwitcher.sync(this)
+            return
+        }
+        if (
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            IconSwitcher.sync(this)
+            return
+        }
+        val required = PointageStatusNotificationV2.isEnabled(this) || autoGpsSwitch.isChecked
+        if (!required) return
+        if (PointageStatusNotificationV2.permissionWasRequested(this)) return
+
+        PointageStatusNotificationV2.markPermissionRequested(this)
+        requestPermissions(
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            REQUEST_POINTAGE_NOTIFICATIONS
+        )
+    }
+
+    internal fun requestPointageNotificationPermissionFromSettings() {
+        requestPointageNotificationPermissionIfNeeded()
     }
 
     private fun disableAutomaticGps(message: String) {
@@ -666,6 +724,7 @@ class MainActivity : Activity() {
             .remove("active_zones").remove("entry_resolution_pending")
             .remove("entry_resolution_token").remove("pending_exit_zones").apply()
         GeofenceManager.reconfigureStoredZones(this)
+        GpsExitConfirmationNotificationV2.cancel(this)
         gpsStatusText.text = message
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
@@ -753,7 +812,7 @@ class MainActivity : Activity() {
             val read = V2RuntimeReader.current(this)
             if (!read.reliable) {
                 statusCard.text = "STATUT ACTUEL\n⚠ DONNÉES À VÉRIFIER"
-                historyText.text = "Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
+                historyText.text = "Historique AGKGMG indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
                 return
             }
             val session = read.snapshot.session
@@ -782,7 +841,7 @@ class MainActivity : Activity() {
         val now = System.currentTimeMillis()
         val read = V2RuntimeReader.allSessions(this, now)
         if (!read.reliable) {
-            return "Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
+            return "Historique AGKGMG indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
         }
 
         val employerNames = buildV2EmployerNames()
@@ -858,7 +917,7 @@ class MainActivity : Activity() {
 
     private fun buildLegacyAnalyticsText(): String {
         V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.ANALYTICS)
-        return "Analyses historiques désactivées lorsque HoraTrack est actif."
+        return "Analyses historiques désactivées lorsque AGKGMG est actif."
     }
 
     private fun formatDuration(ms: Long): String {

@@ -30,7 +30,7 @@ object CompanyEmployeeDeductionDialogV2 {
             setPadding(dp(context, 16), dp(context, 8), dp(context, 16), dp(context, 8))
         }
         box.addView(TextView(context).apply {
-            text = "Enregistre uniquement des montants confirmés pour une période précise. Dès qu'un type possède une règle datée, HoraTrack ne réutilise plus son ancienne valeur sans date pour combler un mois non renseigné."
+            text = "Enregistre uniquement des montants confirmés pour une période précise. Dès qu'un type possède une règle datée, AGKGMG ne réutilise plus son ancienne valeur sans date pour combler un mois non renseigné."
             textSize = 13f
             setPadding(0, 0, 0, dp(context, 8))
         })
@@ -42,7 +42,7 @@ object CompanyEmployeeDeductionDialogV2 {
 
         if (!stored.reliable) {
             box.addView(TextView(context).apply {
-                text = "⚠ Stockage des retenues incohérent. HoraTrack bloque les calculs concernés et n'utilise aucune ancienne valeur sans date en remplacement.\n• " +
+                text = "⚠ Stockage des retenues incohérent. AGKGMG bloque les calculs concernés et n'utilise aucune ancienne valeur sans date en remplacement.\n• " +
                     stored.warnings.joinToString("\n• ")
                 textSize = 12f
                 setPadding(0, 0, 0, dp(context, 8))

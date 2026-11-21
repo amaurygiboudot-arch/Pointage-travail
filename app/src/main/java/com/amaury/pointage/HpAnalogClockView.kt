@@ -365,7 +365,7 @@ class HpAnalogClockView @JvmOverloads constructor(
 
     companion object {
         private val bitmapExecutor: Executor = Executors.newSingleThreadExecutor { task ->
-            Thread(task, "HoraTrack-ClockBitmaps").apply {
+            Thread(task, "AGKGMG-ClockBitmaps").apply {
                 priority = Thread.NORM_PRIORITY - 1
             }
         }

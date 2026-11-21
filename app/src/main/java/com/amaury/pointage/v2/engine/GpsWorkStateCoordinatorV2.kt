@@ -22,6 +22,7 @@ object GpsWorkStateCoordinatorV2 {
     private const val KEY_PENDING_TRANSITION = "pending_transition"
     private const val KEY_PROMPTED_ID = "prompted_id"
     private const val RETURN_WINDOW_MS = 2L * 60_000L
+    private const val MAX_AUTO_EXIT_AGE_MS = 15L * 60_000L
 
     enum class Action {
         IGNORED,
@@ -147,9 +148,60 @@ object GpsWorkStateCoordinatorV2 {
     ): Boolean {
         if (pending == null) return false
         if (entryStarted) return true
-        if (current?.status != SessionStatusV2.OPEN || current.realExitMs != null) return false
+        if (current?.status != SessionStatusV2.OPEN || current.realExitMs != null) return true
         val arrival = current.realArrivalMs ?: return false
         return pending.atMs < arrival
+    }
+
+    /** Autorise une clôture automatique uniquement après un horaire prévu explicitement enregistré. */
+    internal fun canAutoCloseExit(
+        pending: Pending?,
+        session: WorkSessionV2?,
+        expectedEndMs: Long?,
+        nowMs: Long
+    ): Boolean {
+        if (pending?.kind != Pending.Kind.EXIT_WORKSITE ||
+            pending.pointType != GpsPointTypeV2.POSTE ||
+            pending.transition != GpsTransitionV2.EXIT ||
+            session?.status != SessionStatusV2.OPEN ||
+            session.realExitMs != null ||
+            session.pauses.any { it.endMs == null }) return false
+        val entry = session.realArrivalMs ?: return false
+        val expected = expectedEndMs ?: return false
+        if (entry <= 0L || expected <= entry || pending.atMs < expected ||
+            pending.atMs <= entry || nowMs < pending.atMs ||
+            nowMs - pending.atMs > MAX_AUTO_EXIT_AGE_MS) return false
+        val placeId = session.placeId?.trim()?.takeIf { it.isNotEmpty() }
+        return placeId == null || placeId == pending.placeId
+    }
+
+    fun eligibleForAutoExit(context: Context, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (!context.applicationContext.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+                .getBoolean("enabled", false)) return false
+        val runtime = V2RuntimeReader.current(context, nowMs)
+        return runtime.reliable && canAutoCloseExit(
+            pending(context), runtime.snapshot.session,
+            V2RuntimeStore.expectedEnd(context), nowMs
+        )
+    }
+
+    /** La fin GPS est enregistrée au moment observé, jamais à l'horaire supposé. */
+    fun autoConfirmExit(context: Context, expectedPendingId: String): Boolean {
+        val candidate = pending(context)
+            ?.takeIf { matchesPendingId(it, expectedPendingId) } ?: return false
+        if (!eligibleForAutoExit(context)) return false
+        val expected = V2RuntimeStore.expectedEnd(context) ?: return false
+        val closed = V2RuntimeStore.exit(context, candidate.atMs, expected)
+        if (closed) clearPending(context)
+        return closed
+    }
+
+    /** Un pointage déjà terminé rend une ancienne question GPS obsolète. */
+    fun discardIfNoOpenSession(context: Context, session: WorkSessionV2?): Boolean {
+        if (session?.status == SessionStatusV2.OPEN && session.realExitMs == null) return false
+        if (pending(context) == null) return false
+        clearPending(context)
+        return true
     }
 
     internal fun canQueuePending(existing: Pending?, incomingKind: Pending.Kind): Boolean =

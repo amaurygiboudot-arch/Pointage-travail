@@ -4,7 +4,7 @@ package com.amaury.pointage.v2.engine
  * Cotisation accidents du travail / maladies professionnelles.
  *
  * Le taux est propre à l'établissement et doit être recopié d'une source employeur
- * fiable (notification Carsat/Cramif/CGSS ou bulletin). HoraTrack ne choisit jamais
+ * fiable (notification Carsat/Cramif/CGSS ou bulletin). AGKGMG ne choisit jamais
  * un taux collectif par défaut. Cette cotisation est exclusivement patronale et ne
  * doit donc jamais diminuer le net salarié.
  */

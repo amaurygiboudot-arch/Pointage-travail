@@ -7,7 +7,7 @@ import java.io.OutputStream
 
 /**
  * Export mensuel historique.
- * Quand HoraTrackMotor est actif, ce chemin est volontairement interdit :
+ * Quand AGKGMGMotor est actif, ce chemin est volontairement interdit :
  * V2MonthlyPdfActivity et MonthlyPdfReportV2 restent les seules sources internes
  * autorisées afin d'éviter tout calcul historique silencieux.
  */
@@ -21,8 +21,8 @@ object MonthlyPdfReport {
 /** Conservé uniquement pour rollback lorsque l'ancien moteur est explicitement réactivé. */
 private object LegacyMonthlyPdfWriter {
     fun write(context: Context, data: JSONArray, year: Int, month: Int, output: OutputStream) {
-        // Aucun calcul historique n'est exécuté lorsque HoraTrackMotor est actif.
+        // Aucun calcul historique n'est exécuté lorsque AGKGMGMotor est actif.
         // Le rollback reste compilable mais doit être réactivé explicitement avant usage.
-        throw IllegalStateException("Export mensuel historique non disponible dans cette version de HoraTrack")
+        throw IllegalStateException("Export mensuel historique non disponible dans cette version de AGKGMG")
     }
 }

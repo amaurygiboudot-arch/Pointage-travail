@@ -309,7 +309,7 @@ object SalaryCompanyStore {
     /**
      * Résout un identifiant employeur historique vers l'identifiant stable de l'entreprise.
      *
-     * Une correspondance ambiguë reste volontairement inconnue : HoraTrack ne doit jamais rattacher
+     * Une correspondance ambiguë reste volontairement inconnue : AGKGMG ne doit jamais rattacher
      * silencieusement une ancienne session ou un fait salarial à la mauvaise entreprise.
      * Un store entreprises non fiable ne permet aucune résolution canonique.
      */

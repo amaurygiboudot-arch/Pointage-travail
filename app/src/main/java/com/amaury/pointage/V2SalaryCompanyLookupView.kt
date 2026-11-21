@@ -52,7 +52,7 @@ class V2SalaryCompanyLookupView(
                 val perPage = if (digits.length == 14) 1 else 10
                 val connection = URL("https://recherche-entreprises.api.gouv.fr/search?q=$encoded&per_page=$perPage").openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"; connection.connectTimeout = 10000; connection.readTimeout = 15000
-                connection.setRequestProperty("Accept", "application/json"); connection.setRequestProperty("User-Agent", "HoraTrack-Android")
+                connection.setRequestProperty("Accept", "application/json"); connection.setRequestProperty("User-Agent", "AGKGMG-Android")
                 val code = connection.responseCode
                 val stream = if (code in 200..299) connection.inputStream else connection.errorStream
                 val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty(); connection.disconnect()

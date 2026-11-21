@@ -1,8 +1,8 @@
-AGKGMG / HORATRACK — DOCUMENT MAITRE V2.24 — CHECKPOINT 31
+AGKGMG / AGKGMG — DOCUMENT MAITRE V2.24 — CHECKPOINT 31
 MISE A JOUR DU 26 SEPTEMBRE 2026 — PARAMETRES V2 / PUBLICATION / TRAVAIL PARALLELE SALAIRE V2
 
 REPERE SIMPLE
-Le nom visible du produit est désormais AGKGMG. Les identifiants techniques historiques HoraTrack peuvent rester internes lorsqu'un renommage présenterait un risque de compatibilité.
+Le nom visible du produit est désormais AGKGMG. Les identifiants techniques historiques AGKGMG peuvent rester internes lorsqu'un renommage présenterait un risque de compatibilité.
 Salaire V2 n'est ni arrêté ni abandonné : il continue en parallèle dans son chantier dédié.
 Dans le présent chantier, la priorité immédiate de préparation à la publication est Paramètres V2.
 Les deux chantiers doivent rester découplés : Paramètres ne modifie pas les moteurs Salaire V2 sans raccord explicitement nécessaire et vérifié.
@@ -47,7 +47,7 @@ PR #487 fusionnée.
 L'ancien bloc unique injecté a été séparé en sections V2 distinctes : Application & mises à jour, Apparence, Widget, Drive et Aide.
 SettingsV2SectionOrganizer remet les blocs directs du panneau dans un ordre stable : Compte/Sécurité, Pointage/GPS, Apparence/Céleste, sauvegarde, mises à jour, aide/extras, éléments internes.
 Les vues et callbacks métier existants sont conservés ; il s'agit d'une réorganisation UI conservatrice.
-Les libellés visibles restés HoraTrack / HP Travail dans les éléments Paramètres touchés ont été réalignés vers AGKGMG.
+Les libellés visibles restés AGKGMG / HP Travail dans les éléments Paramètres touchés ont été réalignés vers AGKGMG.
 Aucun fichier Salaire V2 n'a été modifié.
 Tous les contrôles techniques ont réussi ; gate agent toujours bloqué par quota.
 
@@ -94,12 +94,12 @@ ARCHIVE INTEGRALE DU MAITRE PRECEDENT — CHECKPOINT 30 ET HISTORIQUE
 Les statuts de cette archive sont historiques ; consulter le checkpoint 31 en tête.
 ==============================================================================
 
-HORATRACK — DOCUMENT MAITRE V2.23 — CHECKPOINT 30
+AGKGMG — DOCUMENT MAITRE V2.23 — CHECKPOINT 30
 MISE A JOUR DU 25 SEPTEMBRE 2026 — UX / PROXIMITE / BULLETINS / CELESTE
 
 REPERE SIMPLE
 Salaire V2 reste la priorité fonctionnelle.
-HoraTrack doit rester immédiatement simple pour l'utilisateur qui veut seulement pointer.
+AGKGMG doit rester immédiatement simple pour l'utilisateur qui veut seulement pointer.
 La profondeur de la vérification de paie doit se révéler progressivement, sans noyer l'utilisateur.
 Les fonctions avancées ne sont pas cachées : elles restent accessibles et visibles dans une interface normale,
 mais toute leur richesse ne doit pas être comprise au premier coup d'oeil.
@@ -110,13 +110,13 @@ répétitives, expliquer avec des mots compréhensibles et utiliser le prénom a
 Les bulletins de paie dématérialisés doivent pouvoir devenir une entrée automatique ou semi-automatique
 du contrôle, uniquement via un import ou un connecteur autorisé par l'utilisateur.
 Les valeurs lues sur le bulletin restent des faits OBSERVES ; elles ne deviennent jamais automatiquement
-la vérité juridique ni la valeur attendue par HoraTrack.
+la vérité juridique ni la valeur attendue par AGKGMG.
 Céleste doit retrouver une lecture plus naturelle : Soleil et Lune présentés sur le pourtour du cadran,
 Terre toujours au centre, sans prétendre que le cercle représente leur trajectoire physique réelle.
 Ce checkpoint fixe des exigences produit. Il ne déclare pas ces fonctions toutes implémentées.
 
 30.1 PHILOSOPHIE PRODUIT — SIMPLE IMMEDIATEMENT, RICHE DURABLEMENT
-HoraTrack ne doit pas essayer de montrer toute sa puissance dès la première utilisation.
+AGKGMG ne doit pas essayer de montrer toute sa puissance dès la première utilisation.
 Le premier usage doit rester évident : ENTRÉE, PAUSE, SORTIE, statut actuel et historique utile.
 La complexité du salaire, du droit, des conventions, des preuves, de Céleste et des analyses reste disponible
 en profondeur sans compliquer l'action quotidienne la plus simple.
@@ -136,11 +136,11 @@ ni déplacer ses commandes essentielles.
 Tout correctif visuel ou fonctionnel conserve cette priorité pour 100 % des utilisateurs concernés,
 tous métiers, classes/catégories, organisations, Android/iOS et appareils officiellement supportés.
 
-30.3 LA PAIE EST COMPLEXE : HORATRACK DOIT LA TRADUIRE, PAS LA MASQUER
+30.3 LA PAIE EST COMPLEXE : AGKGMG DOIT LA TRADUIRE, PAS LA MASQUER
 Le coeur du produit reste la vérification du salaire.
 Une fiche de paie contient de nombreux chiffres, bases, taux, pourcentages, cumuls et règles.
 Même un utilisateur habitué aux bulletins peut se perdre dans cette densité.
-HoraTrack ne doit donc ni recopier le bulletin sous forme d'un second mur de chiffres, ni simplifier au point
+AGKGMG ne doit donc ni recopier le bulletin sous forme d'un second mur de chiffres, ni simplifier au point
 de supprimer les explications nécessaires.
 Le premier niveau répond d'abord : « Est-ce que mon bulletin est cohérent ? »
 Le résultat synthétique doit pouvoir distinguer au minimum :
@@ -151,13 +151,13 @@ Le résultat synthétique doit pouvoir distinguer au minimum :
 L'utilisateur peut ensuite descendre jusqu'à la ligne, la quantité, la base, le taux, la majoration,
 la période, les faits, la règle, la source et le niveau de confiance.
 Chaque durée, droit ou euro fiable doit rester explicable.
-Un écart ne signifie jamais automatiquement « erreur de l'employeur » : HoraTrack doit rechercher l'explication
+Un écart ne signifie jamais automatiquement « erreur de l'employeur » : AGKGMG doit rechercher l'explication
 avant de qualifier l'anomalie.
 
 30.4 PROXIMITE AVEC L'UTILISATEUR
 Chaque personne mérite que sa situation soit écoutée et traitée individuellement.
 Un métier, une entreprise, un horaire habituel ou un autre salarié ne suffit jamais à généraliser une règle.
-HoraTrack doit retenir les informations durables déjà confirmées dans leur bon périmètre afin d'éviter
+AGKGMG doit retenir les informations durables déjà confirmées dans leur bon périmètre afin d'éviter
 de poser encore et encore les mêmes questions.
 Le prénom peut être utilisé naturellement lorsqu'il est connu, par exemple sur l'Accueil, dans un résumé
 important ou lorsqu'un contrôle de bulletin mérite l'attention.
@@ -167,22 +167,22 @@ Proche ne veut jamais dire intrusive : consentement, confidentialité, minimisat
 obligatoires.
 
 30.5 BULLETIN DEMATERIALISE — ENTREE CIBLE DU CONTROLE AUTOMATIQUE
-Objectif cible : lorsqu'un nouveau bulletin est disponible via une source autorisée, HoraTrack doit pouvoir
+Objectif cible : lorsqu'un nouveau bulletin est disponible via une source autorisée, AGKGMG doit pouvoir
 le rattacher au bon utilisateur, à la bonne entreprise et à la bonne période, puis lancer ou proposer son contrôle.
 Chemins d'entrée prévus :
 - import PDF depuis le téléphone ;
-- partage système vers HoraTrack ;
+- partage système vers AGKGMG ;
 - Fichiers / Drive ou service équivalent explicitement choisi ;
 - e-mail connecté avec autorisation explicite ;
 - coffre-fort numérique ou fournisseur de paie disposant d'une API ou connexion compatible.
 Aucune récupération automatique universelle n'est présumée.
-HoraTrack ne doit jamais demander ni conserver le mot de passe brut d'un coffre-fort ou espace salarié
+AGKGMG ne doit jamais demander ni conserver le mot de passe brut d'un coffre-fort ou espace salarié
 pour automatiser l'accès.
 Privilégier OAuth, API, partage système, import de fichier ou mécanisme équivalent autorisé.
 Cette fonctionnalité est une EXIGENCE PRODUIT A CONSTRUIRE ; elle n'est pas déclarée disponible aujourd'hui.
 
 30.6 EXTRACTION AUTOMATIQUE DES CHIFFRES DU BULLETIN
-Une fois le bulletin importé, HoraTrack doit éviter autant que possible la ressaisie manuelle.
+Une fois le bulletin importé, AGKGMG doit éviter autant que possible la ressaisie manuelle.
 Cibles d'extraction selon ce qui existe réellement sur le document :
 - période et entreprise ;
 - heures normales, supplémentaires ou complémentaires ;
@@ -196,15 +196,15 @@ Les libellés et valeurs originaux doivent rester traçables jusqu'à la ligne s
 Une extraction ambiguë, incomplète ou de faible confiance reste A CONFIRMER.
 Inconnu n'est jamais converti silencieusement en zéro ou en absence de ligne.
 
-30.7 OBSERVE SUR BULLETIN != CALCULE OU DEMONTRE PAR HORATRACK
+30.7 OBSERVE SUR BULLETIN != CALCULE OU DEMONTRE PAR AGKGMG
 Le système conserve séparément :
 1. la valeur telle qu'elle apparaît sur le bulletin ;
-2. la valeur attendue/calculée par les propriétaires canoniques HoraTrack ;
+2. la valeur attendue/calculée par les propriétaires canoniques AGKGMG ;
 3. la règle, source ou preuve utilisée ;
 4. le niveau de confiance ;
 5. l'écart et son explication éventuelle.
 Exemple conceptuel : 8 h, base 13,70 €, majoration 25 %, montant observé.
-HoraTrack peut recalculer avec ses propres faits/règles et comparer, sans considérer le montant imprimé comme
+AGKGMG peut recalculer avec ses propres faits/règles et comparer, sans considérer le montant imprimé comme
 la preuve que le calcul est juridiquement correct.
 Une ligne récurrente propre à une personne/entreprise peut devenir un fait observé daté utile aux contrôles futurs.
 Elle ne devient jamais une règle universelle sans preuve.
@@ -249,7 +249,7 @@ La trajectoire/présentation Soleil-Lune reste à modifier selon 30.9 puis à re
 30.11 ORDRE DE MISE EN OEUVRE
 1. Salaire V2 end-to-end reste prioritaire : fiabilité avant embellissement.
 2. Ne pas rouvrir les garde-fous B21 déjà acquis ; poursuivre les preuves réelles et sorties canoniques.
-3. Définir le modèle canonique « observation du bulletin » séparé des calculs/règles HoraTrack.
+3. Définir le modèle canonique « observation du bulletin » séparé des calculs/règles AGKGMG.
 4. Construire d'abord import/partage PDF robuste, puis connecteurs autorisés réellement disponibles.
 5. Ajouter extraction structurée avec confiance par champ et traçabilité vers la ligne source.
 6. Raccorder la comparaison au moteur Salaire V2 existant ; aucune seconde vérité.
@@ -276,7 +276,7 @@ ARCHIVE INTEGRALE DU MAITRE PRECEDENT — CHECKPOINT 29 ET HISTORIQUE
 Les statuts de cette archive sont historiques ; consulter le checkpoint 30 en tête.
 ==============================================================================
 
-HORATRACK — DOCUMENT MAITRE V2.22 — CHECKPOINT 29
+AGKGMG — DOCUMENT MAITRE V2.22 — CHECKPOINT 29
 MISE A JOUR DU 25 SEPTEMBRE 2026 — SALAIRE V2 / B21
 
 REPERE SIMPLE
@@ -411,7 +411,7 @@ ARCHIVE INTEGRALE DU MAITRE PRECEDENT — CHECKPOINT 28 ET HISTORIQUE
 Les statuts de cette archive sont historiques ; consulter le checkpoint 29 en tête.
 ==============================================================================
 
-HORATRACK — DOCUMENT MAÎTRE V2.22
+AGKGMG — DOCUMENT MAÎTRE V2.22
 28. CHECKPOINT B21 — PREUVES VIDES REFUSÉES ET VALIDATION SUR MAIN RÉCONCILIÉ
 25 septembre 2026 — dernière lecture des états CI : 2026-09-25T13:46:24+02:00
 
@@ -515,7 +515,7 @@ Statut : EXIGENCE RATTACHÉE, NON IMPLÉMENTÉE NI VALIDÉE PAR CETTE PASSE. Auc
 
 La note fournie HoraTrack_Emplacement_Unique_Mises_A_Jour(1).txt est conservée intégralement en ANNEXE B. Elle vise le canal de distribution, pas un écran Paramètres.
 
-Pour DEV/test : une seule release de référence dev-latest et les noms stables prévus dans la note (HoraTrack-dev.apk, HoraTrack-dev.aab, HoraTrack-dev-version.txt, SHA256-dev.txt, SHA256-AAB-dev.txt). Version, SHA source et empreintes doivent correspondre. Pas de multiplication des liens de versions DEV ni de lien d'artifact CI présenté comme installateur officiel.
+Pour DEV/test : une seule release de référence dev-latest et les noms stables prévus dans la note (AGKGMG-dev.apk, AGKGMG-dev.aab, AGKGMG-dev-version.txt, SHA256-dev.txt, SHA256-AAB-dev.txt). Version, SHA source et empreintes doivent correspondre. Pas de multiplication des liens de versions DEV ni de lien d'artifact CI présenté comme installateur officiel.
 
 Cette règle est documentaire : aucun asset dev-latest, APK/AAB distribué, tag, release, store ou Firebase n'a été modifié ici. Les compilations réussies ne signifient pas qu'une nouvelle version est prête sur le téléphone.
 
@@ -547,7 +547,7 @@ Sources de cette mise à jour : lectures directes GitHub (commits/arbres/référ
 ARCHIVE INTÉGRALE — MAÎTRE PRÉCÉDENT (STATUTS HISTORIQUES)
 ==============================================================================
 
-HORATRACK — DOCUMENT MAÎTRE V2.22
+AGKGMG — DOCUMENT MAÎTRE V2.22
 27. CHECKPOINT B21 — CORRECTIF POUSSÉ DANS GITHUB
 25 septembre 2026 — copie complète de reprise
 Horodatage de cette copie : 2026-09-25T12:31:42+02:00
@@ -649,7 +649,7 @@ CI iOS #615 : https://github.com/amaurygiboudot-arch/Pointage-travail/actions/ru
 ARCHIVE INTÉGRALE DU MAÎTRE TXT PRÉCÉDENT — ÉTATS HISTORIQUES
 ==============================================================================
 
-HORATRACK — DOCUMENT MAÎTRE V2.22
+AGKGMG — DOCUMENT MAÎTRE V2.22
 SUIVI B21 CONSOLIDÉ — 25 SEPTEMBRE 2026
 
 26. CHECKPOINT B21 — VALIDATION CIBLÉE ET REPRISE REPRODUCTIBLE
@@ -705,7 +705,7 @@ Suivi GitHub : https://github.com/amaurygiboudot-arch/Pointage-travail/pull/428#
 ARCHIVE INTÉGRALE DU MAÎTRE TEXTE PRÉCÉDENT — CONSERVÉE SANS MODIFICATION
 ==============================================================================
 
-HORATRACK — DOCUMENT MAÎTRE V2.22
+AGKGMG — DOCUMENT MAÎTRE V2.22
 CONSOLIDATION COMPLÈTE — POURSUITE B21 DU 25 SEPTEMBRE 2026
 Horodatage de génération du fichier : 2026-09-25T11:32:04+02:00
 
@@ -782,7 +782,7 @@ Application effective sur une copie temporaire, puis comparaison des quatre fich
 Analyse syntaxique Swift de la source et des tests proposés : réussite. Ce n'est ni un type-check complet, ni un build Xcode, ni l'exécution XCTest.
 Reproduction isolée des anciennes gardes/préconditions : exception Kotlin observée ; arrêt Swift observé pour -1.
 Neuf scénarios de garde corrigée par langage réussis : durées négatives, entier minimal, mélanges valide/invalide, zéro, valeurs positives, preuve non fiable.
-Ces 18 scénarios isolés ne sont pas la suite HoraTrack. Aucun résultat de compilation Android, suite JUnit/XCTest complète ou test téléphone n'est revendiqué pour le nouveau patch.
+Ces 18 scénarios isolés ne sont pas la suite AGKGMG. Aucun résultat de compilation Android, suite JUnit/XCTest complète ou test téléphone n'est revendiqué pour le nouveau patch.
 
 25.8 Écriture distante refusée : aucun nouveau commit
 L'appel GitHub create_tree portant les deux corrections source a été refusé par le contrôle de sécurité de l'outil, qui n'a pas pu déterminer le niveau de sécurité de la demande.
@@ -826,7 +826,7 @@ ARCHIVE INTÉGRALE DU MAÎTRE TEXTE PRÉCÉDENT — CONSERVÉE SANS MODIFICATION
 Les statuts B21 historiques ci-dessous ne supplantent pas le checkpoint 25 ci-dessus.
 ===============================================================================
 
-HORATRACK — DOCUMENT MAÎTRE V2.22
+AGKGMG — DOCUMENT MAÎTRE V2.22
 VERSION TEXTE COMPLÈTE AVEC REPRISE B21 DU 25 SEPTEMBRE 2026
 
 NATURE ET RÈGLE D’AUTORITÉ
@@ -923,7 +923,7 @@ Ancien gate, motif quota vérifié : https://github.com/amaurygiboudot-arch/Poin
 ARCHIVE SOURCE V2.22 DU 24/09/2026 — TEXTE ET TABLEAUX INTÉGRAUX
 ==============================================================================
 
-HORATRACK
+AGKGMG
 DOCUMENT MAÎTRE V2.22
 État actuel • Cahier des charges • Travaux réalisés • Reste à faire
 Mise à jour consolidée du 24 septembre 2026
@@ -948,7 +948,7 @@ Salaire V2 | Très avancé ; pile iOS étendue | Tronc #364→#371→#378 puis s
 Céleste | Très avancé ; pile réelle en cours | #376 + #383 ouvertes. #383 HEAD 3d2ba7d : build iOS + submit-gradle verts ; validation complète du HEAD courant encore requise.
 Resend | Service + secret validés ; PR ouverte | #377 reste non fusionnée ; tous les contrôles techniques sont verts sauf Agent review gate ; aucune Firebase Function Resend déployée.
 Agents | Gate réel actif ; correctif ouvert | #379 corrige le schéma JSON ; 8 contrôles verts sur 9, Agent review gate encore rouge. Aucun contournement autorisé.
-Vercel | Optionnel | Non requis pour HoraTrack mobile actuel ; Firebase reste le socle serveur
+Vercel | Optionnel | Non requis pour AGKGMG mobile actuel ; Firebase reste le socle serveur
 Sécurité / parrainage | Spécification V2.22 intégrée | À implémenter selon les priorités de la section 23 ; ne pas retarder Salaire V2 ni présenter ces fonctions comme déjà disponibles.
 [FIN DU TABLEAU]
 Point de reprise immédiat
@@ -1004,7 +1004,7 @@ Production e-mail : un domaine d’envoi propre doit être vérifié dans Resend
 Le workflow Agent review gate utilise désormais une vraie exécution Codex ou une preuve de revue liée au HEAD exact.
 OPENAI_API_KEY est configurée dans les secrets GitHub et reconnue par l’action officielle.
 Les incompatibilités de schéma JSON rencontrées sur la PR #377 ont été corrigées dans la branche de travail.
-Le blocage actuel de #377 est externe au code HoraTrack : l’API OpenAI renvoie « Quota exceeded ». Tant qu’aucun quota n’est disponible, le gate reste rouge.
+Le blocage actuel de #377 est externe au code AGKGMG : l’API OpenAI renvoie « Quota exceeded ». Tant qu’aucun quota n’est disponible, le gate reste rouge.
 Ne jamais fabriquer un rapport d’agents ni transformer NOT_RUN en PASS pour contourner ce verrou.
 21.7 PR ouvertes pertinentes au checkpoint
 [TABLEAU SOURCE]
@@ -1025,12 +1025,12 @@ Poursuivre le Moteur Temps universel par journal factuel, preuves, niveau de con
 Valider sur appareils réels Android/iOS, multi-entreprises, historique, hors ligne, arrêt/redémarrage et migration avant publication.
 21.9 Principes non négociables ajoutés / confirmés
 Un secret de service ne doit jamais être exposé dans l’application mobile ni commité dans GitHub.
-Un service externe ne doit pas devenir une seconde vérité métier : Resend transporte des e-mails, il ne décide d’aucune règle HoraTrack.
+Un service externe ne doit pas devenir une seconde vérité métier : Resend transporte des e-mails, il ne décide d’aucune règle AGKGMG.
 Vercel ne doit pas être ajouté par défaut lorsque Firebase couvre déjà le besoin.
 Une release publique doit être distinguée de main : main peut contenir des fusions plus récentes que la dernière APK/AAB publiée.
 Une revue agents doit correspondre à une exécution réelle sur le HEAD exact.
 21.10 Bloc de reprise nouvelle conversation — V2.20
-Continue HoraTrack sur le dépôt `amaurygiboudot-arch/Pointage-travail`.
+Continue AGKGMG sur le dépôt `amaurygiboudot-arch/Pointage-travail`.
 ÉTAT VÉRIFIÉ AU 23/09/2026 : main = 3c486ca5ca008d8f8e4b4d25cf940b4174660266 ; dernier merge = PR #375.
 RELEASE PUBLIQUE : v1.1450, cible 047fc2bd8b010d62c659dfe873a45af7de82c348 ; elle précède #374/#375.
 SALAIRE V2 : bridges canoniques renforcés jusqu’aux sorties ; pile iOS #364→#371 encore ouverte.
@@ -1072,10 +1072,10 @@ Portée obligatoire : mêmes règles métier sur Android/iOS pour tous métiers,
 22.4 Céleste / Accueil — ciel réel, constellations, météo et lumière
 Le cahier des charges Céleste du 24/09/2026 est intégré au maître : l’Accueil doit évoluer continûment avec la date, l’heure, la position, le Soleil, la Lune, les étoiles, les constellations, la météo, les nuages, la luminosité ambiante et l’orientation lorsqu’elles sont disponibles et fiables.
 Principe absolu : INCONNU ≠ VALEUR INVENTÉE. Une couche visuelle ne modifie jamais la vérité astronomique ; elle peut seulement influencer visibilité, contraste, diffusion ou ambiance.
-Ordre architectural retenu : astronomie réelle → position/orientation → atmosphère → météo → luminosité ambiante → effets visuels → interface HoraTrack.
+Ordre architectural retenu : astronomie réelle → position/orientation → atmosphère → météo → luminosité ambiante → effets visuels → interface AGKGMG.
 L’état final de rendu doit converger vers un propriétaire canonique unique, CelestialRenderStateV2, contenant les positions/visibilités, qualité des capteurs, fraîcheur des données et avertissements nécessaires au renderer.
 Jour/crépuscule/nuit doivent être continus à partir de la hauteur réelle du Soleil : aucune bascule brutale étoiles ON/OFF, ciel bleu/noir, Soleil ou Lune instantanés.
-L’absence de GPS, réseau, météo, lux ou orientation ne bloque jamais HoraTrack : Céleste passe en mode dégradé explicable et n’invente pas les données manquantes.
+L’absence de GPS, réseau, météo, lux ou orientation ne bloque jamais AGKGMG : Céleste passe en mode dégradé explicable et n’invente pas les données manquantes.
 Une panne ou une dégradation Céleste ne doit jamais empêcher Pointage, Historique, Paramètres ou Salaire V2 de fonctionner.
 Confidentialité : calcul local prioritaire ; aucune base astronomique distante ne reçoit le GPS ; toute météo utilise uniquement la précision géographique nécessaire, avec source et fraîcheur explicites.
 Performance : constellations, météo et projections lourdes ne sont pas recalculées à chaque frame ; cache, fréquence de rafraîchissement et qualité graphique doivent s’adapter sans changer la logique fonctionnelle.
@@ -1119,7 +1119,7 @@ Salaire V2 : inconnu ≠ zéro, corruption ≠ absence, cache vide ≠ preuve d�
 Une différence Android/iOS appartient aux adaptateurs de plateforme ; les règles métier, salariales et Céleste restent communes pour 100 % des utilisateurs concernés.
 La performance graphique ne peut jamais prendre la priorité sur Pointage, Salaire ou la fiabilité métier.
 22.10 Bloc de reprise nouvelle conversation — V2.21
-Continue HoraTrack sur le dépôt `amaurygiboudot-arch/Pointage-travail`.
+Continue AGKGMG sur le dépôt `amaurygiboudot-arch/Pointage-travail`.
 ÉTAT VÉRIFIÉ AU 24/09/2026 13:20 : main = 3c486ca5ca008d8f8e4b4d25cf940b4174660266 ; dernier merge = PR #375.
 RELEASE PUBLIQUE : v1.1450, cible 047fc2bd8b010d62c659dfe873a45af7de82c348 ; elle précède #374/#375.
 SALAIRE V2 : pile iOS #364→#371→#378, sous-lot #382, puis #385→#386→#387→#388→#390→#391→#393→#394→#395. Aucun lot de cette pile n’est encore fusionné dans main.
@@ -1139,7 +1139,7 @@ La section 22 reste l’autorité pour le checkpoint Git V2.21 du 24/09/2026. La
 Principe directeur : MAXIMUM DE SÉCURITÉ + MINIMUM DE FRICTION POUR L’UTILISATEUR.
 La sécurité doit être adaptative : contrôles invisibles par défaut, renforcement uniquement lorsqu’une opération ou un contexte augmente réellement le risque.
 23.2 Ordre de priorité d’intégration
-1. Cœur HoraTrack irréprochable : pointage, entrées/sorties, pauses, déplacements, chantiers, conduite, heures supplémentaires, nuit, tolérances, historique, calculs de salaire, règles conventionnelles, tests, explications et traçabilité. Le parrainage ne doit jamais retarder cette fiabilisation.
+1. Cœur AGKGMG irréprochable : pointage, entrées/sorties, pauses, déplacements, chantiers, conduite, heures supplémentaires, nuit, tolérances, historique, calculs de salaire, règles conventionnelles, tests, explications et traçabilité. Le parrainage ne doit jamais retarder cette fiabilisation.
 2. Sécurité des comptes et des données dans Paramètres V2 : authentification robuste, règles Firebase/Storage fermées par défaut, séparation stricte des comptes, sessions, appareils de confiance, protection renforcée des documents de paie et récupération de compte.
 3. Moteur Temps universel selon l’ordre de reprise déjà défini : journal factuel, preuves, confiance, contexte terrain, machine d’états, conflits, persistance et reprise.
 4. Monétisation minimale fiable : achats/abonnements/analyses payantes, droits premium et validation serveur des transactions. Aucun avantage payant ne doit être accordé uniquement par décision du client mobile.
@@ -1158,7 +1158,7 @@ Un faux positif doit être résoluble rapidement ; aucun blocage permanent ne do
 23.4 Authentification, passkeys et biométrie
 Prévoir une architecture compatible avec connexion Google, passkeys et autres méthodes modernes disponibles sur les plateformes supportées.
 MFA uniquement lorsqu’il apporte une sécurité réelle : nouvel appareil, récupération, modification sensible, comportement anormal ou autre opération à risque.
-La biométrie est vérifiée par Android/iOS via les API système ; HoraTrack ne récupère ni ne stocke empreinte digitale, visage ou gabarit biométrique.
+La biométrie est vérifiée par Android/iOS via les API système ; AGKGMG ne récupère ni ne stocke empreinte digitale, visage ou gabarit biométrique.
 La biométrie peut protéger le coffre-fort Paie, l’affichage/export d’un document sensible, les changements de sécurité et la suppression du compte.
 La logique de décision sensible doit rester côté serveur ou dans une autorité V2 vérifiable ; l’interface ne devient jamais une seconde vérité de sécurité.
 23.5 Coffre-fort Paie et documents sensibles
@@ -1169,7 +1169,7 @@ Chiffrement en transit et chiffrement au repos via les services utilisés ; secr
 Accès sensible journalisé sans enregistrer inutilement le contenu du bulletin dans les logs.
 Session sensible à durée limitée ; possibilité de révoquer un appareil ou toutes les autres sessions.
 L’utilisateur doit pouvoir supprimer définitivement ses documents selon les règles de conservation applicables.
-L’accès courant à HoraTrack reste simple ; l’espace Paie peut demander une confirmation biométrique rapide sur appareil de confiance.
+L’accès courant à AGKGMG reste simple ; l’espace Paie peut demander une confirmation biométrique rapide sur appareil de confiance.
 23.6 Import et traitement des fiches de paie
 1. Contrôler type, taille et format du fichier avant traitement.
 2. Attribuer un identifiant interne sûr ; ne pas exposer le nom d’origine comme clé d’accès.
@@ -1197,7 +1197,7 @@ Alerter uniquement sur les événements importants : nouvel appareil, changement
 Chaque utilisateur peut disposer d’un code unique, d’un lien profond/deep link, d’un QR Code et du partage natif.
 Parcours cible : partage → installation → création de compte → vérification → attribution au parrain → utilisation réelle → condition de validation → anti-fraude → récompense.
 La simple création d’un compte ne doit pas débloquer une récompense importante.
-Récompenses à privilégier au lancement : avantage numérique, analyse offerte, crédit HoraTrack, durée Pro, réduction, export ou fonctionnalité premium temporaire.
+Récompenses à privilégier au lancement : avantage numérique, analyse offerte, crédit AGKGMG, durée Pro, réduction, export ou fonctionnalité premium temporaire.
 Les règles de récompense et conditions de validation doivent être configurables côté serveur sans nouvelle publication mobile.
 Historiser parrain, filleul, date, source, statut, condition atteinte, récompense, décision anti-fraude et raison d’un refus.
 L’application cliente ne doit jamais pouvoir s’auto-attribuer une récompense.
@@ -1211,7 +1211,7 @@ Fraude forte : récompense refusée ou compte limité selon les règles document
 Le score de risque doit rester explicable : conserver les raisons techniques utiles sans profiler inutilement l’utilisateur.
 23.11 Signaux anti-fraude autorisés et limites
 Compte : e-mail vérifié, connexion fédérée, ancienneté, usage réel, historique de pointage, achats, nombre de filleuls, fréquence de création et changements de compte.
-Appareil : identifiant interne d’installation, modèle, version OS, version HoraTrack, date de première installation, historique des appareils connus et signaux d’intégrité.
+Appareil : identifiant interne d’installation, modèle, version OS, version AGKGMG, date de première installation, historique des appareils connus et signaux d’intégrité.
 Play Integrity ou mécanisme officiel équivalent : authenticité de l’application, environnement et signaux d’abus utilisables dans le respect des politiques en vigueur.
 Réseau : adresse IP comme signal secondaire pour détecter créations en série ou automatisation. Une IP identique ne suffit jamais à bloquer : foyer, entreprise et Wi-Fi public peuvent la partager.
 Comportement : comptes créés en série, absence d’usage réel, répétition automatisée, très nombreux filleuls en peu de temps, changements anormaux de comptes/appareils, contournements répétés.
@@ -1221,10 +1221,10 @@ Toute donnée de sécurité collectée doit avoir une finalité, une durée de c
 23.12 Vérification d’identité / pièce d’identité
 La présence de fiches de paie justifie une authentification forte et une protection renforcée, mais pas automatiquement une CNI obligatoire pour tous.
 La pièce d’identité reste un contrôle exceptionnel : récupération de compte très sensible, soupçon sérieux d’usurpation, opération financière significative ou exigence juridique réellement applicable.
-Préférer un prestataire spécialisé qui effectue la vérification et renvoie uniquement le résultat nécessaire à HoraTrack.
-HoraTrack devrait idéalement conserver : identité vérifiée oui/non, date, identifiant technique du contrôle, prestataire et niveau/statut de vérification.
+Préférer un prestataire spécialisé qui effectue la vérification et renvoie uniquement le résultat nécessaire à AGKGMG.
+AGKGMG devrait idéalement conserver : identité vérifiée oui/non, date, identifiant technique du contrôle, prestataire et niveau/statut de vérification.
 Éviter de conserver photo recto/verso, numéro de CNI, selfie ou données supplémentaires lorsqu’ils ne sont pas nécessaires.
-Ne jamais utiliser le numéro d’un titre d’identité comme identifiant permanent HoraTrack.
+Ne jamais utiliser le numéro d’un titre d’identité comme identifiant permanent AGKGMG.
 Si une vérification d’identité devient nécessaire, l’utilisateur doit comprendre pourquoi elle est demandée et ce qui sera conservé.
 Avant implémentation, revérifier les exigences RGPD/CNIL, Google Play/App Store et celles du prestataire à la date réelle de développement.
 23.13 Récupération de compte
@@ -1264,7 +1264,7 @@ Le système doit pouvoir devenir plus strict face à une attaque sans imposer du
 23.18 Règle finale à appliquer à toute implémentation
 SÉCURITÉ INVISIBLE PAR DÉFAUT, SÉCURITÉ RENFORCÉE QUAND LE RISQUE AUGMENTE.
 L’utilisateur honnête doit pouvoir s’inscrire, pointer, consulter ses données et parrainer un collègue sans procédure administrative lourde.
-En arrière-plan, HoraTrack contrôle intégrité, sessions, droits, comportements anormaux, accès croisés et abus de récompense.
+En arrière-plan, AGKGMG contrôle intégrité, sessions, droits, comportements anormaux, accès croisés et abus de récompense.
 Une exigence de sécurité ne doit jamais être supprimée uniquement pour améliorer la fluidité ; elle doit être rendue plus intelligente, plus locale, plus automatique ou mieux ciblée.
 Inversement, une collecte intrusive ne doit pas être ajoutée uniquement parce qu’elle est techniquement possible.
 Toute implémentation future de cette section doit respecter la doctrine V2 : propriétaire unique, fail-closed quand le résultat est sensible, aucune seconde vérité et parité fonctionnelle Android/iOS lorsque la fonction est commune.
@@ -1278,7 +1278,7 @@ ORDRE : ne pas retarder Salaire V2. Après le cœur fiable, intégrer le socle s
 ARCHIVE — contenu du document maître V2.19
 Les sections ci-dessous sont conservées pour continuité et traçabilité. En cas de contradiction, la section 23 V2.22 prévaut pour les exigences de sécurité/parrainage/identité, tandis que la section 22 V2.21 et l’état courant de main vérifié prévalent pour le checkpoint Git/technique. La section 21 reste le checkpoint historique V2.20.
 1. Résumé exécutif
-HoraTrack V2.19 est réaligné au 22 septembre 2026 sur main = 070c1587e1c3c77395fdcd091583634317ea23a8. Depuis le
+AGKGMG V2.19 est réaligné au 22 septembre 2026 sur main = 070c1587e1c3c77395fdcd091583634317ea23a8. Depuis le
 checkpoint #275, les lots fusionnés ont fermé des risques critiques sur le net salarié, les cotisations, les contrats datés, le
 rattachement employeur, les chevauchements de sessions, les pauses GPS et les transitions multi-zones.
 Depuis #275, les acquis se répartissent ainsi :
@@ -1384,7 +1384,7 @@ Netteté CORRIGÉE EN CODE Confirmer sur téléphone que cadran et aiguilles
 sont nets sans changement de style.
 Position des onglets CORRIGÉE EN CODE Vérifier que les onglets restent à la même
 hauteur que sur les autres écrans.
-APK DEV PRÊT HoraTrack DEV - APK unique, run #48 terminé
+APK DEV PRÊT AGKGMG DEV - APK unique, run #48 terminé
 avec succès ; version 1.1443-dev-1789060988,
 release dev-latest.
 PR #155 OUVERTE Tête
@@ -1419,7 +1419,7 @@ Branche — fix/v2-celestial-earth-centered-360.
 Commit onglets — f99e95a1ab09f61e27982e323a9584dbf882ab91.
 Source APK DEV test onglets — 2f57f440ee528b2cb3c008126db1451f34a8e9d2.
 Tête PR vérifiée — 097f4e02ca2a845130f15e637a688788ff51d749.
-Build DEV — HoraTrack DEV - APK unique, run #48, succès ; version 1.1443-dev-1789060988 ; release dev-latest.
+Build DEV — AGKGMG DEV - APK unique, run #48, succès ; version 1.1443-dev-1789060988 ; release dev-latest.
 4. Standard visuel V2 global — navigation, cadres, thèmes et SHADERed
 Ce bloc fusionne le cahier des charges du standard visuel avec le document de nomenclature du cadre 3D. Il devient la
 référence V2 pour la migration visuelle. Les boutons ENTRÉE, PAUSE et SORTIE conservent leur moteur dédié et sont
@@ -1469,7 +1469,7 @@ Toutes les popups et tous les dialogues utilisent le gabarit Popup pour leur env
 réutilisent les gabarits officiels.
 Après migration V2, aucune apparence Android historique ou autre fallback graphique résiduel ne doit pouvoir réapparaître.
 4.5. Typographie et lisibilité
-HoraTrack utilise un système typographique unique dans toute l’application ; les thèmes ne changent pas la police ni la logique
+AGKGMG utilise un système typographique unique dans toute l’application ; les thèmes ne changent pas la police ni la logique
 de lisibilité.
 La couleur du texte est déterminée par un moteur indépendant qui analyse la zone réellement située derrière chaque texte.
 Aucune moyenne colorimétrique globale de l’écran ne doit décider de la couleur de tous les textes.
@@ -1791,7 +1791,7 @@ Supprimer les chemins historiques uniquement après validation sur téléphone r
 résultats.
 11. Doctrine globale V2 — migration conservatrice et purge du legacy
 11.1. Règle générale
-Tout ce qui reste actif dans HoraTrack doit finir en V2 : moteurs, écrans, navigation, composants visuels, paramètres, stockage,
+Tout ce qui reste actif dans AGKGMG doit finir en V2 : moteurs, écrans, navigation, composants visuels, paramètres, stockage,
 exports, sauvegardes, règles, lecteurs historiques et adaptateurs de plateforme.
 Un élément V1 qui fonctionne n’est pas supprimé simplement parce qu’il est ancien. Il doit être audité puis promu, refactoré ou
 réécrit proprement en V2 en conservant son comportement utile. L’ancien chemin n’est retiré qu’après preuve d’équivalence ou
@@ -1958,7 +1958,7 @@ Toute brique active doit finir sous un propriétaire V2 unique : ne pas supprime
 prouvée, ne pas créer de doublon si une brique V2 existe déjà, et supprimer ensuite tout legacy réellement obsolète avec ses
 résidus.
 16. Bloc de reprise à injecter dans une nouvelle conversation
-Continue HoraTrack sur le dépôt `amaurygiboudot-arch/Pointage-travail`.
+Continue AGKGMG sur le dépôt `amaurygiboudot-arch/Pointage-travail`.
 ÉTAT VÉRIFIÉ AU 22/09/2026 :
 `main = 070c1587e1c3c77395fdcd091583634317ea23a8`, dernier merge vérifié = PR #338, après PR #342.
 LOTS ACQUIS DEPUIS LE CHECKPOINT #275 :
@@ -2123,7 +2123,7 @@ Ce checkpoint est conservé comme historique. Le point de reprise courant est d�
 Sources de consolidation documentaire : document maître V2.17 du 17/09/2026 ; état GitHub vérifié le 18/09/2026 ;
 descriptions/statuts des PR #269 à #275 ; note Codex ; exigence zones de pointage/pause ; règle utilisateur de fusion
 automatique des PR de travail ; validation utilisateur 1.1444 en cours.
-HoraTrack - archive du document maître V2.18 - 18/09/2026
+AGKGMG - archive du document maître V2.18 - 18/09/2026
 20. Mise à jour consolidée au 22 septembre 2026
 Conclusion actuelle. Les lots critiques GPS, Pointage et Salaire fusionnés jusqu’à #342 sont acquis sur main 070c1587. Le
 prochain chantier est l’audit Salaire V2 end-to-end et la suppression des éventuelles secondes vérités encore démontrées dans
@@ -2175,7 +2175,7 @@ Firebase Functions : Aucun déploiement sans accord explicite
 ARCHIVE DU COMPLÉMENT B21 PRÉCÉDENT — ÉTATS HISTORIQUES REMPLACÉS PAR §24
 ==============================================================================
 
-HORATRACK — REPRISE DU DOCUMENT MAÎTRE
+AGKGMG — REPRISE DU DOCUMENT MAÎTRE
 Point de contrôle du 25 septembre 2026 — Salaire V2 / lot B21
 
 NATURE DE CE FICHER
@@ -2211,7 +2211,7 @@ Parent : c75f88e97c288494d65c363ee868f91b017fde53
 Le diff du commit confirme exactement une ligne retirée et une ligne ajoutée dans un seul fichier. Aucune formule, aucun seuil, aucun statut de fiabilité ni aucune règle de paie n'ont été modifiés. Aucun fichier Céleste n'a été touché.
 
 3. VALIDATIONS ET LIMITES
-Contrôle local effectué : compilation/exécution d'un extrait Swift isolé reproduisant la condition corrigée, avec quatre cas booléens. Résultat : PASS. Ce contrôle ne constitue ni la suite de tests HoraTrack ni une compilation complète Xcode.
+Contrôle local effectué : compilation/exécution d'un extrait Swift isolé reproduisant la condition corrigée, avec quatre cas booléens. Résultat : PASS. Ce contrôle ne constitue ni la suite de tests AGKGMG ni une compilation complète Xcode.
 
 Dernière observation de la CI sur le SHA 709ec028 :
 - build-ios : exécution en cours ; résultat final non acquis.
@@ -2263,7 +2263,7 @@ ANNEXE A — SOURCE INTÉGRALE NUAGES RÉALISTES V5
 Source fournie conservée sans modification ; statut de développement : chapitre28.5.
 ==============================================================================
 
-HORATRACK — CELESTE
+AGKGMG — CELESTE
 NUAGES REALISTES V5 — RECHERCHE METEOROLOGIQUE + SPECIFICATION DE RENDU
 Date : 24/09/2026
 
@@ -2281,7 +2281,7 @@ Objectif :
 - conserver une expérience fluide sur 100 % des appareils officiellement supportés ;
 - appliquer la même logique fonctionnelle Android/iOS, sans règle spécifique à une marque ou un modèle.
 
-Ce document doit être intégré au document maître HoraTrack selon l’ordre des priorités actuel.
+Ce document doit être intégré au document maître AGKGMG selon l’ordre des priorités actuel.
 Il remplace les anciennes approches visuelles des nuages quand elles reposent sur :
 - amas d’ovales ;
 - silhouettes fermées répétitives ;
@@ -3021,7 +3021,7 @@ Les éléments suivants sont directement issus des sources météo :
 - codes WMO ;
 - variables Open-Meteo disponibles.
 
-Les éléments suivants sont des recommandations d’implémentation HoraTrack :
+Les éléments suivants sont des recommandations d’implémentation AGKGMG :
 - fBm ;
 - bruit fractal ;
 - masques de densité ;
@@ -3064,14 +3064,14 @@ La règle active est celle du checkpoint courant : mises à jour distribuées vi
 
 --- DÉBUT DE L'ARCHIVE HISTORIQUE CONSERVÉE ---
 
-HORATRACK — EMPLACEMENT UNIQUE DES MISES À JOUR DE L’APPLICATION
+AGKGMG — EMPLACEMENT UNIQUE DES MISES À JOUR DE L’APPLICATION
 
 STATUT : RÈGLE DE RÉFÉRENCE
-OBJET : définir un seul emplacement officiel pour les versions de HoraTrack mises à disposition et reliées à l’application.
+OBJET : définir un seul emplacement officiel pour les versions de AGKGMG mises à disposition et reliées à l’application.
 
 1. PRINCIPE
 
-HoraTrack ne doit pas disperser ses APK, AAB ou autres versions installables dans plusieurs emplacements concurrents.
+AGKGMG ne doit pas disperser ses APK, AAB ou autres versions installables dans plusieurs emplacements concurrents.
 
 Il doit exister un seul emplacement officiel utilisé pour récupérer la dernière version de développement/test mise à disposition.
 
@@ -3086,7 +3086,7 @@ https://github.com/amaurygiboudot-arch/Pointage-travail/releases/tag/dev-latest
 
 2. RÈGLE DE MISE À JOUR
 
-À chaque nouvelle version DEV/test de HoraTrack :
+À chaque nouvelle version DEV/test de AGKGMG :
 
 - la nouvelle APK remplace celle publiée dans dev-latest ;
 - le nouvel AAB remplace celui publié dans dev-latest ;
@@ -3102,9 +3102,9 @@ La release dev-latest reste donc le point d’entrée unique pour la dernière v
 
 La release dev-latest doit contenir au minimum :
 
-- HoraTrack-dev.apk
-- HoraTrack-dev.aab
-- HoraTrack-dev-version.txt
+- AGKGMG-dev.apk
+- AGKGMG-dev.aab
+- AGKGMG-dev-version.txt
 - SHA256-dev.txt
 - SHA256-AAB-dev.txt
 
@@ -3112,7 +3112,7 @@ Les noms doivent rester stables afin que l’application, les scripts, la docume
 
 4. CONNEXION AVEC L’APPLICATION
 
-Si HoraTrack vérifie ou propose une mise à jour DEV depuis l’application, cette vérification doit pointer vers cet emplacement unique.
+Si AGKGMG vérifie ou propose une mise à jour DEV depuis l’application, cette vérification doit pointer vers cet emplacement unique.
 
 L’application ne doit pas chercher une version plus récente dans plusieurs releases, plusieurs branches ou plusieurs emplacements GitHub différents.
 
@@ -3120,7 +3120,7 @@ La logique de mise à jour doit se baser sur une seule source de vérité :
 
 dev-latest
 
-La version indiquée dans HoraTrack-dev-version.txt doit correspondre aux APK/AAB présents dans la même release.
+La version indiquée dans AGKGMG-dev-version.txt doit correspondre aux APK/AAB présents dans la même release.
 
 Une mise à jour ne doit être proposée que si les informations de version sont cohérentes.
 
@@ -3161,7 +3161,7 @@ Une seule source doit être considérée comme la dernière version DEV disponib
 
 8. ANDROID ET IOS
 
-Cette règle d’unicité concerne l’ensemble du projet HoraTrack.
+Cette règle d’unicité concerne l’ensemble du projet AGKGMG.
 
 Toute logique future de distribution Android ou iOS doit respecter le même principe :
 
@@ -3179,7 +3179,7 @@ Tant qu’un autre canal n’est pas officiellement défini, il ne faut pas inve
 
 10. RÈGLE À RETENIR
 
-Pour les builds DEV/test HoraTrack :
+Pour les builds DEV/test AGKGMG :
 
 UN SEUL EMPLACEMENT OFFICIEL = GitHub Release dev-latest
 

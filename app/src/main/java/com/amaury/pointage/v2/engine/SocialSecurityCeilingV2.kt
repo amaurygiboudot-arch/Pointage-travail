@@ -8,7 +8,7 @@ import java.time.temporal.ChronoUnit
  * Source unique du plafond de Sécurité sociale utilisé par les calculs de paie V2.
  *
  * Références 2026 : PMSS 4 005 €, article R.242-2 CSS et règles Agirc-Arrco.
- * Les réductions ne sont appliquées que lorsque HoraTrack dispose des données nécessaires.
+ * Les réductions ne sont appliquées que lorsque AGKGMG dispose des données nécessaires.
  */
 object SocialSecurityCeilingV2 {
     private const val PMSS_2026 = 4005.0
@@ -147,7 +147,7 @@ object SocialSecurityCeilingV2 {
 
             ContractTypeV2.FORFAIT_HOURS -> {
                 // Un forfait heures n'est pas automatiquement assimilé à un temps partiel.
-                // Sans qualification explicite, HoraTrack refuse d'inventer un prorata.
+                // Sans qualification explicite, AGKGMG refuse d'inventer un prorata.
                 1.0
             }
 

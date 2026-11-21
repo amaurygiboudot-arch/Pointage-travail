@@ -28,7 +28,7 @@ data class WorkFactsResult(
 )
 
 /**
- * Point d'assemblage du nouveau moteur de faits HoraTrack.
+ * Point d'assemblage du nouveau moteur de faits AGKGMG.
  *
  * Il consolide ce qui a réellement été observé ou pointé, mais n'applique aucune règle
  * juridique, conventionnelle, salariale ou d'arrondi. Les événements restent la source
